@@ -1,6 +1,7 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import { Agents } from './pages/Agents'
+import { AgentDetail } from './pages/AgentDetail'
 import { Dashboard } from './pages/Dashboard'
 import { Evaluations } from './pages/Evaluations'
 import { Reviews } from './pages/Reviews'
@@ -15,6 +16,7 @@ function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/workflows" element={<Workflows />} />
           <Route path="/agents" element={<Agents />} />
+          <Route path="/agents/:agentId" element={<AgentDetail />} />
           <Route path="/evaluations" element={<Evaluations />} />
           <Route path="/runs" element={<Runs />} />
           <Route path="/reviews" element={<Reviews />} />

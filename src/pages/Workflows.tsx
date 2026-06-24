@@ -12,38 +12,69 @@ import {
   type Node,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { Bot, Braces, Check, ChevronDown, Clock3, Database, GitBranch, Play, Plus, Save, Search, ShieldCheck, UserCheck, Wrench } from 'lucide-react'
-import { useCallback, useState } from 'react'
+import {
+  Bot,
+  Braces,
+  Check,
+  Clock3,
+  Database,
+  FilePlus2,
+  GitBranch,
+  History,
+  Plus,
+  Save,
+  Search,
+  Send,
+  ShieldAlert,
+  ShieldCheck,
+  Trash2,
+  UserCheck,
+  Wrench,
+  X,
+} from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { listAgentVersions, listAgents } from '../api/agents'
+import {
+  createWorkflow,
+  listWorkflowVersions,
+  listWorkflows,
+  publishWorkflow,
+  updateWorkflow,
+  validateWorkflow,
+} from '../api/workflows'
 import { WorkflowNode, type WorkflowNodeData } from '../components/WorkflowNode'
+import { fromContractGraph, toContractGraph } from '../domain/workflows'
+import type { AgentVersion, WorkflowDraft, WorkflowVersion } from '../types'
 
 const nodeTypes = { workflow: WorkflowNode }
 
-const initialNodes: Node[] = [
-  { id: '1', type: 'workflow', position: { x: 40, y: 230 }, data: { label: '定时触发', subtitle: '每周一 09:00', kind: 'trigger', status: 'success' } satisfies WorkflowNodeData },
-  { id: '2', type: 'workflow', position: { x: 285, y: 230 }, data: { label: '收集用户反馈', subtitle: '数据查询节点', kind: 'data', status: 'success' } satisfies WorkflowNodeData },
-  { id: '3', type: 'workflow', position: { x: 540, y: 110 }, data: { label: '需求信号提取', subtitle: '需求洞察 Agent', kind: 'agent', status: 'success', score: 92 } satisfies WorkflowNodeData },
-  { id: '4', type: 'workflow', position: { x: 540, y: 350 }, data: { label: '竞品并行研究', subtitle: '竞品研究 Agent', kind: 'agent', status: 'running' } satisfies WorkflowNodeData },
-  { id: '5', type: 'workflow', position: { x: 810, y: 230 }, data: { label: '质量门禁', subtitle: '竞品分析标准 v2.1', kind: 'gate', status: 'idle' } satisfies WorkflowNodeData },
-  { id: '6', type: 'workflow', position: { x: 1060, y: 230 }, data: { label: '判断分数', subtitle: '≥ 85 自动流转', kind: 'branch', status: 'idle' } satisfies WorkflowNodeData },
-  { id: '7', type: 'workflow', position: { x: 1310, y: 110 }, data: { label: '产品定义', subtitle: '产品定义 Agent', kind: 'agent', status: 'idle' } satisfies WorkflowNodeData },
-  { id: '8', type: 'workflow', position: { x: 1310, y: 350 }, data: { label: '人工快速审核', subtitle: '产品经理队列', kind: 'human', status: 'warning' } satisfies WorkflowNodeData },
-  { id: '9', type: 'workflow', position: { x: 1570, y: 230 }, data: { label: '流程完成', subtitle: '发送飞书通知', kind: 'end', status: 'idle' } satisfies WorkflowNodeData },
+const defaultNodes: Node[] = [
+  {
+    id: 'start',
+    type: 'workflow',
+    position: { x: 80, y: 220 },
+    data: { label: '手动触发', subtitle: '启动工作流', kind: 'trigger', status: 'idle' } satisfies WorkflowNodeData,
+  },
+  {
+    id: 'agent',
+    type: 'workflow',
+    position: { x: 390, y: 220 },
+    data: { label: '选择执行 Agent', subtitle: '尚未绑定发布版本', kind: 'agent', status: 'warning' } satisfies WorkflowNodeData,
+  },
+  {
+    id: 'end',
+    type: 'workflow',
+    position: { x: 720, y: 220 },
+    data: { label: '流程完成', subtitle: '结束节点', kind: 'end', status: 'idle' } satisfies WorkflowNodeData,
+  },
 ]
 
-const initialEdges: Edge[] = [
-  { id: 'e1-2', source: '1', target: '2', animated: true },
-  { id: 'e2-3', source: '2', target: '3' },
-  { id: 'e2-4', source: '2', target: '4', animated: true },
-  { id: 'e3-5', source: '3', target: '5' },
-  { id: 'e4-5', source: '4', target: '5', animated: true },
-  { id: 'e5-6', source: '5', target: '6' },
-  { id: 'e6-7', source: '6', target: '7', label: '通过' },
-  { id: 'e6-8', source: '6', target: '8', label: '70–84' },
-  { id: 'e7-9', source: '7', target: '9' },
-  { id: 'e8-7', source: '8', target: '7' },
+const defaultEdges: Edge[] = [
+  { id: 'start-agent', source: 'start', target: 'agent' },
+  { id: 'agent-end', source: 'agent', target: 'end' },
 ]
 
-const palette = [
+const palette: Array<{ label: string; icon: typeof Bot; kind: WorkflowNodeData['kind'] }> = [
   { label: 'Agent', icon: Bot, kind: 'agent' },
   { label: '工具调用', icon: Wrench, kind: 'tool' },
   { label: '数据查询', icon: Database, kind: 'data' },
@@ -54,40 +85,222 @@ const palette = [
   { label: '等待节点', icon: Clock3, kind: 'wait' },
 ]
 
-export function Workflows() {
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
-  const [selectedNode, setSelectedNode] = useState<Node | null>(nodes[3])
-  const [saved, setSaved] = useState(false)
-  const onConnect = useCallback((connection: Connection) => setEdges((items) => addEdge(connection, items)), [setEdges])
+interface PublishedAgentOption {
+  agentId: string
+  agentName: string
+  version: AgentVersion
+}
 
-  const save = () => {
-    setSaved(true)
-    window.setTimeout(() => setSaved(false), 1800)
+export function Workflows() {
+  const [nodes, setNodes, onNodesChange] = useNodesState(defaultNodes)
+  const [edges, setEdges, onEdgesChange] = useEdgesState(defaultEdges)
+  const [workflows, setWorkflows] = useState<WorkflowDraft[]>([])
+  const [currentId, setCurrentId] = useState<string | null>(null)
+  const [name, setName] = useState('未命名工作流')
+  const [selectedNode, setSelectedNode] = useState<Node | null>(null)
+  const [agentOptions, setAgentOptions] = useState<PublishedAgentOption[]>([])
+  const [versions, setVersions] = useState<WorkflowVersion[]>([])
+  const [showVersions, setShowVersions] = useState(false)
+  const [feedback, setFeedback] = useState('')
+  const [errors, setErrors] = useState<string[]>([])
+  const [isBusy, setIsBusy] = useState(false)
+
+  const onConnect = useCallback(
+    (connection: Connection) => setEdges((items) => addEdge(connection, items)),
+    [setEdges],
+  )
+
+  const activateWorkflow = useCallback((workflow: WorkflowDraft) => {
+    const graph = fromContractGraph(workflow.nodes, workflow.edges)
+    setCurrentId(workflow.id)
+    setName(workflow.name)
+    setNodes(graph.nodes)
+    setEdges(graph.edges)
+    setSelectedNode(null)
+    setFeedback('')
+    setErrors([])
+    void listWorkflowVersions(workflow.id).then(setVersions)
+  }, [setEdges, setNodes])
+
+  useEffect(() => {
+    async function load() {
+      const [savedWorkflows, agents] = await Promise.all([
+        listWorkflows(),
+        listAgents(),
+      ])
+      setWorkflows(savedWorkflows)
+      if (savedWorkflows[0]) {
+        activateWorkflow(savedWorkflows[0])
+      }
+      const versionGroups = await Promise.all(
+        agents
+          .filter((agent) => agent.status !== '已停用')
+          .map(async (agent) => ({
+            agent,
+            versions: await listAgentVersions(agent.id),
+          })),
+      )
+      setAgentOptions(versionGroups.flatMap(({ agent, versions: published }) => (
+        published.map((version) => ({
+          agentId: agent.id,
+          agentName: agent.name,
+          version,
+        }))
+      )))
+    }
+    void load()
+  }, [activateWorkflow])
+
+  const currentWorkflow = workflows.find((workflow) => workflow.id === currentId)
+  const statusText = currentWorkflow
+    ? `${currentWorkflow.status} · ${currentWorkflow.version}`
+    : '新草稿 · 未保存'
+
+  const saveDraft = useCallback(async () => {
+    setIsBusy(true)
+    setErrors([])
+    try {
+      const graph = toContractGraph(nodes, edges)
+      const input = { name: name.trim() || '未命名工作流', ...graph }
+      const saved = currentId
+        ? await updateWorkflow(currentId, input)
+        : await createWorkflow(input)
+      setCurrentId(saved.id)
+      setWorkflows((current) => {
+        const exists = current.some((workflow) => workflow.id === saved.id)
+        return exists
+          ? current.map((workflow) => workflow.id === saved.id ? saved : workflow)
+          : [saved, ...current]
+      })
+      setFeedback('工作流草稿已保存')
+      return saved
+    } catch (saveError) {
+      setErrors([saveError instanceof Error ? saveError.message : '工作流保存失败'])
+      return null
+    } finally {
+      setIsBusy(false)
+    }
+  }, [currentId, edges, name, nodes])
+
+  async function publish() {
+    const saved = await saveDraft()
+    if (!saved) return
+    setIsBusy(true)
+    try {
+      const validation = await validateWorkflow(saved.id)
+      if (!validation.valid) {
+        setErrors(validation.errors)
+        return
+      }
+      const version = await publishWorkflow(saved.id)
+      setVersions((current) => [version, ...current])
+      setWorkflows((current) => current.map((workflow) => (
+        workflow.id === saved.id
+          ? { ...workflow, status: '已发布', version: version.version }
+          : workflow
+      )))
+      setFeedback(`${version.version} 已发布`)
+      setErrors([])
+    } catch (publishError) {
+      setErrors([publishError instanceof Error ? publishError.message : '工作流发布失败'])
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  function startNewWorkflow() {
+    setCurrentId(null)
+    setName('未命名工作流')
+    setNodes(defaultNodes)
+    setEdges(defaultEdges)
+    setSelectedNode(null)
+    setVersions([])
+    setErrors([])
+    setFeedback('')
+  }
+
+  function addNode(kind: WorkflowNodeData['kind'], label: string) {
+    const id = `${kind}-${Date.now()}`
+    setNodes((current) => [
+      ...current,
+      {
+        id,
+        type: 'workflow',
+        position: { x: 300 + (current.length % 3) * 260, y: 100 + Math.floor(current.length / 3) * 180 },
+        data: {
+          label,
+          subtitle: kind === 'agent' ? '尚未绑定发布版本' : '待配置',
+          kind,
+          status: kind === 'agent' ? 'warning' : 'idle',
+        } satisfies WorkflowNodeData,
+      },
+    ])
+    setFeedback('节点已添加，保存草稿后持久化')
+  }
+
+  function updateSelectedNode(nextData: Record<string, unknown>) {
+    if (!selectedNode) return
+    setNodes((current) => current.map((node) => (
+      node.id === selectedNode.id
+        ? { ...node, data: { ...node.data, ...nextData } }
+        : node
+    )))
+    setSelectedNode((current) => current ? { ...current, data: { ...current.data, ...nextData } } : current)
+  }
+
+  function removeSelectedNode() {
+    if (!selectedNode) return
+    setNodes((current) => current.filter((node) => node.id !== selectedNode.id))
+    setEdges((current) => current.filter((edge) => edge.source !== selectedNode.id && edge.target !== selectedNode.id))
+    setSelectedNode(null)
   }
 
   return (
     <div className="workflow-studio">
-      {saved && <div className="toast"><Check size={16} />工作流草稿已保存</div>}
+      {feedback && <div className="toast"><Check size={16} />{feedback}</div>}
       <div className="studio-toolbar">
         <div className="workflow-title">
           <button className="workflow-icon"><GitBranch size={18} /></button>
-          <div><strong>新品机会发现与产品定义</strong><span>草稿 · v1.7</span></div>
-          <ChevronDown size={15} />
+          <div>
+            <input aria-label="工作流名称" value={name} onChange={(event) => setName(event.target.value)} />
+            <span>{statusText}</span>
+          </div>
+          {workflows.length > 0 && (
+            <select
+              aria-label="切换工作流"
+              value={currentId ?? ''}
+              onChange={(event) => {
+                const workflow = workflows.find((item) => item.id === event.target.value)
+                if (workflow) activateWorkflow(workflow)
+              }}
+            >
+              {currentId === null && <option value="">新草稿</option>}
+              {workflows.map((workflow) => <option value={workflow.id} key={workflow.id}>{workflow.name}</option>)}
+            </select>
+          )}
         </div>
         <div className="studio-actions">
-          <button className="button ghost">版本记录</button>
-          <button className="button secondary" onClick={save}><Save size={15} />保存</button>
-          <button className="button primary"><Play size={15} />试运行</button>
+          <button className="button ghost" title="新建工作流" onClick={startNewWorkflow}><FilePlus2 size={15} />新建</button>
+          <button className="button ghost" title="查看版本记录" disabled={!currentId} onClick={() => setShowVersions(true)}><History size={15} />版本记录</button>
+          <button className="button secondary" title="保存工作流草稿" disabled={isBusy} onClick={() => void saveDraft()}><Save size={15} />保存草稿</button>
+          <button className="button primary" title="发布工作流版本" disabled={isBusy} onClick={() => void publish()}><Send size={15} />发布版本</button>
         </div>
       </div>
+
+      {errors.length > 0 && (
+        <div className="workflow-errors" role="alert">
+          <ShieldAlert size={17} />
+          <div><strong>发布前需要处理</strong>{errors.map((error) => <span key={error}>{error}</span>)}</div>
+          <button className="icon-button quiet" title="关闭错误提示" onClick={() => setErrors([])}><X size={16} /></button>
+        </div>
+      )}
 
       <div className="studio-body">
         <aside className="node-palette">
           <label className="palette-search"><Search size={15} /><input placeholder="搜索节点" /></label>
           <span className="nav-section-label">基础节点</span>
           {palette.map(({ label, icon: Icon, kind }) => (
-            <button key={label} draggable className="palette-item" title={`添加${label}节点`}>
+            <button key={label} className="palette-item" title={`添加${label}节点`} onClick={() => addNode(kind, label)}>
               <span className={`palette-icon ${kind}`}><Icon size={16} /></span>{label}<Plus size={14} />
             </button>
           ))}
@@ -113,33 +326,103 @@ export function Workflows() {
               return data.kind === 'human' ? '#ef9f50' : data.kind === 'gate' ? '#2e7d6c' : '#707975'
             }} />
           </ReactFlow>
-          <div className="canvas-status"><span className="live-dot" />自动保存已开启 · 9 个节点</div>
+          <div className="canvas-status"><span className="live-dot" />{currentId ? '草稿已连接数据库' : '新草稿尚未保存'} · {nodes.length} 个节点</div>
         </div>
 
-        {selectedNode && <NodeInspector node={selectedNode} onClose={() => setSelectedNode(null)} onRename={(label) => {
-          setNodes((items) => items.map((node) => node.id === selectedNode.id ? { ...node, data: { ...node.data, label } } : node))
-          setSelectedNode((node) => node ? { ...node, data: { ...node.data, label } } : null)
-        }} />}
+        {selectedNode && (
+          <NodeInspector
+            node={selectedNode}
+            agentOptions={agentOptions}
+            onClose={() => setSelectedNode(null)}
+            onUpdate={updateSelectedNode}
+            onDelete={removeSelectedNode}
+          />
+        )}
       </div>
+
+      {showVersions && (
+        <div className="dialog-backdrop">
+          <section className="agent-dialog workflow-version-dialog" role="dialog" aria-modal="true" aria-labelledby="workflow-version-title">
+            <header>
+              <div><p className="eyebrow">IMMUTABLE SNAPSHOTS</p><h2 id="workflow-version-title">工作流版本记录</h2></div>
+              <button className="icon-button quiet" title="关闭" onClick={() => setShowVersions(false)}><X size={18} /></button>
+            </header>
+            <div className="version-list">
+              {versions.length === 0 && <div className="version-empty">尚未发布版本</div>}
+              {versions.map((version) => (
+                <article className="version-item" key={version.id}>
+                  <div><strong>{version.version}</strong><span>{version.snapshot.nodes.length} 个节点</span></div>
+                  <p>{version.snapshot.name}</p>
+                  <small>{new Date(version.createdAt).toLocaleString('zh-CN')}</small>
+                </article>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   )
 }
 
-function NodeInspector({ node, onClose, onRename }: { node: Node; onClose: () => void; onRename: (label: string) => void }) {
-  const data = node.data as WorkflowNodeData
+function NodeInspector({
+  node,
+  agentOptions,
+  onClose,
+  onUpdate,
+  onDelete,
+}: {
+  node: Node
+  agentOptions: PublishedAgentOption[]
+  onClose: () => void
+  onUpdate: (data: Record<string, unknown>) => void
+  onDelete: () => void
+}) {
+  const data = node.data as WorkflowNodeData & { agentId?: string; agentVersion?: string }
+  const selectedAgent = data.agentId && data.agentVersion ? `${data.agentId}|${data.agentVersion}` : ''
+  const isAgent = data.kind === 'agent'
+  const optionsByAgent = useMemo(() => agentOptions, [agentOptions])
+
   return (
     <aside className="node-inspector">
       <header><div><span className="section-kicker">节点配置</span><h3>{data.label}</h3></div><button onClick={onClose}>×</button></header>
-      <label className="form-field"><span>节点名称</span><input value={data.label} onChange={(event) => onRename(event.target.value)} /></label>
-      <label className="form-field"><span>执行 Agent</span><select defaultValue="competitive"><option value="competitive">竞品研究 Agent · v1.8</option><option>需求洞察 Agent · v2.4</option></select></label>
-      <label className="form-field"><span>输入数据对象</span><select><option>需求机会对象 v1.2</option></select></label>
-      <label className="form-field"><span>输出产出物</span><select><option>竞品分析矩阵 v2.0</option></select></label>
+      <label className="form-field"><span>节点名称</span><input value={data.label} onChange={(event) => onUpdate({ label: event.target.value })} /></label>
+      {isAgent && (
+        <label className="form-field">
+          <span>已发布 Agent 版本</span>
+          <select
+            value={selectedAgent}
+            onChange={(event) => {
+              const option = optionsByAgent.find((item) => `${item.agentId}|${item.version.version}` === event.target.value)
+              onUpdate(option ? {
+                agentId: option.agentId,
+                agentVersion: option.version.version,
+                subtitle: `${option.agentName} · ${option.version.version}`,
+                status: 'idle',
+              } : {
+                agentId: undefined,
+                agentVersion: undefined,
+                subtitle: '尚未绑定发布版本',
+                status: 'warning',
+              })
+            }}
+          >
+            <option value="">请选择已发布版本</option>
+            {optionsByAgent.map((option) => (
+              <option value={`${option.agentId}|${option.version.version}`} key={`${option.agentId}-${option.version.id}`}>
+                {option.agentName} · {option.version.version}
+              </option>
+            ))}
+          </select>
+          {optionsByAgent.length === 0 && <small>请先在 Agent 详情页发布至少一个版本。</small>}
+        </label>
+      )}
+      <label className="form-field"><span>节点说明</span><input value={data.subtitle} onChange={(event) => onUpdate({ subtitle: event.target.value })} /></label>
       <div className="inspector-section">
-        <div><span>失败重试</span><label className="toggle"><input type="checkbox" defaultChecked /><i /></label></div>
-        <div><span>最长运行时间</span><strong>15 分钟</strong></div>
-        <div><span>质量门禁</span><strong>竞品分析 v2.1</strong></div>
+        <div><span>节点类型</span><strong>{data.kind}</strong></div>
+        <div><span>持久化状态</span><strong>随草稿保存</strong></div>
+        <div><span>发布约束</span><strong>{isAgent ? '必须引用版本' : 'DAG 校验'}</strong></div>
       </div>
-      <button className="button secondary full">打开高级配置</button>
+      <button className="button danger full" onClick={onDelete}><Trash2 size={14} />删除节点</button>
     </aside>
   )
 }

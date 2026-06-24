@@ -33,7 +33,9 @@ const titles: Record<string, { title: string; eyebrow: string }> = {
 
 export function Layout() {
   const location = useLocation()
-  const page = titles[location.pathname] ?? titles['/']
+  const page = location.pathname.startsWith('/agents/')
+    ? titles['/agents']
+    : titles[location.pathname] ?? titles['/']
 
   return (
     <div className="app-shell">

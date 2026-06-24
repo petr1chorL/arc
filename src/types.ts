@@ -13,8 +13,51 @@ export interface Agent {
   passRate: number
   runs: number
   tools: string[]
+  skills: string[]
+  systemPrompt: string
   createdAt: string
   updatedAt: string
+}
+
+export interface AssetVersion<TSnapshot = Record<string, unknown>> {
+  id: string
+  version: string
+  snapshot: TSnapshot
+  createdAt: string
+}
+
+export type AgentVersion = AssetVersion<Agent>
+
+export interface WorkflowNodeContract {
+  id: string
+  type: string
+  position: { x: number; y: number }
+  data: Record<string, unknown>
+}
+
+export interface WorkflowEdgeContract {
+  id: string
+  source: string
+  target: string
+  label?: string
+}
+
+export interface WorkflowDraft {
+  id: string
+  name: string
+  status: string
+  version: string
+  nodes: WorkflowNodeContract[]
+  edges: WorkflowEdgeContract[]
+  createdAt: string
+  updatedAt: string
+}
+
+export type WorkflowVersion = AssetVersion<WorkflowDraft>
+
+export interface ValidationResult {
+  valid: boolean
+  errors: string[]
 }
 
 export interface Rubric {

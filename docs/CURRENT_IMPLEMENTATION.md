@@ -1,13 +1,13 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.2 Agent 持久化基础
+> 对应版本：V0.4 Agent 与工作流生命周期
 > 更新时间：2026-06-24
 
 ## 1. 当前版本是什么
 
 当前版本是 React 单页应用，用于验证平台页面、领域概念和关键交互。
 
-Agent 资产页已经接入 FastAPI 与 SQLAlchemy，支持创建、校验、SQLite 持久化和刷新重载。运行实例、质量分和人工审核任务仍为本地模拟数据；当前没有真实模型调用。
+Agent 资产页和工作流设计器已经接入 FastAPI 与 SQLAlchemy。Agent 支持草稿编辑、版本发布和停用；工作流支持草稿持久化、DAG 校验、Agent 版本引用和不可变发布。运行实例、质量分和人工审核任务仍为本地模拟数据；当前没有真实模型调用。
 
 ```mermaid
 flowchart LR
@@ -232,23 +232,23 @@ mock.ts
 
 ### 6.5 尚未实现
 
-- 从左侧节点库拖入画布。
-- 删除和复制节点。
+- 从左侧节点库拖拽进入画布；当前为点击添加。
+- 复制、框选和分组节点。
 - 撤销和重做。
 - 多选和分组。
 - 输入输出变量连线。
-- 节点配置持久化。
-- DAG 合法性检查。
+- 完整节点参数 Schema 编辑器。
 - 循环、并行汇聚和子流程。
-- 真实发布和运行。
+- 真实运行、重试和恢复。
 
-当前节点修改只更新 React 内存状态：
+当前工作流数据链路：
 
 ```text
-输入框修改
-→ setNodes
-→ 对应 Node.data.label 改变
-→ React Flow 重新渲染
+React Flow 节点/连线
+→ 平台 Workflow Contract
+→ FastAPI + SQLAlchemy 草稿
+→ DAG 与 Agent 版本引用校验
+→ WorkflowVersion 不可变快照
 ```
 
 ## 7. Agent 资产页
@@ -268,14 +268,18 @@ mock.ts
 - 通过 `POST /api/agents` 创建 Agent。
 - 显示加载、空数据、重试和服务端错误状态。
 - 创建成功后立即更新列表，刷新后重新读取数据库。
+- 点击 Agent 名称进入详情页。
+- 编辑名称、职责、负责人、模型和 System Prompt。
+- 配置 Tools 与 Skills。
+- 发布不可变 AgentVersion。
+- 查看版本历史。
+- 停用 Agent，并阻止继续编辑或发布。
 
 未实现：
 
-- 编辑 Prompt。
 - 模型参数。
-- Tool/Skill 绑定。
-- 版本发布。
-- Agent 详情页。
+- Tool/Skill 的独立资产库和权限契约。
+- Agent 版本比较和回滚。
 - 真实运行统计。
 
 ## 8. 评估中心
@@ -462,9 +466,9 @@ TypeScript 编译检查
 
 当前自动化测试包括：
 
-- Vitest + Testing Library：API 客户端、创建弹窗和 Agent 页面。
-- Pytest：字段校验、创建/读取契约和应用重启持久化。
-- Playwright：浏览器创建 Agent 并刷新重载。
+- Vitest + Testing Library：API 客户端、创建弹窗、Agent 列表、Agent 详情和工作流契约适配器。
+- Pytest：字段校验、Agent 生命周期、工作流 DAG 校验和不可变版本快照。
+- Playwright：Agent 创建重载，以及 Agent 发布后被工作流引用和发布的跨模块链路。
 
 ## 15. 当前依赖
 
@@ -523,6 +527,10 @@ TypeScript 编译检查
 - 真实 API 进程重启后按稳定 ID 重新读取 Agent。
 - Agent 创建弹窗桌面端与 `390×844` 移动端视觉检查。
 - Agent 页面移动端无外层横向溢出。
+- Agent 草稿编辑、发布版本、历史版本和停用路径通过。
+- 工作流创建、保存、Agent 版本引用、发布和刷新恢复通过。
+- 工作流发布能拒绝有向环和不存在的 Agent 版本。
+- 工作流设计器 `390×844` 移动端工具栏无溢出。
 
 验证时没有发现浏览器控制台错误。
 
@@ -532,13 +540,12 @@ TypeScript 编译检查
 
 建议按以下顺序改造当前代码：
 
-1. 为 Agent 增加详情、编辑和不可变版本发布。
-2. 定义 Workflow 和 Node JSON Schema。
-3. 实现工作流草稿保存、重载和发布版本。
-4. 将其余页面逐个切换到真实 API。
+1. 增加工作流输入输出映射、并行汇聚和子流程契约。
+2. 接入一条真实 Agent 执行链路。
+3. 增加工作流运行实例、节点状态、重试和恢复。
+4. 将 Rubric 与质量门禁接入真实 API。
 5. 在具备 Docker 的环境验证 PostgreSQL Compose。
-6. 数据请求复杂后再评估 TanStack Query。
-7. 工作流契约稳定后再接入 Temporal、LangGraph 和模型网关。
+6. 接入 Temporal、LangGraph 和模型网关。
 
 完整版本路线和开源工具说明见：
 

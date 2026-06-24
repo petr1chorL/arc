@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Agents } from './Agents'
 
@@ -45,7 +46,7 @@ describe('Agents page', () => {
       ),
     )
     vi.stubGlobal('fetch', fetchMock)
-    render(<Agents />)
+    render(<MemoryRouter><Agents /></MemoryRouter>)
 
     expect(await screen.findByText('已有 Agent')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '新建 Agent' }))

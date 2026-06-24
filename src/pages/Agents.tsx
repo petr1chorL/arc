@@ -1,5 +1,6 @@
 import { Bot, Boxes, Filter, MoreHorizontal, Plus, Search, Wrench } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { createAgent, listAgents, type CreateAgentInput } from '../api/agents'
 import { AgentCreateDialog } from '../components/AgentCreateDialog'
 import { StatusBadge } from '../components/StatusBadge'
@@ -94,7 +95,7 @@ export function Agents() {
             <div className="agent-row" key={agent.id}>
               <div className="agent-identity">
                 <div className="agent-symbol"><Bot size={18} /></div>
-                <div><strong>{agent.name}</strong><span>{agent.role}</span></div>
+                <div><Link className="agent-name-link" to={`/agents/${agent.id}`}><strong>{agent.name}</strong></Link><span>{agent.role}</span></div>
               </div>
               <span><StatusBadge status={agent.status} /></span>
               <div><strong>{agent.model}</strong><span className="mono">{agent.version}</span></div>

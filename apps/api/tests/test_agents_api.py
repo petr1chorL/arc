@@ -44,6 +44,8 @@ def test_create_agent_persists_and_lists_complete_contract(tmp_path):
         "passRate": 0,
         "runs": 0,
         "tools": [],
+        "skills": [],
+        "systemPrompt": "",
         "createdAt": created["createdAt"],
         "updatedAt": created["updatedAt"],
     }

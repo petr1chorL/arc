@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-当前版本是在高保真前端 MVP 上加入第一条真实持久化纵向路径。
+当前版本已完成 Agent 与工作流的资产生命周期和不可变版本发布。
 
 已实现：
 
@@ -20,15 +20,20 @@
 - SQLite 本地持久化
 - PostgreSQL Compose 配置
 - Vitest、Testing Library 和 Pytest 自动化测试
+- Agent 详情、编辑、System Prompt、Tool/Skill 配置
+- Agent 不可变版本发布、版本历史和停用
+- 工作流创建、节点配置、草稿保存和刷新重载
+- 工作流 DAG 与 Agent 版本引用校验
+- 工作流不可变版本发布和版本历史
 
 尚未实现：
 
 - 真实大模型与 Agent 执行
-- 工作流调度和持久化
+- 工作流运行调度、重试和恢复
 - 登录权限和企业治理
 - 真实评估、Trace 和成本统计
 
-Agent 页面来自真实 API；其他页面仍来自 `src/data/mock.ts`。
+Agent 页面和工作流设计器来自真实 API；其他页面仍来自 `src/data/mock.ts`。
 
 ## 项目文档
 

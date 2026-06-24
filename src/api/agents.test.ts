@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createAgent, listAgents } from './agents'
+import {
+  createAgent,
+  deactivateAgent,
+  getAgent,
+  listAgentVersions,
+  listAgents,
+  publishAgent,
+  updateAgent,
+} from './agents'
 
 const apiAgent = {
   id: '6c8c51ec-178c-4517-838c-93b41c0bf1a0',
@@ -12,6 +20,8 @@ const apiAgent = {
   passRate: 0,
   runs: 0,
   tools: [],
+  skills: [],
+  systemPrompt: '',
   createdAt: '2026-06-24T06:00:00Z',
   updatedAt: '2026-06-24T06:00:00Z',
 }
@@ -74,9 +84,39 @@ describe('Agent API', () => {
       owner: apiAgent.owner,
       model: apiAgent.model,
     })).rejects.toMatchObject({
-      name: 'AgentApiError',
+      name: 'ApiError',
       status: 422,
       message: '名称不能为空',
     })
+  })
+
+  it('loads, updates, publishes and deactivates an Agent lifecycle', async () => {
+    const version = {
+      id: 'ver-1',
+      version: 'v1.0.0',
+      snapshot: apiAgent,
+      createdAt: '2026-06-24T06:10:00Z',
+    }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(apiAgent), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(apiAgent), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([version]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(version), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ...apiAgent, status: '已停用' }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(getAgent(apiAgent.id)).resolves.toEqual(apiAgent)
+    await expect(updateAgent(apiAgent.id, {
+      name: apiAgent.name,
+      role: apiAgent.role,
+      owner: apiAgent.owner,
+      model: apiAgent.model,
+      systemPrompt: '严谨输出',
+      tools: ['Web Search'],
+      skills: ['竞品分析'],
+    })).resolves.toEqual(apiAgent)
+    await expect(listAgentVersions(apiAgent.id)).resolves.toEqual([version])
+    await expect(publishAgent(apiAgent.id)).resolves.toEqual(version)
+    await expect(deactivateAgent(apiAgent.id)).resolves.toMatchObject({ status: '已停用' })
   })
 })

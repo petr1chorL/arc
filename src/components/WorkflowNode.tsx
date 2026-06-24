@@ -2,18 +2,21 @@ import type { NodeProps } from '@xyflow/react'
 import { Handle, Position } from '@xyflow/react'
 import {
   Bot,
+  Braces,
   CircleCheck,
+  Clock3,
   Database,
   GitBranch,
   Play,
   ShieldCheck,
   UserCheck,
+  Wrench,
 } from 'lucide-react'
 
 export type WorkflowNodeData = {
   label: string
   subtitle: string
-  kind: 'trigger' | 'agent' | 'data' | 'gate' | 'human' | 'branch' | 'end'
+  kind: 'trigger' | 'agent' | 'tool' | 'data' | 'gate' | 'human' | 'branch' | 'code' | 'wait' | 'end'
   status?: 'idle' | 'running' | 'success' | 'warning'
   score?: number
 }
@@ -21,10 +24,13 @@ export type WorkflowNodeData = {
 const icons = {
   trigger: Play,
   agent: Bot,
+  tool: Wrench,
   data: Database,
   gate: ShieldCheck,
   human: UserCheck,
   branch: GitBranch,
+  code: Braces,
+  wait: Clock3,
   end: CircleCheck,
 }
 
