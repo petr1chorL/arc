@@ -1,24 +1,27 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.1 高保真前端原型  
+> 对应版本：V0.2 Agent 持久化基础
 > 更新时间：2026-06-24
 
 ## 1. 当前版本是什么
 
 当前版本是 React 单页应用，用于验证平台页面、领域概念和关键交互。
 
-浏览器中看到的 Agent、运行实例、质量分和人工审核任务均为本地模拟数据。当前没有后端、数据库或真实模型调用。
+Agent 资产页已经接入 FastAPI 与 SQLAlchemy，支持创建、校验、SQLite 持久化和刷新重载。运行实例、质量分和人工审核任务仍为本地模拟数据；当前没有真实模型调用。
 
 ```mermaid
 flowchart LR
     A["浏览器"] --> B["React 页面"]
     B --> C["React Router"]
     B --> D["组件状态 useState"]
-    B --> E["本地 mock.ts"]
+    B --> E["Agent HTTP API"]
+    E --> G["FastAPI + SQLAlchemy"]
+    G --> H["SQLite / PostgreSQL"]
+    B --> I["其他页面 mock.ts"]
     B --> F["React Flow DAG"]
 ```
 
-当前数据不会发送到外部服务，也不会持久化。刷新页面后，页面状态恢复到代码中的初始值。
+Agent 数据通过本机 `/api` 发送到 FastAPI，并保存到默认 SQLite 文件 `apps/api/data/arc_one.db`。刷新页面或重启 API 后会重新读取持久化记录。其他页面状态仍恢复到代码中的初始值。
 
 ## 2. 启动链路
 
@@ -150,7 +153,7 @@ flowchart LR
 - 3 条人工审核任务。
 - 6 项运营指标。
 
-页面直接导入这些数组。
+除 Agent 页面外，其他页面仍直接导入这些数组。Agent 页面已经通过 `src/api/agents.ts` 访问真实 API。
 
 示例数据流：
 
@@ -259,10 +262,15 @@ mock.ts
 - 展示工具标签。
 - 使用 `useState` 保存搜索词。
 - 使用 `useMemo` 过滤 Agent。
+- 通过 `GET /api/agents` 加载持久化 Agent。
+- 通过弹窗填写名称、职责、负责人和模型。
+- 提交前显示字段级校验错误。
+- 通过 `POST /api/agents` 创建 Agent。
+- 显示加载、空数据、重试和服务端错误状态。
+- 创建成功后立即更新列表，刷新后重新读取数据库。
 
 未实现：
 
-- 创建 Agent。
 - 编辑 Prompt。
 - 模型参数。
 - Tool/Skill 绑定。
@@ -452,7 +460,11 @@ TypeScript 编译检查
 → Vite 生产打包
 ```
 
-当前尚未添加自动化测试。
+当前自动化测试包括：
+
+- Vitest + Testing Library：API 客户端、创建弹窗和 Agent 页面。
+- Pytest：字段校验、创建/读取契约和应用重启持久化。
+- Playwright：浏览器创建 Agent 并刷新重载。
 
 ## 15. 当前依赖
 
@@ -476,11 +488,16 @@ TypeScript 编译检查
 
 - UI 组件框架。
 - 图表库。
-- HTTP 客户端。
+- 第三方 HTTP 客户端，当前使用原生 `fetch`。
 - 状态管理库。
-- 测试框架。
 - AI SDK。
-- 数据库 SDK。
+
+后端新增：
+
+- FastAPI。
+- Pydantic。
+- SQLAlchemy。
+- SQLite，支持通过 `DATABASE_URL` 切换 PostgreSQL。
 
 ## 16. 当前版本验证记录
 
@@ -500,22 +517,28 @@ TypeScript 编译检查
 - `390×844` 移动端总览和人工审核检查。
 - Agent 搜索过滤回归检查。
 - Soft UI 工作流节点改名和保存回归检查。
+- 前端 7 项自动化测试通过。
+- 后端 3 项 API/持久化测试通过。
+- Playwright 创建并刷新重载测试通过。
+- 真实 API 进程重启后按稳定 ID 重新读取 Agent。
+- Agent 创建弹窗桌面端与 `390×844` 移动端视觉检查。
+- Agent 页面移动端无外层横向溢出。
 
 验证时没有发现浏览器控制台错误。
+
+当前机器未安装 Docker，因此 PostgreSQL Compose 配置尚未进行容器运行验证。
 
 ## 17. 下一步代码改造
 
 建议按以下顺序改造当前代码：
 
-1. 新增 `packages/contracts` 或 `src/contracts`。
-2. 将 `types.ts` 替换为正式领域类型。
-3. 定义 Workflow 和 Node JSON Schema。
-4. 引入 Mock Service Worker，页面不再直接导入 `mock.ts`。
-5. 引入 TanStack Query。
-6. 建立 FastAPI 服务和 PostgreSQL。
-7. 将页面逐个切换到真实 API。
-8. 增加 Vitest、Testing Library 和 Playwright。
-9. 再接入 Temporal、LangGraph 和模型网关。
+1. 为 Agent 增加详情、编辑和不可变版本发布。
+2. 定义 Workflow 和 Node JSON Schema。
+3. 实现工作流草稿保存、重载和发布版本。
+4. 将其余页面逐个切换到真实 API。
+5. 在具备 Docker 的环境验证 PostgreSQL Compose。
+6. 数据请求复杂后再评估 TanStack Query。
+7. 工作流契约稳定后再接入 Temporal、LangGraph 和模型网关。
 
 完整版本路线和开源工具说明见：
 

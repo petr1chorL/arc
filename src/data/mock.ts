@@ -12,6 +12,7 @@ export const agents: Agent[] = [
     passRate: 94.2,
     runs: 1284,
     tools: ['飞书知识库', '用户反馈库', 'Web Search'],
+    createdAt: '2026-04-18T02:24:00Z',
     updatedAt: '今天 10:24',
   },
   {
@@ -25,6 +26,7 @@ export const agents: Agent[] = [
     passRate: 89.6,
     runs: 863,
     tools: ['Web Search', '商品数据库', '引用校验'],
+    createdAt: '2026-05-02T10:12:00Z',
     updatedAt: '昨天 18:12',
   },
   {
@@ -38,6 +40,7 @@ export const agents: Agent[] = [
     passRate: 82.1,
     runs: 216,
     tools: ['需求对象库', '历史 PRD', '成本估算'],
+    createdAt: '2026-06-11T01:40:00Z',
     updatedAt: '今天 09:40',
   },
   {
@@ -51,6 +54,7 @@ export const agents: Agent[] = [
     passRate: 97.8,
     runs: 2410,
     tools: ['规则库', '敏感词库', '法规知识库'],
+    createdAt: '2026-03-21T08:00:00Z',
     updatedAt: '6 月 23 日',
   },
   {
@@ -64,6 +68,7 @@ export const agents: Agent[] = [
     passRate: 76.4,
     runs: 491,
     tools: ['报告模板', '图表生成'],
+    createdAt: '2026-05-19T06:30:00Z',
     updatedAt: '6 月 18 日',
   },
 ]

@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-arc_one}
+      POSTGRES_USER: ${POSTGRES_USER:-arc_one}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - arc_one_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-arc_one} -d ${POSTGRES_DB:-arc_one}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  arc_one_postgres:

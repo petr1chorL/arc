@@ -1195,3 +1195,127 @@ kbd {
     outline: 1px solid var(--line);
   }
 }
+
+.table-state {
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 28px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.table-state.error {
+  color: var(--red);
+}
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(75, 84, 98, 0.24);
+  backdrop-filter: blur(8px);
+}
+
+.agent-dialog {
+  width: min(520px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  padding: 22px;
+  border: 0;
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  box-shadow:
+    18px 18px 38px rgba(119, 126, 140, 0.32),
+    -12px -12px 28px rgba(255, 255, 255, 0.75);
+}
+
+.agent-dialog > header,
+.agent-dialog form > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agent-dialog h2 {
+  margin: 3px 0 0;
+  font-size: 19px;
+}
+
+.agent-dialog .eyebrow {
+  margin: 0;
+  color: var(--muted);
+  font: 9px var(--mono);
+  text-transform: uppercase;
+}
+
+.agent-dialog form {
+  display: grid;
+  gap: 15px;
+  margin-top: 20px;
+}
+
+.dialog-field {
+  display: grid;
+  gap: 7px;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.dialog-field input,
+.dialog-field textarea {
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  outline: 0;
+  padding: 11px 12px;
+  resize: vertical;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-inset);
+}
+
+.dialog-field input:focus,
+.dialog-field textarea:focus {
+  outline: 2px solid rgba(101, 121, 168, 0.46);
+  outline-offset: 2px;
+}
+
+.dialog-field small,
+.dialog-error {
+  margin: 0;
+  color: var(--red);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.dialog-error {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--red-soft);
+}
+
+.agent-dialog form > footer {
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+@media (max-width: 560px) {
+  .dialog-backdrop {
+    align-items: end;
+    padding: 12px;
+  }
+
+  .agent-dialog {
+    max-height: calc(100vh - 24px);
+    padding: 18px;
+    border-radius: 16px;
+  }
+}

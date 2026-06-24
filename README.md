@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-当前版本是高保真前端 MVP，用于验证产品信息架构和核心交互。
+当前版本是在高保真前端 MVP 上加入第一条真实持久化纵向路径。
 
 已实现：
 
@@ -15,16 +15,20 @@
 - 运行实例追踪
 - 人工审核工作台
 - 桌面端和移动端适配
+- 创建 Agent、字段校验和错误反馈
+- FastAPI Agent 列表/创建 API
+- SQLite 本地持久化
+- PostgreSQL Compose 配置
+- Vitest、Testing Library 和 Pytest 自动化测试
 
 尚未实现：
 
-- 后端 API 和数据库
 - 真实大模型与 Agent 执行
 - 工作流调度和持久化
 - 登录权限和企业治理
 - 真实评估、Trace 和成本统计
 
-当前页面数据来自 `src/data/mock.ts`。
+Agent 页面来自真实 API；其他页面仍来自 `src/data/mock.ts`。
 
 ## 项目文档
 
@@ -60,12 +64,33 @@ Superpowers：Brainstorming、Plan、TDD、Debug、Verification
 - Lucide React
 - Oxlint
 - 原生 CSS
+- FastAPI
+- Pydantic
+- SQLAlchemy
+- SQLite / PostgreSQL
+- Vitest / Testing Library / Pytest / Playwright
 
 ## 本地运行
 
+首次安装：
+
 ```powershell
 npm install
-npm run dev
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".\apps\api[test]"
+```
+
+终端 1，启动 API：
+
+```powershell
+cd apps\api
+..\..\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000
+```
+
+终端 2，启动前端：
+
+```powershell
+npm run dev -- --host 127.0.0.1 --port 4173
 ```
 
 当前开发服务：
@@ -74,9 +99,28 @@ npm run dev
 http://127.0.0.1:4173
 ```
 
+API 文档：
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+默认数据库文件是 `apps/api/data/arc_one.db`。
+
+使用 PostgreSQL 时，先在 PowerShell 中设置 `POSTGRES_PASSWORD`，再启动：
+
+```powershell
+$env:POSTGRES_PASSWORD="<通过安全渠道提供的密码>"
+docker compose up -d postgres
+```
+
+随后通过环境变量设置 `DATABASE_URL`。当前机器未安装 Docker，因此 Compose 配置尚未在本机运行验证。
+
 ## 检查
 
 ```powershell
+npm test -- --run
+.\.venv\Scripts\python.exe -m pytest .\apps\api\tests -q
 npm run lint
 npm run build
 ```

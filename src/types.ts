@@ -13,6 +13,7 @@ export interface Agent {
   passRate: number
   runs: number
   tools: string[]
+  createdAt: string
   updatedAt: string
 }
 
