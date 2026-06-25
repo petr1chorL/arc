@@ -22,6 +22,7 @@ import {
   GitBranch,
   History,
   Plus,
+  Play,
   Save,
   Search,
   Send,
@@ -42,9 +43,10 @@ import {
   updateWorkflow,
   validateWorkflow,
 } from '../api/workflows'
+import { runWorkflow } from '../api/execution'
 import { WorkflowNode, type WorkflowNodeData } from '../components/WorkflowNode'
 import { fromContractGraph, toContractGraph } from '../domain/workflows'
-import type { AgentVersion, WorkflowDraft, WorkflowVersion } from '../types'
+import type { AgentVersion, ExecutionRun, WorkflowDraft, WorkflowVersion } from '../types'
 
 const nodeTypes = { workflow: WorkflowNode }
 
@@ -101,6 +103,9 @@ export function Workflows() {
   const [agentOptions, setAgentOptions] = useState<PublishedAgentOption[]>([])
   const [versions, setVersions] = useState<WorkflowVersion[]>([])
   const [showVersions, setShowVersions] = useState(false)
+  const [showRun, setShowRun] = useState(false)
+  const [runInput, setRunInput] = useState('')
+  const [runResult, setRunResult] = useState<ExecutionRun | null>(null)
   const [feedback, setFeedback] = useState('')
   const [errors, setErrors] = useState<string[]>([])
   const [isBusy, setIsBusy] = useState(false)
@@ -208,6 +213,28 @@ export function Workflows() {
     }
   }
 
+  async function executeWorkflow() {
+    if (!currentId || !runInput.trim()) {
+      setErrors(['请输入运行任务'])
+      return
+    }
+    setIsBusy(true)
+    setErrors([])
+    setRunResult(null)
+    try {
+      const result = await runWorkflow(currentId, {
+        input: runInput.trim(),
+        version: currentWorkflow?.version,
+      })
+      setRunResult(result)
+      setFeedback('工作流运行已完成')
+    } catch (runError) {
+      setErrors([runError instanceof Error ? runError.message : '工作流运行失败'])
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
   function startNewWorkflow() {
     setCurrentId(null)
     setName('未命名工作流')
@@ -282,6 +309,17 @@ export function Workflows() {
         <div className="studio-actions">
           <button className="button ghost" title="新建工作流" onClick={startNewWorkflow}><FilePlus2 size={15} />新建</button>
           <button className="button ghost" title="查看版本记录" disabled={!currentId} onClick={() => setShowVersions(true)}><History size={15} />版本记录</button>
+          <button
+            className="button ghost"
+            title="运行已发布工作流"
+            disabled={!currentWorkflow || currentWorkflow.version === '未发布' || isBusy}
+            onClick={() => {
+              setRunResult(null)
+              setShowRun(true)
+            }}
+          >
+            <Play size={15} />运行工作流
+          </button>
           <button className="button secondary" title="保存工作流草稿" disabled={isBusy} onClick={() => void saveDraft()}><Save size={15} />保存草稿</button>
           <button className="button primary" title="发布工作流版本" disabled={isBusy} onClick={() => void publish()}><Send size={15} />发布版本</button>
         </div>
@@ -357,6 +395,43 @@ export function Workflows() {
                 </article>
               ))}
             </div>
+          </section>
+        </div>
+      )}
+
+      {showRun && (
+        <div className="dialog-backdrop">
+          <section className="agent-dialog workflow-run-dialog" role="dialog" aria-modal="true" aria-labelledby="workflow-run-title">
+            <header>
+              <div><p className="eyebrow">PUBLISHED WORKFLOW</p><h2 id="workflow-run-title">运行工作流</h2></div>
+              <button className="icon-button quiet" title="关闭" onClick={() => setShowRun(false)}><X size={18} /></button>
+            </header>
+            <label className="form-field">
+              <span>运行输入</span>
+              <textarea
+                rows={5}
+                value={runInput}
+                onChange={(event) => setRunInput(event.target.value)}
+                placeholder="输入本次工作流需要处理的任务"
+              />
+            </label>
+            <div className="dialog-actions">
+              <button className="button secondary" onClick={() => setShowRun(false)}>取消</button>
+              <button className="button primary" disabled={isBusy} onClick={() => void executeWorkflow()}>
+                <Play size={15} />开始运行
+              </button>
+            </div>
+            {runResult && (
+              <div className="agent-test-result">
+                <div className="run-kpis">
+                  <div><span>状态</span><strong>{runResult.status}</strong></div>
+                  <div><span>Token</span><strong>{runResult.totalTokens}</strong></div>
+                  <div><span>质量得分</span><strong>{runResult.score ?? '待评估'}</strong></div>
+                  <div><span>耗时</span><strong>{runResult.durationMs} ms</strong></div>
+                </div>
+                <div className="artifact-preview"><p>{runResult.output || runResult.error}</p></div>
+              </div>
+            )}
           </section>
         </div>
       )}

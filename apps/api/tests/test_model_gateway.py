@@ -1,0 +1,45 @@
+import httpx
+
+from app.config import Settings
+from app.model_gateway import OpenAICompatibleGateway
+
+
+def test_deepseek_gateway_uses_project_defaults_and_parses_usage(monkeypatch):
+    captured: dict = {}
+
+    def fake_post(url, *, headers, json, timeout):
+        captured.update({
+            "url": url,
+            "headers": headers,
+            "json": json,
+            "timeout": timeout,
+        })
+        return httpx.Response(
+            200,
+            request=httpx.Request("POST", url),
+            json={
+                "model": "deepseek-v4-pro",
+                "choices": [{"message": {"content": "结构化执行结果"}}],
+                "usage": {"prompt_tokens": 21, "completion_tokens": 9},
+            },
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    settings = Settings(model_api_key="test-key")
+
+    result = OpenAICompatibleGateway(settings).complete(
+        system_prompt="只输出结构化结果",
+        user_input="分析新品机会",
+        model="ignored-agent-model",
+    )
+
+    assert captured["url"] == "https://api.deepseek.com/chat/completions"
+    assert captured["json"]["model"] == "deepseek-v4-pro"
+    assert captured["json"]["messages"] == [
+        {"role": "system", "content": "只输出结构化结果"},
+        {"role": "user", "content": "分析新品机会"},
+    ]
+    assert captured["headers"]["Authorization"] == "Bearer test-key"
+    assert result.content == "结构化执行结果"
+    assert result.prompt_tokens == 21
+    assert result.completion_tokens == 9

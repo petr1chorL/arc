@@ -4,6 +4,7 @@ import {
   Check,
   History,
   PackageCheck,
+  Play,
   Save,
   ShieldOff,
   Sparkles,
@@ -18,8 +19,9 @@ import {
   updateAgent,
   type UpdateAgentInput,
 } from '../api/agents'
+import { runAgent } from '../api/execution'
 import { StatusBadge } from '../components/StatusBadge'
-import type { Agent, AgentVersion } from '../types'
+import type { Agent, AgentVersion, ExecutionRun } from '../types'
 
 function joinValues(values: string[]) {
   return values.join(', ')
@@ -39,6 +41,8 @@ export function AgentDetail() {
   const [feedback, setFeedback] = useState('')
   const [error, setError] = useState('')
   const [isBusy, setIsBusy] = useState(false)
+  const [runInput, setRunInput] = useState('')
+  const [runResult, setRunResult] = useState<ExecutionRun | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -127,6 +131,29 @@ export function AgentDetail() {
     }
   }
 
+  async function testRun() {
+    const input = runInput.trim()
+    if (!input) {
+      setError('请输入测试任务')
+      return
+    }
+    setIsBusy(true)
+    setError('')
+    setRunResult(null)
+    try {
+      const result = await runAgent(agentId, {
+        input,
+        version: agent?.version,
+      })
+      setRunResult(result)
+      setFeedback('测试运行已完成')
+    } catch (runError) {
+      setError(runError instanceof Error ? runError.message : 'Agent 运行失败')
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
   if (error && !agent) {
     return <div className="panel table-state error" role="alert">{error}</div>
   }
@@ -208,6 +235,43 @@ export function AgentDetail() {
           </div>
         </aside>
       </div>
+
+      <section className="panel agent-test-panel">
+        <header className="panel-header">
+          <div><span className="section-kicker">已发布版本</span><h3>测试运行</h3></div>
+          <span className="draft-indicator"><i />{agent.version}</span>
+        </header>
+        <label className="form-field">
+          <span>测试输入</span>
+          <textarea
+            rows={4}
+            value={runInput}
+            onChange={(event) => setRunInput(event.target.value)}
+            placeholder="输入一条真实任务，运行结果会写入运行中心"
+          />
+        </label>
+        <div className="agent-test-actions">
+          <button
+            className="button primary"
+            disabled={disabled || isBusy || versions.length === 0}
+            onClick={() => void testRun()}
+          >
+            <Play size={15} />运行 Agent
+          </button>
+          {versions.length === 0 && <small>请先发布一个 Agent 版本。</small>}
+        </div>
+        {runResult && (
+          <div className="agent-test-result">
+            <div className="run-kpis">
+              <div><span>状态</span><strong>{runResult.status}</strong></div>
+              <div><span>Token</span><strong>{runResult.totalTokens}</strong></div>
+              <div><span>质量得分</span><strong>{runResult.score ?? '待评估'}</strong></div>
+              <div><span>耗时</span><strong>{runResult.durationMs} ms</strong></div>
+            </div>
+            <div className="artifact-preview"><p>{runResult.output || runResult.error}</p></div>
+          </div>
+        )}
+      </section>
     </div>
   )
 }

@@ -69,9 +69,70 @@ describe('AgentDetail', () => {
     expect(await screen.findByText('草稿已保存')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: '发布新版本' }))
-    expect(await screen.findByText('v1.0.0')).toBeInTheDocument()
+    expect((await screen.findAllByText('v1.0.0')).length).toBeGreaterThanOrEqual(2)
 
     await user.click(screen.getByRole('button', { name: '停用 Agent' }))
     expect(await screen.findByText('已停用')).toBeInTheDocument()
+  })
+
+  it('runs a published Agent and shows the persisted result', async () => {
+    const user = userEvent.setup()
+    const publishedAgent = { ...agent, status: '在线', version: 'v1.0.0' }
+    const publishedVersion = {
+      id: 'version-1',
+      version: 'v1.0.0',
+      snapshot: publishedAgent,
+      createdAt: '2026-06-24T07:10:00Z',
+    }
+    const run = {
+      id: 'run-1',
+      kind: 'agent',
+      name: '研究 Agent 测试运行',
+      workflowId: null,
+      workflowVersion: null,
+      agentId: 'agent-1',
+      agentVersion: 'v1.0.0',
+      status: '已完成',
+      input: '分析新需求',
+      output: '这是 Agent 真实执行后返回的结构化结果。',
+      score: 100,
+      model: 'configured-model',
+      promptTokens: 12,
+      completionTokens: 8,
+      totalTokens: 20,
+      costUsd: 0.001,
+      durationMs: 1200,
+      currentNode: '研究 Agent',
+      error: '',
+      startedAt: '2026-06-24T08:00:00Z',
+      completedAt: '2026-06-24T08:00:01Z',
+      nodes: [],
+    }
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([publishedVersion]), { status: 200 }))
+      }
+      if (url.endsWith('/test-runs')) {
+        return Promise.resolve(new Response(JSON.stringify(run), { status: 201 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify(publishedAgent), { status: 200 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <MemoryRouter initialEntries={['/agents/agent-1']}>
+        <Routes>
+          <Route path="/agents/:agentId" element={<AgentDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await user.type(await screen.findByLabelText('测试输入'), '分析新需求')
+    await user.click(screen.getByRole('button', { name: '运行 Agent' }))
+
+    expect(await screen.findByText('这是 Agent 真实执行后返回的结构化结果。')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/agents/agent-1/test-runs', expect.objectContaining({
+      method: 'POST',
+    }))
   })
 })

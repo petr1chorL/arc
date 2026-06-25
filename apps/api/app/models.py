@@ -63,3 +63,80 @@ class WorkflowVersionRecord(Base):
     version: Mapped[str] = mapped_column(String(20))
     snapshot: Mapped[dict] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class WorkflowRunRecord(Base):
+    __tablename__ = "workflow_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    kind: Mapped[str] = mapped_column(String(20), default="workflow")
+    name: Mapped[str] = mapped_column(String(160))
+    workflow_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    workflow_version: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    agent_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    agent_version: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="运行中")
+    input_text: Mapped[str] = mapped_column(Text)
+    output_text: Mapped[str] = mapped_column(Text, default="")
+    score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    model: Mapped[str] = mapped_column(String(120), default="")
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    total_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, default=0)
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    current_node: Mapped[str] = mapped_column(String(160), default="")
+    error: Mapped[str] = mapped_column(Text, default="")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class NodeRunRecord(Base):
+    __tablename__ = "node_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    run_id: Mapped[str] = mapped_column(String(36), index=True)
+    node_id: Mapped[str] = mapped_column(String(120))
+    node_type: Mapped[str] = mapped_column(String(40))
+    node_name: Mapped[str] = mapped_column(String(160))
+    agent_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    agent_version: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="运行中")
+    input_text: Mapped[str] = mapped_column(Text)
+    output_text: Mapped[str] = mapped_column(Text, default="")
+    model: Mapped[str] = mapped_column(String(120), default="")
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    total_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, default=0)
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    attempts: Mapped[int] = mapped_column(Integer, default=1)
+    score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error: Mapped[str] = mapped_column(Text, default="")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ArtifactRecord(Base):
+    __tablename__ = "artifacts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    run_id: Mapped[str] = mapped_column(String(36), index=True)
+    source_node_run_id: Mapped[str] = mapped_column(String(36))
+    artifact_type: Mapped[str] = mapped_column(String(80), default="text")
+    content: Mapped[str] = mapped_column(Text)
+    score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class HumanReviewRecord(Base):
+    __tablename__ = "human_reviews"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    run_id: Mapped[str] = mapped_column(String(36), index=True)
+    node_run_id: Mapped[str] = mapped_column(String(36))
+    title: Mapped[str] = mapped_column(String(200))
+    status: Mapped[str] = mapped_column(String(20), default="待处理")
+    reason: Mapped[str] = mapped_column(Text)
+    score: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

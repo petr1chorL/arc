@@ -1403,6 +1403,12 @@ kbd {
   gap: 20px;
 }
 
+.agent-test-panel { padding: 20px; }
+.agent-test-panel > .form-field { margin-top: 16px; }
+.agent-test-actions { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+.agent-test-actions small { color: var(--muted); }
+.agent-test-result { display: grid; gap: 14px; margin-top: 18px; }
+
 .asset-editor .panel-header,
 .version-panel .panel-header {
   padding: 18px 20px;

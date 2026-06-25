@@ -13,6 +13,7 @@ export function StatusBadge({ status }: { status: Status }) {
     失败: 'danger',
     待处理: 'warning',
     处理中: 'info',
+    已驳回: 'danger',
     高: 'danger',
     中: 'warning',
     低: 'neutral',

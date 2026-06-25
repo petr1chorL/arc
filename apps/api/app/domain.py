@@ -10,6 +10,28 @@ def next_version(existing_count: int) -> str:
     return "v1.0.0" if existing_count == 0 else f"v1.{existing_count}.0"
 
 
+def topological_order(nodes: list[dict], edges: list[dict]) -> list[str]:
+    node_ids = {node["id"] for node in nodes}
+    adjacency = {node_id: [] for node_id in node_ids}
+    indegree = {node_id: 0 for node_id in node_ids}
+    for edge in edges:
+        if edge["source"] in node_ids and edge["target"] in node_ids:
+            adjacency[edge["source"]].append(edge["target"])
+            indegree[edge["target"]] += 1
+    queue = deque(node_id for node_id, degree in indegree.items() if degree == 0)
+    ordered: list[str] = []
+    while queue:
+        current = queue.popleft()
+        ordered.append(current)
+        for target in adjacency[current]:
+            indegree[target] -= 1
+            if indegree[target] == 0:
+                queue.append(target)
+    if len(ordered) != len(node_ids):
+        raise ValueError("工作流不能包含有向环")
+    return ordered
+
+
 def validate_workflow(
     nodes: list[dict],
     edges: list[dict],

@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -56,7 +57,7 @@ class AgentRead(BaseModel):
     created_at: datetime = Field(serialization_alias="createdAt")
     updated_at: datetime = Field(serialization_alias="updatedAt")
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 class VersionRead(BaseModel):
@@ -65,7 +66,7 @@ class VersionRead(BaseModel):
     snapshot: dict
     created_at: datetime = Field(serialization_alias="createdAt")
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 class WorkflowNode(BaseModel):
@@ -102,9 +103,81 @@ class WorkflowRead(BaseModel):
     created_at: datetime = Field(serialization_alias="createdAt")
     updated_at: datetime = Field(serialization_alias="updatedAt")
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 class ValidationResult(BaseModel):
     valid: bool
     errors: list[str]
+
+
+class RunCreate(BaseModel):
+    input: str = Field(min_length=1, max_length=50000)
+    version: str | None = None
+
+
+class ReviewDecision(BaseModel):
+    decision: Literal["approve", "reject"]
+
+
+class NodeRunRead(BaseModel):
+    id: str
+    node_id: str = Field(serialization_alias="nodeId")
+    node_type: str = Field(serialization_alias="nodeType")
+    node_name: str = Field(serialization_alias="nodeName")
+    status: str
+    input_text: str = Field(serialization_alias="input")
+    output_text: str = Field(serialization_alias="output")
+    model: str
+    prompt_tokens: int = Field(serialization_alias="promptTokens")
+    completion_tokens: int = Field(serialization_alias="completionTokens")
+    total_tokens: int = Field(serialization_alias="totalTokens")
+    cost_usd: float = Field(serialization_alias="costUsd")
+    duration_ms: int = Field(serialization_alias="durationMs")
+    attempts: int
+    score: int | None
+    error: str
+    started_at: datetime = Field(serialization_alias="startedAt")
+    completed_at: datetime | None = Field(serialization_alias="completedAt")
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class RunRead(BaseModel):
+    id: str
+    kind: str
+    name: str
+    workflow_id: str | None = Field(serialization_alias="workflowId")
+    workflow_version: str | None = Field(serialization_alias="workflowVersion")
+    agent_id: str | None = Field(serialization_alias="agentId")
+    agent_version: str | None = Field(serialization_alias="agentVersion")
+    status: str
+    input_text: str = Field(serialization_alias="input")
+    output_text: str = Field(serialization_alias="output")
+    score: int | None
+    model: str
+    prompt_tokens: int = Field(serialization_alias="promptTokens")
+    completion_tokens: int = Field(serialization_alias="completionTokens")
+    total_tokens: int = Field(serialization_alias="totalTokens")
+    cost_usd: float = Field(serialization_alias="costUsd")
+    duration_ms: int = Field(serialization_alias="durationMs")
+    current_node: str = Field(serialization_alias="currentNode")
+    error: str
+    started_at: datetime = Field(serialization_alias="startedAt")
+    completed_at: datetime | None = Field(serialization_alias="completedAt")
+    nodes: list[NodeRunRead] = Field(default_factory=list)
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class HumanReviewRead(BaseModel):
+    id: str
+    run_id: str = Field(serialization_alias="runId")
+    node_run_id: str = Field(serialization_alias="nodeRunId")
+    title: str
+    status: str
+    reason: str
+    score: int
+    created_at: datetime = Field(serialization_alias="createdAt")
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)

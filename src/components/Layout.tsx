@@ -11,7 +11,9 @@ import {
   Search,
   Settings,
 } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { listReviews } from '../api/execution'
 
 const navigation = [
   { to: '/', label: '运营总览', icon: Gauge },
@@ -19,7 +21,7 @@ const navigation = [
   { to: '/agents', label: 'Agent 资产', icon: Bot },
   { to: '/evaluations', label: '评估中心', icon: ClipboardCheck },
   { to: '/runs', label: '运行中心', icon: Activity },
-  { to: '/reviews', label: '人工审核', icon: Blocks, badge: '3' },
+  { to: '/reviews', label: '人工审核', icon: Blocks },
 ]
 
 const titles: Record<string, { title: string; eyebrow: string }> = {
@@ -33,9 +35,18 @@ const titles: Record<string, { title: string; eyebrow: string }> = {
 
 export function Layout() {
   const location = useLocation()
+  const [pendingReviewCount, setPendingReviewCount] = useState(0)
   const page = location.pathname.startsWith('/agents/')
     ? titles['/agents']
     : titles[location.pathname] ?? titles['/']
+
+  useEffect(() => {
+    void listReviews()
+      .then((reviews) => setPendingReviewCount(
+        reviews.filter((review) => review.status === '待处理').length,
+      ))
+      .catch(() => setPendingReviewCount(0))
+  }, [location.pathname])
 
   return (
     <div className="app-shell">
@@ -50,7 +61,7 @@ export function Layout() {
 
         <nav className="primary-nav" aria-label="主导航">
           <span className="nav-section-label">工作空间</span>
-          {navigation.map(({ to, label, icon: Icon, badge }) => (
+          {navigation.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}
@@ -61,7 +72,7 @@ export function Layout() {
             >
               <Icon size={18} strokeWidth={1.8} />
               <span>{label}</span>
-              {badge && <em>{badge}</em>}
+              {to === '/reviews' && pendingReviewCount > 0 && <em>{pendingReviewCount}</em>}
             </NavLink>
           ))}
         </nav>

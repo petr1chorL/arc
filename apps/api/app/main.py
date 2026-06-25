@@ -8,19 +8,29 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.database import create_database, session_scope
 from app.domain import next_version, validate_workflow
+from app.execution import ExecutionService
 from app.migrations import ensure_current_schema
+from app.model_gateway import ModelGateway, OpenAICompatibleGateway
 from app.models import (
     AgentRecord,
     AgentVersionRecord,
     Base,
     WorkflowRecord,
+    WorkflowRunRecord,
     WorkflowVersionRecord,
+    HumanReviewRecord,
+    NodeRunRecord,
     utc_now,
 )
 from app.schemas import (
     AgentCreate,
     AgentRead,
     AgentUpdate,
+    HumanReviewRead,
+    NodeRunRead,
+    ReviewDecision,
+    RunCreate,
+    RunRead,
     ValidationResult,
     VersionRead,
     WorkflowCreate,
@@ -29,8 +39,12 @@ from app.schemas import (
 )
 
 
-def create_app(database_url: str | None = None) -> FastAPI:
-    resolved_database_url = database_url or Settings().database_url
+def create_app(
+    database_url: str | None = None,
+    model_gateway: ModelGateway | None = None,
+) -> FastAPI:
+    settings = Settings()
+    resolved_database_url = database_url or settings.database_url
     engine, session_factory = create_database(resolved_database_url)
     try:
         Base.metadata.create_all(engine)
@@ -39,6 +53,10 @@ def create_app(database_url: str | None = None) -> FastAPI:
             raise
     ensure_current_schema(engine)
     app = FastAPI(title="ARC.ONE API")
+    execution_service = ExecutionService(
+        model_gateway or OpenAICompatibleGateway(settings),
+        settings,
+    )
 
     def get_session() -> Iterator[Session]:
         yield from session_scope(session_factory)
@@ -261,6 +279,107 @@ def create_app(database_url: str | None = None) -> FastAPI:
         session.commit()
         session.refresh(published)
         return published
+
+    def run_response(run: WorkflowRunRecord, session: Session) -> RunRead:
+        nodes = list(session.scalars(
+            select(NodeRunRecord)
+            .where(NodeRunRecord.run_id == run.id)
+            .order_by(NodeRunRecord.started_at.asc()),
+        ))
+        payload = RunRead.model_validate(run)
+        return payload.model_copy(
+            update={"nodes": [NodeRunRead.model_validate(node) for node in nodes]}
+        )
+
+    @app.post(
+        "/api/agents/{agent_id}/test-runs",
+        response_model=RunRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def test_run_agent(
+        agent_id: str,
+        request: RunCreate,
+        session: Session = Depends(get_session),
+    ) -> dict:
+        agent = find_agent(agent_id, session)
+        version = request.version or agent.version
+        if version == "v0.1.0":
+            raise HTTPException(status_code=422, detail="请先发布 Agent 版本")
+        try:
+            run = execution_service.run_agent_version(
+                session=session,
+                agent_id=agent_id,
+                agent_version=version,
+                input_text=request.input,
+            )
+        except RuntimeError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from None
+        return run_response(run, session)
+
+    @app.post(
+        "/api/workflows/{workflow_id}/runs",
+        response_model=RunRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def run_workflow(
+        workflow_id: str,
+        request: RunCreate,
+        session: Session = Depends(get_session),
+    ) -> dict:
+        workflow = find_workflow(workflow_id, session)
+        version = request.version or workflow.version
+        if version == "未发布":
+            raise HTTPException(status_code=422, detail="请先发布工作流版本")
+        try:
+            run = execution_service.run_workflow_version(
+                session=session,
+                workflow_id=workflow_id,
+                workflow_version=version,
+                input_text=request.input,
+            )
+        except RuntimeError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from None
+        return run_response(run, session)
+
+    @app.get("/api/runs", response_model=list[RunRead])
+    def list_runs(session: Session = Depends(get_session)) -> list[dict]:
+        statement = select(WorkflowRunRecord).order_by(WorkflowRunRecord.started_at.desc())
+        return [run_response(run, session) for run in session.scalars(statement)]
+
+    @app.get("/api/runs/{run_id}", response_model=RunRead)
+    def get_run(run_id: str, session: Session = Depends(get_session)) -> dict:
+        run = session.get(WorkflowRunRecord, run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="运行实例不存在")
+        return run_response(run, session)
+
+    @app.get("/api/reviews", response_model=list[HumanReviewRead])
+    def list_reviews(session: Session = Depends(get_session)) -> list[HumanReviewRecord]:
+        statement = select(HumanReviewRecord).order_by(HumanReviewRecord.created_at.desc())
+        return list(session.scalars(statement))
+
+    @app.post("/api/reviews/{review_id}/decision", response_model=HumanReviewRead)
+    def decide_review(
+        review_id: str,
+        request: ReviewDecision,
+        session: Session = Depends(get_session),
+    ) -> HumanReviewRecord:
+        review = session.get(HumanReviewRecord, review_id)
+        if review is None:
+            raise HTTPException(status_code=404, detail="人工审核任务不存在")
+        run = session.get(WorkflowRunRecord, review.run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="关联运行实例不存在")
+        if request.decision == "approve":
+            review.status = "已完成"
+            run.status = "已完成"
+        else:
+            review.status = "已驳回"
+            run.status = "失败"
+            run.error = "人工审核已驳回"
+        session.commit()
+        session.refresh(review)
+        return review
 
     return app
 
