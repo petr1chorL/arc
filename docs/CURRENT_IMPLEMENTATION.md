@@ -514,7 +514,7 @@ V0.6 仍未引入后台任务队列、身份系统和外部通知 SDK。
 已经完成：
 
 - `apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q`：32 项后端测试通过。
-- `npm test -- --run`：24 项前端测试通过。
+- `npm test -- --run`：25 项前端测试通过。
 - `npm run lint`：Oxlint 通过。
 - `npm run build`：TypeScript 编译与 Vite 生产构建通过。
 - Human 节点发布前校验覆盖分配方式、会签人数和 SLA 参数。
