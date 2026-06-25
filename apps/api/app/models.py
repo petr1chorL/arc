@@ -141,6 +141,19 @@ class ArtifactVersionRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class ArtifactDiffRecord(Base):
+    __tablename__ = "artifact_diffs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    human_task_id: Mapped[str] = mapped_column(String(36), index=True)
+    from_version_id: Mapped[str] = mapped_column(String(36))
+    to_version_id: Mapped[str] = mapped_column(String(36), unique=True)
+    old_content: Mapped[str] = mapped_column(Text)
+    new_content: Mapped[str] = mapped_column(Text)
+    unified_diff: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class ReviewerRecord(Base):
     __tablename__ = "reviewers"
 
@@ -210,7 +223,24 @@ class ReviewDecisionRecord(Base):
     reason: Mapped[str] = mapped_column(Text)
     artifact_version_id: Mapped[str] = mapped_column(String(36))
     idempotency_key: Mapped[str] = mapped_column(String(160))
+    tags: Mapped[list[str]] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class ResumeRequestRecord(Base):
+    __tablename__ = "resume_requests"
+    __table_args__ = (
+        UniqueConstraint("human_task_id", "decision_id", name="uq_task_decision_resume"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    human_task_id: Mapped[str] = mapped_column(String(36), index=True)
+    decision_id: Mapped[str] = mapped_column(String(36))
+    action: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(32), default="pending")
+    error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class AuditEventRecord(Base):

@@ -12,8 +12,12 @@ from app.model_gateway import ModelGateway
 from app.models import (
     AgentVersionRecord,
     ArtifactRecord,
+    ArtifactVersionRecord,
+    HumanTaskRecord,
     HumanReviewRecord,
     NodeRunRecord,
+    ResumeRequestRecord,
+    ReviewDecisionRecord,
     WorkflowRunRecord,
     WorkflowVersionRecord,
     utc_now,
@@ -191,19 +195,45 @@ class ExecutionService:
         )
         session.add(run)
         session.flush()
+        return self.execute_workflow_from(
+            session=session,
+            run=run,
+            snapshot=snapshot,
+        )
+
+    def execute_workflow_from(
+        self,
+        *,
+        session: Session,
+        run: WorkflowRunRecord,
+        snapshot: dict,
+        start_node_id: str | None = None,
+        seed_outputs: dict[str, str] | None = None,
+    ) -> WorkflowRunRecord:
         started = perf_counter()
+        existing_node_runs = list(session.scalars(
+            select(NodeRunRecord)
+            .where(NodeRunRecord.run_id == run.id)
+            .order_by(NodeRunRecord.started_at.asc()),
+        ))
         node_outputs: dict[str, str] = {}
-        node_runs: list[NodeRunRecord] = []
+        for existing in existing_node_runs:
+            if existing.output_text:
+                node_outputs[existing.node_id] = existing.output_text
+        node_outputs.update(seed_outputs or {})
+        node_runs = existing_node_runs
+        segment_start = len(node_runs)
         predecessors: dict[str, list[str]] = {node["id"]: [] for node in snapshot["nodes"]}
         for edge in snapshot["edges"]:
             predecessors[edge["target"]].append(edge["source"])
         ordered_ids = topological_order(snapshot["nodes"], snapshot["edges"])
         nodes_by_id = {node["id"]: node for node in snapshot["nodes"]}
-        for node_id in ordered_ids:
+        start_index = ordered_ids.index(start_node_id) if start_node_id else 0
+        for node_id in ordered_ids[start_index:]:
             node = nodes_by_id[node_id]
             node_input = "\n".join(
                 node_outputs[source] for source in predecessors[node_id] if source in node_outputs
-            ) or input_text
+            ) or run.input_text
             run.current_node = node["data"].get("label", node_id)
             if node["type"] == "agent":
                 node_run = self.execute_agent(
@@ -260,8 +290,29 @@ class ExecutionService:
             if node_run.status == "失败":
                 break
             node_outputs[node_id] = node_run.output_text
-        self.finish_run(session, run, node_runs, started)
+        self.finish_run(
+            session,
+            run,
+            node_runs,
+            started,
+            outcome_nodes=node_runs[segment_start:],
+        )
         return run
+
+    def workflow_snapshot(
+        self,
+        session: Session,
+        run: WorkflowRunRecord,
+    ) -> dict:
+        version = session.scalar(
+            select(WorkflowVersionRecord).where(
+                WorkflowVersionRecord.workflow_id == run.workflow_id,
+                WorkflowVersionRecord.version == run.workflow_version,
+            ),
+        )
+        if version is None:
+            raise RuntimeError("工作流版本快照不存在")
+        return version.snapshot
 
     def finish_run(
         self,
@@ -269,10 +320,12 @@ class ExecutionService:
         run: WorkflowRunRecord,
         node_runs: list[NodeRunRecord],
         started: float,
+        outcome_nodes: list[NodeRunRecord] | None = None,
     ) -> None:
-        failed = next((node for node in node_runs if node.status == "失败"), None)
-        scored = [node.score for node in node_runs if node.score is not None]
-        run.output_text = node_runs[-1].output_text if node_runs else ""
+        current_nodes = outcome_nodes if outcome_nodes is not None else node_runs
+        failed = next((node for node in current_nodes if node.status == "失败"), None)
+        scored = [node.score for node in current_nodes if node.score is not None]
+        run.output_text = current_nodes[-1].output_text if current_nodes else run.output_text
         run.score = min(scored) if scored else quality_score(run.output_text)
         run.prompt_tokens = sum(node.prompt_tokens for node in node_runs)
         run.completion_tokens = sum(node.completion_tokens for node in node_runs)
@@ -308,3 +361,168 @@ class ExecutionService:
                 score=run.score,
             ))
         session.commit()
+
+
+class WorkflowResumeService:
+    def __init__(
+        self,
+        execution_service: ExecutionService,
+        human_task_service: HumanTaskService,
+    ):
+        self.execution_service = execution_service
+        self.human_task_service = human_task_service
+
+    def apply_outcome(
+        self,
+        *,
+        session: Session,
+        task_id: str,
+        decision_id: str,
+    ) -> HumanTaskRecord:
+        task = session.get(HumanTaskRecord, task_id)
+        decision = session.get(ReviewDecisionRecord, decision_id)
+        if task is None or decision is None:
+            raise RuntimeError("审核任务或决定不存在")
+        existing = session.scalar(
+            select(ResumeRequestRecord).where(
+                ResumeRequestRecord.human_task_id == task.id,
+                ResumeRequestRecord.decision_id == decision.id,
+            ),
+        )
+        if existing is not None and existing.status == "succeeded":
+            return task
+        request = existing or ResumeRequestRecord(
+            human_task_id=task.id,
+            decision_id=decision.id,
+            action=decision.decision,
+        )
+        if existing is None:
+            session.add(request)
+        request.status = "running"
+        request.error = ""
+        session.commit()
+        try:
+            self._execute_outcome(
+                session=session,
+                task=task,
+                decision=decision,
+            )
+            task.status = {
+                "approve": "已通过",
+                "modify_and_approve": "修改后通过",
+                "reject": "已驳回",
+                "return_for_rerun": "已退回",
+            }[decision.decision]
+            request.status = "succeeded"
+            request.completed_at = utc_now()
+            self.human_task_service.audit(
+                session,
+                task=task,
+                event_type="workflow_resume_succeeded",
+                actor_id=decision.reviewer_id,
+                payload={"action": decision.decision},
+            )
+            session.commit()
+        except Exception:
+            request.status = "failed"
+            request.error = "工作流恢复失败，请稍后重试"
+            task.status = "恢复失败"
+            run = session.get(WorkflowRunRecord, task.workflow_run_id)
+            if run is not None:
+                run.status = "恢复失败"
+                run.error = request.error
+            self.human_task_service.audit(
+                session,
+                task=task,
+                event_type="workflow_resume_failed",
+                actor_id="system",
+                payload={"action": decision.decision},
+            )
+            session.commit()
+        session.refresh(task)
+        return task
+
+    def retry(
+        self,
+        *,
+        session: Session,
+        task_id: str,
+    ) -> HumanTaskRecord:
+        request = session.scalar(
+            select(ResumeRequestRecord)
+            .where(
+                ResumeRequestRecord.human_task_id == task_id,
+                ResumeRequestRecord.status == "failed",
+            )
+            .order_by(ResumeRequestRecord.created_at.desc()),
+        )
+        if request is None:
+            raise RuntimeError("没有可重试的恢复请求")
+        return self.apply_outcome(
+            session=session,
+            task_id=task_id,
+            decision_id=request.decision_id,
+        )
+
+    def _execute_outcome(
+        self,
+        *,
+        session: Session,
+        task: HumanTaskRecord,
+        decision: ReviewDecisionRecord,
+    ) -> None:
+        run = session.get(WorkflowRunRecord, task.workflow_run_id)
+        human_node_run = session.get(NodeRunRecord, task.node_run_id)
+        artifact_version = session.get(ArtifactVersionRecord, task.artifact_version_id)
+        if run is None or human_node_run is None or artifact_version is None:
+            raise RuntimeError("恢复执行所需数据不完整")
+        now = utc_now()
+        human_node_run.completed_at = now
+        human_node_run.output_text = artifact_version.content
+        snapshot = self.execution_service.workflow_snapshot(session, run)
+        ordered_ids = topological_order(snapshot["nodes"], snapshot["edges"])
+        if decision.decision == "reject":
+            human_node_run.status = "已驳回"
+            run.status = "已驳回"
+            run.error = "人工审核已驳回"
+            run.completed_at = now
+            session.commit()
+            return
+        if decision.decision == "return_for_rerun":
+            human_node_run.status = "已退回"
+            run.status = "运行中"
+            run.error = ""
+            run.completed_at = None
+            session.commit()
+            self.execution_service.execute_workflow_from(
+                session=session,
+                run=run,
+                snapshot=snapshot,
+                start_node_id=task.source_node_id,
+            )
+            if run.status == "失败":
+                raise RuntimeError("来源 Agent 重跑失败")
+            return
+        human_node_run.status = "已完成"
+        run.status = "运行中"
+        run.error = ""
+        run.completed_at = None
+        session.commit()
+        human_index = ordered_ids.index(task.human_node_id)
+        if human_index == len(ordered_ids) - 1:
+            existing = list(session.scalars(
+                select(NodeRunRecord)
+                .where(NodeRunRecord.run_id == run.id)
+                .order_by(NodeRunRecord.started_at.asc()),
+            ))
+            self.execution_service.finish_run(session, run, existing, perf_counter())
+            return
+        self.execution_service.execute_workflow_from(
+            session=session,
+            run=run,
+            snapshot=snapshot,
+            start_node_id=ordered_ids[human_index + 1],
+            seed_outputs={task.human_node_id: artifact_version.content},
+        )
+        if run.status == "失败":
+            raise RuntimeError("下游节点恢复执行失败")

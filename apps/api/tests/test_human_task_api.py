@@ -17,6 +17,7 @@ def create_task(
 ) -> tuple[TestClient, dict, list[dict]]:
     gateway = FakeGateway([
         FakeModelResult("这是一段等待多人审核且长度足够的业务结论。"),
+        FakeModelResult("这是退回重跑后生成且长度足够的第二版业务结论。"),
     ])
     client = TestClient(create_app(f"sqlite:///{tmp_path / f'{policy}-{required}.db'}", gateway))
     workflow = create_human_workflow(

@@ -1,10 +1,12 @@
 from datetime import timedelta
+from difflib import unified_diff
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import (
     AuditEventRecord,
+    ArtifactDiffRecord,
     ArtifactRecord,
     ArtifactVersionRecord,
     HumanTaskRecord,
@@ -26,7 +28,7 @@ class HumanTaskValidation(RuntimeError):
     pass
 
 
-TERMINAL_TASK_STATUSES = {"已通过", "已驳回", "已退回", "恢复失败"}
+TERMINAL_TASK_STATUSES = {"已通过", "修改后通过", "已驳回", "已退回", "恢复失败"}
 
 
 class HumanTaskService:
@@ -376,11 +378,29 @@ class HumanTaskService:
         reason: str,
         artifact_version_id: str,
         idempotency_key: str,
-    ) -> dict:
+        modified_content: str | None = None,
+        tags: list[str] | None = None,
+    ) -> tuple[dict, ReviewDecisionRecord, bool]:
         task = self.get_task(session, task_id)
         if task is None:
             raise HumanTaskValidation("人工任务不存在")
         self.active_reviewer(session, reviewer_id)
+        idempotent = session.scalar(
+            select(ReviewDecisionRecord).where(
+                ReviewDecisionRecord.idempotency_key == idempotency_key,
+            ),
+        )
+        if idempotent is not None:
+            if (
+                idempotent.human_task_id != task.id
+                or idempotent.reviewer_id != reviewer_id
+                or idempotent.decision != decision
+            ):
+                raise HumanTaskConflict("幂等键已用于其他审核决定")
+            detail = self.get_task_detail(session, task.id)
+            if detail is None:
+                raise RuntimeError("人工任务详情不可用")
+            return detail, idempotent, False
         if task.status in TERMINAL_TASK_STATUSES:
             raise HumanTaskConflict("终态任务不能重复决策")
         if reviewer_id not in task.participant_snapshot:
@@ -396,14 +416,69 @@ class HumanTaskService:
         if existing is not None:
             raise HumanTaskConflict("审核人已提交决定")
         before = task.status
-        session.add(ReviewDecisionRecord(
+        decision_artifact_version_id = artifact_version_id
+        if decision == "modify_and_approve":
+            current_version = session.get(ArtifactVersionRecord, task.artifact_version_id)
+            normalized = (modified_content or "").strip()
+            if current_version is None:
+                raise HumanTaskValidation("当前产出物版本不存在")
+            if not normalized or normalized == current_version.content.strip():
+                raise HumanTaskValidation("修改后通过必须提交不同的产出物内容")
+            next_version = (
+                session.scalar(
+                    select(func.max(ArtifactVersionRecord.version)).where(
+                        ArtifactVersionRecord.artifact_id == current_version.artifact_id,
+                    ),
+                ) or 0
+            ) + 1
+            new_version = ArtifactVersionRecord(
+                artifact_id=current_version.artifact_id,
+                version=next_version,
+                parent_version_id=current_version.id,
+                content=normalized,
+                created_by=reviewer_id,
+            )
+            session.add(new_version)
+            session.flush()
+            diff_text = "\n".join(unified_diff(
+                current_version.content.splitlines(),
+                normalized.splitlines(),
+                fromfile=f"artifact-v{current_version.version}",
+                tofile=f"artifact-v{new_version.version}",
+                lineterm="",
+            ))
+            session.add(ArtifactDiffRecord(
+                human_task_id=task.id,
+                from_version_id=current_version.id,
+                to_version_id=new_version.id,
+                old_content=current_version.content,
+                new_content=normalized,
+                unified_diff=diff_text,
+            ))
+            task.artifact_version_id = new_version.id
+            decision_artifact_version_id = new_version.id
+            self.audit(
+                session,
+                task=task,
+                event_type="artifact_edited",
+                actor_id=reviewer_id,
+                reason=reason,
+                before_status=before,
+                payload={
+                    "fromVersionId": current_version.id,
+                    "toVersionId": new_version.id,
+                },
+            )
+        decision_record = ReviewDecisionRecord(
             human_task_id=task.id,
             reviewer_id=reviewer_id,
             decision=decision,
             reason=reason,
-            artifact_version_id=artifact_version_id,
+            artifact_version_id=decision_artifact_version_id,
             idempotency_key=idempotency_key,
-        ))
+            tags=tags or [],
+        )
+        session.add(decision_record)
         session.flush()
         if decision == "reject":
             task.status = "已驳回"
@@ -417,7 +492,13 @@ class HumanTaskService:
                 ),
             ) or 0
             if task.review_policy == "any_one" or received >= task.required_approvals:
-                task.status = "已通过"
+                modified_count = session.scalar(
+                    select(func.count()).select_from(ReviewDecisionRecord).where(
+                        ReviewDecisionRecord.human_task_id == task.id,
+                        ReviewDecisionRecord.decision == "modify_and_approve",
+                    ),
+                ) or 0
+                task.status = "修改后通过" if modified_count else "已通过"
             else:
                 task.status = "审核中"
         task.updated_at = utc_now()
@@ -434,4 +515,4 @@ class HumanTaskService:
         detail = self.get_task_detail(session, task.id)
         if detail is None:
             raise RuntimeError("人工任务详情不可用")
-        return detail
+        return detail, decision_record, True

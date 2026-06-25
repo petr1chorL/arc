@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.database import create_database, session_scope
 from app.domain import next_version, validate_workflow
-from app.execution import ExecutionService
+from app.execution import ExecutionService, WorkflowResumeService
 from app.human_tasks import HumanTaskConflict, HumanTaskService, HumanTaskValidation
 from app.migrations import ensure_current_schema
 from app.model_gateway import ModelGateway, OpenAICompatibleGateway
@@ -69,6 +69,10 @@ def create_app(
     execution_service = ExecutionService(
         model_gateway or OpenAICompatibleGateway(settings),
         settings,
+        human_task_service,
+    )
+    workflow_resume_service = WorkflowResumeService(
+        execution_service,
         human_task_service,
     )
 
@@ -447,7 +451,7 @@ def create_app(
         session: Session = Depends(get_session),
     ) -> dict:
         try:
-            return human_task_service.decide_task(
+            detail, decision, _ = human_task_service.decide_task(
                 session,
                 task_id,
                 reviewer_id=request.reviewer_id,
@@ -455,11 +459,41 @@ def create_app(
                 reason=request.reason,
                 artifact_version_id=request.artifact_version_id,
                 idempotency_key=request.idempotency_key,
+                modified_content=request.modified_content,
+                tags=request.tags,
             )
+            if detail["status"] in {"已通过", "修改后通过", "已驳回", "已退回"}:
+                workflow_resume_service.apply_outcome(
+                    session=session,
+                    task_id=task_id,
+                    decision_id=decision.id,
+                )
+                refreshed = human_task_service.get_task_detail(session, task_id)
+                if refreshed is None:
+                    raise RuntimeError("人工任务详情不可用")
+                return refreshed
+            return detail
         except HumanTaskConflict as error:
             raise HTTPException(status_code=409, detail=str(error)) from None
         except HumanTaskValidation as error:
             raise HTTPException(status_code=422, detail=str(error)) from None
+
+    @app.post(
+        "/api/human-tasks/{task_id}/retry-resume",
+        response_model=HumanTaskDetailRead,
+    )
+    def retry_human_task_resume(
+        task_id: str,
+        session: Session = Depends(get_session),
+    ) -> dict:
+        try:
+            workflow_resume_service.retry(session=session, task_id=task_id)
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from None
+        detail = human_task_service.get_task_detail(session, task_id)
+        if detail is None:
+            raise HTTPException(status_code=404, detail="人工任务不存在")
+        return detail
 
     @app.post("/api/reviews/{review_id}/decision", response_model=HumanReviewRead)
     def decide_review(
