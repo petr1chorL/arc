@@ -1,11 +1,13 @@
 from collections.abc import Callable
 
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.auth import (
     AccountLocked,
     AuthenticationError,
+    AuthenticationConfigurationError,
     AuthenticationService,
     CsrfError,
     PasswordChangeError,
@@ -19,7 +21,7 @@ def create_auth_router(
     get_session: Callable,
     service: AuthenticationService,
     settings: Settings,
-) -> APIRouter:
+    ) -> APIRouter:
     router = APIRouter(prefix="/api/auth", tags=["auth"])
 
     def set_auth_cookies(
@@ -62,6 +64,14 @@ def create_auth_router(
             samesite="lax",
             path="/",
         )
+
+    def unauthorized_auth_response(detail: str) -> JSONResponse:
+        response = JSONResponse(
+            status_code=401,
+            content={"detail": detail},
+        )
+        clear_auth_cookies(response)
+        return response
 
     def require_same_origin(request: Request) -> None:
         origin = request.headers.get("origin")
@@ -123,6 +133,11 @@ def create_auth_router(
             )
         except AccountLocked as error:
             raise HTTPException(status_code=429, detail=str(error)) from None
+        except AuthenticationConfigurationError:
+            raise HTTPException(
+                status_code=500,
+                detail="认证配置异常",
+            ) from None
         except AuthenticationError as error:
             raise HTTPException(status_code=401, detail=str(error)) from None
         set_auth_cookies(response, session_token, csrf_token)
@@ -130,13 +145,16 @@ def create_auth_router(
 
     @router.get("/session", response_model=AuthSessionRead)
     def read_session(
-        context: tuple[
-            UserRecord,
-            SessionRecord,
-            Session,
-        ] = Depends(authenticated),
-    ) -> AuthSessionRead:
-        user, _, _ = context
+        session: Session = Depends(get_session),
+        session_token: str | None = Cookie(
+            default=None,
+            alias=settings.session_cookie_name,
+        ),
+    ) -> AuthSessionRead | JSONResponse:
+        try:
+            user, _ = service.authenticate_session(session, session_token)
+        except AuthenticationError as error:
+            return unauthorized_auth_response(str(error))
         return AuthSessionRead(user=user)
 
     @router.post("/logout", status_code=204)

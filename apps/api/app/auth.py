@@ -1,11 +1,11 @@
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select, update
+from sqlalchemy import case, select, update
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.models import SessionRecord, UserRecord, utc_now
+from app.models import OrganizationRecord, SessionRecord, UserRecord, utc_now
 from app.security import SecurityService
 
 
@@ -17,6 +17,10 @@ class AuthenticationError(Exception):
 
 
 class AccountLocked(AuthenticationError):
+    pass
+
+
+class AuthenticationConfigurationError(Exception):
     pass
 
 
@@ -49,9 +53,70 @@ class AuthenticationService:
         self.security = security
         self.settings = settings
         self.clock = clock
+        self.dummy_password_hash = self.security.hash_password(
+            "arc-one-authentication-dummy-password",
+        )
 
     def _now(self) -> datetime:
         return aware_utc(self.clock())
+
+    def _resolve_active_user(
+        self,
+        session: Session,
+        normalized_email: str,
+    ) -> UserRecord | None:
+        matches = list(
+            session.scalars(
+                select(UserRecord)
+                .join(
+                    OrganizationRecord,
+                    OrganizationRecord.id == UserRecord.organization_id,
+                )
+                .where(
+                    UserRecord.normalized_email == normalized_email,
+                    OrganizationRecord.status == "active",
+                )
+                .limit(2),
+            ),
+        )
+        if len(matches) > 1:
+            raise AuthenticationConfigurationError(
+                "multiple active organizations match the same email",
+            )
+        if not matches:
+            return None
+        return matches[0]
+
+    def _record_failed_login(
+        self,
+        session: Session,
+        user_id: str,
+        *,
+        now: datetime,
+    ) -> UserRecord:
+        next_failed_count = UserRecord.failed_login_count + 1
+        session.execute(
+            update(UserRecord)
+            .where(UserRecord.id == user_id)
+            .values(
+                failed_login_count=next_failed_count,
+                locked_until=case(
+                    (
+                        next_failed_count >= self.settings.login_max_failures,
+                        now + timedelta(
+                            minutes=self.settings.login_lock_minutes,
+                        ),
+                    ),
+                    else_=UserRecord.locked_until,
+                ),
+                updated_at=now,
+            ),
+        )
+        session.commit()
+        user = session.get(UserRecord, user_id)
+        if user is None:
+            raise AuthenticationError(INVALID_LOGIN_MESSAGE)
+        return user
 
     def login(
         self,
@@ -63,12 +128,10 @@ class AuthenticationService:
         user_agent: str | None,
     ) -> tuple[UserRecord, SessionRecord, str, str]:
         now = self._now()
-        user = session.scalar(
-            select(UserRecord).where(
-                UserRecord.normalized_email == normalize_email(email),
-            ),
-        )
+        normalized_email = normalize_email(email)
+        user = self._resolve_active_user(session, normalized_email)
         if user is None:
+            self.security.verify_password(password, self.dummy_password_hash)
             raise AuthenticationError(INVALID_LOGIN_MESSAGE)
 
         if user.locked_until is not None:
@@ -83,15 +146,13 @@ class AuthenticationService:
             and self.security.verify_password(password, user.password_hash)
         )
         if user.status != "active" or not password_valid:
-            user.failed_login_count += 1
-            user.updated_at = now
+            user = self._record_failed_login(
+                session,
+                user.id,
+                now=now,
+            )
             if user.failed_login_count >= self.settings.login_max_failures:
-                user.locked_until = now + timedelta(
-                    minutes=self.settings.login_lock_minutes,
-                )
-                session.commit()
                 raise AccountLocked(INVALID_LOGIN_MESSAGE)
-            session.commit()
             raise AuthenticationError(INVALID_LOGIN_MESSAGE)
 
         raw_session_token = self.security.new_token()

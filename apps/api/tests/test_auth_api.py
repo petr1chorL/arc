@@ -6,7 +6,7 @@ from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
-from app.auth import AuthenticationService, aware_utc
+from app.auth import AuthenticationError, AuthenticationService, aware_utc
 from app.bootstrap import (
     bootstrap_default_workspace,
     bootstrap_organization_admin,
@@ -86,6 +86,62 @@ def login(client: TestClient, password: str = ADMIN_PASSWORD):
 
 def csrf_headers(client: TestClient) -> dict[str, str]:
     return {"X-CSRF-Token": client.cookies["arc_one_csrf"]}
+
+
+def assert_auth_cookies_cleared(response) -> None:
+    cookies = response.headers.get_list("set-cookie")
+    assert any(
+        "arc_one_session=" in item
+        and (
+            "Max-Age=0" in item
+            or "expires=" in item.lower()
+        )
+        for item in cookies
+    )
+    assert any(
+        "arc_one_csrf=" in item
+        and (
+            "Max-Age=0" in item
+            or "expires=" in item.lower()
+        )
+        for item in cookies
+    )
+
+
+def create_organization_user(
+    session,
+    security: SecurityService,
+    *,
+    now: datetime,
+    organization_slug: str,
+    organization_status: str = "active",
+    email: str = ADMIN_EMAIL,
+    password: str = ADMIN_PASSWORD,
+    user_status: str = "active",
+) -> tuple[OrganizationRecord, UserRecord]:
+    organization = OrganizationRecord(
+        name=organization_slug,
+        slug=organization_slug,
+        status=organization_status,
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(organization)
+    session.flush()
+    user = UserRecord(
+        organization_id=organization.id,
+        email=email.strip(),
+        normalized_email=email.strip().casefold(),
+        display_name=f"{organization_slug}-user",
+        password_hash=security.hash_password(password),
+        status=user_status,
+        password_changed_at=now,
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(user)
+    session.commit()
+    return organization, user
 
 
 def test_bootstrap_is_idempotent_and_creates_default_access(tmp_path, clock):
@@ -332,6 +388,163 @@ def test_unknown_email_remains_uniform_401_without_account_lock(client):
     assert len({response.json()["detail"] for response in responses}) == 1
 
 
+def test_unknown_email_verifies_against_instance_dummy_hash_before_401(
+    tmp_path,
+    clock,
+    monkeypatch,
+):
+    database_url = f"sqlite:///{tmp_path / 'dummy-hash.db'}"
+    engine, session_factory = create_database(database_url)
+    Base.metadata.create_all(engine)
+    security = SecurityService()
+    service = AuthenticationService(
+        security,
+        Settings(database_url=database_url),
+        clock=clock,
+    )
+    verify_calls: list[tuple[str, str]] = []
+
+    def spy_verify(password: str, encoded: str) -> bool:
+        verify_calls.append((password, encoded))
+        return False
+
+    monkeypatch.setattr(security, "verify_password", spy_verify)
+
+    with session_factory() as session:
+        for attempt in ("Wrong Password 12!", "Wrong Password 13!"):
+            with pytest.raises(AuthenticationError):
+                service.login(
+                    session,
+                    email="missing@example.com",
+                    password=attempt,
+                    ip_address=None,
+                    user_agent=None,
+                )
+
+    assert [password for password, _ in verify_calls] == [
+        "Wrong Password 12!",
+        "Wrong Password 13!",
+    ]
+    assert len({encoded for _, encoded in verify_calls}) == 1
+    assert verify_calls[0][1].startswith("$argon2id$")
+
+
+def test_login_rejects_when_no_active_organization_matches_email(tmp_path, clock):
+    database_url = f"sqlite:///{tmp_path / 'no-active-org.db'}"
+    engine, session_factory = create_database(database_url)
+    Base.metadata.create_all(engine)
+    security = SecurityService()
+    service = AuthenticationService(
+        security,
+        Settings(database_url=database_url),
+        clock=clock,
+    )
+
+    with session_factory() as session:
+        create_organization_user(
+            session,
+            security,
+            now=clock.current,
+            organization_slug="disabled-organization",
+            organization_status="disabled",
+        )
+        with pytest.raises(AuthenticationError):
+            service.login(
+                session,
+                email=ADMIN_EMAIL,
+                password=ADMIN_PASSWORD,
+                ip_address=None,
+                user_agent=None,
+            )
+
+
+def test_login_uses_only_active_organization_when_disabled_duplicate_exists(
+    tmp_path,
+    clock,
+):
+    database_url = f"sqlite:///{tmp_path / 'active-org-only.db'}"
+    engine, session_factory = create_database(database_url)
+    Base.metadata.create_all(engine)
+    security = SecurityService()
+    service = AuthenticationService(
+        security,
+        Settings(database_url=database_url),
+        clock=clock,
+    )
+
+    with session_factory() as session:
+        active_organization, active_user = create_organization_user(
+            session,
+            security,
+            now=clock.current,
+            organization_slug="active-organization",
+            organization_status="active",
+            password=ADMIN_PASSWORD,
+        )
+        _, disabled_user = create_organization_user(
+            session,
+            security,
+            now=clock.current,
+            organization_slug="disabled-organization",
+            organization_status="disabled",
+            password="Disabled Password 55!",
+        )
+
+        user, _, _, _ = service.login(
+            session,
+            email=ADMIN_EMAIL,
+            password=ADMIN_PASSWORD,
+            ip_address=None,
+            user_agent=None,
+        )
+
+    assert user.id == active_user.id
+    assert user.organization_id == active_organization.id
+    assert disabled_user.failed_login_count == 0
+
+
+def test_login_returns_configuration_error_for_multiple_active_organizations_without_mutating_failures(
+    tmp_path,
+    clock,
+):
+    database_url = f"sqlite:///{tmp_path / 'multiple-active-orgs.db'}"
+    engine, session_factory = create_database(database_url)
+    Base.metadata.create_all(engine)
+    security = SecurityService()
+    with session_factory() as session:
+        _, first_user = create_organization_user(
+            session,
+            security,
+            now=clock.current,
+            organization_slug="organization-one",
+            organization_status="active",
+        )
+        _, second_user = create_organization_user(
+            session,
+            security,
+            now=clock.current,
+            organization_slug="organization-two",
+            organization_status="active",
+        )
+        first_user_id = first_user.id
+        second_user_id = second_user.id
+
+    client = TestClient(create_app(database_url, auth_clock=clock))
+
+    response = client.post(
+        "/api/auth/login",
+        json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD},
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "认证配置异常"}
+    with session_factory() as session:
+        first_user = session.get(UserRecord, first_user_id)
+        second_user = session.get(UserRecord, second_user_id)
+        assert first_user.failed_login_count == 0
+        assert second_user.failed_login_count == 0
+
+
 def test_successful_login_resets_failures_and_records_last_login(
     auth_context,
     clock,
@@ -425,9 +638,7 @@ def test_logout_requires_matching_csrf_revokes_session_and_clears_cookies(client
     response = client.post("/api/auth/logout", headers=csrf_headers(client))
 
     assert response.status_code == 204
-    cookies = response.headers.get_list("set-cookie")
-    assert any("arc_one_session=" in item and "Max-Age=0" in item for item in cookies)
-    assert any("arc_one_csrf=" in item and "Max-Age=0" in item for item in cookies)
+    assert_auth_cookies_cleared(response)
     assert client.get("/api/auth/session").status_code == 401
 
 
@@ -446,6 +657,65 @@ def test_disabled_user_cannot_login_and_existing_session_stops_working(
     assert client.get("/api/auth/session").status_code == 401
     disabled_login = login(TestClient(app))
     assert disabled_login.status_code == 401
+
+
+def test_failed_login_count_updates_atomically_across_stale_sessions(
+    tmp_path,
+    clock,
+):
+    database_url = f"sqlite:///{tmp_path / 'atomic-failures.db'}"
+    engine, session_factory = create_database(database_url)
+    Base.metadata.create_all(engine)
+    security = SecurityService()
+    with session_factory() as session:
+        admin = bootstrap_organization_admin(
+            session,
+            security,
+            organization_name="安克创新",
+            organization_slug="anker-innovation",
+            email=ADMIN_EMAIL,
+            display_name="平台管理员",
+            password=ADMIN_PASSWORD,
+            clock=clock,
+        )
+        admin_id = admin.id
+
+    service = AuthenticationService(
+        security,
+        Settings(database_url=database_url),
+        clock=clock,
+    )
+    first_session = session_factory()
+    second_session = session_factory()
+    try:
+        first_stale_user = first_session.get(UserRecord, admin_id)
+        second_stale_user = second_session.get(UserRecord, admin_id)
+        assert first_stale_user.failed_login_count == 0
+        assert second_stale_user.failed_login_count == 0
+
+        with pytest.raises(AuthenticationError):
+            service.login(
+                first_session,
+                email=ADMIN_EMAIL,
+                password="Wrong Password 12!",
+                ip_address=None,
+                user_agent=None,
+            )
+        with pytest.raises(AuthenticationError):
+            service.login(
+                second_session,
+                email=ADMIN_EMAIL,
+                password="Wrong Password 12!",
+                ip_address=None,
+                user_agent=None,
+            )
+    finally:
+        first_session.close()
+        second_session.close()
+
+    with session_factory() as session:
+        refreshed = session.get(UserRecord, admin_id)
+        assert refreshed.failed_login_count == 2
 
 
 def test_identity_records_enforce_approved_uniqueness_constraints(
@@ -630,6 +900,67 @@ def test_password_change_timestamp_invalidates_older_session(auth_context, clock
         session.commit()
 
     assert client.get("/api/auth/session").status_code == 401
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    ["missing", "revoked", "idle", "disabled", "password_changed"],
+)
+def test_session_401_clears_auth_cookies_for_invalid_session_states(
+    auth_context,
+    clock,
+    scenario,
+):
+    app, session_factory, admin_id = auth_context
+    client = TestClient(app)
+    if scenario != "missing":
+        assert login(client).status_code == 200
+
+    if scenario == "revoked":
+        with session_factory() as session:
+            record = session.scalar(select(SessionRecord))
+            record.revoked_at = clock.current
+            record.revoked_reason = "manual_revoke"
+            session.commit()
+    elif scenario == "idle":
+        clock.advance(hours=8, seconds=1)
+    elif scenario == "disabled":
+        with session_factory() as session:
+            admin = session.get(UserRecord, admin_id)
+            admin.status = "disabled"
+            session.commit()
+    elif scenario == "password_changed":
+        clock.advance(seconds=1)
+        with session_factory() as session:
+            admin = session.get(UserRecord, admin_id)
+            admin.password_changed_at = clock.current
+            session.commit()
+
+    response = client.get("/api/auth/session")
+
+    assert response.status_code == 401
+    assert_auth_cookies_cleared(response)
+
+
+def test_invalid_login_does_not_clear_existing_authenticated_session(client):
+    assert login(client).status_code == 200
+
+    failed = client.post(
+        "/api/auth/login",
+        json={"email": ADMIN_EMAIL, "password": "Wrong Password 12!"},
+    )
+
+    assert failed.status_code == 401
+    cookies = failed.headers.get_list("set-cookie")
+    assert not any(
+        "arc_one_session=" in item and "Max-Age=0" in item
+        for item in cookies
+    )
+    assert not any(
+        "arc_one_csrf=" in item and "Max-Age=0" in item
+        for item in cookies
+    )
+    assert client.get("/api/auth/session").status_code == 200
 
 
 def test_login_rejects_cross_origin_and_allows_same_origin(client):
