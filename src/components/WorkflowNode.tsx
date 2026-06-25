@@ -44,14 +44,30 @@ export function WorkflowNode({ data, selected }: NodeProps) {
       data-node-kind={nodeData.kind}
       data-node-status={nodeData.status ?? 'idle'}
     >
-      {nodeData.kind !== 'trigger' && <Handle type="target" position={Position.Left} />}
+      {nodeData.kind !== 'trigger' && (
+        <Handle
+          aria-label="输入连接点"
+          className="node-handle target"
+          title="输入连接点"
+          type="target"
+          position={Position.Left}
+        />
+      )}
       <div className="node-icon"><Icon size={17} /></div>
       <div className="node-copy">
         <strong>{nodeData.label}</strong>
         <span>{nodeData.subtitle}</span>
       </div>
       {nodeData.score !== undefined && <b className="node-score">{nodeData.score}</b>}
-      {nodeData.kind !== 'end' && <Handle type="source" position={Position.Right} />}
+      {nodeData.kind !== 'end' && (
+        <Handle
+          aria-label="输出连接点"
+          className="node-handle source"
+          title="输出连接点"
+          type="source"
+          position={Position.Right}
+        />
+      )}
     </div>
   )
 }

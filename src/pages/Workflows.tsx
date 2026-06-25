@@ -2,6 +2,7 @@ import {
   Background,
   BackgroundVariant,
   Controls,
+  MarkerType,
   MiniMap,
   ReactFlow,
   addEdge,
@@ -16,6 +17,7 @@ import {
   Bot,
   Braces,
   Check,
+  CircleCheck,
   Clock3,
   Database,
   FilePlus2,
@@ -58,33 +60,38 @@ import type {
 
 const nodeTypes = { workflow: WorkflowNode }
 
-const defaultNodes: Node[] = [
-  {
-    id: 'start',
-    type: 'workflow',
-    position: { x: 80, y: 220 },
-    data: { label: '手动触发', subtitle: '启动工作流', kind: 'trigger', status: 'idle' } satisfies WorkflowNodeData,
-  },
-  {
-    id: 'agent',
-    type: 'workflow',
-    position: { x: 390, y: 220 },
-    data: { label: '选择执行 Agent', subtitle: '尚未绑定发布版本', kind: 'agent', status: 'warning' } satisfies WorkflowNodeData,
-  },
-  {
-    id: 'end',
-    type: 'workflow',
-    position: { x: 720, y: 220 },
-    data: { label: '流程完成', subtitle: '结束节点', kind: 'end', status: 'idle' } satisfies WorkflowNodeData,
-  },
-]
+function createDefaultNodes(): Node[] {
+  return [
+    {
+      id: 'start',
+      type: 'workflow',
+      position: { x: 80, y: 220 },
+      data: { label: '手动触发', subtitle: '启动工作流', kind: 'trigger', status: 'idle' } satisfies WorkflowNodeData,
+    },
+    {
+      id: 'agent',
+      type: 'workflow',
+      position: { x: 390, y: 220 },
+      data: { label: '选择执行 Agent', subtitle: '尚未绑定发布版本', kind: 'agent', status: 'warning' } satisfies WorkflowNodeData,
+    },
+    {
+      id: 'end',
+      type: 'workflow',
+      position: { x: 720, y: 220 },
+      data: { label: '流程完成', subtitle: '结束节点', kind: 'end', status: 'idle' } satisfies WorkflowNodeData,
+    },
+  ]
+}
 
-const defaultEdges: Edge[] = [
-  { id: 'start-agent', source: 'start', target: 'agent' },
-  { id: 'agent-end', source: 'agent', target: 'end' },
-]
+function createDefaultEdges(): Edge[] {
+  return [
+    { id: 'start-agent', source: 'start', target: 'agent' },
+    { id: 'agent-end', source: 'agent', target: 'end' },
+  ]
+}
 
 const palette: Array<{ label: string; icon: typeof Bot; kind: WorkflowNodeData['kind'] }> = [
+  { label: '手动触发', icon: Play, kind: 'trigger' },
   { label: 'Agent', icon: Bot, kind: 'agent' },
   { label: '工具调用', icon: Wrench, kind: 'tool' },
   { label: '数据查询', icon: Database, kind: 'data' },
@@ -93,6 +100,7 @@ const palette: Array<{ label: string; icon: typeof Bot; kind: WorkflowNodeData['
   { label: '人工审核', icon: UserCheck, kind: 'human' },
   { label: '代码执行', icon: Braces, kind: 'code' },
   { label: '等待节点', icon: Clock3, kind: 'wait' },
+  { label: '流程完成', icon: CircleCheck, kind: 'end' },
 ]
 
 interface PublishedAgentOption {
@@ -102,8 +110,8 @@ interface PublishedAgentOption {
 }
 
 export function Workflows() {
-  const [nodes, setNodes, onNodesChange] = useNodesState(defaultNodes)
-  const [edges, setEdges, onEdgesChange] = useEdgesState(defaultEdges)
+  const [nodes, setNodes, onNodesChange] = useNodesState(createDefaultNodes())
+  const [edges, setEdges, onEdgesChange] = useEdgesState(createDefaultEdges())
   const [workflows, setWorkflows] = useState<WorkflowDraft[]>([])
   const [currentId, setCurrentId] = useState<string | null>(null)
   const [name, setName] = useState('未命名工作流')
@@ -252,8 +260,8 @@ export function Workflows() {
   function startNewWorkflow() {
     setCurrentId(null)
     setName('未命名工作流')
-    setNodes(defaultNodes)
-    setEdges(defaultEdges)
+    setNodes(createDefaultNodes())
+    setEdges(createDefaultEdges())
     setSelectedNode(null)
     setVersions([])
     setErrors([])
@@ -352,7 +360,13 @@ export function Workflows() {
           <label className="palette-search"><Search size={15} /><input placeholder="搜索节点" /></label>
           <span className="nav-section-label">基础节点</span>
           {palette.map(({ label, icon: Icon, kind }) => (
-            <button key={label} className="palette-item" title={`添加${label}节点`} onClick={() => addNode(kind, label)}>
+            <button
+              aria-label={`添加${label}节点`}
+              key={label}
+              className="palette-item"
+              title={`添加${label}节点`}
+              onClick={() => addNode(kind, label)}
+            >
               <span className={`palette-icon ${kind}`}><Icon size={16} /></span>{label}<Plus size={14} />
             </button>
           ))}
@@ -367,6 +381,15 @@ export function Workflows() {
             onConnect={onConnect}
             onNodeClick={(_, node) => setSelectedNode(node)}
             nodeTypes={nodeTypes}
+            connectionLineStyle={{ stroke: '#6579a8', strokeWidth: 2 }}
+            connectionRadius={24}
+            defaultEdgeOptions={{
+              type: 'smoothstep',
+              markerEnd: {
+                type: MarkerType.ArrowClosed,
+                color: '#8795b5',
+              },
+            }}
             fitView
             minZoom={0.35}
             maxZoom={1.5}

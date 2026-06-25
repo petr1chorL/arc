@@ -9,14 +9,24 @@ vi.mock('@xyflow/react', async () => {
     ...actual,
     ReactFlow: ({
       nodes,
+      edges,
+      onConnect,
       onNodeClick,
       children,
     }: {
       nodes: Array<{ id: string; data: Record<string, unknown> }>
+      edges: Array<{ id: string; source: string; target: string }>
+      onConnect?: (connection: {
+        source: string
+        target: string
+        sourceHandle: null
+        targetHandle: null
+      }) => void
       onNodeClick?: (event: unknown, node: unknown) => void
       children?: React.ReactNode
     }) => (
       <div>
+        <output data-testid="edge-count">{edges.length}</output>
         {nodes.map((node) => (
           <button
             data-testid={`flow-node-${node.id}`}
@@ -26,6 +36,19 @@ vi.mock('@xyflow/react', async () => {
             {String(node.data.label)}
           </button>
         ))}
+        {nodes.length >= 2 && (
+          <button
+            data-testid="connect-first-two"
+            onClick={() => onConnect?.({
+              source: nodes[0].id,
+              target: nodes[1].id,
+              sourceHandle: null,
+              targetHandle: null,
+            })}
+          >
+            模拟连接
+          </button>
+        )}
         {children}
       </div>
     ),
@@ -204,5 +227,141 @@ describe('Workflows', () => {
       escalationMinutes: 180,
       escalationGroupId: 'group-escalation',
     }))
+  })
+
+  it('offers start and end nodes in the node palette', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === '/api/workflows' && !init) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url === '/api/agents') {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url === '/api/reviewers' || url === '/api/review-groups') {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<Workflows />)
+
+    const triggerButton = await screen.findByRole('button', {
+      name: '添加手动触发节点',
+    })
+    const endButton = screen.getByRole('button', {
+      name: '添加流程完成节点',
+    })
+    expect(screen.getAllByText('手动触发')).toHaveLength(2)
+    expect(screen.getAllByText('流程完成')).toHaveLength(2)
+
+    await user.click(triggerButton)
+    await user.click(endButton)
+
+    expect(screen.getAllByText('手动触发')).toHaveLength(3)
+    expect(screen.getAllByText('流程完成')).toHaveLength(3)
+  })
+
+  it('restores the default connected graph when starting a new workflow', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/workflows') {
+        return Promise.resolve(new Response(JSON.stringify([workflow]), { status: 200 }))
+      }
+      if (url === '/api/agents') {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url === '/api/reviewers' || url === '/api/review-groups') {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<Workflows />)
+
+    await screen.findByTestId('flow-node-human-1')
+    expect(screen.getByTestId('edge-count')).toHaveTextContent('0')
+
+    await user.click(screen.getByRole('button', { name: '新建' }))
+
+    expect(screen.getByTestId('flow-node-start')).toHaveTextContent('手动触发')
+    expect(screen.getByTestId('flow-node-agent')).toHaveTextContent('选择执行 Agent')
+    expect(screen.getByTestId('flow-node-end')).toHaveTextContent('流程完成')
+    expect(screen.getByTestId('edge-count')).toHaveTextContent('2')
+  })
+
+  it('persists a connection made between two nodes', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const disconnectedWorkflow = {
+      ...workflow,
+      nodes: [
+        {
+          id: 'start',
+          type: 'trigger',
+          position: { x: 0, y: 0 },
+          data: { label: '手动触发', subtitle: '启动工作流' },
+        },
+        {
+          id: 'end',
+          type: 'end',
+          position: { x: 300, y: 0 },
+          data: { label: '流程完成', subtitle: '结束节点' },
+        },
+      ],
+      edges: [],
+    }
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === '/api/workflows' && !init) {
+        return Promise.resolve(new Response(JSON.stringify([disconnectedWorkflow]), { status: 200 }))
+      }
+      if (url === '/api/agents') {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url === '/api/reviewers' || url === '/api/review-groups') {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url === '/api/workflows/workflow-1' && init?.method === 'PATCH') {
+        return Promise.resolve(new Response(JSON.stringify(disconnectedWorkflow), { status: 200 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<Workflows />)
+
+    await screen.findByTestId('flow-node-start')
+    await user.click(screen.getByTestId('connect-first-two'))
+    await user.click(screen.getByRole('button', { name: '保存草稿' }))
+
+    const patchCall = fetchMock.mock.calls.find(([url, init]) => (
+      url === '/api/workflows/workflow-1' && init?.method === 'PATCH'
+    ))
+    const body = JSON.parse(patchCall?.[1]?.body as string)
+    expect(body.edges).toEqual([
+      expect.objectContaining({ source: 'start', target: 'end' }),
+    ])
   })
 })

@@ -1026,11 +1026,28 @@ kbd {
 .node-score { color: var(--teal); }
 
 .react-flow__handle {
-  width: 8px;
-  height: 8px;
-  border: 2px solid var(--teal);
+  width: 12px;
+  height: 12px;
+  border: 2px solid #6579a8;
   background: var(--surface);
   box-shadow: var(--shadow-raised-sm);
+  cursor: crosshair;
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+.react-flow__handle.source {
+  border-color: var(--teal);
+  background: var(--teal);
+}
+
+.react-flow__handle.target {
+  border-color: #6579a8;
+  background: var(--surface);
+}
+
+.react-flow__handle:hover {
+  transform: scale(1.25);
+  box-shadow: 0 0 0 5px rgba(101, 121, 168, 0.14);
 }
 
 .node-inspector {
@@ -1155,7 +1172,33 @@ kbd {
       -5px -5px 12px rgba(255, 255, 255, 0.82);
   }
 
-  .studio-body { padding: 0 12px 8px; }
+  .studio-body {
+    flex-direction: column;
+    padding: 0 12px 8px;
+  }
+
+  .node-palette {
+    display: flex;
+    width: auto;
+    max-width: 100%;
+    flex: 0 0 auto;
+    gap: 6px;
+    padding: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+  }
+
+  .node-palette .palette-search { display: none; }
+
+  .node-palette .palette-item {
+    width: auto;
+    min-width: max-content;
+    flex: 0 0 auto;
+    padding: 0 10px;
+  }
+
+  .node-palette .palette-item > svg { margin-left: 2px; }
 
   .node-inspector {
     right: 12px;
@@ -1165,7 +1208,10 @@ kbd {
     box-shadow: var(--shadow-raised-md);
   }
 
-  .flow-canvas { min-height: 520px; }
+  .flow-canvas {
+    min-height: 0;
+    flex: 1 1 auto;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
