@@ -2,7 +2,7 @@ from collections.abc import Iterator
 from collections.abc import Callable
 from datetime import datetime
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
@@ -384,9 +384,21 @@ def create_app(
 
     @app.get("/api/human-tasks", response_model=list[HumanTaskRead])
     def list_human_tasks(
+        status: str | None = None,
+        reviewer_id: str | None = Query(default=None, alias="reviewerId"),
+        group_id: str | None = Query(default=None, alias="groupId"),
+        sla_status: str | None = Query(default=None, alias="slaStatus"),
+        active: bool = False,
         session: Session = Depends(get_session),
     ) -> list[HumanTaskRecord]:
-        return human_task_service.list_tasks(session)
+        return human_task_service.list_tasks(
+            session,
+            status=status,
+            reviewer_id=reviewer_id,
+            group_id=group_id,
+            sla_status=sla_status,
+            active=active,
+        )
 
     @app.get("/api/reviewers", response_model=list[ReviewerRead])
     def list_reviewers(

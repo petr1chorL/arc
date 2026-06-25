@@ -1,9 +1,13 @@
 from collections import deque
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import AgentVersionRecord
+from app.models import (
+    AgentVersionRecord,
+    ReviewGroupMemberRecord,
+    ReviewGroupRecord,
+)
 
 
 def next_version(existing_count: int) -> str:
@@ -74,18 +78,64 @@ def validate_workflow(
         errors.append("工作流不能包含有向环")
 
     for node in nodes:
-        if node["type"] != "agent":
+        if node["type"] == "agent":
+            agent_id = node["data"].get("agentId")
+            agent_version = node["data"].get("agentVersion")
+            if not agent_id or not agent_version:
+                errors.append(f"Agent 节点 {node['id']} 必须选择已发布版本")
+                continue
+            statement = select(AgentVersionRecord).where(
+                AgentVersionRecord.agent_id == agent_id,
+                AgentVersionRecord.version == agent_version,
+            )
+            if session.scalar(statement) is None:
+                errors.append(f"Agent 版本 {agent_id}@{agent_version} 不存在")
             continue
-        agent_id = node["data"].get("agentId")
-        agent_version = node["data"].get("agentVersion")
-        if not agent_id or not agent_version:
-            errors.append(f"Agent 节点 {node['id']} 必须选择已发布版本")
+
+        if node["type"] != "human":
             continue
-        statement = select(AgentVersionRecord).where(
-            AgentVersionRecord.agent_id == agent_id,
-            AgentVersionRecord.version == agent_version,
-        )
-        if session.scalar(statement) is None:
-            errors.append(f"Agent 版本 {agent_id}@{agent_version} 不存在")
+        data = node["data"]
+        assignment_type = data.get("assignmentType", "group_claim")
+        reviewer_ids = data.get("reviewerIds", [])
+        group_id = data.get("groupId")
+        if not reviewer_ids and not group_id:
+            default_group = session.scalar(
+                select(ReviewGroupRecord)
+                .where(ReviewGroupRecord.is_escalation_group.is_(False))
+                .order_by(ReviewGroupRecord.created_at.asc()),
+            )
+            group_id = default_group.id if default_group else None
+        if assignment_type not in {"direct", "group_claim", "round_robin"}:
+            errors.append(f"Human 节点 {node['id']} 的分配方式无效")
+        if assignment_type == "direct" and not reviewer_ids:
+            errors.append(f"Human 节点 {node['id']} 直接分配必须选择审核人")
+        if assignment_type == "round_robin" and not group_id:
+            errors.append(f"Human 节点 {node['id']} 轮询分配必须选择审核组")
+
+        review_policy = data.get("reviewPolicy", "any_one")
+        required_approvals = int(data.get("requiredApprovals", 1))
+        participant_count = len(reviewer_ids)
+        if assignment_type != "direct" and group_id:
+            participant_count = session.scalar(
+                select(func.count())
+                .select_from(ReviewGroupMemberRecord)
+                .where(ReviewGroupMemberRecord.group_id == group_id),
+            ) or 0
+        if review_policy == "threshold":
+            if required_approvals <= 0:
+                errors.append(f"Human 节点 {node['id']} 的通过人数必须大于 0")
+            if required_approvals > participant_count:
+                errors.append(
+                    f"Human 节点 {node['id']} 的通过人数不能超过参与审核人数"
+                )
+
+        due_minutes = int(data.get("dueMinutes", 240))
+        escalation_minutes = int(data.get("escalationMinutes", 480))
+        if due_minutes <= 0:
+            errors.append(f"Human 节点 {node['id']} 的截止时间必须大于 0")
+        if escalation_minutes <= due_minutes:
+            errors.append(
+                f"Human 节点 {node['id']} 的升级时间必须晚于截止时间"
+            )
 
     return errors

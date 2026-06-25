@@ -104,3 +104,57 @@ def test_workflow_publish_rejects_cycles_and_unpublished_agent_references(tmp_pa
     assert any("有向环" in error for error in validation.json()["errors"])
     assert any("Agent 版本" in error for error in validation.json()["errors"])
     assert published.status_code == 422
+
+
+def test_workflow_publish_rejects_invalid_human_node_configuration(tmp_path):
+    client = TestClient(create_app(f"sqlite:///{tmp_path / 'human-validation.db'}"))
+    graph = {
+        "nodes": [
+            {
+                "id": "start",
+                "type": "trigger",
+                "position": {"x": 0, "y": 0},
+                "data": {"label": "开始"},
+            },
+            {
+                "id": "human",
+                "type": "human",
+                "position": {"x": 220, "y": 0},
+                "data": {
+                    "label": "人工审核",
+                    "assignmentType": "direct",
+                    "reviewerIds": [],
+                    "reviewPolicy": "threshold",
+                    "requiredApprovals": 2,
+                    "dueMinutes": 0,
+                    "escalationMinutes": 0,
+                },
+            },
+            {
+                "id": "end",
+                "type": "end",
+                "position": {"x": 440, "y": 0},
+                "data": {"label": "结束"},
+            },
+        ],
+        "edges": [
+            {"id": "start-human", "source": "start", "target": "human"},
+            {"id": "human-end", "source": "human", "target": "end"},
+        ],
+    }
+    workflow = client.post(
+        "/api/workflows",
+        json={"name": "无效人工审核流程", **graph},
+    ).json()
+
+    validation = client.post(f"/api/workflows/{workflow['id']}/validate")
+    published = client.post(f"/api/workflows/{workflow['id']}/publish")
+
+    assert validation.status_code == 200
+    assert validation.json()["valid"] is False
+    errors = validation.json()["errors"]
+    assert any("直接分配必须选择审核人" in error for error in errors)
+    assert any("通过人数不能超过参与审核人数" in error for error in errors)
+    assert any("截止时间必须大于 0" in error for error in errors)
+    assert any("升级时间必须晚于截止时间" in error for error in errors)
+    assert published.status_code == 422

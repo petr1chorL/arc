@@ -59,6 +59,50 @@ def decision_body(task: dict, reviewer_id: str, decision: str) -> dict:
     }
 
 
+def test_human_task_queue_supports_assignment_status_sla_and_active_filters(tmp_path):
+    client, task, reviewers = create_task(tmp_path)
+    groups = client.get("/api/review-groups").json()
+    assigned_group = next(
+        group for group in groups if group["id"] == task["assigneeGroupId"]
+    )
+
+    claimed = client.post(
+        f"/api/human-tasks/{task['id']}/claim",
+        json={"reviewerId": reviewers[0]["id"]},
+    ).json()
+
+    assert [
+        item["id"]
+        for item in client.get(
+            "/api/human-tasks",
+            params={
+                "status": "审核中",
+                "reviewerId": reviewers[0]["id"],
+                "groupId": assigned_group["id"],
+                "slaStatus": "正常",
+                "active": True,
+            },
+        ).json()
+    ] == [claimed["id"]]
+
+    client.post(
+        f"/api/human-tasks/{task['id']}/decisions",
+        json=decision_body(task, reviewers[0]["id"], "approve"),
+    )
+
+    assert client.get(
+        "/api/human-tasks",
+        params={"active": True},
+    ).json() == []
+    assert [
+        item["id"]
+        for item in client.get(
+            "/api/human-tasks",
+            params={"status": "已通过", "active": False},
+        ).json()
+    ] == [task["id"]]
+
+
 def test_directory_claim_conflict_and_transfer(tmp_path):
     client, task, reviewers = create_task(tmp_path)
     groups_response = client.get("/api/review-groups")

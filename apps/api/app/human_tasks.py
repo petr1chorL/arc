@@ -286,13 +286,34 @@ class HumanTaskService:
         session.refresh(task)
         return node_run, task
 
-    def list_tasks(self, session: Session) -> list[HumanTaskRecord]:
+    def list_tasks(
+        self,
+        session: Session,
+        *,
+        status: str | None = None,
+        reviewer_id: str | None = None,
+        group_id: str | None = None,
+        sla_status: str | None = None,
+        active: bool = False,
+    ) -> list[HumanTaskRecord]:
         statement = select(HumanTaskRecord).order_by(HumanTaskRecord.created_at.desc())
         tasks = list(session.scalars(statement))
         for task in tasks:
             self.refresh_sla(session, task)
         session.commit()
-        return tasks
+        terminal_statuses = {"已通过", "修改后通过", "已驳回", "已退回"}
+        return [
+            task
+            for task in tasks
+            if (status is None or task.status == status)
+            and (
+                reviewer_id is None
+                or task.assignee_reviewer_id == reviewer_id
+            )
+            and (group_id is None or task.assignee_group_id == group_id)
+            and (sla_status is None or task.sla_status == sla_status)
+            and (not active or task.status not in terminal_statuses)
+        ]
 
     def get_task(self, session: Session, task_id: str) -> HumanTaskRecord | None:
         return session.get(HumanTaskRecord, task_id)
