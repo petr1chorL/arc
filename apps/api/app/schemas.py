@@ -4,6 +4,41 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
+class LoginCreate(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=12, max_length=1024)
+
+
+class AuthUserRead(BaseModel):
+    id: str
+    email: str
+    display_name: str = Field(serialization_alias="displayName")
+    is_organization_admin: bool = Field(
+        serialization_alias="isOrganizationAdmin",
+    )
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class AuthSessionRead(BaseModel):
+    user: AuthUserRead
+
+
+class ChangePasswordCreate(BaseModel):
+    current_password: str = Field(
+        alias="currentPassword",
+        min_length=1,
+        max_length=1024,
+    )
+    new_password: str = Field(
+        alias="newPassword",
+        min_length=12,
+        max_length=1024,
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class AgentCreate(BaseModel):
     name: str = Field(max_length=80)
     role: str = Field(max_length=240)

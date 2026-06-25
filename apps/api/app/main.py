@@ -8,12 +8,15 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.config import Settings
+from app.auth import AuthenticationService
 from app.database import create_database, session_scope
 from app.domain import next_version, validate_workflow
 from app.execution import ExecutionService, WorkflowResumeService
 from app.human_tasks import HumanTaskConflict, HumanTaskService, HumanTaskValidation
 from app.migrations import ensure_current_schema
 from app.model_gateway import ModelGateway, OpenAICompatibleGateway
+from app.routers.auth import create_auth_router
+from app.security import SecurityService
 from app.models import (
     AgentRecord,
     AgentVersionRecord,
@@ -58,6 +61,7 @@ def create_app(
     database_url: str | None = None,
     model_gateway: ModelGateway | None = None,
     human_task_clock: Callable[[], datetime] = utc_now,
+    auth_clock: Callable[[], datetime] = utc_now,
 ) -> FastAPI:
     settings = Settings()
     resolved_database_url = database_url or settings.database_url
@@ -69,6 +73,11 @@ def create_app(
             raise
     ensure_current_schema(engine)
     app = FastAPI(title="ARC.ONE API")
+    authentication_service = AuthenticationService(
+        SecurityService(),
+        settings,
+        clock=auth_clock,
+    )
     human_task_service = HumanTaskService(human_task_clock)
     with session_factory() as bootstrap_session:
         human_task_service.ensure_default_directory(bootstrap_session)
@@ -84,6 +93,16 @@ def create_app(
 
     def get_session() -> Iterator[Session]:
         yield from session_scope(session_factory)
+
+    app.state.session_factory = session_factory
+    app.state.authentication_service = authentication_service
+    app.include_router(
+        create_auth_router(
+            get_session,
+            authentication_service,
+            settings,
+        ),
+    )
 
     @app.get("/api/agents", response_model=list[AgentRead])
     def list_agents(session: Session = Depends(get_session)) -> list[AgentRecord]:
