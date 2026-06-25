@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.domain import topological_order
+from app.human_tasks import HumanTaskService
 from app.model_gateway import ModelGateway
 from app.models import (
     AgentVersionRecord,
@@ -36,9 +37,15 @@ def quality_score(output: str) -> int:
 
 
 class ExecutionService:
-    def __init__(self, gateway: ModelGateway, settings: Settings):
+    def __init__(
+        self,
+        gateway: ModelGateway,
+        settings: Settings,
+        human_task_service: HumanTaskService,
+    ):
         self.gateway = gateway
         self.settings = settings
+        self.human_task_service = human_task_service
 
     def calculate_cost(self, prompt_tokens: int, completion_tokens: int) -> float:
         return round(
@@ -209,6 +216,29 @@ class ExecutionService:
                     agent_version=node["data"]["agentVersion"],
                     max_attempts=int(node["data"].get("retryMaxAttempts", 2)),
                 )
+            elif node["type"] == "human":
+                source_node_id = predecessors[node_id][-1]
+                source_node_run = next(
+                    item for item in reversed(node_runs) if item.node_id == source_node_id
+                )
+                node_run, _ = self.human_task_service.pause_for_review(
+                    session=session,
+                    run=run,
+                    node=node,
+                    node_input=node_input,
+                    source_node_id=source_node_id,
+                    source_node_run_id=source_node_run.id,
+                    score=source_node_run.score,
+                )
+                node_runs.append(node_run)
+                run.prompt_tokens = sum(item.prompt_tokens for item in node_runs)
+                run.completion_tokens = sum(item.completion_tokens for item in node_runs)
+                run.total_tokens = sum(item.total_tokens for item in node_runs)
+                run.cost_usd = round(sum(item.cost_usd for item in node_runs), 8)
+                run.model = next((item.model for item in reversed(node_runs) if item.model), "")
+                run.duration_ms = int((perf_counter() - started) * 1000)
+                session.commit()
+                return run
             else:
                 now = utc_now()
                 node_run = NodeRunRecord(

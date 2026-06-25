@@ -129,6 +129,37 @@ class ArtifactRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class ArtifactVersionRecord(Base):
+    __tablename__ = "artifact_versions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    artifact_id: Mapped[str] = mapped_column(String(36), index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    parent_version_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    content: Mapped[str] = mapped_column(Text)
+    created_by: Mapped[str] = mapped_column(String(80), default="system")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class HumanTaskRecord(Base):
+    __tablename__ = "human_tasks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workflow_run_id: Mapped[str] = mapped_column(String(36), index=True)
+    node_run_id: Mapped[str] = mapped_column(String(36), unique=True)
+    human_node_id: Mapped[str] = mapped_column(String(120))
+    source_node_id: Mapped[str] = mapped_column(String(120))
+    artifact_version_id: Mapped[str] = mapped_column(String(36))
+    title: Mapped[str] = mapped_column(String(200))
+    status: Mapped[str] = mapped_column(String(32), default="待认领")
+    assignment_type: Mapped[str] = mapped_column(String(32), default="group_claim")
+    review_policy: Mapped[str] = mapped_column(String(32), default="any_one")
+    required_approvals: Mapped[int] = mapped_column(Integer, default=1)
+    participant_snapshot: Mapped[list[str]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class HumanReviewRecord(Base):
     __tablename__ = "human_reviews"
 

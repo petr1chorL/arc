@@ -9,6 +9,7 @@ from app.config import Settings
 from app.database import create_database, session_scope
 from app.domain import next_version, validate_workflow
 from app.execution import ExecutionService
+from app.human_tasks import HumanTaskService
 from app.migrations import ensure_current_schema
 from app.model_gateway import ModelGateway, OpenAICompatibleGateway
 from app.models import (
@@ -19,6 +20,7 @@ from app.models import (
     WorkflowRunRecord,
     WorkflowVersionRecord,
     HumanReviewRecord,
+    HumanTaskRecord,
     NodeRunRecord,
     utc_now,
 )
@@ -27,6 +29,8 @@ from app.schemas import (
     AgentRead,
     AgentUpdate,
     HumanReviewRead,
+    HumanTaskDetailRead,
+    HumanTaskRead,
     NodeRunRead,
     ReviewDecision,
     RunCreate,
@@ -53,9 +57,11 @@ def create_app(
             raise
     ensure_current_schema(engine)
     app = FastAPI(title="ARC.ONE API")
+    human_task_service = HumanTaskService()
     execution_service = ExecutionService(
         model_gateway or OpenAICompatibleGateway(settings),
         settings,
+        human_task_service,
     )
 
     def get_session() -> Iterator[Session]:
@@ -357,6 +363,22 @@ def create_app(
     def list_reviews(session: Session = Depends(get_session)) -> list[HumanReviewRecord]:
         statement = select(HumanReviewRecord).order_by(HumanReviewRecord.created_at.desc())
         return list(session.scalars(statement))
+
+    @app.get("/api/human-tasks", response_model=list[HumanTaskRead])
+    def list_human_tasks(
+        session: Session = Depends(get_session),
+    ) -> list[HumanTaskRecord]:
+        return human_task_service.list_tasks(session)
+
+    @app.get("/api/human-tasks/{task_id}", response_model=HumanTaskDetailRead)
+    def get_human_task(
+        task_id: str,
+        session: Session = Depends(get_session),
+    ) -> dict:
+        detail = human_task_service.get_task_detail(session, task_id)
+        if detail is None:
+            raise HTTPException(status_code=404, detail="人工任务不存在")
+        return detail
 
     @app.post("/api/reviews/{review_id}/decision", response_model=HumanReviewRead)
     def decide_review(

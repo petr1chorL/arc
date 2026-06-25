@@ -181,3 +181,53 @@ class HumanReviewRead(BaseModel):
     created_at: datetime = Field(serialization_alias="createdAt")
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class HumanTaskRead(BaseModel):
+    id: str
+    workflow_run_id: str = Field(serialization_alias="workflowRunId")
+    node_run_id: str = Field(serialization_alias="nodeRunId")
+    human_node_id: str = Field(serialization_alias="humanNodeId")
+    source_node_id: str = Field(serialization_alias="sourceNodeId")
+    artifact_version_id: str = Field(serialization_alias="artifactVersionId")
+    title: str
+    status: str
+    assignment_type: str = Field(serialization_alias="assignmentType")
+    review_policy: str = Field(serialization_alias="reviewPolicy")
+    required_approvals: int = Field(serialization_alias="requiredApprovals")
+    participant_snapshot: list[str] = Field(serialization_alias="participantSnapshot")
+    created_at: datetime = Field(serialization_alias="createdAt")
+    updated_at: datetime = Field(serialization_alias="updatedAt")
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class ArtifactVersionSummary(BaseModel):
+    id: str
+    version: int
+    content: str
+    created_by: str = Field(serialization_alias="createdBy")
+    created_at: datetime = Field(serialization_alias="createdAt")
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class HumanTaskRunSummary(BaseModel):
+    id: str
+    name: str
+    status: str
+    current_node: str = Field(serialization_alias="currentNode")
+    score: int | None
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class ApprovalProgress(BaseModel):
+    required: int
+    received: int
+
+
+class HumanTaskDetailRead(HumanTaskRead):
+    artifact: ArtifactVersionSummary
+    run: HumanTaskRunSummary
+    approval_progress: ApprovalProgress = Field(serialization_alias="approvalProgress")
