@@ -21,6 +21,7 @@ apps/api/data/
 test-results/
 playwright-report/
 .scratch/
+.worktrees/
 
 # Editor directories and files
 .vscode/*
