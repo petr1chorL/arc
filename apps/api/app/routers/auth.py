@@ -17,6 +17,47 @@ from app.models import SessionRecord, UserRecord
 from app.schemas import AuthSessionRead, ChangePasswordCreate, LoginCreate
 
 
+class SessionAuthenticationError(Exception):
+    pass
+
+
+def clear_auth_cookies(
+    response: Response,
+    settings: Settings,
+) -> None:
+    response.delete_cookie(
+        settings.session_cookie_name,
+        httponly=True,
+        secure=settings.cookie_secure,
+        samesite="lax",
+        path="/",
+    )
+    response.delete_cookie(
+        settings.csrf_cookie_name,
+        httponly=False,
+        secure=settings.cookie_secure,
+        samesite="lax",
+        path="/",
+    )
+
+
+def build_session_auth_error_handler(
+    settings: Settings,
+) -> Callable[[Request, SessionAuthenticationError], JSONResponse]:
+    async def handler(
+        _request: Request,
+        exc: SessionAuthenticationError,
+    ) -> JSONResponse:
+        response = JSONResponse(
+            status_code=401,
+            content={"detail": str(exc)},
+        )
+        clear_auth_cookies(response, settings)
+        return response
+
+    return handler
+
+
 def create_auth_router(
     get_session: Callable,
     service: AuthenticationService,
@@ -49,30 +90,6 @@ def create_auth_router(
             path="/",
         )
 
-    def clear_auth_cookies(response: Response) -> None:
-        response.delete_cookie(
-            settings.session_cookie_name,
-            httponly=True,
-            secure=settings.cookie_secure,
-            samesite="lax",
-            path="/",
-        )
-        response.delete_cookie(
-            settings.csrf_cookie_name,
-            httponly=False,
-            secure=settings.cookie_secure,
-            samesite="lax",
-            path="/",
-        )
-
-    def unauthorized_auth_response(detail: str) -> JSONResponse:
-        response = JSONResponse(
-            status_code=401,
-            content={"detail": detail},
-        )
-        clear_auth_cookies(response)
-        return response
-
     def require_same_origin(request: Request) -> None:
         origin = request.headers.get("origin")
         if origin is None:
@@ -94,7 +111,7 @@ def create_auth_router(
                 session_token,
             )
         except AuthenticationError as error:
-            raise HTTPException(status_code=401, detail=str(error)) from None
+            raise SessionAuthenticationError(str(error)) from None
         return user, session_record, session
 
     def csrf_protected(
@@ -145,16 +162,13 @@ def create_auth_router(
 
     @router.get("/session", response_model=AuthSessionRead)
     def read_session(
-        session: Session = Depends(get_session),
-        session_token: str | None = Cookie(
-            default=None,
-            alias=settings.session_cookie_name,
-        ),
-    ) -> AuthSessionRead | JSONResponse:
-        try:
-            user, _ = service.authenticate_session(session, session_token)
-        except AuthenticationError as error:
-            return unauthorized_auth_response(str(error))
+        context: tuple[
+            UserRecord,
+            SessionRecord,
+            Session,
+        ] = Depends(authenticated),
+    ) -> AuthSessionRead:
+        user, _, _ = context
         return AuthSessionRead(user=user)
 
     @router.post("/logout", status_code=204)
@@ -168,7 +182,7 @@ def create_auth_router(
     ) -> None:
         _, session_record, session = context
         service.revoke_session(session, session_record, "logout")
-        clear_auth_cookies(response)
+        clear_auth_cookies(response, settings)
 
     @router.post("/change-password", status_code=204)
     def change_password(
@@ -190,6 +204,6 @@ def create_auth_router(
             )
         except PasswordChangeError as error:
             raise HTTPException(status_code=422, detail=str(error)) from None
-        clear_auth_cookies(response)
+        clear_auth_cookies(response, settings)
 
     return router

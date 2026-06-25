@@ -108,6 +108,27 @@ def assert_auth_cookies_cleared(response) -> None:
     )
 
 
+def protected_route_request(
+    client: TestClient,
+    route_name: str,
+) -> object:
+    if route_name == "logout":
+        return client.post(
+            "/api/auth/logout",
+            headers=csrf_headers(client),
+        )
+    if route_name == "change_password":
+        return client.post(
+            "/api/auth/change-password",
+            headers=csrf_headers(client),
+            json={
+                "currentPassword": ADMIN_PASSWORD,
+                "newPassword": NEW_PASSWORD,
+            },
+        )
+    raise AssertionError(f"unknown protected route {route_name}")
+
+
 def create_organization_user(
     session,
     security: SecurityService,
@@ -937,6 +958,38 @@ def test_session_401_clears_auth_cookies_for_invalid_session_states(
             session.commit()
 
     response = client.get("/api/auth/session")
+
+    assert response.status_code == 401
+    assert_auth_cookies_cleared(response)
+
+
+@pytest.mark.parametrize("route_name", ["logout", "change_password"])
+@pytest.mark.parametrize("scenario", ["revoked", "disabled", "idle"])
+def test_protected_session_401_clears_auth_cookies_for_invalid_sessions(
+    auth_context,
+    clock,
+    route_name,
+    scenario,
+):
+    app, session_factory, admin_id = auth_context
+    client = TestClient(app)
+    assert login(client).status_code == 200
+
+    if scenario == "revoked":
+        with session_factory() as session:
+            record = session.scalar(select(SessionRecord))
+            record.revoked_at = clock.current
+            record.revoked_reason = "manual_revoke"
+            session.commit()
+    elif scenario == "disabled":
+        with session_factory() as session:
+            admin = session.get(UserRecord, admin_id)
+            admin.status = "disabled"
+            session.commit()
+    elif scenario == "idle":
+        clock.advance(hours=8, seconds=1)
+
+    response = protected_route_request(client, route_name)
 
     assert response.status_code == 401
     assert_auth_cookies_cleared(response)

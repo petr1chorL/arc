@@ -15,7 +15,11 @@ from app.execution import ExecutionService, WorkflowResumeService
 from app.human_tasks import HumanTaskConflict, HumanTaskService, HumanTaskValidation
 from app.migrations import ensure_current_schema
 from app.model_gateway import ModelGateway, OpenAICompatibleGateway
-from app.routers.auth import create_auth_router
+from app.routers.auth import (
+    SessionAuthenticationError,
+    build_session_auth_error_handler,
+    create_auth_router,
+)
 from app.security import SecurityService
 from app.models import (
     AgentRecord,
@@ -73,6 +77,10 @@ def create_app(
             raise
     ensure_current_schema(engine)
     app = FastAPI(title="ARC.ONE API")
+    app.add_exception_handler(
+        SessionAuthenticationError,
+        build_session_auth_error_handler(settings),
+    )
     authentication_service = AuthenticationService(
         SecurityService(),
         settings,
