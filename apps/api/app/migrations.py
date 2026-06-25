@@ -53,3 +53,10 @@ def ensure_current_schema(engine: Engine) -> None:
             "escalated_at": "DATETIME",
         },
     )
+    ensure_columns(
+        engine,
+        "review_decisions",
+        {
+            "tags": "TEXT NOT NULL DEFAULT '[]'",
+        },
+    )

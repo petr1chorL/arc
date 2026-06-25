@@ -2,7 +2,7 @@ from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.orm import Session
 
 from app.migrations import ensure_current_schema
-from app.models import Base, HumanTaskRecord
+from app.models import Base, HumanTaskRecord, ReviewDecisionRecord
 
 
 def test_existing_human_task_table_is_upgraded_without_losing_rows(tmp_path):
@@ -41,6 +41,30 @@ def test_existing_human_task_table_is_upgraded_without_losing_rows(tmp_path):
                 )
             """),
         )
+        connection.execute(text("""
+            CREATE TABLE review_decisions (
+                id VARCHAR(36) PRIMARY KEY,
+                human_task_id VARCHAR(36) NOT NULL,
+                reviewer_id VARCHAR(36) NOT NULL,
+                decision VARCHAR(32) NOT NULL,
+                reason TEXT NOT NULL,
+                artifact_version_id VARCHAR(36) NOT NULL,
+                idempotency_key VARCHAR(160) NOT NULL,
+                created_at DATETIME NOT NULL
+            )
+        """))
+        connection.execute(
+            text("""
+                INSERT INTO review_decisions (
+                    id, human_task_id, reviewer_id, decision, reason,
+                    artifact_version_id, idempotency_key, created_at
+                ) VALUES (
+                    'legacy-decision', 'legacy-task', 'reviewer-1', 'approve',
+                    '历史决定', 'artifact-version-1', 'legacy-key',
+                    CURRENT_TIMESTAMP
+                )
+            """),
+        )
 
     Base.metadata.create_all(engine)
     ensure_current_schema(engine)
@@ -59,6 +83,11 @@ def test_existing_human_task_table_is_upgraded_without_losing_rows(tmp_path):
         "overdue_recorded_at",
         "escalated_at",
     } <= columns
+    decision_columns = {
+        column["name"]
+        for column in inspect(engine).get_columns("review_decisions")
+    }
+    assert "tags" in decision_columns
 
     with Session(engine) as session:
         task = session.scalar(
@@ -67,3 +96,11 @@ def test_existing_human_task_table_is_upgraded_without_losing_rows(tmp_path):
         assert task is not None
         assert task.title == "历史审核任务"
         assert task.sla_status == "正常"
+        decision = session.scalar(
+            select(ReviewDecisionRecord).where(
+                ReviewDecisionRecord.id == "legacy-decision",
+            ),
+        )
+        assert decision is not None
+        assert decision.reason == "历史决定"
+        assert decision.tags == []
