@@ -1,6 +1,6 @@
 import pytest
 from argon2 import PasswordHasher
-from argon2.exceptions import VerificationError
+from argon2.exceptions import HashingError, VerificationError
 from pydantic import ValidationError
 
 from app.config import Settings
@@ -15,6 +15,22 @@ def test_password_hash_is_argon2_and_verifies():
     assert encoded.startswith("$argon2id$")
     assert security.verify_password("Correct Horse Battery Staple 42!", encoded)
     assert not security.verify_password("wrong password", encoded)
+
+
+def test_password_hashing_errors_are_propagated(monkeypatch):
+    security = SecurityService()
+
+    def raise_hashing_error(self, password):
+        raise HashingError("hashing failed")
+
+    monkeypatch.setattr(
+        PasswordHasher,
+        "hash",
+        raise_hashing_error,
+    )
+
+    with pytest.raises(HashingError):
+        security.hash_password("password")
 
 
 def test_password_verification_errors_are_rejected(monkeypatch):
