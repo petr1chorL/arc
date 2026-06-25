@@ -27,3 +27,15 @@
 - 确认 V0.7A 只生成可复制激活链接，不引入邮件发送服务。
 
 下一项：用户复核正式设计文档，确认后进入实施计划。
+
+### V0.7A 实施计划
+
+- 已开始映射后端模型、Schema、服务、路由、前端 API、路由和测试文件。
+- 确认认证、授权和审计需拆成独立模块，避免继续扩张 `main.py`。
+- 实施计划写入 `docs/superpowers/plans/2026-06-25-v0.7a-identity-access.md`，
+  按 10 个串行 Task（含 Task 0 项目管理）覆盖安全原语、认证、迁移、RBAC、前端、
+  成员、Reviewer、审计和 E2E。
+- 计划自检完成：10 个 Task（含 Task 0 项目管理）、64 个可跟踪步骤、9 个代码提交点。
+- 修正 CSRF 设计为 HttpOnly Session Cookie + 可读 CSRF Cookie + 请求头摘要校验。
+
+下一项：选择 Subagent-Driven 或 Inline Execution 开始实施。

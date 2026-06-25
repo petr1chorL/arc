@@ -17,7 +17,7 @@
 | 3. 工作流编排增强 | pending | 输入输出映射、条件、并行、汇聚、子流程、调试 |
 | 4. 可靠异步执行 | pending | Worker、暂停终止、重试恢复、事件推送和后台 SLA |
 | 5. 企业连接与通知 | pending | Tool/Skill/MCP 资产、飞书通知和首批真实连接器 |
-| 6. 身份权限与治理 | pending | 登录、组织、RBAC、密钥、审计、环境和配额 |
+| 6. 身份权限与治理 | in_progress | 登录、组织、RBAC、密钥、审计、环境和配额 |
 | 7. 可观测与生产部署 | pending | Trace、成本、告警、PostgreSQL、迁移、CI/CD、备份 |
 | 8. 真实试点与 V1.0 | pending | 业务试点、压力安全测试、灰度、SLO 和运维手册 |
 
