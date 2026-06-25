@@ -8,6 +8,14 @@ class LoginCreate(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     password: str = Field(min_length=12, max_length=1024)
 
+    @field_validator("email")
+    @classmethod
+    def reject_blank_email(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("邮箱不能为空")
+        return normalized
+
 
 class AuthUserRead(BaseModel):
     id: str
@@ -27,7 +35,7 @@ class AuthSessionRead(BaseModel):
 class ChangePasswordCreate(BaseModel):
     current_password: str = Field(
         alias="currentPassword",
-        min_length=1,
+        min_length=12,
         max_length=1024,
     )
     new_password: str = Field(
