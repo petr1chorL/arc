@@ -365,9 +365,11 @@ export function Reviews() {
                   ))}
                 </select>
               </label>
-              <button className="button secondary" disabled={isBusy || isTerminal} onClick={() => void claim()}>
-                <UserCheck size={15} />认领任务
-              </button>
+              {!detail.assigneeReviewerId && !isTerminal && (
+                <button className="button secondary" disabled={isBusy} onClick={() => void claim()}>
+                  <UserCheck size={15} />认领任务
+                </button>
+              )}
             </div>
 
             <section className="artifact-work-area">

@@ -222,6 +222,7 @@ describe('Reviews', () => {
     await screen.findByText(detail.artifact.content)
     await user.click(screen.getByRole('button', { name: '认领任务' }))
     expect(await screen.findByText('任务已认领')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '认领任务' })).not.toBeInTheDocument()
 
     await user.selectOptions(screen.getByLabelText('转交审核人'), 'reviewer-2')
     await user.type(screen.getByLabelText('转交原因'), '需要质量专家处理')

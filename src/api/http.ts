@@ -9,7 +9,18 @@ export class ApiError extends Error {
 }
 
 export async function readJson<T>(response: Response): Promise<T> {
-  const data = await response.json() as T | { detail?: string | string[] }
+  let data: T | { detail?: string | string[] }
+  try {
+    data = await response.json() as T | { detail?: string | string[] }
+  } catch {
+    if (!response.ok) {
+      const message = response.status >= 500
+        ? '服务暂时不可用，请稍后重试'
+        : '请求失败'
+      throw new ApiError(response.status, message)
+    }
+    throw new ApiError(response.status, '服务响应格式异常')
+  }
   if (!response.ok) {
     const detail = 'detail' in (data as object)
       ? (data as { detail?: string | string[] }).detail
