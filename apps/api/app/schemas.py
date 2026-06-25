@@ -311,3 +311,45 @@ class HumanTaskDecisionCreate(BaseModel):
     tags: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(populate_by_name=True)
+
+
+class FeedbackCandidateRead(BaseModel):
+    id: str
+    human_task_id: str = Field(serialization_alias="humanTaskId")
+    original_version_id: str = Field(serialization_alias="originalVersionId")
+    modified_version_id: str = Field(serialization_alias="modifiedVersionId")
+    original_content: str = Field(serialization_alias="originalContent")
+    modified_content: str = Field(serialization_alias="modifiedContent")
+    unified_diff: str = Field(serialization_alias="unifiedDiff")
+    reason: str
+    tags: list[str]
+    workflow_run_id: str = Field(serialization_alias="workflowRunId")
+    workflow_id: str | None = Field(serialization_alias="workflowId")
+    agent_id: str | None = Field(serialization_alias="agentId")
+    source_node_id: str = Field(serialization_alias="sourceNodeId")
+    created_by: str = Field(serialization_alias="createdBy")
+    status: str
+    created_at: datetime = Field(serialization_alias="createdAt")
+    confirmed_at: datetime | None = Field(serialization_alias="confirmedAt")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class GoldenSampleConfirm(BaseModel):
+    reviewer_id: str = Field(alias="reviewerId")
+    reason: str = Field(min_length=1, max_length=4000)
+    idempotency_key: str = Field(alias="idempotencyKey", min_length=1, max_length=160)
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class GoldenSampleRead(BaseModel):
+    id: str
+    candidate_id: str = Field(serialization_alias="candidateId")
+    input_text: str = Field(serialization_alias="input")
+    expected_output: str = Field(serialization_alias="expectedOutput")
+    reviewer_id: str = Field(serialization_alias="reviewerId")
+    reason: str
+    created_at: datetime = Field(serialization_alias="createdAt")
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)

@@ -290,6 +290,47 @@ class NotificationOutboxRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class FeedbackCandidateRecord(Base):
+    __tablename__ = "feedback_candidates"
+    __table_args__ = (
+        UniqueConstraint("decision_id", name="uq_feedback_candidate_decision"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    human_task_id: Mapped[str] = mapped_column(String(36), index=True)
+    decision_id: Mapped[str] = mapped_column(String(36))
+    original_version_id: Mapped[str] = mapped_column(String(36))
+    modified_version_id: Mapped[str] = mapped_column(String(36))
+    diff_id: Mapped[str] = mapped_column(String(36))
+    reason: Mapped[str] = mapped_column(Text)
+    tags: Mapped[list[str]] = mapped_column(JSON, default=list)
+    workflow_run_id: Mapped[str] = mapped_column(String(36), index=True)
+    workflow_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    agent_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    source_node_id: Mapped[str] = mapped_column(String(120))
+    created_by: Mapped[str] = mapped_column(String(36))
+    status: Mapped[str] = mapped_column(String(32), default="待确认")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class GoldenSampleRecord(Base):
+    __tablename__ = "golden_samples"
+    __table_args__ = (
+        UniqueConstraint("candidate_id", name="uq_golden_sample_candidate"),
+        UniqueConstraint("idempotency_key", name="uq_golden_sample_idempotency"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    candidate_id: Mapped[str] = mapped_column(String(36), index=True)
+    input_text: Mapped[str] = mapped_column(Text)
+    expected_output: Mapped[str] = mapped_column(Text)
+    reviewer_id: Mapped[str] = mapped_column(String(36))
+    reason: Mapped[str] = mapped_column(Text)
+    idempotency_key: Mapped[str] = mapped_column(String(160))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class HumanReviewRecord(Base):
     __tablename__ = "human_reviews"
 

@@ -31,6 +31,9 @@ from app.schemas import (
     AgentCreate,
     AgentRead,
     AgentUpdate,
+    FeedbackCandidateRead,
+    GoldenSampleConfirm,
+    GoldenSampleRead,
     HumanReviewRead,
     HumanTaskClaim,
     HumanTaskDecisionCreate,
@@ -497,6 +500,51 @@ def create_app(
         if detail is None:
             raise HTTPException(status_code=404, detail="人工任务不存在")
         return detail
+
+    @app.get(
+        "/api/feedback-candidates",
+        response_model=list[FeedbackCandidateRead],
+    )
+    def list_feedback_candidates(
+        session: Session = Depends(get_session),
+    ) -> list[dict]:
+        return human_task_service.list_feedback_candidates(session)
+
+    @app.get(
+        "/api/feedback-candidates/{candidate_id}",
+        response_model=FeedbackCandidateRead,
+    )
+    def get_feedback_candidate(
+        candidate_id: str,
+        session: Session = Depends(get_session),
+    ) -> dict:
+        candidate = human_task_service.get_feedback_candidate(session, candidate_id)
+        if candidate is None:
+            raise HTTPException(status_code=404, detail="反馈候选不存在")
+        return candidate
+
+    @app.post(
+        "/api/feedback-candidates/{candidate_id}/confirm",
+        response_model=GoldenSampleRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def confirm_feedback_candidate(
+        candidate_id: str,
+        request: GoldenSampleConfirm,
+        session: Session = Depends(get_session),
+    ):
+        try:
+            return human_task_service.confirm_feedback_candidate(
+                session,
+                candidate_id,
+                reviewer_id=request.reviewer_id,
+                reason=request.reason,
+                idempotency_key=request.idempotency_key,
+            )
+        except HumanTaskConflict as error:
+            raise HTTPException(status_code=409, detail=str(error)) from None
+        except HumanTaskValidation as error:
+            raise HTTPException(status_code=422, detail=str(error)) from None
 
     @app.post("/api/reviews/{review_id}/decision", response_model=HumanReviewRead)
     def decide_review(

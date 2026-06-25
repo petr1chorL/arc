@@ -10,6 +10,8 @@ from app.models import (
     ArtifactDiffRecord,
     ArtifactRecord,
     ArtifactVersionRecord,
+    FeedbackCandidateRecord,
+    GoldenSampleRecord,
     HumanTaskRecord,
     NodeRunRecord,
     NotificationOutboxRecord,
@@ -567,6 +569,9 @@ class HumanTaskService:
             raise HumanTaskConflict("审核人已提交决定")
         before = task.status
         decision_artifact_version_id = artifact_version_id
+        original_version: ArtifactVersionRecord | None = None
+        modified_version: ArtifactVersionRecord | None = None
+        artifact_diff: ArtifactDiffRecord | None = None
         if decision == "modify_and_approve":
             current_version = session.get(ArtifactVersionRecord, task.artifact_version_id)
             normalized = (modified_content or "").strip()
@@ -597,14 +602,19 @@ class HumanTaskService:
                 tofile=f"artifact-v{new_version.version}",
                 lineterm="",
             ))
-            session.add(ArtifactDiffRecord(
+            diff_record = ArtifactDiffRecord(
                 human_task_id=task.id,
                 from_version_id=current_version.id,
                 to_version_id=new_version.id,
                 old_content=current_version.content,
                 new_content=normalized,
                 unified_diff=diff_text,
-            ))
+            )
+            session.add(diff_record)
+            session.flush()
+            original_version = current_version
+            modified_version = new_version
+            artifact_diff = diff_record
             task.artifact_version_id = new_version.id
             decision_artifact_version_id = new_version.id
             self.audit(
@@ -630,6 +640,49 @@ class HumanTaskService:
         )
         session.add(decision_record)
         session.flush()
+        if (
+            decision == "modify_and_approve"
+            and original_version is not None
+            and modified_version is not None
+            and artifact_diff is not None
+        ):
+            run = session.get(WorkflowRunRecord, task.workflow_run_id)
+            source_node_run = session.scalar(
+                select(NodeRunRecord)
+                .where(
+                    NodeRunRecord.run_id == task.workflow_run_id,
+                    NodeRunRecord.node_id == task.source_node_id,
+                )
+                .order_by(NodeRunRecord.started_at.desc()),
+            )
+            if run is None:
+                raise HumanTaskValidation("关联运行实例不存在")
+            candidate = FeedbackCandidateRecord(
+                human_task_id=task.id,
+                decision_id=decision_record.id,
+                original_version_id=original_version.id,
+                modified_version_id=modified_version.id,
+                diff_id=artifact_diff.id,
+                reason=reason,
+                tags=tags or [],
+                workflow_run_id=task.workflow_run_id,
+                workflow_id=run.workflow_id,
+                agent_id=source_node_run.agent_id if source_node_run else None,
+                source_node_id=task.source_node_id,
+                created_by=reviewer_id,
+                created_at=self.now(),
+            )
+            session.add(candidate)
+            session.flush()
+            self.audit(
+                session,
+                task=task,
+                event_type="feedback_candidate_created",
+                actor_id=reviewer_id,
+                reason=reason,
+                before_status=before,
+                payload={"candidateId": candidate.id},
+            )
         if decision == "reject":
             task.status = "已驳回"
         elif decision == "return_for_rerun":
@@ -666,3 +719,119 @@ class HumanTaskService:
         if detail is None:
             raise RuntimeError("人工任务详情不可用")
         return detail, decision_record, True
+
+    def feedback_candidate_payload(
+        self,
+        session: Session,
+        candidate: FeedbackCandidateRecord,
+    ) -> dict:
+        original = session.get(ArtifactVersionRecord, candidate.original_version_id)
+        modified = session.get(ArtifactVersionRecord, candidate.modified_version_id)
+        diff = session.get(ArtifactDiffRecord, candidate.diff_id)
+        if original is None or modified is None or diff is None:
+            raise RuntimeError("反馈候选关联版本不完整")
+        return {
+            "id": candidate.id,
+            "human_task_id": candidate.human_task_id,
+            "original_version_id": candidate.original_version_id,
+            "modified_version_id": candidate.modified_version_id,
+            "original_content": original.content,
+            "modified_content": modified.content,
+            "unified_diff": diff.unified_diff,
+            "reason": candidate.reason,
+            "tags": candidate.tags,
+            "workflow_run_id": candidate.workflow_run_id,
+            "workflow_id": candidate.workflow_id,
+            "agent_id": candidate.agent_id,
+            "source_node_id": candidate.source_node_id,
+            "created_by": candidate.created_by,
+            "status": candidate.status,
+            "created_at": candidate.created_at,
+            "confirmed_at": candidate.confirmed_at,
+        }
+
+    def list_feedback_candidates(self, session: Session) -> list[dict]:
+        candidates = list(session.scalars(
+            select(FeedbackCandidateRecord)
+            .order_by(FeedbackCandidateRecord.created_at.desc()),
+        ))
+        return [
+            self.feedback_candidate_payload(session, candidate)
+            for candidate in candidates
+        ]
+
+    def get_feedback_candidate(
+        self,
+        session: Session,
+        candidate_id: str,
+    ) -> dict | None:
+        candidate = session.get(FeedbackCandidateRecord, candidate_id)
+        return (
+            self.feedback_candidate_payload(session, candidate)
+            if candidate is not None
+            else None
+        )
+
+    def confirm_feedback_candidate(
+        self,
+        session: Session,
+        candidate_id: str,
+        *,
+        reviewer_id: str,
+        reason: str,
+        idempotency_key: str,
+    ) -> GoldenSampleRecord:
+        candidate = session.get(FeedbackCandidateRecord, candidate_id)
+        if candidate is None:
+            raise HumanTaskValidation("反馈候选不存在")
+        reviewer = self.active_reviewer(session, reviewer_id)
+        if not reviewer.is_expert:
+            raise HumanTaskValidation("只有专家审核人可以确认黄金样本")
+        idempotent = session.scalar(
+            select(GoldenSampleRecord).where(
+                GoldenSampleRecord.idempotency_key == idempotency_key,
+            ),
+        )
+        if idempotent is not None:
+            if (
+                idempotent.candidate_id != candidate.id
+                or idempotent.reviewer_id != reviewer_id
+            ):
+                raise HumanTaskConflict("幂等键已用于其他黄金样本")
+            return idempotent
+        existing = session.scalar(
+            select(GoldenSampleRecord).where(
+                GoldenSampleRecord.candidate_id == candidate.id,
+            ),
+        )
+        if existing is not None:
+            raise HumanTaskConflict("反馈候选已确认黄金样本")
+        modified = session.get(ArtifactVersionRecord, candidate.modified_version_id)
+        run = session.get(WorkflowRunRecord, candidate.workflow_run_id)
+        task = session.get(HumanTaskRecord, candidate.human_task_id)
+        if modified is None or run is None or task is None:
+            raise HumanTaskValidation("黄金样本来源数据不完整")
+        golden = GoldenSampleRecord(
+            candidate_id=candidate.id,
+            input_text=run.input_text,
+            expected_output=modified.content,
+            reviewer_id=reviewer_id,
+            reason=reason,
+            idempotency_key=idempotency_key,
+            created_at=self.now(),
+        )
+        session.add(golden)
+        session.flush()
+        candidate.status = "已确认"
+        candidate.confirmed_at = self.now()
+        self.audit(
+            session,
+            task=task,
+            event_type="golden_sample_confirmed",
+            actor_id=reviewer_id,
+            reason=reason,
+            payload={"candidateId": candidate.id, "goldenSampleId": golden.id},
+        )
+        session.commit()
+        session.refresh(golden)
+        return golden

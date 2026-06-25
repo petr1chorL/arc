@@ -220,3 +220,109 @@ def test_sla_refresh_reminds_overdues_and_escalates_once(tmp_path):
     assert event_types.count("sla_escalated") == 1
     assert notification_types.count("due_soon") == 1
     assert notification_types.count("escalated") == 1
+
+
+def test_only_human_modification_creates_feedback_candidate(tmp_path):
+    approve_path = tmp_path / "approve"
+    approve_path.mkdir()
+    approve_client, approve_task, approve_reviewers = create_task(approve_path)
+    approved = approve_client.post(
+        f"/api/human-tasks/{approve_task['id']}/decisions",
+        json=decision_body(
+            approve_task,
+            approve_reviewers[0]["id"],
+            "approve",
+        ),
+    )
+    assert approved.status_code == 200
+    assert approve_client.get("/api/feedback-candidates").json() == []
+
+    modified_path = tmp_path / "modified"
+    modified_path.mkdir()
+    client, task, reviewers = create_task(modified_path)
+    modified_content = "这是专家人工修订后的标准业务结论，可用于后续评估回归。"
+    response = client.post(
+        f"/api/human-tasks/{task['id']}/decisions",
+        json={
+            **decision_body(
+                task,
+                reviewers[0]["id"],
+                "modify_and_approve",
+            ),
+            "modifiedContent": modified_content,
+            "tags": ["人工修订", "高质量"],
+        },
+    )
+
+    assert response.status_code == 200
+    candidates = client.get("/api/feedback-candidates").json()
+    assert len(candidates) == 1
+    candidate = candidates[0]
+    assert candidate["originalContent"].startswith("这是一段等待多人审核")
+    assert candidate["modifiedContent"] == modified_content
+    assert candidate["unifiedDiff"]
+    assert candidate["reason"] == "modify_and_approve 的审核原因"
+    assert candidate["tags"] == ["人工修订", "高质量"]
+    assert candidate["workflowRunId"] == task["workflowRunId"]
+    assert candidate["sourceNodeId"] == task["sourceNodeId"]
+    assert candidate["status"] == "待确认"
+
+
+def test_expert_confirms_feedback_candidate_idempotently(tmp_path):
+    client, task, reviewers = create_task(tmp_path)
+    client.post(
+        f"/api/human-tasks/{task['id']}/decisions",
+        json={
+            **decision_body(
+                task,
+                reviewers[0]["id"],
+                "modify_and_approve",
+            ),
+            "modifiedContent": "这是进入黄金样本前的高质量人工修订结果。",
+            "tags": ["高质量"],
+        },
+    )
+    candidate = client.get("/api/feedback-candidates").json()[0]
+    non_expert = reviewers[0]
+    expert = next(reviewer for reviewer in reviewers if reviewer["isExpert"])
+
+    rejected = client.post(
+        f"/api/feedback-candidates/{candidate['id']}/confirm",
+        json={
+            "reviewerId": non_expert["id"],
+            "reason": "尝试确认",
+            "idempotencyKey": "golden-confirm-1",
+        },
+    )
+    assert rejected.status_code == 422
+
+    body = {
+        "reviewerId": expert["id"],
+        "reason": "符合黄金样本标准",
+        "idempotencyKey": "golden-confirm-1",
+    }
+    confirmed = client.post(
+        f"/api/feedback-candidates/{candidate['id']}/confirm",
+        json=body,
+    )
+    repeated = client.post(
+        f"/api/feedback-candidates/{candidate['id']}/confirm",
+        json=body,
+    )
+
+    assert confirmed.status_code == 201
+    assert repeated.status_code == 201
+    assert repeated.json()["id"] == confirmed.json()["id"]
+    assert confirmed.json()["candidateId"] == candidate["id"]
+    assert confirmed.json()["expectedOutput"].startswith("这是进入黄金样本")
+
+    conflict = client.post(
+        f"/api/feedback-candidates/{candidate['id']}/confirm",
+        json={**body, "idempotencyKey": "golden-confirm-2"},
+    )
+    assert conflict.status_code == 409
+
+    detail = client.get(f"/api/human-tasks/{task['id']}").json()
+    event_types = [event["eventType"] for event in detail["auditEvents"]]
+    assert "feedback_candidate_created" in event_types
+    assert "golden_sample_confirmed" in event_types
