@@ -167,3 +167,119 @@ export interface ReviewGroup {
   isEscalationGroup: boolean
   members: Reviewer[]
 }
+
+export type HumanTaskStatus =
+  | '待认领'
+  | '审核中'
+  | '已通过'
+  | '修改后通过'
+  | '已驳回'
+  | '已退回'
+  | '恢复失败'
+
+export type SlaStatus = '正常' | '即将到期' | '已逾期' | '已升级'
+
+export interface HumanTask {
+  id: string
+  workflowRunId: string
+  nodeRunId: string
+  humanNodeId: string
+  sourceNodeId: string
+  artifactVersionId: string
+  title: string
+  status: HumanTaskStatus
+  assignmentType: 'direct_reviewer' | 'group_claim' | 'round_robin'
+  assigneeReviewerId: string | null
+  assigneeGroupId: string | null
+  reviewPolicy: 'any_one' | 'all' | 'threshold'
+  requiredApprovals: number
+  participantSnapshot: string[]
+  dueAt: string
+  escalationAt: string
+  slaStatus: SlaStatus
+  escalationGroupId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ArtifactVersionSummary {
+  id: string
+  version: number
+  content: string
+  createdBy: string
+  createdAt: string
+}
+
+export interface AuditEvent {
+  id: string
+  eventType: string
+  actorId: string
+  reason: string
+  beforeStatus: string
+  afterStatus: string
+  payload: Record<string, unknown>
+  createdAt: string
+}
+
+export interface NotificationOutboxItem {
+  id: string
+  eventType: string
+  recipientType: string
+  recipientId: string
+  payload: Record<string, unknown>
+  status: string
+  createdAt: string
+}
+
+export interface HumanTaskDetail extends HumanTask {
+  artifact: ArtifactVersionSummary
+  run: {
+    id: string
+    name: string
+    status: string
+    currentNode: string
+    score: number | null
+  }
+  approvalProgress: {
+    required: number
+    received: number
+  }
+  auditEvents: AuditEvent[]
+  notifications: NotificationOutboxItem[]
+}
+
+export type HumanTaskDecision =
+  | 'approve'
+  | 'reject'
+  | 'modify_and_approve'
+  | 'return_for_rerun'
+
+export interface FeedbackCandidate {
+  id: string
+  humanTaskId: string
+  originalVersionId: string
+  modifiedVersionId: string
+  originalContent: string
+  modifiedContent: string
+  unifiedDiff: string
+  reason: string
+  tags: string[]
+  workflowRunId: string
+  workflowId: string | null
+  agentId: string | null
+  sourceNodeId: string
+  createdBy: string
+  status: '待确认' | '已确认'
+  createdAt: string
+  confirmedAt: string | null
+}
+
+export interface GoldenSample {
+  id: string
+  candidateId: string
+  input: string
+  expectedOutput: string
+  reviewerId: string
+  reason: string
+  createdAt: string
+}

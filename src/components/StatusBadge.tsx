@@ -1,9 +1,5 @@
-import type { AgentStatus, ReviewStatus, RunStatus } from '../types'
-
-type Status = AgentStatus | RunStatus | ReviewStatus | '高' | '中' | '低'
-
-export function StatusBadge({ status }: { status: Status }) {
-  const tone: Record<Status, string> = {
+export function StatusBadge({ status }: { status: string }) {
+  const tone: Record<string, string> = {
     在线: 'success',
     调试中: 'warning',
     已停用: 'neutral',
@@ -13,11 +9,18 @@ export function StatusBadge({ status }: { status: Status }) {
     失败: 'danger',
     待处理: 'warning',
     处理中: 'info',
+    待认领: 'warning',
+    审核中: 'info',
+    已通过: 'success',
+    修改后通过: 'success',
     已驳回: 'danger',
+    已退回: 'warning',
+    恢复失败: 'danger',
+    等待审核: 'warning',
     高: 'danger',
     中: 'warning',
     低: 'neutral',
   }
 
-  return <span className={`status-badge ${tone[status]}`}><i />{status}</span>
+  return <span className={`status-badge ${tone[status] ?? 'neutral'}`}><i />{status}</span>
 }
