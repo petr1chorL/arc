@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { listReviews } from '../api/execution'
+import { listHumanTasks } from '../api/humanTasks'
 
 const navigation = [
   { to: '/', label: '运营总览', icon: Gauge },
@@ -41,9 +41,14 @@ export function Layout() {
     : titles[location.pathname] ?? titles['/']
 
   useEffect(() => {
-    void listReviews()
-      .then((reviews) => setPendingReviewCount(
-        reviews.filter((review) => review.status === '待处理').length,
+    void listHumanTasks()
+      .then((tasks) => setPendingReviewCount(
+        tasks.filter((task) => ![
+          '已通过',
+          '修改后通过',
+          '已驳回',
+          '已退回',
+        ].includes(task.status)).length,
       ))
       .catch(() => setPendingReviewCount(0))
   }, [location.pathname])
