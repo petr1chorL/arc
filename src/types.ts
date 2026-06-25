@@ -151,3 +151,19 @@ export interface HumanReview {
   score: number
   createdAt: string
 }
+
+export interface Reviewer {
+  id: string
+  name: string
+  role: string
+  isExpert: boolean
+  isActive: boolean
+}
+
+export interface ReviewGroup {
+  id: string
+  name: string
+  assignmentMode: 'group_claim' | 'round_robin'
+  isEscalationGroup: boolean
+  members: Reviewer[]
+}

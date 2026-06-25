@@ -1594,6 +1594,25 @@ kbd {
   line-height: 1.5;
 }
 
+.inspector-group {
+  display: grid;
+  gap: 10px;
+  padding: 12px 0;
+  border-top: 1px solid var(--soft-line);
+}
+
+.inspector-group-title {
+  color: var(--teal);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.inspector-number-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
 @media (max-width: 900px) {
   .asset-detail-toolbar {
     align-items: flex-start;

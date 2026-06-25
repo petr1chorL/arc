@@ -44,9 +44,17 @@ import {
   validateWorkflow,
 } from '../api/workflows'
 import { runWorkflow } from '../api/execution'
+import { listReviewers, listReviewGroups } from '../api/humanTasks'
 import { WorkflowNode, type WorkflowNodeData } from '../components/WorkflowNode'
 import { fromContractGraph, toContractGraph } from '../domain/workflows'
-import type { AgentVersion, ExecutionRun, WorkflowDraft, WorkflowVersion } from '../types'
+import type {
+  AgentVersion,
+  ExecutionRun,
+  Reviewer,
+  ReviewGroup,
+  WorkflowDraft,
+  WorkflowVersion,
+} from '../types'
 
 const nodeTypes = { workflow: WorkflowNode }
 
@@ -101,6 +109,8 @@ export function Workflows() {
   const [name, setName] = useState('未命名工作流')
   const [selectedNode, setSelectedNode] = useState<Node | null>(null)
   const [agentOptions, setAgentOptions] = useState<PublishedAgentOption[]>([])
+  const [reviewers, setReviewers] = useState<Reviewer[]>([])
+  const [reviewGroups, setReviewGroups] = useState<ReviewGroup[]>([])
   const [versions, setVersions] = useState<WorkflowVersion[]>([])
   const [showVersions, setShowVersions] = useState(false)
   const [showRun, setShowRun] = useState(false)
@@ -129,10 +139,14 @@ export function Workflows() {
 
   useEffect(() => {
     async function load() {
-      const [savedWorkflows, agents] = await Promise.all([
+      const [savedWorkflows, agents, directoryReviewers, directoryGroups] = await Promise.all([
         listWorkflows(),
         listAgents(),
+        listReviewers().catch(() => []),
+        listReviewGroups().catch(() => []),
       ])
+      setReviewers(directoryReviewers)
+      setReviewGroups(directoryGroups)
       setWorkflows(savedWorkflows)
       if (savedWorkflows[0]) {
         activateWorkflow(savedWorkflows[0])
@@ -371,6 +385,8 @@ export function Workflows() {
           <NodeInspector
             node={selectedNode}
             agentOptions={agentOptions}
+            reviewers={reviewers}
+            reviewGroups={reviewGroups}
             onClose={() => setSelectedNode(null)}
             onUpdate={updateSelectedNode}
             onDelete={removeSelectedNode}
@@ -442,19 +458,35 @@ export function Workflows() {
 function NodeInspector({
   node,
   agentOptions,
+  reviewers,
+  reviewGroups,
   onClose,
   onUpdate,
   onDelete,
 }: {
   node: Node
   agentOptions: PublishedAgentOption[]
+  reviewers: Reviewer[]
+  reviewGroups: ReviewGroup[]
   onClose: () => void
   onUpdate: (data: Record<string, unknown>) => void
   onDelete: () => void
 }) {
-  const data = node.data as WorkflowNodeData & { agentId?: string; agentVersion?: string }
+  const data = node.data as WorkflowNodeData & {
+    agentId?: string
+    agentVersion?: string
+    assignmentType?: 'direct_reviewer' | 'group_claim' | 'round_robin'
+    reviewerIds?: string[]
+    groupId?: string
+    reviewPolicy?: 'any_one' | 'all' | 'threshold'
+    requiredApprovals?: number
+    dueMinutes?: number
+    escalationMinutes?: number
+    escalationGroupId?: string
+  }
   const selectedAgent = data.agentId && data.agentVersion ? `${data.agentId}|${data.agentVersion}` : ''
   const isAgent = data.kind === 'agent'
+  const isHuman = data.kind === 'human'
   const optionsByAgent = useMemo(() => agentOptions, [agentOptions])
 
   return (
@@ -491,11 +523,157 @@ function NodeInspector({
           {optionsByAgent.length === 0 && <small>请先在 Agent 详情页发布至少一个版本。</small>}
         </label>
       )}
+      {isHuman && (
+        <>
+          <div className="inspector-group">
+            <span className="inspector-group-title">分配规则</span>
+            <label className="form-field">
+              <span>分配方式</span>
+              <select
+                aria-label="分配方式"
+                value={data.assignmentType ?? 'group_claim'}
+                onChange={(event) => onUpdate({
+                  assignmentType: event.target.value,
+                  subtitle: event.target.value === 'round_robin' ? '审核组轮询分配' : '等待人工认领',
+                })}
+              >
+                <option value="direct_reviewer">指定审核人</option>
+                <option value="group_claim">审核组认领</option>
+                <option value="round_robin">审核组轮询</option>
+              </select>
+            </label>
+            {data.assignmentType === 'direct_reviewer' ? (
+              <label className="form-field">
+                <span>指定审核人</span>
+                <select
+                  aria-label="指定审核人"
+                  value={data.reviewerIds?.[0] ?? ''}
+                  onChange={(event) => onUpdate({
+                    reviewerIds: event.target.value ? [event.target.value] : [],
+                    groupId: undefined,
+                  })}
+                >
+                  <option value="">请选择审核人</option>
+                  {reviewers.filter((reviewer) => reviewer.isActive).map((reviewer) => (
+                    <option value={reviewer.id} key={reviewer.id}>
+                      {reviewer.name} · {reviewer.role}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <label className="form-field">
+                <span>审核组</span>
+                <select
+                  aria-label="审核组"
+                  value={data.groupId ?? ''}
+                  onChange={(event) => {
+                    const group = reviewGroups.find((item) => item.id === event.target.value)
+                    onUpdate({
+                      groupId: group?.id,
+                      reviewerIds: group?.members.map((member) => member.id) ?? [],
+                    })
+                  }}
+                >
+                  <option value="">请选择审核组</option>
+                  {reviewGroups.filter((group) => !group.isEscalationGroup).map((group) => (
+                    <option value={group.id} key={group.id}>{group.name}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+          <div className="inspector-group">
+            <span className="inspector-group-title">会签策略</span>
+            <label className="form-field">
+              <span>会签策略</span>
+              <select
+                aria-label="会签策略"
+                value={data.reviewPolicy ?? 'any_one'}
+                onChange={(event) => onUpdate({
+                  reviewPolicy: event.target.value,
+                  requiredApprovals: event.target.value === 'any_one'
+                    ? 1
+                    : data.requiredApprovals ?? 2,
+                })}
+              >
+                <option value="any_one">任一人通过</option>
+                <option value="all">全员通过</option>
+                <option value="threshold">达到指定人数</option>
+              </select>
+            </label>
+            {data.reviewPolicy === 'threshold' && (
+              <label className="form-field">
+                <span>通过人数</span>
+                <input
+                  aria-label="通过人数"
+                  min={1}
+                  type="number"
+                  value={data.requiredApprovals ?? ''}
+                  onChange={(event) => onUpdate({
+                    requiredApprovals: event.target.value === ''
+                      ? undefined
+                      : Number(event.target.value),
+                  })}
+                />
+              </label>
+            )}
+          </div>
+          <div className="inspector-group">
+            <span className="inspector-group-title">SLA 与升级</span>
+            <div className="inspector-number-grid">
+              <label className="form-field">
+                <span>审核时限（分钟）</span>
+                <input
+                  aria-label="审核时限（分钟）"
+                  min={1}
+                  type="number"
+                  value={data.dueMinutes ?? ''}
+                  onChange={(event) => onUpdate({
+                    dueMinutes: event.target.value === ''
+                      ? undefined
+                      : Number(event.target.value),
+                  })}
+                />
+              </label>
+              <label className="form-field">
+                <span>升级时间（分钟）</span>
+                <input
+                  aria-label="升级时间（分钟）"
+                  min={2}
+                  type="number"
+                  value={data.escalationMinutes ?? ''}
+                  onChange={(event) => onUpdate({
+                    escalationMinutes: event.target.value === ''
+                      ? undefined
+                      : Number(event.target.value),
+                  })}
+                />
+              </label>
+            </div>
+            <label className="form-field">
+              <span>升级审核组</span>
+              <select
+                aria-label="升级审核组"
+                value={data.escalationGroupId ?? ''}
+                onChange={(event) => onUpdate({
+                  escalationGroupId: event.target.value || undefined,
+                })}
+              >
+                <option value="">使用平台默认升级组</option>
+                {reviewGroups.filter((group) => group.isEscalationGroup).map((group) => (
+                  <option value={group.id} key={group.id}>{group.name}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </>
+      )}
       <label className="form-field"><span>节点说明</span><input value={data.subtitle} onChange={(event) => onUpdate({ subtitle: event.target.value })} /></label>
       <div className="inspector-section">
         <div><span>节点类型</span><strong>{data.kind}</strong></div>
         <div><span>持久化状态</span><strong>随草稿保存</strong></div>
-        <div><span>发布约束</span><strong>{isAgent ? '必须引用版本' : 'DAG 校验'}</strong></div>
+        <div><span>发布约束</span><strong>{isAgent ? '必须引用版本' : isHuman ? '必须配置审核规则' : 'DAG 校验'}</strong></div>
       </div>
       <button className="button danger full" onClick={onDelete}><Trash2 size={14} />删除节点</button>
     </aside>
