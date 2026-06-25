@@ -1,4 +1,4 @@
-import { Bot, Boxes, Filter, MoreHorizontal, Plus, Search, Wrench } from 'lucide-react'
+import { Bot, Boxes, Filter, PencilLine, Plus, Search, Wrench } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { createAgent, listAgents, type CreateAgentInput } from '../api/agents'
@@ -95,7 +95,22 @@ export function Agents() {
             <div className="agent-row" key={agent.id}>
               <div className="agent-identity">
                 <div className="agent-symbol"><Bot size={18} /></div>
-                <div><Link className="agent-name-link" to={`/agents/${agent.id}`}><strong>{agent.name}</strong></Link><span>{agent.role}</span></div>
+                <div>
+                  <Link className="agent-name-link" to={`/agents/${agent.id}`}><strong>{agent.name}</strong></Link>
+                  <span>{agent.role}</span>
+                  <Link
+                    aria-label={`编辑与发布 ${agent.name}`}
+                    className="agent-manage-link"
+                    to={`/agents/${agent.id}`}
+                  >
+                    <PencilLine size={12} />编辑与发布
+                  </Link>
+                  {agent.tools.length > 0 && (
+                    <div className="agent-tools">
+                      {agent.tools.map((tool) => <span key={tool}>{tool}</span>)}
+                    </div>
+                  )}
+                </div>
               </div>
               <span><StatusBadge status={agent.status} /></span>
               <div><strong>{agent.model}</strong><span className="mono">{agent.version}</span></div>
@@ -105,10 +120,7 @@ export function Agents() {
               </div>
               <span className="mono">{agent.runs.toLocaleString()}</span>
               <div><strong>{agent.owner}</strong><span>{formatUpdatedAt(agent.updatedAt)}</span></div>
-              <button className="icon-button quiet" title="更多操作"><MoreHorizontal size={17} /></button>
-              <div className="agent-tools">
-                {agent.tools.map((tool) => <span key={tool}>{tool}</span>)}
-              </div>
+              <span />
             </div>
           ))}
         </div>

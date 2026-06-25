@@ -59,4 +59,20 @@ describe('Agents page', () => {
     expect(await screen.findByText('新建 Agent', { selector: 'strong' })).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
+
+  it('shows an explicit entry for editing and publishing each Agent', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([existingAgent]), { status: 200 }),
+    ))
+
+    render(<MemoryRouter><Agents /></MemoryRouter>)
+
+    const manageLink = await screen.findByRole('link', {
+      name: '编辑与发布 已有 Agent',
+    })
+    expect(manageLink).toHaveAttribute(
+      'href',
+      `/agents/${existingAgent.id}`,
+    )
+  })
 })

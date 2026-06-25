@@ -128,7 +128,7 @@ kbd { padding: 2px 5px; border: 1px solid #d7dbd9; border-radius: 3px; backgroun
 .agent-identity { display: flex; align-items: center; gap: 11px; }.agent-symbol { width: 35px; height: 35px; display: grid; place-items: center; background: var(--teal-soft); color: var(--teal); border-radius: 6px; }
 .agent-row strong, .agent-row span { display: block; }.agent-row strong { color: var(--ink); font-size: 11px; }.agent-row div > span { margin-top: 4px; font-size: 9px; }
 .quality-cell { padding-right: 20px; }.mini-progress { height: 3px; margin-top: 7px; background: #e8ece9; }.mini-progress i { display: block; height: 100%; background: var(--teal); }
-.agent-tools { position: absolute; left: 62px; bottom: 7px; display: flex; gap: 4px; }.agent-tools span { padding: 2px 5px; border: 1px solid #e1e5e2; border-radius: 3px; color: #7e8783; font-size: 7px !important; }
+.agent-tools { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }.agent-tools span { margin-top: 0 !important; padding: 2px 5px; border: 1px solid #e1e5e2; border-radius: 3px; color: #7e8783; font-size: 7px !important; }
 
 .evaluation-overview > div { border-right: 1px solid var(--soft-line); }.evaluation-overview > div:last-child { border: 0; }
 .evaluation-stat { display: grid; grid-template-columns: 28px 1fr; padding: 15px 17px; color: var(--teal); }.evaluation-stat span strong { display: block; margin-top: 4px; color: var(--ink); font: 500 18px var(--mono); }.evaluation-stat span { color: var(--muted); font-size: 9px; }.evaluation-stat small { grid-column: 2; margin-top: 3px; color: #87918c; font-size: 8px; }
@@ -1327,6 +1327,24 @@ kbd {
 
 .agent-name-link:hover {
   color: var(--teal);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.agent-manage-link {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 5px;
+  width: fit-content;
+  margin-top: 7px !important;
+  color: var(--teal) !important;
+  font-size: 10px !important;
+  font-weight: 650;
+}
+
+.agent-manage-link:hover,
+.agent-manage-link:focus-visible {
+  color: var(--blue) !important;
   text-decoration: underline;
   text-underline-offset: 3px;
 }
