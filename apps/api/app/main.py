@@ -9,7 +9,7 @@ from app.config import Settings
 from app.database import create_database, session_scope
 from app.domain import next_version, validate_workflow
 from app.execution import ExecutionService
-from app.human_tasks import HumanTaskService
+from app.human_tasks import HumanTaskConflict, HumanTaskService, HumanTaskValidation
 from app.migrations import ensure_current_schema
 from app.model_gateway import ModelGateway, OpenAICompatibleGateway
 from app.models import (
@@ -22,6 +22,7 @@ from app.models import (
     HumanReviewRecord,
     HumanTaskRecord,
     NodeRunRecord,
+    ReviewerRecord,
     utc_now,
 )
 from app.schemas import (
@@ -29,10 +30,15 @@ from app.schemas import (
     AgentRead,
     AgentUpdate,
     HumanReviewRead,
+    HumanTaskClaim,
+    HumanTaskDecisionCreate,
     HumanTaskDetailRead,
     HumanTaskRead,
+    HumanTaskTransfer,
     NodeRunRead,
+    ReviewerRead,
     ReviewDecision,
+    ReviewGroupRead,
     RunCreate,
     RunRead,
     ValidationResult,
@@ -58,6 +64,8 @@ def create_app(
     ensure_current_schema(engine)
     app = FastAPI(title="ARC.ONE API")
     human_task_service = HumanTaskService()
+    with session_factory() as bootstrap_session:
+        human_task_service.ensure_default_directory(bootstrap_session)
     execution_service = ExecutionService(
         model_gateway or OpenAICompatibleGateway(settings),
         settings,
@@ -370,6 +378,18 @@ def create_app(
     ) -> list[HumanTaskRecord]:
         return human_task_service.list_tasks(session)
 
+    @app.get("/api/reviewers", response_model=list[ReviewerRead])
+    def list_reviewers(
+        session: Session = Depends(get_session),
+    ) -> list[ReviewerRecord]:
+        return human_task_service.list_reviewers(session)
+
+    @app.get("/api/review-groups", response_model=list[ReviewGroupRead])
+    def list_review_groups(
+        session: Session = Depends(get_session),
+    ) -> list[dict]:
+        return human_task_service.list_groups(session)
+
     @app.get("/api/human-tasks/{task_id}", response_model=HumanTaskDetailRead)
     def get_human_task(
         task_id: str,
@@ -379,6 +399,67 @@ def create_app(
         if detail is None:
             raise HTTPException(status_code=404, detail="人工任务不存在")
         return detail
+
+    @app.post("/api/human-tasks/{task_id}/claim", response_model=HumanTaskRead)
+    def claim_human_task(
+        task_id: str,
+        request: HumanTaskClaim,
+        session: Session = Depends(get_session),
+    ) -> HumanTaskRecord:
+        try:
+            return human_task_service.claim_task(
+                session,
+                task_id,
+                request.reviewer_id,
+            )
+        except HumanTaskConflict as error:
+            raise HTTPException(status_code=409, detail=str(error)) from None
+        except HumanTaskValidation as error:
+            raise HTTPException(status_code=422, detail=str(error)) from None
+
+    @app.post("/api/human-tasks/{task_id}/transfer", response_model=HumanTaskRead)
+    def transfer_human_task(
+        task_id: str,
+        request: HumanTaskTransfer,
+        session: Session = Depends(get_session),
+    ) -> HumanTaskRecord:
+        try:
+            return human_task_service.transfer_task(
+                session,
+                task_id,
+                actor_id=request.actor_id,
+                reviewer_id=request.reviewer_id,
+                group_id=request.group_id,
+                reason=request.reason,
+            )
+        except HumanTaskConflict as error:
+            raise HTTPException(status_code=409, detail=str(error)) from None
+        except HumanTaskValidation as error:
+            raise HTTPException(status_code=422, detail=str(error)) from None
+
+    @app.post(
+        "/api/human-tasks/{task_id}/decisions",
+        response_model=HumanTaskDetailRead,
+    )
+    def decide_human_task(
+        task_id: str,
+        request: HumanTaskDecisionCreate,
+        session: Session = Depends(get_session),
+    ) -> dict:
+        try:
+            return human_task_service.decide_task(
+                session,
+                task_id,
+                reviewer_id=request.reviewer_id,
+                decision=request.decision,
+                reason=request.reason,
+                artifact_version_id=request.artifact_version_id,
+                idempotency_key=request.idempotency_key,
+            )
+        except HumanTaskConflict as error:
+            raise HTTPException(status_code=409, detail=str(error)) from None
+        except HumanTaskValidation as error:
+            raise HTTPException(status_code=422, detail=str(error)) from None
 
     @app.post("/api/reviews/{review_id}/decision", response_model=HumanReviewRead)
     def decide_review(

@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import DateTime, Float, Integer, JSON, String, Text
+from sqlalchemy import Boolean, DateTime, Float, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -141,6 +141,40 @@ class ArtifactVersionRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class ReviewerRecord(Base):
+    __tablename__ = "reviewers"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    name: Mapped[str] = mapped_column(String(80))
+    role: Mapped[str] = mapped_column(String(80))
+    is_expert: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class ReviewGroupRecord(Base):
+    __tablename__ = "review_groups"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    name: Mapped[str] = mapped_column(String(100), unique=True)
+    assignment_mode: Mapped[str] = mapped_column(String(32), default="group_claim")
+    rotation_cursor: Mapped[int] = mapped_column(Integer, default=0)
+    is_escalation_group: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class ReviewGroupMemberRecord(Base):
+    __tablename__ = "review_group_members"
+    __table_args__ = (
+        UniqueConstraint("group_id", "reviewer_id", name="uq_review_group_member"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    group_id: Mapped[str] = mapped_column(String(36), index=True)
+    reviewer_id: Mapped[str] = mapped_column(String(36), index=True)
+    role: Mapped[str] = mapped_column(String(80), default="审核人")
+
+
 class HumanTaskRecord(Base):
     __tablename__ = "human_tasks"
 
@@ -153,11 +187,44 @@ class HumanTaskRecord(Base):
     title: Mapped[str] = mapped_column(String(200))
     status: Mapped[str] = mapped_column(String(32), default="待认领")
     assignment_type: Mapped[str] = mapped_column(String(32), default="group_claim")
+    assignee_reviewer_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    assignee_group_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     review_policy: Mapped[str] = mapped_column(String(32), default="any_one")
     required_approvals: Mapped[int] = mapped_column(Integer, default=1)
     participant_snapshot: Mapped[list[str]] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class ReviewDecisionRecord(Base):
+    __tablename__ = "review_decisions"
+    __table_args__ = (
+        UniqueConstraint("human_task_id", "reviewer_id", name="uq_task_reviewer_decision"),
+        UniqueConstraint("idempotency_key", name="uq_review_decision_idempotency"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    human_task_id: Mapped[str] = mapped_column(String(36), index=True)
+    reviewer_id: Mapped[str] = mapped_column(String(36), index=True)
+    decision: Mapped[str] = mapped_column(String(32))
+    reason: Mapped[str] = mapped_column(Text)
+    artifact_version_id: Mapped[str] = mapped_column(String(36))
+    idempotency_key: Mapped[str] = mapped_column(String(160))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class AuditEventRecord(Base):
+    __tablename__ = "audit_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    human_task_id: Mapped[str] = mapped_column(String(36), index=True)
+    event_type: Mapped[str] = mapped_column(String(64))
+    actor_id: Mapped[str] = mapped_column(String(80))
+    reason: Mapped[str] = mapped_column(Text, default="")
+    before_status: Mapped[str] = mapped_column(String(32), default="")
+    after_status: Mapped[str] = mapped_column(String(32), default="")
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
 class HumanReviewRecord(Base):

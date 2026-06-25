@@ -193,6 +193,8 @@ class HumanTaskRead(BaseModel):
     title: str
     status: str
     assignment_type: str = Field(serialization_alias="assignmentType")
+    assignee_reviewer_id: str | None = Field(serialization_alias="assigneeReviewerId")
+    assignee_group_id: str | None = Field(serialization_alias="assigneeGroupId")
     review_policy: str = Field(serialization_alias="reviewPolicy")
     required_approvals: int = Field(serialization_alias="requiredApprovals")
     participant_snapshot: list[str] = Field(serialization_alias="participantSnapshot")
@@ -231,3 +233,50 @@ class HumanTaskDetailRead(HumanTaskRead):
     artifact: ArtifactVersionSummary
     run: HumanTaskRunSummary
     approval_progress: ApprovalProgress = Field(serialization_alias="approvalProgress")
+
+
+class ReviewerRead(BaseModel):
+    id: str
+    name: str
+    role: str
+    is_expert: bool = Field(serialization_alias="isExpert")
+    is_active: bool = Field(serialization_alias="isActive")
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class ReviewGroupRead(BaseModel):
+    id: str
+    name: str
+    assignment_mode: str = Field(serialization_alias="assignmentMode")
+    is_escalation_group: bool = Field(serialization_alias="isEscalationGroup")
+    members: list[ReviewerRead]
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class HumanTaskClaim(BaseModel):
+    reviewer_id: str = Field(alias="reviewerId")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class HumanTaskTransfer(BaseModel):
+    actor_id: str = Field(alias="actorId")
+    reviewer_id: str | None = Field(default=None, alias="reviewerId")
+    group_id: str | None = Field(default=None, alias="groupId")
+    reason: str = Field(min_length=1, max_length=1000)
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class HumanTaskDecisionCreate(BaseModel):
+    reviewer_id: str = Field(alias="reviewerId")
+    decision: Literal["approve", "reject", "modify_and_approve", "return_for_rerun"]
+    reason: str = Field(min_length=1, max_length=4000)
+    artifact_version_id: str = Field(alias="artifactVersionId")
+    idempotency_key: str = Field(alias="idempotencyKey", min_length=1, max_length=160)
+    modified_content: str | None = Field(default=None, alias="modifiedContent")
+    tags: list[str] = Field(default_factory=list)
+
+    model_config = ConfigDict(populate_by_name=True)

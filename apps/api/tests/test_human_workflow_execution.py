@@ -23,7 +23,10 @@ class FakeGateway:
         return self.results.pop(0)
 
 
-def create_human_workflow(client: TestClient) -> dict:
+def create_human_workflow(
+    client: TestClient,
+    human_data: dict | None = None,
+) -> dict:
     agent = client.post(
         "/api/agents",
         json={
@@ -65,6 +68,7 @@ def create_human_workflow(client: TestClient) -> dict:
                         "reviewPolicy": "any_one",
                         "requiredApprovals": 1,
                         "reviewerIds": [],
+                        **(human_data or {}),
                     },
                 },
                 {
