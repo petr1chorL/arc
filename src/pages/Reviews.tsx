@@ -135,6 +135,10 @@ export function Reviews() {
     )))
   }
 
+  function notifyHumanTasksUpdated() {
+    window.dispatchEvent(new Event('human-tasks-updated'))
+  }
+
   async function claim() {
     if (!detail || !operatorId) return
     setIsBusy(true)
@@ -143,6 +147,7 @@ export function Reviews() {
       const updated = await claimHumanTask(detail.id, operatorId)
       updateTask(updated)
       setDetail((current) => current ? { ...current, ...updated } : current)
+      notifyHumanTasksUpdated()
       setMessage('任务已认领')
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : '任务认领失败')
@@ -167,6 +172,7 @@ export function Reviews() {
       })
       updateTask(updated)
       setDetail((current) => current ? { ...current, ...updated } : current)
+      notifyHumanTasksUpdated()
       setTransferReason('')
       setMessage('任务已转交')
     } catch (actionError) {
@@ -205,6 +211,7 @@ export function Reviews() {
       setDetail(updated)
       setEditedContent(updated.artifact.content)
       updateTask(updated)
+      notifyHumanTasksUpdated()
       setMessage('审核决定已提交')
       setReason('')
       setIsEditing(false)
@@ -224,6 +231,7 @@ export function Reviews() {
       const updated = await retryHumanTaskResume(detail.id)
       setDetail(updated)
       updateTask(updated)
+      notifyHumanTasksUpdated()
       setMessage('工作流恢复已重试')
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : '恢复重试失败')

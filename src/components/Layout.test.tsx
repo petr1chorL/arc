@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Layout } from './Layout'
@@ -52,5 +52,39 @@ describe('Layout', () => {
     expect(await screen.findByText('首页')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: '人工审核' })).toHaveTextContent('人工审核')
     expect(screen.getByRole('link', { name: '人工审核' }).querySelector('em')).toBeNull()
+  })
+
+  it('refreshes the review count when a human task changes', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify([
+        { id: 'task-1', status: '审核中' },
+      ]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([
+        { id: 'task-1', status: '修改后通过' },
+      ]), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <MemoryRouter initialEntries={['/reviews']}>
+        <Routes>
+          <Route element={<Layout />}>
+            <Route path="/reviews" element={<div>审核工作台</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByText('1')).toBeInTheDocument()
+
+    act(() => {
+      window.dispatchEvent(new Event('human-tasks-updated'))
+    })
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('link', { name: '人工审核' }).querySelector('em'),
+      ).toBeNull()
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 })
