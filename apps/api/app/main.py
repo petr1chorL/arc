@@ -1,4 +1,6 @@
 from collections.abc import Iterator
+from collections.abc import Callable
+from datetime import datetime
 
 from fastapi import Depends, FastAPI, HTTPException, status
 from sqlalchemy import func, select
@@ -52,6 +54,7 @@ from app.schemas import (
 def create_app(
     database_url: str | None = None,
     model_gateway: ModelGateway | None = None,
+    human_task_clock: Callable[[], datetime] = utc_now,
 ) -> FastAPI:
     settings = Settings()
     resolved_database_url = database_url or settings.database_url
@@ -63,7 +66,7 @@ def create_app(
             raise
     ensure_current_schema(engine)
     app = FastAPI(title="ARC.ONE API")
-    human_task_service = HumanTaskService()
+    human_task_service = HumanTaskService(human_task_clock)
     with session_factory() as bootstrap_session:
         human_task_service.ensure_default_directory(bootstrap_session)
     execution_service = ExecutionService(

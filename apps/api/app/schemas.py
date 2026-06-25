@@ -198,6 +198,10 @@ class HumanTaskRead(BaseModel):
     review_policy: str = Field(serialization_alias="reviewPolicy")
     required_approvals: int = Field(serialization_alias="requiredApprovals")
     participant_snapshot: list[str] = Field(serialization_alias="participantSnapshot")
+    due_at: datetime = Field(serialization_alias="dueAt")
+    escalation_at: datetime = Field(serialization_alias="escalationAt")
+    sla_status: str = Field(serialization_alias="slaStatus")
+    escalation_group_id: str | None = Field(serialization_alias="escalationGroupId")
     created_at: datetime = Field(serialization_alias="createdAt")
     updated_at: datetime = Field(serialization_alias="updatedAt")
 
@@ -229,10 +233,37 @@ class ApprovalProgress(BaseModel):
     received: int
 
 
+class AuditEventRead(BaseModel):
+    id: str
+    event_type: str = Field(serialization_alias="eventType")
+    actor_id: str = Field(serialization_alias="actorId")
+    reason: str
+    before_status: str = Field(serialization_alias="beforeStatus")
+    after_status: str = Field(serialization_alias="afterStatus")
+    payload: dict
+    created_at: datetime = Field(serialization_alias="createdAt")
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class NotificationOutboxRead(BaseModel):
+    id: str
+    event_type: str = Field(serialization_alias="eventType")
+    recipient_type: str = Field(serialization_alias="recipientType")
+    recipient_id: str = Field(serialization_alias="recipientId")
+    payload: dict
+    status: str
+    created_at: datetime = Field(serialization_alias="createdAt")
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
 class HumanTaskDetailRead(HumanTaskRead):
     artifact: ArtifactVersionSummary
     run: HumanTaskRunSummary
     approval_progress: ApprovalProgress = Field(serialization_alias="approvalProgress")
+    audit_events: list[AuditEventRead] = Field(serialization_alias="auditEvents")
+    notifications: list[NotificationOutboxRead]
 
 
 class ReviewerRead(BaseModel):

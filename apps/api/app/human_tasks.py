@@ -1,4 +1,5 @@
-from datetime import timedelta
+from collections.abc import Callable
+from datetime import datetime, timedelta, timezone
 from difflib import unified_diff
 
 from sqlalchemy import func, select
@@ -11,6 +12,7 @@ from app.models import (
     ArtifactVersionRecord,
     HumanTaskRecord,
     NodeRunRecord,
+    NotificationOutboxRecord,
     ReviewDecisionRecord,
     ReviewerRecord,
     ReviewGroupMemberRecord,
@@ -32,10 +34,21 @@ TERMINAL_TASK_STATUSES = {"已通过", "修改后通过", "已驳回", "已退�
 
 
 class HumanTaskService:
+    def __init__(self, clock: Callable[[], datetime] = utc_now):
+        self.clock = clock
+
+    def now(self) -> datetime:
+        current = self.clock()
+        return current if current.tzinfo else current.replace(tzinfo=timezone.utc)
+
+    @staticmethod
+    def aware(value: datetime) -> datetime:
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
     def ensure_default_directory(self, session: Session) -> None:
         if session.scalar(select(func.count()).select_from(ReviewerRecord)):
             return
-        now = utc_now()
+        now = self.now()
         reviewers = [
             ReviewerRecord(name="林晓", role="产品审核人", created_at=now),
             ReviewerRecord(
@@ -167,7 +180,7 @@ class HumanTaskService:
         source_node_run_id: str,
         score: int | None,
     ) -> tuple[NodeRunRecord, HumanTaskRecord]:
-        now = utc_now()
+        now = self.now()
         node_run = NodeRunRecord(
             run_id=run.id,
             node_id=node["id"],
@@ -198,6 +211,10 @@ class HumanTaskService:
         session.flush()
 
         data = node.get("data", {})
+        due_minutes = int(data.get("dueMinutes", 240))
+        escalation_minutes = int(data.get("escalationMinutes", 480))
+        if due_minutes <= 0 or escalation_minutes <= due_minutes:
+            raise HumanTaskValidation("SLA 升级时间必须晚于截止时间")
         assignment_type = data.get("assignmentType", "group_claim")
         participant_snapshot = list(data.get("reviewerIds", []))
         assignee_group_id = data.get("groupId")
@@ -212,6 +229,14 @@ class HumanTaskService:
                 raise HumanTaskValidation("审核组不存在")
             assignee_group_id = assignee_group_id or group.id
             participant_snapshot = self.group_reviewer_ids(session, assignee_group_id)
+        escalation_group_id = data.get("escalationGroupId")
+        if not escalation_group_id:
+            escalation_group = session.scalar(
+                select(ReviewGroupRecord).where(
+                    ReviewGroupRecord.is_escalation_group.is_(True),
+                ),
+            )
+            escalation_group_id = escalation_group.id if escalation_group else None
         assignee_reviewer_id = None
         task_status = "待认领"
         if assignment_type == "round_robin":
@@ -237,6 +262,9 @@ class HumanTaskService:
             review_policy=data.get("reviewPolicy", "any_one"),
             required_approvals=int(data.get("requiredApprovals", 1)),
             participant_snapshot=participant_snapshot,
+            due_at=now + timedelta(minutes=due_minutes),
+            escalation_at=now + timedelta(minutes=escalation_minutes),
+            escalation_group_id=escalation_group_id,
             created_at=now,
             updated_at=now,
         )
@@ -258,7 +286,11 @@ class HumanTaskService:
 
     def list_tasks(self, session: Session) -> list[HumanTaskRecord]:
         statement = select(HumanTaskRecord).order_by(HumanTaskRecord.created_at.desc())
-        return list(session.scalars(statement))
+        tasks = list(session.scalars(statement))
+        for task in tasks:
+            self.refresh_sla(session, task)
+        session.commit()
+        return tasks
 
     def get_task(self, session: Session, task_id: str) -> HumanTaskRecord | None:
         return session.get(HumanTaskRecord, task_id)
@@ -267,6 +299,8 @@ class HumanTaskService:
         task = self.get_task(session, task_id)
         if task is None:
             return None
+        self.refresh_sla(session, task)
+        session.commit()
         artifact_version = session.get(ArtifactVersionRecord, task.artifact_version_id)
         run = session.get(WorkflowRunRecord, task.workflow_run_id)
         if artifact_version is None or run is None:
@@ -277,6 +311,16 @@ class HumanTaskService:
                 ReviewDecisionRecord.decision.in_(["approve", "modify_and_approve"]),
             ),
         ) or 0
+        audit_events = list(session.scalars(
+            select(AuditEventRecord)
+            .where(AuditEventRecord.human_task_id == task.id)
+            .order_by(AuditEventRecord.created_at.asc()),
+        ))
+        notifications = list(session.scalars(
+            select(NotificationOutboxRecord)
+            .where(NotificationOutboxRecord.human_task_id == task.id)
+            .order_by(NotificationOutboxRecord.created_at.asc()),
+        ))
         return {
             **{
                 column.name: getattr(task, column.name)
@@ -288,7 +332,110 @@ class HumanTaskService:
                 "required": task.required_approvals,
                 "received": received,
             },
+            "audit_events": audit_events,
+            "notifications": notifications,
         }
+
+    def add_notification(
+        self,
+        session: Session,
+        *,
+        task: HumanTaskRecord,
+        event_type: str,
+        recipient_type: str,
+        recipient_id: str,
+        payload: dict,
+    ) -> None:
+        event_key = f"{task.id}:{event_type}"
+        exists = session.scalar(
+            select(NotificationOutboxRecord).where(
+                NotificationOutboxRecord.event_key == event_key,
+            ),
+        )
+        if exists is None:
+            session.add(NotificationOutboxRecord(
+                event_key=event_key,
+                human_task_id=task.id,
+                event_type=event_type,
+                recipient_type=recipient_type,
+                recipient_id=recipient_id,
+                payload=payload,
+                created_at=self.now(),
+            ))
+
+    def refresh_sla(
+        self,
+        session: Session,
+        task: HumanTaskRecord,
+    ) -> HumanTaskRecord:
+        if task.status in TERMINAL_TASK_STATUSES:
+            return task
+        now = self.now()
+        due_at = self.aware(task.due_at)
+        escalation_at = self.aware(task.escalation_at)
+        before = task.sla_status
+        if now >= escalation_at:
+            if task.escalated_at is None:
+                group = session.get(ReviewGroupRecord, task.escalation_group_id)
+                if group is None:
+                    raise HumanTaskValidation("升级审核组不存在")
+                task.assignee_group_id = group.id
+                task.assignee_reviewer_id = None
+                task.participant_snapshot = self.group_reviewer_ids(session, group.id)
+                task.escalated_at = now
+                task.sla_status = "已升级"
+                self.audit(
+                    session,
+                    task=task,
+                    event_type="sla_escalated",
+                    actor_id="system",
+                    before_status=before,
+                    payload={"groupId": group.id},
+                )
+                self.add_notification(
+                    session,
+                    task=task,
+                    event_type="escalated",
+                    recipient_type="group",
+                    recipient_id=group.id,
+                    payload={"slaStatus": task.sla_status},
+                )
+        elif now >= due_at:
+            task.sla_status = "已逾期"
+            if task.overdue_recorded_at is None:
+                task.overdue_recorded_at = now
+                self.audit(
+                    session,
+                    task=task,
+                    event_type="sla_overdue",
+                    actor_id="system",
+                    before_status=before,
+                )
+        elif now >= due_at - timedelta(minutes=15):
+            task.sla_status = "即将到期"
+            if task.due_reminder_sent_at is None:
+                task.due_reminder_sent_at = now
+                self.audit(
+                    session,
+                    task=task,
+                    event_type="sla_due_soon",
+                    actor_id="system",
+                    before_status=before,
+                )
+                recipient_type = "reviewer" if task.assignee_reviewer_id else "group"
+                recipient_id = task.assignee_reviewer_id or task.assignee_group_id or ""
+                self.add_notification(
+                    session,
+                    task=task,
+                    event_type="due_soon",
+                    recipient_type=recipient_type,
+                    recipient_id=recipient_id,
+                    payload={"dueAt": due_at.isoformat()},
+                )
+        else:
+            task.sla_status = "正常"
+        task.updated_at = now
+        return task
 
     def claim_task(
         self,
@@ -299,6 +446,7 @@ class HumanTaskService:
         task = self.get_task(session, task_id)
         if task is None:
             raise HumanTaskValidation("人工任务不存在")
+        self.refresh_sla(session, task)
         self.active_reviewer(session, reviewer_id)
         if task.status in TERMINAL_TASK_STATUSES:
             raise HumanTaskConflict("终态任务不能认领")
@@ -309,7 +457,7 @@ class HumanTaskService:
         before = task.status
         task.assignee_reviewer_id = reviewer_id
         task.status = "审核中"
-        task.updated_at = utc_now()
+        task.updated_at = self.now()
         self.audit(
             session,
             task=task,
@@ -334,6 +482,7 @@ class HumanTaskService:
         task = self.get_task(session, task_id)
         if task is None:
             raise HumanTaskValidation("人工任务不存在")
+        self.refresh_sla(session, task)
         self.active_reviewer(session, actor_id)
         if task.status in TERMINAL_TASK_STATUSES:
             raise HumanTaskConflict("终态任务不能转交")
@@ -354,7 +503,7 @@ class HumanTaskService:
             task.assignee_reviewer_id = None
             task.participant_snapshot = self.group_reviewer_ids(session, group.id)
             task.status = "待认领"
-        task.updated_at = utc_now()
+        task.updated_at = self.now()
         self.audit(
             session,
             task=task,
@@ -384,6 +533,7 @@ class HumanTaskService:
         task = self.get_task(session, task_id)
         if task is None:
             raise HumanTaskValidation("人工任务不存在")
+        self.refresh_sla(session, task)
         self.active_reviewer(session, reviewer_id)
         idempotent = session.scalar(
             select(ReviewDecisionRecord).where(
@@ -501,7 +651,7 @@ class HumanTaskService:
                 task.status = "修改后通过" if modified_count else "已通过"
             else:
                 task.status = "审核中"
-        task.updated_at = utc_now()
+        task.updated_at = self.now()
         self.audit(
             session,
             task=task,

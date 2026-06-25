@@ -205,6 +205,22 @@ class HumanTaskRecord(Base):
     review_policy: Mapped[str] = mapped_column(String(32), default="any_one")
     required_approvals: Mapped[int] = mapped_column(Integer, default=1)
     participant_snapshot: Mapped[list[str]] = mapped_column(JSON, default=list)
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    escalation_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    sla_status: Mapped[str] = mapped_column(String(32), default="正常")
+    escalation_group_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    due_reminder_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    overdue_recorded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    escalated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
@@ -254,6 +270,23 @@ class AuditEventRecord(Base):
     before_status: Mapped[str] = mapped_column(String(32), default="")
     after_status: Mapped[str] = mapped_column(String(32), default="")
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class NotificationOutboxRecord(Base):
+    __tablename__ = "notification_outbox"
+    __table_args__ = (
+        UniqueConstraint("event_key", name="uq_notification_event_key"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    event_key: Mapped[str] = mapped_column(String(160))
+    human_task_id: Mapped[str] = mapped_column(String(36), index=True)
+    event_type: Mapped[str] = mapped_column(String(64))
+    recipient_type: Mapped[str] = mapped_column(String(32))
+    recipient_id: Mapped[str] = mapped_column(String(80))
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(32), default="pending")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 

@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -7,6 +9,17 @@ from test_human_workflow_execution import (
     FakeModelResult,
     create_human_workflow,
 )
+
+
+class MutableClock:
+    def __init__(self, current: datetime):
+        self.current = current
+
+    def __call__(self) -> datetime:
+        return self.current
+
+    def advance(self, **delta) -> None:
+        self.current += timedelta(**delta)
 
 
 def create_task(
@@ -159,3 +172,51 @@ def test_reject_and_rerun_are_immediate(
 
     assert response.status_code == 200
     assert response.json()["status"] == expected_status
+
+
+def test_sla_refresh_reminds_overdues_and_escalates_once(tmp_path):
+    clock = MutableClock(datetime(2026, 6, 25, 1, 0, tzinfo=timezone.utc))
+    gateway = FakeGateway([
+        FakeModelResult("这是一段用于验证 SLA 升级且长度足够的业务结论。"),
+    ])
+    client = TestClient(create_app(
+        f"sqlite:///{tmp_path / 'sla.db'}",
+        gateway,
+        human_task_clock=clock,
+    ))
+    workflow = create_human_workflow(
+        client,
+        {
+            "dueMinutes": 60,
+            "escalationMinutes": 120,
+        },
+    )
+    client.post(f"/api/workflows/{workflow['id']}/runs", json={"input": "验证 SLA"})
+    task = client.get("/api/human-tasks").json()[0]
+    groups = client.get("/api/review-groups").json()
+    escalation_group = next(group for group in groups if group["isEscalationGroup"])
+
+    assert task["slaStatus"] == "正常"
+
+    clock.advance(minutes=50)
+    due_soon = client.get("/api/human-tasks").json()[0]
+    assert due_soon["slaStatus"] == "即将到期"
+
+    clock.advance(minutes=20)
+    overdue = client.get(f"/api/human-tasks/{task['id']}").json()
+    assert overdue["slaStatus"] == "已逾期"
+
+    clock.advance(minutes=60)
+    escalated = client.get("/api/human-tasks").json()[0]
+    assert escalated["slaStatus"] == "已升级"
+    assert escalated["assigneeGroupId"] == escalation_group["id"]
+
+    client.get("/api/human-tasks")
+    detail = client.get(f"/api/human-tasks/{task['id']}").json()
+    event_types = [event["eventType"] for event in detail["auditEvents"]]
+    notification_types = [item["eventType"] for item in detail["notifications"]]
+    assert event_types.count("sla_due_soon") == 1
+    assert event_types.count("sla_overdue") == 1
+    assert event_types.count("sla_escalated") == 1
+    assert notification_types.count("due_soon") == 1
+    assert notification_types.count("escalated") == 1
