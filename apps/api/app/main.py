@@ -1,7 +1,7 @@
 from collections.abc import Callable, Iterator
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, status
+from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Query, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
@@ -13,7 +13,7 @@ from app.config import Settings
 from app.database import create_database, session_scope
 from app.domain import next_version, validate_workflow
 from app.execution import ExecutionService, WorkflowResumeService
-from app.human_tasks import HumanTaskConflict, HumanTaskService, HumanTaskValidation
+from app.human_tasks import HumanTaskConflict, HumanTaskPermission, HumanTaskService, HumanTaskValidation
 from app.migrations import ensure_current_schema
 from app.model_gateway import ModelGateway, OpenAICompatibleGateway
 from app.models import (
@@ -952,29 +952,27 @@ def create_app(
     @router.post("/human-tasks/{task_id}/claim", response_model=HumanTaskRead)
     def claim_human_task(
         task_id: str,
-        payload: HumanTaskClaim,
         request: Request,
+        _payload: HumanTaskClaim = Body(default_factory=HumanTaskClaim),
         context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
     ) -> HumanTaskRecord:
         context, session = context_bundle
-        authorization_service.require_capability(
-            session,
-            context,
-            "run.execute",
-            action="human_task.claim",
-            target_type="human_task",
-            target_id=task_id,
-            request=request,
-        )
         try:
+            reviewer = human_task_service.active_reviewer_for_user(
+                session,
+                context.workspace.id,
+                context.user.id,
+            )
             return human_task_service.claim_task(
                 session,
                 context.workspace.id,
                 task_id,
-                payload.reviewer_id,
+                reviewer,
             )
         except HumanTaskConflict as error:
             raise HTTPException(status_code=409, detail=str(error)) from None
+        except HumanTaskPermission as error:
+            raise HTTPException(status_code=403, detail=str(error)) from None
         except HumanTaskValidation as error:
             raise HTTPException(status_code=422, detail=str(error)) from None
 
@@ -986,27 +984,25 @@ def create_app(
         context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
     ) -> HumanTaskRecord:
         context, session = context_bundle
-        authorization_service.require_capability(
-            session,
-            context,
-            "run.execute",
-            action="human_task.transfer",
-            target_type="human_task",
-            target_id=task_id,
-            request=request,
-        )
         try:
+            actor_reviewer = human_task_service.active_reviewer_for_user(
+                session,
+                context.workspace.id,
+                context.user.id,
+            )
             return human_task_service.transfer_task(
                 session,
                 context.workspace.id,
                 task_id,
-                actor_id=payload.actor_id,
+                actor_reviewer=actor_reviewer,
                 reviewer_id=payload.reviewer_id,
                 group_id=payload.group_id,
                 reason=payload.reason,
             )
         except HumanTaskConflict as error:
             raise HTTPException(status_code=409, detail=str(error)) from None
+        except HumanTaskPermission as error:
+            raise HTTPException(status_code=403, detail=str(error)) from None
         except HumanTaskValidation as error:
             raise HTTPException(status_code=422, detail=str(error)) from None
 
@@ -1018,21 +1014,17 @@ def create_app(
         context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
     ) -> dict:
         context, session = context_bundle
-        authorization_service.require_capability(
-            session,
-            context,
-            "run.execute",
-            action="human_task.decision",
-            target_type="human_task",
-            target_id=task_id,
-            request=request,
-        )
         try:
+            reviewer = human_task_service.active_reviewer_for_user(
+                session,
+                context.workspace.id,
+                context.user.id,
+            )
             detail, decision, _ = human_task_service.decide_task(
                 session,
                 context.workspace.id,
                 task_id,
-                reviewer_id=payload.reviewer_id,
+                reviewer=reviewer,
                 decision=payload.decision,
                 reason=payload.reason,
                 artifact_version_id=payload.artifact_version_id,
@@ -1058,6 +1050,8 @@ def create_app(
             return detail
         except HumanTaskConflict as error:
             raise HTTPException(status_code=409, detail=str(error)) from None
+        except HumanTaskPermission as error:
+            raise HTTPException(status_code=403, detail=str(error)) from None
         except HumanTaskValidation as error:
             raise HTTPException(status_code=422, detail=str(error)) from None
 
@@ -1147,26 +1141,24 @@ def create_app(
         context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
     ):
         context, session = context_bundle
-        authorization_service.require_capability(
-            session,
-            context,
-            "run.execute",
-            action="feedback_candidate.confirm",
-            target_type="feedback_candidate",
-            target_id=candidate_id,
-            request=request,
-        )
         try:
+            reviewer = human_task_service.active_reviewer_for_user(
+                session,
+                context.workspace.id,
+                context.user.id,
+            )
             return human_task_service.confirm_feedback_candidate(
                 session,
                 context.workspace.id,
                 candidate_id,
-                reviewer_id=payload.reviewer_id,
+                reviewer=reviewer,
                 reason=payload.reason,
                 idempotency_key=payload.idempotency_key,
             )
         except HumanTaskConflict as error:
             raise HTTPException(status_code=409, detail=str(error)) from None
+        except HumanTaskPermission as error:
+            raise HTTPException(status_code=403, detail=str(error)) from None
         except HumanTaskValidation as error:
             raise HTTPException(status_code=422, detail=str(error)) from None
 

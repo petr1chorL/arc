@@ -228,6 +228,7 @@ export interface HumanReview {
 
 export interface Reviewer {
   id: string
+  userId?: string | null
   name: string
   role: string
   isExpert: boolean

@@ -2,8 +2,11 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from api_test_support import create_authenticated_client, csrf_headers, workspace_url
+from app.models import ReviewerRecord, UserRecord, WorkspaceMembershipRecord
+from app.security import SecurityService
 from test_human_workflow_execution import (
     FakeGateway,
     FakeModelResult,
@@ -20,6 +23,123 @@ class MutableClock:
 
     def advance(self, **delta) -> None:
         self.current += timedelta(**delta)
+
+
+def bind_reviewer_to_user(
+    client: TestClient,
+    workspace_id: str,
+    reviewer_id: str,
+    *,
+    email: str,
+    role: str = "operator",
+    user_status: str = "active",
+    membership_status: str = "active",
+) -> dict:
+    security = SecurityService()
+    now = datetime(2026, 6, 26, 9, 0, tzinfo=timezone.utc)
+    with client.app.state.session_factory() as session:
+        reviewer = session.get(ReviewerRecord, reviewer_id)
+        assert reviewer is not None
+        assert reviewer.workspace_id == workspace_id
+        admin = session.scalar(select(UserRecord).where(UserRecord.is_organization_admin.is_(True)))
+        assert admin is not None
+        user = UserRecord(
+            organization_id=admin.organization_id,
+            email=email,
+            normalized_email=email,
+            display_name=email,
+            password_hash=security.hash_password("Reviewer Password 42!"),
+            status=user_status,
+            password_changed_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(user)
+        session.flush()
+        session.add(
+            WorkspaceMembershipRecord(
+                workspace_id=workspace_id,
+                user_id=user.id,
+                role=role,
+                status=membership_status,
+                invited_by=admin.id,
+                activated_at=now if membership_status == "active" else None,
+                created_at=now,
+                updated_at=now,
+            ),
+        )
+        reviewer.user_id = user.id
+        reviewer.is_active = True
+        session.commit()
+        return {"id": reviewer_id, "email": email, "userId": user.id}
+
+
+def bind_reviewers_to_users(
+    client: TestClient,
+    workspace_id: str,
+    reviewers: list[dict],
+) -> list[dict]:
+    return [
+        {
+            **reviewer,
+            **bind_reviewer_to_user(
+                client,
+                workspace_id,
+                reviewer["id"],
+                email=f"reviewer-{index}@example.com",
+            ),
+        }
+        for index, reviewer in enumerate(reviewers, start=1)
+    ]
+
+
+def create_active_member(
+    client: TestClient,
+    workspace_id: str,
+    *,
+    email: str,
+    role: str = "operator",
+) -> dict:
+    security = SecurityService()
+    now = datetime(2026, 6, 26, 9, 0, tzinfo=timezone.utc)
+    with client.app.state.session_factory() as session:
+        admin = session.scalar(select(UserRecord).where(UserRecord.is_organization_admin.is_(True)))
+        assert admin is not None
+        user = UserRecord(
+            organization_id=admin.organization_id,
+            email=email,
+            normalized_email=email,
+            display_name=email,
+            password_hash=security.hash_password("Reviewer Password 42!"),
+            status="active",
+            password_changed_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(user)
+        session.flush()
+        session.add(
+            WorkspaceMembershipRecord(
+                workspace_id=workspace_id,
+                user_id=user.id,
+                role=role,
+                status="active",
+                invited_by=admin.id,
+                activated_at=now,
+                created_at=now,
+                updated_at=now,
+            ),
+        )
+        session.commit()
+        return {"email": email, "userId": user.id}
+
+
+def login_reviewer(client: TestClient, email: str) -> None:
+    response = client.post(
+        "/api/auth/login",
+        json={"email": email, "password": "Reviewer Password 42!"},
+    )
+    assert response.status_code == 200
 
 
 def create_task(
@@ -54,12 +174,12 @@ def create_task(
     )
     task = client.get(workspace_url(workspace_id, "/human-tasks")).json()[0]
     reviewers = client.get(workspace_url(workspace_id, "/reviewers")).json()
+    reviewers = bind_reviewers_to_users(client, workspace_id, reviewers)
     return client, workspace_id, task, reviewers
 
 
 def decision_body(task: dict, reviewer_id: str, decision: str) -> dict:
     return {
-        "reviewerId": reviewer_id,
         "decision": decision,
         "reason": f"{decision} in test",
         "artifactVersionId": task["artifactVersionId"],
@@ -71,10 +191,10 @@ def test_human_task_queue_supports_assignment_status_sla_and_active_filters(tmp_
     client, workspace_id, task, reviewers = create_task(tmp_path)
     groups = client.get(workspace_url(workspace_id, "/review-groups")).json()
     assigned_group = next(group for group in groups if group["id"] == task["assigneeGroupId"])
+    login_reviewer(client, reviewers[0]["email"])
 
     claimed = client.post(
         workspace_url(workspace_id, f"/human-tasks/{task['id']}/claim"),
-        json={"reviewerId": reviewers[0]["id"]},
         headers=csrf_headers(client),
     ).json()
 
@@ -108,6 +228,37 @@ def test_human_task_queue_supports_assignment_status_sla_and_active_filters(tmp_
     assert [item["id"] for item in closed] == [task["id"]]
 
 
+def test_claim_uses_logged_in_reviewer_and_no_body_identity(tmp_path):
+    client, workspace_id, task, reviewers = create_task(tmp_path)
+    reviewer = reviewers[0]
+    login_reviewer(client, reviewer["email"])
+
+    response = client.post(
+        workspace_url(workspace_id, f"/human-tasks/{task['id']}/claim"),
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["assigneeReviewerId"] == reviewer["id"]
+
+
+def test_member_without_reviewer_qualification_cannot_claim(tmp_path):
+    client, workspace_id, task, _ = create_task(tmp_path)
+    member = create_active_member(
+        client,
+        workspace_id,
+        email="operator-without-reviewer@example.com",
+    )
+    login_reviewer(client, member["email"])
+
+    response = client.post(
+        workspace_url(workspace_id, f"/human-tasks/{task['id']}/claim"),
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 403
+
+
 def test_directory_claim_conflict_and_transfer(tmp_path):
     client, workspace_id, task, reviewers = create_task(tmp_path)
     groups_response = client.get(workspace_url(workspace_id, "/review-groups"))
@@ -118,25 +269,25 @@ def test_directory_claim_conflict_and_transfer(tmp_path):
     assert len(groups) == 2
 
     first, second = reviewers[:2]
+    login_reviewer(client, first["email"])
     claimed = client.post(
         workspace_url(workspace_id, f"/human-tasks/{task['id']}/claim"),
-        json={"reviewerId": first["id"]},
         headers=csrf_headers(client),
     )
     assert claimed.status_code == 200
     assert claimed.json()["assigneeReviewerId"] == first["id"]
 
+    login_reviewer(client, second["email"])
     conflict = client.post(
         workspace_url(workspace_id, f"/human-tasks/{task['id']}/claim"),
-        json={"reviewerId": second["id"]},
         headers=csrf_headers(client),
     )
     assert conflict.status_code == 409
 
+    login_reviewer(client, first["email"])
     transferred = client.post(
         workspace_url(workspace_id, f"/human-tasks/{task['id']}/transfer"),
         json={
-            "actorId": first["id"],
             "reviewerId": second["id"],
             "reason": "transfer in test",
         },
@@ -194,6 +345,7 @@ def test_countersign_policies(tmp_path, policy: str, required: int):
     client, workspace_id, task, reviewers = create_task(tmp_path, policy=policy, required=required)
     initial_status = task["status"]
 
+    login_reviewer(client, reviewers[0]["email"])
     first = client.post(
         workspace_url(workspace_id, f"/human-tasks/{task['id']}/decisions"),
         json=decision_body(task, reviewers[0]["id"], "approve"),
@@ -207,6 +359,7 @@ def test_countersign_policies(tmp_path, policy: str, required: int):
         return
 
     assert first.json()["status"] != "已通过"
+    login_reviewer(client, reviewers[1]["email"])
     second = client.post(
         workspace_url(workspace_id, f"/human-tasks/{task['id']}/decisions"),
         json=decision_body(task, reviewers[1]["id"], "approve"),
@@ -220,6 +373,7 @@ def test_countersign_policies(tmp_path, policy: str, required: int):
 @pytest.mark.parametrize("decision", ["reject", "return_for_rerun"])
 def test_reject_and_rerun_are_immediate(tmp_path, decision: str):
     client, workspace_id, task, reviewers = create_task(tmp_path, policy="all", required=2)
+    login_reviewer(client, reviewers[0]["email"])
 
     response = client.post(
         workspace_url(workspace_id, f"/human-tasks/{task['id']}/decisions"),
@@ -285,6 +439,7 @@ def test_only_human_modification_creates_feedback_candidate(tmp_path):
     approve_path = tmp_path / "approve"
     approve_path.mkdir()
     approve_client, approve_workspace_id, approve_task, approve_reviewers = create_task(approve_path)
+    login_reviewer(approve_client, approve_reviewers[0]["email"])
     approved = approve_client.post(
         workspace_url(approve_workspace_id, f"/human-tasks/{approve_task['id']}/decisions"),
         json=decision_body(approve_task, approve_reviewers[0]["id"], "approve"),
@@ -296,6 +451,7 @@ def test_only_human_modification_creates_feedback_candidate(tmp_path):
     modified_path = tmp_path / "modified"
     modified_path.mkdir()
     client, workspace_id, task, reviewers = create_task(modified_path)
+    login_reviewer(client, reviewers[0]["email"])
     original_content = client.get(
         workspace_url(workspace_id, f"/human-tasks/{task['id']}"),
     ).json()["artifact"]["content"]
@@ -326,6 +482,7 @@ def test_only_human_modification_creates_feedback_candidate(tmp_path):
 
 def test_expert_confirms_feedback_candidate_idempotently(tmp_path):
     client, workspace_id, task, reviewers = create_task(tmp_path)
+    login_reviewer(client, reviewers[0]["email"])
     client.post(
         workspace_url(workspace_id, f"/human-tasks/{task['id']}/decisions"),
         json={
@@ -342,19 +499,18 @@ def test_expert_confirms_feedback_candidate_idempotently(tmp_path):
     rejected = client.post(
         workspace_url(workspace_id, f"/feedback-candidates/{candidate['id']}/confirm"),
         json={
-            "reviewerId": non_expert["id"],
             "reason": "not allowed",
             "idempotencyKey": "golden-confirm-1",
         },
         headers=csrf_headers(client),
     )
-    assert rejected.status_code == 422
+    assert rejected.status_code == 403
 
     body = {
-        "reviewerId": expert["id"],
         "reason": "expert confirmation",
         "idempotencyKey": "golden-confirm-1",
     }
+    login_reviewer(client, expert["email"])
     confirmed = client.post(
         workspace_url(workspace_id, f"/feedback-candidates/{candidate['id']}/confirm"),
         json=body,

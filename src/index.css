@@ -1870,6 +1870,28 @@ kbd {
   font-size: 8px;
 }
 
+.reviewer-identity {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.reviewer-identity span {
+  color: var(--muted);
+  font-size: 8px;
+}
+
+.reviewer-identity strong {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.reviewer-identity small {
+  color: var(--muted);
+  font-size: 9px;
+}
+
 .review-filters select,
 .review-operator-bar select,
 .context-section select,

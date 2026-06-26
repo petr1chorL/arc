@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useAuth } from '../auth/authContext'
 import { useWorkspace } from '../auth/workspaceContextState'
 import {
   claimHumanTask,
@@ -50,6 +51,7 @@ function formatTime(value: string) {
 }
 
 export function Reviews() {
+  const { user } = useAuth()
   const { workspace } = useWorkspace()
   const [tasks, setTasks] = useState<HumanTask[]>([])
   const [detail, setDetail] = useState<HumanTaskDetail | null>(null)
@@ -57,7 +59,6 @@ export function Reviews() {
   const [groups, setGroups] = useState<ReviewGroup[]>([])
   const [candidates, setCandidates] = useState<FeedbackCandidate[]>([])
   const [selectedId, setSelectedId] = useState('')
-  const [operatorId, setOperatorId] = useState('')
   const [statusFilter, setStatusFilter] = useState('全部')
   const [slaFilter, setSlaFilter] = useState('全部')
   const [mobilePane, setMobilePane] = useState<MobilePane>('queue')
@@ -84,11 +85,6 @@ export function Reviews() {
       setReviewers(nextReviewers)
       setGroups(nextGroups)
       setCandidates(nextCandidates)
-      setOperatorId((current) => (
-        nextReviewers.some((reviewer) => reviewer.id === current)
-          ? current
-          : nextReviewers[0]?.id ?? ''
-      ))
       setSelectedId((current) => (
         nextTasks.some((task) => task.id === current)
           ? current
@@ -126,10 +122,14 @@ export function Reviews() {
     && (slaFilter === '全部' || task.slaStatus === slaFilter)
   )), [slaFilter, statusFilter, tasks])
 
-  const currentOperator = reviewers.find((reviewer) => reviewer.id === operatorId)
+  const currentReviewer = reviewers.find((reviewer) => (
+    reviewer.userId === user?.id && reviewer.isActive
+  ))
+  const hasReviewerQualification = Boolean(currentReviewer)
   const selectedCandidate = candidates.find((candidate) => candidate.humanTaskId === selectedId)
   const selectedGroup = groups.find((group) => group.id === detail?.assigneeGroupId)
   const isTerminal = detail ? terminalStatuses.has(detail.status) : true
+  const actionDisabled = isBusy || isTerminal || !hasReviewerQualification
 
   function updateTask(nextTask: HumanTask) {
     setTasks((current) => current.map((task) => (
@@ -142,11 +142,11 @@ export function Reviews() {
   }
 
   async function claim() {
-    if (!detail || !operatorId) return
+    if (!detail || !currentReviewer) return
     setIsBusy(true)
     setError('')
     try {
-      const updated = await claimHumanTask(workspace.id, detail.id, operatorId)
+      const updated = await claimHumanTask(workspace.id, detail.id)
       updateTask(updated)
       setDetail((current) => current ? { ...current, ...updated } : current)
       notifyHumanTasksUpdated()
@@ -159,7 +159,7 @@ export function Reviews() {
   }
 
   async function transfer() {
-    if (!detail || !operatorId) return
+    if (!detail || !currentReviewer) return
     if (!transferReviewerId || !transferReason.trim()) {
       setError('请选择转交审核人并填写转交原因')
       return
@@ -168,7 +168,6 @@ export function Reviews() {
     setError('')
     try {
       const updated = await transferHumanTask(workspace.id, detail.id, {
-        actorId: operatorId,
         reviewerId: transferReviewerId,
         reason: transferReason.trim(),
       })
@@ -185,7 +184,7 @@ export function Reviews() {
   }
 
   async function decide(decision: HumanTaskDecision) {
-    if (!detail || !operatorId) return
+    if (!detail || !currentReviewer) return
     if (!reason.trim()) {
       setError('请填写审核原因')
       return
@@ -201,11 +200,10 @@ export function Reviews() {
     setError('')
     try {
       const updated = await decideHumanTask(workspace.id, detail.id, {
-        reviewerId: operatorId,
         decision,
         reason: reason.trim(),
         artifactVersionId: detail.artifact.id,
-        idempotencyKey: `${detail.id}:${operatorId}:${decision}:${Date.now()}`,
+        idempotencyKey: `${detail.id}:${currentReviewer.id}:${decision}:${Date.now()}`,
         ...(decision === 'modify_and_approve'
           ? { modifiedContent: editedContent.trim(), tags: ['人工修订'] }
           : {}),
@@ -243,7 +241,7 @@ export function Reviews() {
   }
 
   async function confirmGolden() {
-    if (!selectedCandidate || !currentOperator?.isExpert) return
+    if (!selectedCandidate || !currentReviewer?.isExpert) return
     if (!expertReason.trim()) {
       setError('请填写专家确认理由')
       return
@@ -252,9 +250,8 @@ export function Reviews() {
     setError('')
     try {
       await confirmFeedbackCandidate(workspace.id, selectedCandidate.id, {
-        reviewerId: currentOperator.id,
         reason: expertReason.trim(),
-        idempotencyKey: `${selectedCandidate.id}:${currentOperator.id}:golden`,
+        idempotencyKey: `${selectedCandidate.id}:${currentReviewer.id}:golden`,
       })
       setCandidates((current) => current.map((candidate) => (
         candidate.id === selectedCandidate.id
@@ -365,18 +362,17 @@ export function Reviews() {
             {error && <div className="inline-feedback error" role="alert">{error}</div>}
 
             <div className="review-operator-bar">
-              <label>
-                <span>当前操作者</span>
-                <select aria-label="当前操作者" value={operatorId} onChange={(event) => setOperatorId(event.target.value)}>
-                  {reviewers.map((reviewer) => (
-                    <option value={reviewer.id} key={reviewer.id}>
-                      {reviewer.name} · {reviewer.role}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div className="reviewer-identity">
+                <span>当前用户</span>
+                <strong>{user?.displayName ?? '未登录'}</strong>
+                <small>
+                  {currentReviewer
+                    ? `${currentReviewer.name} · ${currentReviewer.role}${currentReviewer.isExpert ? ' · 专家' : ''}`
+                    : '未获得 Reviewer 资格'}
+                </small>
+              </div>
               {!detail.assigneeReviewerId && !isTerminal && (
-                <button className="button secondary" disabled={isBusy} onClick={() => void claim()}>
+                <button className="button secondary" disabled={isBusy || !hasReviewerQualification} onClick={() => void claim()}>
                   <UserCheck size={15} />认领任务
                 </button>
               )}
@@ -426,16 +422,16 @@ export function Reviews() {
                   <RefreshCw size={15} />重试恢复
                 </button>
               )}
-              <button className="button danger" disabled={isBusy || isTerminal} onClick={() => void decide('reject')}>
+              <button className="button danger" disabled={actionDisabled} onClick={() => void decide('reject')}>
                 <X size={15} />驳回
               </button>
-              <button className="button secondary" disabled={isBusy || isTerminal} onClick={() => void decide('return_for_rerun')}>
+              <button className="button secondary" disabled={actionDisabled} onClick={() => void decide('return_for_rerun')}>
                 <RotateCcw size={15} />退回重跑
               </button>
-              <button className="button secondary" disabled={isBusy || isTerminal} onClick={() => void decide('approve')}>
+              <button className="button secondary" disabled={actionDisabled} onClick={() => void decide('approve')}>
                 <Check size={15} />通过
               </button>
-              <button className="button primary" disabled={isBusy || isTerminal} onClick={() => void decide('modify_and_approve')}>
+              <button className="button primary" disabled={actionDisabled} onClick={() => void decide('modify_and_approve')}>
                 <CheckCheck size={15} />修改后通过
               </button>
             </footer>
@@ -464,7 +460,7 @@ export function Reviews() {
                 <span>转交审核人</span>
                 <select aria-label="转交审核人" value={transferReviewerId} onChange={(event) => setTransferReviewerId(event.target.value)}>
                   <option value="">请选择</option>
-                  {reviewers.filter((reviewer) => reviewer.id !== operatorId).map((reviewer) => (
+                  {reviewers.filter((reviewer) => reviewer.id !== currentReviewer?.id).map((reviewer) => (
                     <option value={reviewer.id} key={reviewer.id}>{reviewer.name} · {reviewer.role}</option>
                   ))}
                 </select>
@@ -473,7 +469,7 @@ export function Reviews() {
                 <span>转交原因</span>
                 <input aria-label="转交原因" value={transferReason} onChange={(event) => setTransferReason(event.target.value)} />
               </label>
-              <button className="button secondary full" disabled={isBusy || isTerminal} onClick={() => void transfer()}>
+              <button className="button secondary full" disabled={actionDisabled} onClick={() => void transfer()}>
                 确认转交
               </button>
             </section>
@@ -503,7 +499,7 @@ export function Reviews() {
                 <div className="context-title"><ShieldCheck size={15} /><h3>反馈候选</h3></div>
                 <span className="candidate-status">{selectedCandidate.status}</span>
                 <pre>{selectedCandidate.unifiedDiff}</pre>
-                {currentOperator?.isExpert && selectedCandidate.status === '待确认' ? (
+                {currentReviewer?.isExpert && selectedCandidate.status === '待确认' ? (
                   <>
                     <label>
                       <span>专家确认理由</span>

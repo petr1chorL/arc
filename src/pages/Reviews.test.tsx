@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { AuthContext, type AuthContextValue } from '../auth/authContext'
 import { WorkspaceProvider } from '../auth/WorkspaceContext'
 import { Reviews } from './Reviews'
 
@@ -11,8 +12,8 @@ const workspace = {
 }
 
 const reviewers = [
-  { id: 'reviewer-1', name: '林晓', role: '产品审核人', isExpert: false, isActive: true },
-  { id: 'reviewer-2', name: '陈卓', role: '质量专家', isExpert: true, isActive: true },
+  { id: 'reviewer-1', userId: 'user-reviewer-1', name: '林晓', role: '产品审核人', isExpert: false, isActive: true },
+  { id: 'reviewer-2', userId: 'user-reviewer-2', name: '陈卓', role: '质量专家', isExpert: true, isActive: true },
 ]
 
 const groups = [
@@ -134,11 +135,26 @@ function baseFetch(url: string, init?: RequestInit) {
   return response({ detail: 'Not Found' }, 404)
 }
 
-function renderReviews() {
+function renderReviews(userId = 'user-reviewer-1') {
+  const authValue: AuthContextValue = {
+    user: {
+      id: userId,
+      email: `${userId}@example.com`,
+      displayName: userId === 'user-reviewer-2' ? '陈卓' : '林晓',
+      isOrganizationAdmin: false,
+    },
+    workspaces: [workspace],
+    status: 'authenticated',
+    login: vi.fn(),
+    logout: vi.fn(),
+    refreshSession: vi.fn(),
+  }
   return render(
-    <WorkspaceProvider workspace={workspace}>
-      <Reviews />
-    </WorkspaceProvider>,
+    <AuthContext.Provider value={authValue}>
+      <WorkspaceProvider workspace={workspace}>
+        <Reviews />
+      </WorkspaceProvider>
+    </AuthContext.Provider>,
   )
 }
 
@@ -159,6 +175,9 @@ describe('Reviews', () => {
     expect(screen.getByText('1 / 2')).toBeInTheDocument()
     expect(screen.getByText('task_created')).toBeInTheDocument()
     expect(screen.getByText('due_soon')).toBeInTheDocument()
+    expect(screen.getByText('当前用户')).toBeInTheDocument()
+    expect(screen.getByText('林晓 · 产品审核人')).toBeInTheDocument()
+    expect(screen.queryByLabelText('当前操作者')).not.toBeInTheDocument()
   })
 
   it('validates and submits modification with the current artifact version', async () => {
@@ -197,13 +216,14 @@ describe('Reviews', () => {
     const decisionCall = fetchMock.mock.calls.find(([url]) => (
       url === `/api/workspaces/${workspace.id}/human-tasks/task-1/decisions`
     ))
-    expect(JSON.parse(decisionCall?.[1]?.body as string)).toEqual(expect.objectContaining({
-      reviewerId: 'reviewer-1',
+    const body = JSON.parse(decisionCall?.[1]?.body as string)
+    expect(body).toEqual(expect.objectContaining({
       decision: 'modify_and_approve',
       reason: '补充证据并统一表述',
       artifactVersionId: 'artifact-v1',
       modifiedContent: '这是人工修订后的正式业务结论。',
     }))
+    expect(body).not.toHaveProperty('reviewerId')
   })
 
   it('claims transfers and lets an expert confirm a golden sample', async () => {
@@ -214,7 +234,7 @@ describe('Reviews', () => {
         return response({ ...task, status: '审核中', assigneeReviewerId: 'reviewer-1' })
       }
       if (url === `/api/workspaces/${workspace.id}/human-tasks/task-1/transfer` && init?.method === 'POST') {
-        return response({ ...task, status: '审核中', assigneeReviewerId: 'reviewer-2' })
+        return response({ ...task, status: '审核中', assigneeReviewerId: 'reviewer-1' })
       }
       if (url === `/api/workspaces/${workspace.id}/feedback-candidates/candidate-1/confirm` && init?.method === 'POST') {
         return response({
@@ -231,7 +251,7 @@ describe('Reviews', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    renderReviews()
+    renderReviews('user-reviewer-2')
 
     await screen.findByText('新品定义人工审核')
     await screen.findByText(detail.artifact.content)
@@ -239,19 +259,38 @@ describe('Reviews', () => {
     expect(await screen.findByText('任务已认领')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '认领任务' })).not.toBeInTheDocument()
 
-    await user.selectOptions(screen.getByLabelText('转交审核人'), 'reviewer-2')
+    await user.selectOptions(screen.getByLabelText('转交审核人'), 'reviewer-1')
     await user.type(screen.getByLabelText('转交原因'), '需要质量专家处理')
     await user.click(screen.getByRole('button', { name: '确认转交' }))
     expect(await screen.findByText('任务已转交')).toBeInTheDocument()
 
-    await user.selectOptions(screen.getByLabelText('当前操作者'), 'reviewer-2')
     await user.type(screen.getByLabelText('专家确认理由'), '符合黄金样本标准')
     await user.click(screen.getByRole('button', { name: '确认黄金样本' }))
     expect(await screen.findByText('黄金样本已创建')).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledWith(
-      `/api/workspaces/${workspace.id}/feedback-candidates/candidate-1/confirm`,
-      expect.objectContaining({ method: 'POST' }),
-    )
+    const claimCall = fetchMock.mock.calls.find(([url]) => (
+      url === `/api/workspaces/${workspace.id}/human-tasks/task-1/claim`
+    ))
+    expect(claimCall?.[1]?.body).toBeUndefined()
+    const transferCall = fetchMock.mock.calls.find(([url]) => (
+      url === `/api/workspaces/${workspace.id}/human-tasks/task-1/transfer`
+    ))
+    expect(JSON.parse(transferCall?.[1]?.body as string)).not.toHaveProperty('actorId')
+    const confirmCall = fetchMock.mock.calls.find(([url]) => (
+      url === `/api/workspaces/${workspace.id}/feedback-candidates/candidate-1/confirm`
+    ))
+    expect(JSON.parse(confirmCall?.[1]?.body as string)).not.toHaveProperty('reviewerId')
+  })
+
+  it('disables review commands when the logged in user has no reviewer qualification', async () => {
+    vi.stubGlobal('fetch', vi.fn(baseFetch))
+
+    renderReviews('user-without-reviewer')
+
+    await screen.findByText(detail.artifact.content)
+    expect(screen.getByText('当前用户')).toBeInTheDocument()
+    expect(screen.getByText('未获得 Reviewer 资格')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '认领任务' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '通过' })).toBeDisabled()
   })
 
   it('switches mobile panes with an accessible segmented state', async () => {

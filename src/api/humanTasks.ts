@@ -37,11 +37,9 @@ export async function getHumanTask(workspaceId: string, taskId: string): Promise
 export async function claimHumanTask(
   workspaceId: string,
   taskId: string,
-  reviewerId: string,
 ): Promise<HumanTask> {
   return readJson<HumanTask>(await apiFetch(workspacePath(workspaceId, `/human-tasks/${taskId}/claim`), {
-    ...jsonRequest,
-    body: JSON.stringify({ reviewerId }),
+    method: 'POST',
   }))
 }
 
@@ -49,7 +47,6 @@ export async function transferHumanTask(
   workspaceId: string,
   taskId: string,
   input: {
-    actorId: string
     reviewerId?: string
     groupId?: string
     reason: string
@@ -65,7 +62,6 @@ export async function decideHumanTask(
   workspaceId: string,
   taskId: string,
   input: {
-    reviewerId: string
     decision: HumanTaskDecision
     reason: string
     artifactVersionId: string
@@ -94,7 +90,6 @@ export async function confirmFeedbackCandidate(
   workspaceId: string,
   candidateId: string,
   input: {
-    reviewerId: string
     reason: string
     idempotencyKey: string
   },

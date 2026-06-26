@@ -1,8 +1,12 @@
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from api_test_support import create_authenticated_client, csrf_headers, workspace_url
+from app.models import ReviewerRecord, UserRecord, WorkspaceMembershipRecord
+from app.security import SecurityService
 
 
 @dataclass
@@ -24,6 +28,59 @@ class FakeGateway:
         if isinstance(result, Exception):
             raise result
         return result
+
+
+def bind_reviewer_to_user(
+    client: TestClient,
+    workspace_id: str,
+    reviewer: dict,
+    *,
+    email: str = "workflow-reviewer@example.com",
+) -> dict:
+    security = SecurityService()
+    now = datetime(2026, 6, 26, 9, 0, tzinfo=timezone.utc)
+    with client.app.state.session_factory() as session:
+        reviewer_record = session.get(ReviewerRecord, reviewer["id"])
+        assert reviewer_record is not None
+        admin = session.scalar(select(UserRecord).where(UserRecord.is_organization_admin.is_(True)))
+        assert admin is not None
+        user = UserRecord(
+            organization_id=admin.organization_id,
+            email=email,
+            normalized_email=email,
+            display_name=email,
+            password_hash=security.hash_password("Reviewer Password 42!"),
+            status="active",
+            password_changed_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(user)
+        session.flush()
+        session.add(
+            WorkspaceMembershipRecord(
+                workspace_id=workspace_id,
+                user_id=user.id,
+                role="operator",
+                status="active",
+                invited_by=admin.id,
+                activated_at=now,
+                created_at=now,
+                updated_at=now,
+            ),
+        )
+        reviewer_record.user_id = user.id
+        reviewer_record.is_active = True
+        session.commit()
+        return {**reviewer, "email": email, "userId": user.id}
+
+
+def login_reviewer(client: TestClient, email: str) -> None:
+    response = client.post(
+        "/api/auth/login",
+        json={"email": email, "password": "Reviewer Password 42!"},
+    )
+    assert response.status_code == 200
 
 
 def create_human_workflow(
@@ -180,6 +237,8 @@ def paused_run(
     ).json()
     task = client.get(workspace_url(workspace_id, "/human-tasks")).json()[0]
     reviewer = client.get(workspace_url(workspace_id, "/reviewers")).json()[0]
+    reviewer = bind_reviewer_to_user(client, workspace_id, reviewer)
+    login_reviewer(client, reviewer["email"])
     return client, workspace_id, gateway, run, task, reviewer
 
 
@@ -194,7 +253,6 @@ def submit_decision(
     idempotency_key: str | None = None,
 ):
     body = {
-        "reviewerId": reviewer["id"],
         "decision": decision,
         "reason": f"{decision} in test",
         "artifactVersionId": task["artifactVersionId"],
@@ -306,6 +364,13 @@ def test_failed_resume_can_retry_without_new_decision(tmp_path):
     ).json()
     task = client.get(workspace_url(workspace_id, "/human-tasks")).json()[0]
     reviewer = client.get(workspace_url(workspace_id, "/reviewers")).json()[0]
+    reviewer = bind_reviewer_to_user(
+        client,
+        workspace_id,
+        reviewer,
+        email="resume-reviewer@example.com",
+    )
+    login_reviewer(client, reviewer["email"])
 
     failed = submit_decision(client, workspace_id, task, reviewer, "approve")
 

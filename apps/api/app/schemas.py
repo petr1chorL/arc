@@ -413,6 +413,7 @@ class HumanTaskDetailRead(HumanTaskRead):
 
 class ReviewerRead(BaseModel):
     id: str
+    user_id: str | None = Field(default=None, serialization_alias="userId")
     name: str
     role: str
     is_expert: bool = Field(serialization_alias="isExpert")
@@ -432,22 +433,18 @@ class ReviewGroupRead(BaseModel):
 
 
 class HumanTaskClaim(BaseModel):
-    reviewer_id: str = Field(alias="reviewerId")
-
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(extra="forbid")
 
 
 class HumanTaskTransfer(BaseModel):
-    actor_id: str = Field(alias="actorId")
     reviewer_id: str | None = Field(default=None, alias="reviewerId")
     group_id: str | None = Field(default=None, alias="groupId")
     reason: str = Field(min_length=1, max_length=1000)
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
 
 class HumanTaskDecisionCreate(BaseModel):
-    reviewer_id: str = Field(alias="reviewerId")
     decision: Literal["approve", "reject", "modify_and_approve", "return_for_rerun"]
     reason: str = Field(min_length=1, max_length=4000)
     artifact_version_id: str = Field(alias="artifactVersionId")
@@ -455,7 +452,7 @@ class HumanTaskDecisionCreate(BaseModel):
     modified_content: str | None = Field(default=None, alias="modifiedContent")
     tags: list[str] = Field(default_factory=list)
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
 
 class FeedbackCandidateRead(BaseModel):
@@ -481,11 +478,10 @@ class FeedbackCandidateRead(BaseModel):
 
 
 class GoldenSampleConfirm(BaseModel):
-    reviewer_id: str = Field(alias="reviewerId")
     reason: str = Field(min_length=1, max_length=4000)
     idempotency_key: str = Field(alias="idempotencyKey", min_length=1, max_length=160)
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
 
 class GoldenSampleRead(BaseModel):
