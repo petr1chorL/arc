@@ -450,3 +450,39 @@ export interface ObservabilityRunDetail extends ObservabilityRunSummary {
   humanTasks: ObservabilityHumanTask[]
   auditEvents: ObservabilityAuditEvent[]
 }
+
+export interface HumanSlaTotals {
+  activeTasks: number
+  unclaimed: number
+  inReview: number
+  dueSoon: number
+  overdue: number
+  escalated: number
+  resumeFailed: number
+}
+
+export interface HumanSlaRisk {
+  taskId: string
+  runId: string
+  title: string
+  status: string
+  slaStatus: string
+  severity: 'critical' | 'warning'
+  assigneeReviewerId: string | null
+  assigneeGroupId: string | null
+  dueAt: string
+  escalationAt: string
+  nextAction: string
+}
+
+export interface HumanSlaFilterOption {
+  id: string
+  name: string
+}
+
+export interface HumanSlaOverview {
+  totals: HumanSlaTotals
+  risks: HumanSlaRisk[]
+  reviewers: HumanSlaFilterOption[]
+  groups: HumanSlaFilterOption[]
+}

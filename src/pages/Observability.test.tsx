@@ -106,6 +106,48 @@ const detail = {
   }],
 }
 
+const humanSla = {
+  totals: {
+    activeTasks: 4,
+    unclaimed: 2,
+    inReview: 1,
+    dueSoon: 1,
+    overdue: 1,
+    escalated: 1,
+    resumeFailed: 1,
+  },
+  risks: [{
+    taskId: 'task-overdue',
+    runId: 'run-failed',
+    title: '已逾期审核',
+    status: '待认领',
+    slaStatus: '已逾期',
+    severity: 'critical',
+    assigneeReviewerId: null,
+    assigneeGroupId: 'group-1',
+    dueAt: '2026-06-26T08:40:00Z',
+    escalationAt: '2026-06-26T09:40:00Z',
+    nextAction: '进入人工审核页处理该任务',
+  }],
+  reviewers: [{ id: 'reviewer-1', name: '产品审核人' }],
+  groups: [{ id: 'group-1', name: '产品审核组' }],
+}
+
+const emptyHumanSla = {
+  totals: {
+    activeTasks: 0,
+    unclaimed: 0,
+    inReview: 0,
+    dueSoon: 0,
+    overdue: 0,
+    escalated: 0,
+    resumeFailed: 0,
+  },
+  risks: [],
+  reviewers: [],
+  groups: [],
+}
+
 function renderPage() {
   return render(
     <MemoryRouter>
@@ -127,6 +169,9 @@ describe('Observability', () => {
       if (path === '/api/workspaces/workspace-1/observability/overview') {
         return new Response(JSON.stringify(overview), { status: 200 })
       }
+      if (path === '/api/workspaces/workspace-1/observability/human-sla') {
+        return new Response(JSON.stringify(humanSla), { status: 200 })
+      }
       if (path === '/api/workspaces/workspace-1/observability/runs/run-failed') {
         return new Response(JSON.stringify(detail), { status: 200 })
       }
@@ -142,6 +187,13 @@ describe('Observability', () => {
     expect(screen.getByText('失败 · 数据清洗 Agent / 查看失败节点和错误信息')).toBeInTheDocument()
     expect(screen.getAllByText('Amazon 评论分析').length).toBeGreaterThanOrEqual(1)
     expect(await screen.findByText('Amazon 数据连接器鉴权超时')).toBeInTheDocument()
+    expect(await screen.findByText('人工 SLA 运营')).toBeInTheDocument()
+    expect(screen.getByText('活跃任务')).toBeInTheDocument()
+    expect(screen.getByText('已逾期审核')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '进入人工审核页处理该任务' })).toHaveAttribute(
+      'href',
+      '/w/ai-capability-center/reviews?taskId=task-overdue',
+    )
     expect(screen.getByText('节点执行链路')).toBeInTheDocument()
     expect(screen.getByText('人工审核任务')).toBeInTheDocument()
     expect(screen.getByText('质量门未通过')).toBeInTheDocument()
@@ -163,6 +215,9 @@ describe('Observability', () => {
       const path = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
       if (path === '/api/workspaces/workspace-1/observability/overview') {
         return new Response(JSON.stringify(overview), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/observability/human-sla') {
+        return new Response(JSON.stringify(humanSla), { status: 200 })
       }
       if (path === '/api/workspaces/workspace-1/observability/runs/run-failed') {
         return new Response(JSON.stringify(detail), { status: 200 })
@@ -186,8 +241,12 @@ describe('Observability', () => {
   })
 
   it('shows a clear empty state when no runs exist', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
+      if (path === '/api/workspaces/workspace-1/observability/human-sla') {
+        return new Response(JSON.stringify(emptyHumanSla), { status: 200 })
+      }
+      return new Response(JSON.stringify({
         totals: {
           totalRuns: 0,
           succeededRuns: 0,
@@ -201,12 +260,45 @@ describe('Observability', () => {
         },
         risks: [],
         recentRuns: [],
-      }), { status: 200 }),
-    ))
+      }), { status: 200 })
+    }))
 
     renderPage()
 
     expect(await screen.findByText('暂无运行记录')).toBeInTheDocument()
     expect(screen.getByText('运行工作流或 Agent 后，这里会显示失败、人工介入和成本风险。')).toBeInTheDocument()
+  })
+
+  it('reloads human SLA risks when reviewer and group filters change', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      const path = url.replace('http://localhost', '')
+      if (path === '/api/workspaces/workspace-1/observability/overview') {
+        return new Response(JSON.stringify(overview), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/observability/runs/run-failed') {
+        return new Response(JSON.stringify(detail), { status: 200 })
+      }
+      if (path.startsWith('/api/workspaces/workspace-1/observability/human-sla')) {
+        return new Response(JSON.stringify(humanSla), { status: 200 })
+      }
+      throw new Error(`Unexpected fetch: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage()
+
+    await user.selectOptions(await screen.findByLabelText('按 Reviewer 过滤'), 'reviewer-1')
+    await user.selectOptions(screen.getByLabelText('按审核组过滤'), 'group-1')
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/workspaces/workspace-1/observability/human-sla?reviewerId=reviewer-1',
+      expect.objectContaining({ credentials: 'same-origin' }),
+    )
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/workspaces/workspace-1/observability/human-sla?reviewerId=reviewer-1&groupId=group-1',
+      expect.objectContaining({ credentials: 'same-origin' }),
+    )
   })
 })

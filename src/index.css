@@ -3108,6 +3108,89 @@ kbd {
   align-items: start;
 }
 
+.human-sla-panel {
+  overflow: hidden;
+  box-shadow: var(--shadow-out);
+}
+
+.human-sla-header {
+  align-items: center;
+}
+
+.human-sla-filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.human-sla-filters label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.human-sla-filters select {
+  min-width: 150px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-in);
+}
+
+.human-sla-metrics {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid var(--soft-line);
+}
+
+.human-sla-metrics .observability-metric {
+  min-height: 92px;
+  padding: 14px;
+}
+
+.human-sla-risk-list {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+}
+
+.human-sla-risk {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 13px;
+  border: 1px solid var(--soft-line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-out);
+}
+
+.human-sla-risk.critical {
+  border-color: #efc3ba;
+}
+
+.human-sla-risk.warning {
+  border-color: #f2d0b8;
+}
+
+.human-sla-risk strong,
+.human-sla-risk span {
+  display: block;
+}
+
+.human-sla-risk span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
 .observability-run-list,
 .observability-detail {
   overflow: hidden;
@@ -3381,6 +3464,10 @@ kbd {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
+  .human-sla-metrics {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
   .observability-layout {
     grid-template-columns: 1fr;
   }
@@ -3394,8 +3481,21 @@ kbd {
   }
 
   .observability-metrics,
+  .human-sla-metrics,
   .observability-detail-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .human-sla-header,
+  .human-sla-risk {
+    align-items: flex-start;
+    grid-template-columns: 1fr;
+  }
+
+  .human-sla-filters {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .observability-detail-grid > div:nth-child(2n) {
@@ -3405,6 +3505,7 @@ kbd {
 
 @media (max-width: 520px) {
   .observability-metrics,
+  .human-sla-metrics,
   .observability-detail-grid {
     grid-template-columns: 1fr;
   }

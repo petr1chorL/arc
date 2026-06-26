@@ -351,12 +351,16 @@ React Flow 节点/连线
 - 详情展示当前处理建议、输入/结果、节点执行链路、人工审核任务和审计事件。
 - 无运行数据时提示先发布并运行工作流。
 - 状态文案通过 `displayStatus` 规整历史乱码状态。
+- 人工 SLA 运营区块展示活跃任务、待认领、审核中、即将到期、已逾期、已升级和恢复失败。
+- 支持按 Reviewer 和审核组过滤 Human Task SLA 风险。
+- SLA 风险项可跳转到人工审核页，并携带 `taskId` 查询参数。
 
 后端 API：
 
 ```text
 GET /api/workspaces/{workspace_id}/observability/overview
 GET /api/workspaces/{workspace_id}/observability/runs/{run_id}
+GET /api/workspaces/{workspace_id}/observability/human-sla
 ```
 
 未实现：
@@ -597,6 +601,7 @@ V0.6 仍未引入后台任务队列、身份系统和外部通知 SDK。
 - V0.7B 人工审核页当前任务权限状态卡完成浏览器验收：无权限时展示“不能处理”、原因和下一步，并禁用认领与审核决定按钮。
 - V0.7B 修复 Human 节点 `direct_reviewer` 与后端校验不一致的问题，指定审核人的参与快照可正确进入 Human Task 并完成认领。
 - V0.8A 完成运行观测页浏览器验收：页面可打开，真实风险数据可渲染，风险状态规整为“等待审核”，浏览器日志无 error/warn。
+- V0.8A 完成人工 SLA 运营浏览器验收：SLA 区块、Reviewer/审核组筛选器和 `/reviews?taskId=...` 跳转链接可见，浏览器日志无 error/warn。
 
 验证时没有发现浏览器控制台错误。
 

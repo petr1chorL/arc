@@ -4,7 +4,7 @@
 
 ## 本轮交付
 
-V0.8A 第一刀已经完成一个可运行的观测闭环：
+V0.8A 已经完成两个可运行的观测闭环：
 
 1. 后端新增 Workspace 级观测概览 API。
 2. 后端新增运行排障详情 API。
@@ -12,6 +12,10 @@ V0.8A 第一刀已经完成一个可运行的观测闭环：
 4. 页面展示总运行、失败运行、人工介入、恢复失败、平均耗时和模型成本。
 5. 页面优先展示风险运行，并可点击最近运行查看节点链路、人工审核任务和审计事件。
 6. 无运行数据时提示先发布并运行工作流。
+7. 前端新增“人工 SLA 运营”区块。
+8. 页面展示活跃任务、待认领、审核中、即将到期、已逾期、已升级和恢复失败。
+9. 页面支持按 Reviewer 和审核组过滤 Human Task SLA 风险。
+10. SLA 风险项可以跳转到人工审核页的对应任务。
 
 ## 页面入口
 
@@ -47,6 +51,14 @@ GET /api/workspaces/{workspace_id}/observability/overview
 GET /api/workspaces/{workspace_id}/observability/runs/{run_id}
 ```
 
+人工 SLA 运营：
+
+```text
+GET /api/workspaces/{workspace_id}/observability/human-sla
+GET /api/workspaces/{workspace_id}/observability/human-sla?reviewerId={reviewer_id}
+GET /api/workspaces/{workspace_id}/observability/human-sla?groupId={group_id}
+```
+
 两个接口都会走 Workspace 权限和资源隔离。
 
 ## 你验收时看什么
@@ -57,7 +69,10 @@ GET /api/workspaces/{workspace_id}/observability/runs/{run_id}
 4. 风险列表里优先出现等待审核、失败或恢复失败的运行。
 5. 点击“最近运行”里的任意运行，右侧详情会切换。
 6. 右侧详情能看到当前处理建议、输入/结果、节点执行链路、人工审核任务和审计事件。
-7. 浏览器控制台没有 error。
+7. “人工 SLA 运营”区块能看到活跃任务、待认领、审核中、即将到期、已逾期、已升级、恢复失败。
+8. Reviewer 和审核组筛选器存在，并能刷新 SLA 风险列表。
+9. SLA 风险项里的“进入人工审核页处理该任务”链接包含 `taskId` 参数。
+10. 浏览器控制台没有 error。
 
 ## 已完成验证
 
@@ -66,6 +81,7 @@ apps\api\.venv\Scripts\python.exe -m pytest apps\api\tests\test_observability_ap
 apps\api\.venv\Scripts\python.exe -m pytest apps\api\tests -q
 npm test -- src/api/observability.test.ts
 npm test -- src/pages/Observability.test.tsx
+npm test -- src/api/observability.test.ts src/pages/Observability.test.tsx
 npm test -- src/components/Layout.test.tsx
 npm test -- --run
 npm run lint
@@ -77,11 +93,15 @@ npm run build
 - 打开 `http://127.0.0.1:4173/w/ai-capability-center/observability`。
 - 页面成功渲染“运行观测”。
 - 真实数据下风险状态显示为“等待审核”，没有历史乱码状态。
+- 页面成功渲染“人工 SLA 运营”。
+- Reviewer 和审核组筛选器可见。
+- SLA 风险项可以跳到 `/reviews?taskId=...`。
 - 浏览器日志无 error/warn。
 
 ## 未包含在本轮
 
 - 状态和工作流名称筛选。
+- 运行风险列表的状态和工作流名称筛选。
 - 外部观测栈，例如 OpenTelemetry、Prometheus、Grafana。
 - 主动告警通知。
 - 成本治理详情页。

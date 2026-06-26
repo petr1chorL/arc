@@ -8,15 +8,22 @@ import {
   Route,
   ShieldAlert,
   TimerReset,
+  UserRound,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { getObservabilityOverview, getObservabilityRunDetail } from '../api/observability'
+import {
+  getHumanSlaOverview,
+  getObservabilityOverview,
+  getObservabilityRunDetail,
+} from '../api/observability'
 import { useWorkspace } from '../auth/workspaceContextState'
 import { StatusBadge } from '../components/StatusBadge'
 import { displayStatus } from '../domain/statusText'
 import type {
+  HumanSlaOverview,
+  HumanSlaRisk,
   ObservabilityOverview,
   ObservabilityRisk,
   ObservabilityRunDetail,
@@ -57,10 +64,15 @@ export function Observability() {
   const [overview, setOverview] = useState<ObservabilityOverview | null>(null)
   const [selectedRunId, setSelectedRunId] = useState('')
   const [detail, setDetail] = useState<ObservabilityRunDetail | null>(null)
+  const [humanSla, setHumanSla] = useState<HumanSlaOverview | null>(null)
+  const [reviewerId, setReviewerId] = useState('')
+  const [groupId, setGroupId] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isDetailLoading, setIsDetailLoading] = useState(false)
+  const [isHumanSlaLoading, setIsHumanSlaLoading] = useState(true)
   const [error, setError] = useState('')
   const [detailError, setDetailError] = useState('')
+  const [humanSlaError, setHumanSlaError] = useState('')
 
   const candidateRuns = useMemo(() => {
     if (!overview) return []
@@ -93,9 +105,29 @@ export function Observability() {
     }
   }, [workspace.id])
 
+  const loadHumanSla = useCallback(async () => {
+    setIsHumanSlaLoading(true)
+    setHumanSlaError('')
+    try {
+      setHumanSla(await getHumanSlaOverview(workspace.id, {
+        reviewerId: reviewerId || undefined,
+        groupId: groupId || undefined,
+      }))
+    } catch (loadError) {
+      setHumanSla(null)
+      setHumanSlaError(loadError instanceof Error ? loadError.message : '人工 SLA 数据加载失败')
+    } finally {
+      setIsHumanSlaLoading(false)
+    }
+  }, [groupId, reviewerId, workspace.id])
+
   useEffect(() => {
     void loadOverview()
   }, [loadOverview])
+
+  useEffect(() => {
+    void loadHumanSla()
+  }, [loadHumanSla])
 
   useEffect(() => {
     if (!selectedRunId) {
@@ -151,7 +183,13 @@ export function Observability() {
           <h2>运行观测</h2>
           <p>把失败、人工介入、恢复失败和成本信号聚合到一个排障入口。</p>
         </div>
-        <button className="button secondary" onClick={() => void loadOverview()}>
+        <button
+          className="button secondary"
+          onClick={() => {
+            void loadOverview()
+            void loadHumanSla()
+          }}
+        >
           <RefreshCw size={15} />刷新
         </button>
       </section>
@@ -164,6 +202,17 @@ export function Observability() {
         <MetricCard label="平均耗时" value={formatDuration(overview.totals.averageDurationMs)} icon={<Clock3 size={17} />} />
         <MetricCard label="模型成本" value={formatCost(overview.totals.totalCostUsd)} icon={<Coins size={17} />} />
       </section>
+
+      <HumanSlaPanel
+        humanSla={humanSla}
+        isLoading={isHumanSlaLoading}
+        error={humanSlaError}
+        reviewerId={reviewerId}
+        groupId={groupId}
+        onReviewerChange={setReviewerId}
+        onGroupChange={setGroupId}
+        reviewPath={workspacePath('reviews')}
+      />
 
       <div className="observability-layout">
         <section className="panel observability-run-list">
@@ -215,6 +264,112 @@ export function Observability() {
         </section>
       </div>
     </div>
+  )
+}
+
+function HumanSlaPanel({
+  humanSla,
+  isLoading,
+  error,
+  reviewerId,
+  groupId,
+  onReviewerChange,
+  onGroupChange,
+  reviewPath,
+}: {
+  humanSla: HumanSlaOverview | null
+  isLoading: boolean
+  error: string
+  reviewerId: string
+  groupId: string
+  onReviewerChange: (value: string) => void
+  onGroupChange: (value: string) => void
+  reviewPath: string
+}) {
+  return (
+    <section className="panel human-sla-panel">
+      <div className="panel-header human-sla-header">
+        <div>
+          <span className="section-kicker">HUMAN SLA</span>
+          <h3>人工 SLA 运营</h3>
+        </div>
+        <div className="human-sla-filters">
+          <label>
+            <span>Reviewer</span>
+            <select
+              aria-label="按 Reviewer 过滤"
+              value={reviewerId}
+              onChange={(event) => onReviewerChange(event.target.value)}
+            >
+              <option value="">全部 Reviewer</option>
+              {humanSla?.reviewers.map((reviewer) => (
+                <option key={reviewer.id} value={reviewer.id}>{reviewer.name}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>审核组</span>
+            <select
+              aria-label="按审核组过滤"
+              value={groupId}
+              onChange={(event) => onGroupChange(event.target.value)}
+            >
+              <option value="">全部审核组</option>
+              {humanSla?.groups.map((group) => (
+                <option key={group.id} value={group.id}>{group.name}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </div>
+
+      {isLoading && <div className="table-state">正在加载人工 SLA 数据...</div>}
+      {error && <div className="table-state error" role="alert">{error}</div>}
+      {!isLoading && !error && humanSla && (
+        <>
+          <div className="human-sla-metrics">
+            <MetricCard label="活跃任务" value={humanSla.totals.activeTasks} icon={<ClipboardList size={17} />} />
+            <MetricCard label="待认领" value={humanSla.totals.unclaimed} icon={<UserRound size={17} />} tone="warning" />
+            <MetricCard label="审核中" value={humanSla.totals.inReview} icon={<Clock3 size={17} />} />
+            <MetricCard label="即将到期" value={humanSla.totals.dueSoon} icon={<TimerReset size={17} />} tone="warning" />
+            <MetricCard label="已逾期" value={humanSla.totals.overdue} icon={<AlertTriangle size={17} />} tone="danger" />
+            <MetricCard label="已升级" value={humanSla.totals.escalated} icon={<ShieldAlert size={17} />} tone="danger" />
+            <MetricCard label="恢复失败" value={humanSla.totals.resumeFailed} icon={<RefreshCw size={17} />} tone="danger" />
+          </div>
+
+          <div className="human-sla-risk-list">
+            {humanSla.risks.length === 0
+              ? <p className="muted-copy">暂无即将到期、已逾期、已升级或恢复失败的人工任务。</p>
+              : humanSla.risks.map((risk) => (
+                <HumanSlaRiskRow key={risk.taskId} risk={risk} reviewPath={reviewPath} />
+              ))}
+          </div>
+        </>
+      )}
+    </section>
+  )
+}
+
+function HumanSlaRiskRow({
+  risk,
+  reviewPath,
+}: {
+  risk: HumanSlaRisk
+  reviewPath: string
+}) {
+  return (
+    <article className={`human-sla-risk ${risk.severity}`}>
+      <div>
+        <strong>{risk.title}</strong>
+        <span>
+          {displayStatus(risk.status)} / SLA：{displayStatus(risk.slaStatus)} / 截止 {formatTime(risk.dueAt)}
+        </span>
+      </div>
+      <StatusBadge status={risk.severity === 'critical' ? '高' : '中'} />
+      <Link className="button secondary compact" to={`${reviewPath}?taskId=${risk.taskId}`}>
+        {risk.nextAction}
+      </Link>
+    </article>
   )
 }
 

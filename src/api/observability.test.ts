@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { getObservabilityOverview, getObservabilityRunDetail } from './observability'
+import {
+  getHumanSlaOverview,
+  getObservabilityOverview,
+  getObservabilityRunDetail,
+} from './observability'
 
 const overview = {
   totals: {
@@ -40,6 +44,33 @@ const detail = {
   auditEvents: [],
 }
 
+const humanSla = {
+  totals: {
+    activeTasks: 4,
+    unclaimed: 2,
+    inReview: 1,
+    dueSoon: 1,
+    overdue: 1,
+    escalated: 1,
+    resumeFailed: 1,
+  },
+  risks: [{
+    taskId: 'task-1',
+    runId: 'run-1',
+    title: '已逾期审核',
+    status: '待认领',
+    slaStatus: '已逾期',
+    severity: 'critical',
+    assigneeReviewerId: null,
+    assigneeGroupId: 'group-1',
+    dueAt: '2026-06-26T08:40:00Z',
+    escalationAt: '2026-06-26T09:40:00Z',
+    nextAction: '进入人工审核页处理该任务',
+  }],
+  reviewers: [{ id: 'reviewer-1', name: '产品审核人' }],
+  groups: [{ id: 'group-1', name: '产品审核组' }],
+}
+
 describe('Observability API', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
@@ -65,6 +96,21 @@ describe('Observability API', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/workspaces/workspace-1/observability/runs/run-1',
+      expect.objectContaining({ credentials: 'same-origin' }),
+    )
+  })
+
+  it('loads the human SLA overview with optional reviewer and group filters', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(humanSla), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(getHumanSlaOverview('workspace-1', {
+      reviewerId: 'reviewer-1',
+      groupId: 'group-1',
+    })).resolves.toEqual(humanSla)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/workspaces/workspace-1/observability/human-sla?reviewerId=reviewer-1&groupId=group-1',
       expect.objectContaining({ credentials: 'same-origin' }),
     )
   })
