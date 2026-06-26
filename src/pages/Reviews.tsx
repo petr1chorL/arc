@@ -151,7 +151,7 @@ export function Reviews() {
 
   const filteredTasks = useMemo(() => tasks.filter((task) => (
     (statusFilter === '全部' || task.status === statusFilter)
-    && (slaFilter === '全部' || task.slaStatus === slaFilter)
+    && (slaFilter === '全部' || displayStatus(task.slaStatus) === slaFilter)
   )), [slaFilter, statusFilter, tasks])
 
   const currentReviewer = reviewers.find((reviewer) => (
@@ -159,7 +159,7 @@ export function Reviews() {
   ))
   const hasReviewerQualification = Boolean(currentReviewer)
   const activeTasks = tasks.filter((task) => !terminalStatuses.has(task.status))
-  const slaRiskTasks = activeTasks.filter((task) => task.slaStatus !== '正常')
+  const slaRiskTasks = activeTasks.filter((task) => displayStatus(task.slaStatus) !== '正常')
   const myTaskCount = currentReviewer
     ? activeTasks.filter((task) => (
       task.assigneeReviewerId === currentReviewer.id || task.participantSnapshot.includes(currentReviewer.id)
@@ -542,21 +542,24 @@ export function Reviews() {
               </button>
             </div>
           )}
-          {filteredTasks.map((task) => (
-            <button
-              className={`review-task-row ${task.id === selectedId ? 'selected' : ''}`}
-              key={task.id}
-              onClick={() => {
-                setSelectedId(task.id)
-                setMobilePane('review')
-              }}
-            >
-              <div><StatusBadge status={task.status} /><span className={`sla-dot ${task.slaStatus}`}>{task.slaStatus}</span></div>
-              <strong>{task.title}</strong>
-              <span>{task.id}</span>
-              <small><Clock3 size={13} />{formatTime(task.dueAt)}</small>
-            </button>
-          ))}
+          {filteredTasks.map((task) => {
+            const taskSlaStatus = displayStatus(task.slaStatus)
+            return (
+              <button
+                className={`review-task-row ${task.id === selectedId ? 'selected' : ''}`}
+                key={task.id}
+                onClick={() => {
+                  setSelectedId(task.id)
+                  setMobilePane('review')
+                }}
+              >
+                <div><StatusBadge status={task.status} /><span className={`sla-dot ${taskSlaStatus}`}>{taskSlaStatus}</span></div>
+                <strong>{task.title}</strong>
+                <span>{task.id}</span>
+                <small><Clock3 size={13} />{formatTime(task.dueAt)}</small>
+              </button>
+            )
+          })}
         </div>
       </aside>
 
@@ -680,7 +683,7 @@ export function Reviews() {
             <section className="context-metrics">
               <div><span>质量得分</span><strong>{detail.run.score ?? '待评估'}</strong></div>
               <div><span>会签进度</span><strong>{detail.approvalProgress.received} / {detail.approvalProgress.required}</strong></div>
-              <div><span>SLA</span><strong>{detail.slaStatus}</strong></div>
+              <div><span>SLA</span><strong>{displayStatus(detail.slaStatus)}</strong></div>
               <div><span>审核组</span><strong>{selectedGroup?.name ?? '未分组'}</strong></div>
             </section>
 

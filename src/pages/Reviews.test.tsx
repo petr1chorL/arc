@@ -64,6 +64,14 @@ const taskFromLink = {
   artifactVersionId: 'artifact-link-v1',
 }
 
+const mojibakeSlaTask = {
+  ...task,
+  id: 'task-mojibake-sla',
+  title: '历史 SLA 状态任务',
+  artifactVersionId: 'artifact-mojibake-v1',
+  slaStatus: '宸查€炬湡',
+}
+
 const detail = {
   ...task,
   artifact: {
@@ -124,6 +132,18 @@ const candidate = {
   status: '待确认',
   createdAt: '2026-06-25T02:00:00Z',
   confirmedAt: null,
+}
+
+const detailWithMojibakeSla = {
+  ...detail,
+  ...mojibakeSlaTask,
+  artifact: {
+    id: 'artifact-mojibake-v1',
+    version: 1,
+    content: '这是包含历史 SLA 乱码状态的任务。',
+    createdBy: 'system',
+    createdAt: '2026-06-25T01:45:00Z',
+  },
 }
 
 const detailFromLink = {
@@ -193,6 +213,18 @@ function emptyFetch(url: string, init?: RequestInit) {
   return response({ detail: 'Not Found' }, 404)
 }
 
+function mojibakeSlaFetch(url: string, init?: RequestInit) {
+  if (url === `/api/workspaces/${workspace.id}/human-tasks` && !init?.method) return response([mojibakeSlaTask])
+  if (url === `/api/workspaces/${workspace.id}/human-tasks/task-mojibake-sla` && !init?.method) {
+    return response(detailWithMojibakeSla)
+  }
+  if (url === `/api/workspaces/${workspace.id}/reviewers` && !init?.method) return response(reviewers)
+  if (url === `/api/workspaces/${workspace.id}/review-groups` && !init?.method) return response(groups)
+  if (url === `/api/workspaces/${workspace.id}/feedback-candidates` && !init?.method) return response([])
+  if (url === `/api/workspaces/${workspace.id}/runs` && !init?.method) return response([completedRun])
+  return response({ detail: 'Not Found' }, 404)
+}
+
 function renderReviews(userId = 'user-reviewer-1', initialPath = '/w/ai-capability-center/reviews') {
   const authValue: AuthContextValue = {
     user: {
@@ -247,6 +279,16 @@ describe('Reviews', () => {
 
     expect(await screen.findByText(detailFromLink.artifact.content)).toBeInTheDocument()
     expect(screen.getByText('从 SLA 风险进入的任务')).toBeInTheDocument()
+  })
+
+  it('normalizes legacy mojibake SLA statuses in the queue and detail pane', async () => {
+    vi.stubGlobal('fetch', vi.fn(mojibakeSlaFetch))
+
+    renderReviews()
+
+    expect(await screen.findByText('历史 SLA 状态任务')).toBeInTheDocument()
+    expect(screen.getAllByText('已逾期').length).toBeGreaterThanOrEqual(2)
+    expect(screen.queryByText('宸查€炬湡')).not.toBeInTheDocument()
   })
 
   it('shows a guided empty state when the workspace has no human tasks', async () => {
