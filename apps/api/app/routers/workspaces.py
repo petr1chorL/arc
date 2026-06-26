@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.access import AuthorizationService, RequestContext, RequestContextService
 from app.audit import AuditService
-from app.auth import normalize_email
+from app.auth import AuthenticationService, normalize_email
 from app.config import Settings
 from app.models import (
     InvitationRecord,
@@ -37,6 +37,7 @@ def create_workspaces_router(
     router = APIRouter(prefix="/api/workspaces", tags=["workspaces"])
     security = SecurityService()
     settings = Settings()
+    authentication_service = AuthenticationService(security, settings)
 
     def build_activation_url(request: Request, token: str) -> str:
         return str(request.base_url).rstrip("/") + f"/activate/{token}"
@@ -423,6 +424,7 @@ def create_workspaces_router(
             target_id=invitation.id,
             request=request,
             metadata={"userId": user.id, "role": payload.role},
+            workspace_id=workspace_id,
         )
         session.commit()
         session.refresh(invitation)
@@ -433,6 +435,48 @@ def create_workspaces_router(
             expires_at=invitation.expires_at,
             activation_url=build_activation_url(request, raw_token),
         )
+
+    @router.post(
+        "/{workspace_id}/invitations/{invitation_id}/copy",
+        status_code=204,
+    )
+    def record_invitation_link_copy(
+        workspace_id: str,
+        invitation_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> None:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "member.manage",
+            action="member.invitation.copy_link",
+            target_type="invitation",
+            target_id=invitation_id,
+            request=request,
+        )
+        invitation = session.scalar(
+            select(InvitationRecord).where(
+                InvitationRecord.id == invitation_id,
+                InvitationRecord.workspace_id == workspace_id,
+            ),
+        )
+        if invitation is None:
+            raise HTTPException(status_code=404, detail="邀请不存在")
+        if invitation.revoked_at is not None or invitation.used_at is not None:
+            raise HTTPException(status_code=409, detail="邀请不可复制")
+        record_success(
+            session,
+            context,
+            action="member.invitation.copy_link",
+            target_type="invitation",
+            target_id=invitation.id,
+            request=request,
+            metadata={"userId": invitation.user_id},
+            workspace_id=workspace_id,
+        )
+        session.commit()
 
     @router.post(
         "/{workspace_id}/invitations/{invitation_id}/resend",
@@ -484,6 +528,7 @@ def create_workspaces_router(
             target_id=invitation.id,
             request=request,
             metadata={"userId": user.id},
+            workspace_id=workspace_id,
         )
         session.commit()
         return InvitationLinkRead(
@@ -533,6 +578,7 @@ def create_workspaces_router(
             target_id=invitation.id,
             request=request,
             metadata={"userId": invitation.user_id},
+            workspace_id=workspace_id,
         )
         session.commit()
 
@@ -582,6 +628,7 @@ def create_workspaces_router(
             target_id=membership.id,
             request=request,
             metadata={"userId": user_id, "role": payload.role},
+            workspace_id=workspace_id,
         )
         session.commit()
         return serialize_member(user, membership, reviewer, invitation)
@@ -632,6 +679,7 @@ def create_workspaces_router(
             target_id=membership.id,
             request=request,
             metadata={"userId": user_id},
+            workspace_id=workspace_id,
         )
         session.commit()
         return serialize_member(user, membership, reviewer, invitation)
@@ -676,6 +724,105 @@ def create_workspaces_router(
             target_id=membership.id,
             request=request,
             metadata={"userId": user_id},
+            workspace_id=workspace_id,
+        )
+        session.commit()
+        return serialize_member(user, membership, reviewer, invitation)
+
+    @router.post(
+        "/{workspace_id}/members/{user_id}/user/disable",
+        response_model=WorkspaceMemberRead,
+    )
+    def disable_user(
+        workspace_id: str,
+        user_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> WorkspaceMemberRead:
+        context, session = context_bundle
+        authorization_service.require_organization_admin(
+            session,
+            context,
+            action="user.disable",
+            target_type="user",
+            target_id=user_id,
+            request=request,
+            metadata={"workspaceId": workspace_id},
+        )
+        if context.user.id == user_id:
+            raise HTTPException(status_code=409, detail="不能停用自己的 User")
+        membership, user = find_membership(session, workspace_id, user_id)
+        if (
+            membership.role == "workspace_admin"
+            and membership.status == "active"
+            and count_active_workspace_admins(session, workspace_id) <= 1
+        ):
+            raise HTTPException(status_code=409, detail="必须至少保留一名有效 Workspace 管理员")
+        user.status = "disabled"
+        user.updated_at = utc_now()
+        authentication_service.revoke_user_sessions(session, user.id, "user_disabled")
+        reviewer = session.scalar(
+            select(ReviewerRecord).where(
+                ReviewerRecord.workspace_id == workspace_id,
+                ReviewerRecord.user_id == user_id,
+            ),
+        )
+        invitation = latest_invitation_by_user(session, workspace_id).get(user_id)
+        record_success(
+            session,
+            context,
+            action="user.disable",
+            target_type="user",
+            target_id=user.id,
+            request=request,
+            metadata={"workspaceId": workspace_id},
+            workspace_id=workspace_id,
+        )
+        session.commit()
+        return serialize_member(user, membership, reviewer, invitation)
+
+    @router.post(
+        "/{workspace_id}/members/{user_id}/user/enable",
+        response_model=WorkspaceMemberRead,
+    )
+    def enable_user(
+        workspace_id: str,
+        user_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> WorkspaceMemberRead:
+        context, session = context_bundle
+        authorization_service.require_organization_admin(
+            session,
+            context,
+            action="user.enable",
+            target_type="user",
+            target_id=user_id,
+            request=request,
+            metadata={"workspaceId": workspace_id},
+        )
+        membership, user = find_membership(session, workspace_id, user_id)
+        if user.status == "disabled":
+            user.status = "active"
+            user.failed_login_count = 0
+            user.locked_until = None
+            user.updated_at = utc_now()
+        reviewer = session.scalar(
+            select(ReviewerRecord).where(
+                ReviewerRecord.workspace_id == workspace_id,
+                ReviewerRecord.user_id == user_id,
+            ),
+        )
+        invitation = latest_invitation_by_user(session, workspace_id).get(user_id)
+        record_success(
+            session,
+            context,
+            action="user.enable",
+            target_type="user",
+            target_id=user.id,
+            request=request,
+            metadata={"workspaceId": workspace_id},
+            workspace_id=workspace_id,
         )
         session.commit()
         return serialize_member(user, membership, reviewer, invitation)

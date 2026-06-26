@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
@@ -80,6 +81,9 @@ def create_auth_router(
 ) -> APIRouter:
     router = APIRouter(tags=["auth"])
     audit_service = AuditService()
+    invitation_rate_limits: dict[tuple[str, str, str], tuple[int, datetime]] = {}
+    invitation_rate_limit_max = 20
+    invitation_rate_limit_window = timedelta(hours=1)
 
     def set_auth_cookies(
         response: Response,
@@ -113,6 +117,22 @@ def create_auth_router(
         expected = f"{request.url.scheme}://{request.headers.get('host', '')}"
         if origin.rstrip("/") != expected:
             raise HTTPException(status_code=403, detail="Origin 校验失败")
+
+    def require_invitation_rate_limit(
+        request: Request,
+        token: str,
+        action: str,
+    ) -> None:
+        now = service._now()
+        client = request.client.host if request.client else "unknown"
+        key = (action, client, service.security.digest_token(token))
+        count, reset_at = invitation_rate_limits.get(key, (0, now + invitation_rate_limit_window))
+        if aware_utc(reset_at) <= now:
+            count = 0
+            reset_at = now + invitation_rate_limit_window
+        if count >= invitation_rate_limit_max:
+            raise HTTPException(status_code=429, detail="请求过于频繁，请稍后再试")
+        invitation_rate_limits[key] = (count + 1, reset_at)
 
     def build_activation_url(request: Request, token: str) -> str:
         return str(request.base_url).rstrip("/") + f"/activate/{token}"
@@ -269,6 +289,7 @@ def create_auth_router(
         session: Session = Depends(get_session),
     ) -> InvitationPreviewRead:
         require_same_origin(request)
+        require_invitation_rate_limit(request, token, "preview")
         invitation, user, workspace, _ = resolve_active_invitation(session, token)
         return InvitationPreviewRead(
             email=user.email or "",
@@ -285,6 +306,7 @@ def create_auth_router(
         session: Session = Depends(get_session),
     ) -> None:
         require_same_origin(request)
+        require_invitation_rate_limit(request, token, "activate")
         invitation, user, workspace, membership = resolve_active_invitation(session, token)
         now = service._now()
         service.set_password(

@@ -2,9 +2,12 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { Copy, MailPlus, RefreshCcw, ShieldCheck, UserCog } from 'lucide-react'
 import {
   disableMember,
+  disableUser,
   enableMember,
+  enableUser,
   inviteMember,
   listMembers,
+  recordInvitationLinkCopy,
   resendInvitation,
   revokeInvitation,
   updateMemberRole,
@@ -42,6 +45,7 @@ export function Members() {
   const [submitError, setSubmitError] = useState('')
   const [statusMessage, setStatusMessage] = useState('')
   const [activationUrl, setActivationUrl] = useState('')
+  const [activationInvitationId, setActivationInvitationId] = useState('')
   const [busyKey, setBusyKey] = useState('')
 
   const loadMembers = useCallback(async () => {
@@ -68,11 +72,17 @@ export function Members() {
   )
 
   async function copyActivationLink() {
+    if (!activationUrl || !activationInvitationId) return
+    setBusyKey('copy')
+    setSubmitError('')
     try {
+      await recordInvitationLinkCopy(workspace.id, activationInvitationId)
       await navigator.clipboard.writeText(activationUrl)
       setStatusMessage('激活链接已复制。')
-    } catch {
-      setSubmitError('复制失败，请检查浏览器权限。')
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : '复制失败，请检查浏览器权限。')
+    } finally {
+      setBusyKey('')
     }
   }
 
@@ -88,6 +98,7 @@ export function Members() {
     try {
       const created = await inviteMember(workspace.id, { email: normalizedEmail, role: inviteRole })
       setActivationUrl(created.activationUrl)
+      setActivationInvitationId(created.invitationId)
       setStatusMessage('邀请已创建，激活链接仅显示这一次。')
       setInviteEmail('')
       setInviteRole('viewer')
@@ -122,6 +133,7 @@ export function Members() {
     try {
       const resent = await resendInvitation(workspace.id, member.invitationId)
       setActivationUrl(resent.activationUrl)
+      setActivationInvitationId(resent.invitationId)
       setStatusMessage('邀请已重发，激活链接仅显示这一次。')
       await loadMembers()
     } catch (error) {
@@ -162,6 +174,22 @@ export function Members() {
     }
   }
 
+  async function handleUserStatusToggle(member: WorkspaceMember) {
+    setBusyKey(`user:${member.userId}`)
+    setSubmitError('')
+    try {
+      const updated = member.userStatus === 'active'
+        ? await disableUser(workspace.id, member.userId)
+        : await enableUser(workspace.id, member.userId)
+      setMembers((current) => current.map((item) => item.userId === member.userId ? updated : item))
+      setStatusMessage(`${member.email} User 状态已更新。`)
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : 'User 状态更新失败')
+    } finally {
+      setBusyKey('')
+    }
+  }
+
   if (isLoading) {
     return <div className="panel table-state">正在加载成员列表…</div>
   }
@@ -190,7 +218,7 @@ export function Members() {
         <div className={`inline-feedback ${submitError ? 'error' : ''}`} role={submitError ? 'alert' : 'status'}>
           <span>{submitError || statusMessage}</span>
           {activationUrl && !submitError && (
-            <button className="button ghost compact" onClick={() => void copyActivationLink()}>
+            <button className="button ghost compact" disabled={busyKey === 'copy'} onClick={() => void copyActivationLink()}>
               <Copy size={15} />
               复制激活链接
             </button>
@@ -282,6 +310,14 @@ export function Members() {
                     >
                       <ShieldCheck size={15} />
                       {member.membershipStatus === 'active' ? '停用' : '启用'}
+                    </button>
+                    <button
+                      className="button ghost compact"
+                      aria-label={`${member.userStatus === 'active' ? '停用 User' : '启用 User'} ${member.email}`}
+                      disabled={busyKey === `user:${member.userId}`}
+                      onClick={() => void handleUserStatusToggle(member)}
+                    >
+                      {member.userStatus === 'active' ? '停用 User' : '启用 User'}
                     </button>
                   </div>
                 </td>

@@ -12,6 +12,7 @@ from app.models import (
     AuditEventRecord,
     Base,
     ReviewerRecord,
+    SessionRecord,
     UserRecord,
     WorkspaceMembershipRecord,
     WorkspaceRecord,
@@ -124,6 +125,7 @@ def create_membership_context(tmp_path):
             ),
         )
         session.commit()
+        admin_id = admin.id
         workspace_admin_id = workspace_admin.id
         member_id = member.id
 
@@ -133,6 +135,7 @@ def create_membership_context(tmp_path):
         "clock": clock,
         "session_factory": session_factory,
         "workspace_id": workspace.id,
+        "admin_id": admin_id,
         "workspace_admin_id": workspace_admin_id,
         "member_id": member_id,
     }
@@ -285,6 +288,46 @@ def test_expired_invitation_preview_and_activation_conflict(tmp_path):
     assert activate.status_code == 409
 
 
+def test_invitation_origin_rate_limit_and_copy_audit(tmp_path):
+    context = create_membership_context(tmp_path)
+    client: TestClient = context["client"]
+    session_factory = context["session_factory"]
+    workspace_id = context["workspace_id"]
+
+    login(client, WORKSPACE_ADMIN_EMAIL)
+    created = invite_member(client, workspace_id, "limited@example.com", "viewer")
+    token = extract_token(created["activationUrl"])
+
+    cross_origin = client.get(
+        f"/api/invitations/{token}",
+        headers={"Origin": "http://evil.test"},
+    )
+    assert cross_origin.status_code == 403
+
+    for _ in range(20):
+        assert client.get(f"/api/invitations/{token}").status_code == 200
+    limited_preview = client.get(f"/api/invitations/{token}")
+    assert limited_preview.status_code == 429
+
+    copied = client.post(
+        f"/api/workspaces/{workspace_id}/invitations/{created['invitationId']}/copy",
+        headers=csrf_headers(client),
+    )
+    assert copied.status_code == 204
+
+    with session_factory() as session:
+        event = session.scalar(
+            select(AuditEventRecord).where(
+                AuditEventRecord.action == "member.invitation.copy_link",
+            ),
+        )
+        assert event is not None
+        assert event.workspace_id == workspace_id
+        assert event.organization_id is not None
+        serialized = str(event.event_metadata or {}).lower()
+        assert token not in serialized
+
+
 def test_member_role_change_and_enable_disable_guards(tmp_path):
     context = create_membership_context(tmp_path)
     client: TestClient = context["client"]
@@ -330,3 +373,57 @@ def test_member_role_change_and_enable_disable_guards(tmp_path):
     )
     assert downgrade_last_admin.status_code == 409
 
+
+def test_organization_admin_user_disable_enable_revokes_sessions_and_audits(tmp_path):
+    context = create_membership_context(tmp_path)
+    client: TestClient = context["client"]
+    session_factory = context["session_factory"]
+    workspace_id = context["workspace_id"]
+    admin_id = context["admin_id"]
+    member_id = context["member_id"]
+
+    login(client, MEMBER_EMAIL)
+    with session_factory() as session:
+        active_session = session.scalar(
+            select(SessionRecord).where(SessionRecord.user_id == member_id),
+        )
+        assert active_session is not None
+        assert active_session.revoked_at is None
+
+    login(client, "admin@example.com")
+    disabled = client.post(
+        f"/api/workspaces/{workspace_id}/members/{member_id}/user/disable",
+        headers=csrf_headers(client),
+    )
+    assert disabled.status_code == 200
+    assert disabled.json()["userStatus"] == "disabled"
+    assert disabled.json()["membershipStatus"] == "active"
+
+    enabled = client.post(
+        f"/api/workspaces/{workspace_id}/members/{member_id}/user/enable",
+        headers=csrf_headers(client),
+    )
+    assert enabled.status_code == 200
+    assert enabled.json()["userStatus"] == "active"
+
+    with session_factory() as session:
+        revoked_session = session.get(SessionRecord, active_session.id)
+        assert revoked_session is not None
+        assert revoked_session.revoked_at is not None
+        assert revoked_session.revoked_reason == "user_disabled"
+        actions = {
+            event.action: event
+            for event in session.scalars(
+                select(AuditEventRecord).where(AuditEventRecord.target_id == member_id),
+            )
+        }
+        assert actions["user.disable"].organization_id is not None
+        assert actions["user.disable"].workspace_id == workspace_id
+        assert actions["user.enable"].organization_id is not None
+        assert actions["user.enable"].workspace_id == workspace_id
+
+    self_disable = client.post(
+        f"/api/workspaces/{workspace_id}/members/{admin_id}/user/disable",
+        headers=csrf_headers(client),
+    )
+    assert self_disable.status_code == 409

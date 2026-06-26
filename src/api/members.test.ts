@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   disableMember,
+  disableUser,
   enableMember,
+  enableUser,
   inviteMember,
   listMembers,
+  recordInvitationLinkCopy,
   resendInvitation,
   revokeInvitation,
   updateMemberRole,
@@ -15,26 +18,7 @@ describe('Members API', () => {
   })
 
   it('calls member administration endpoints with workspace scoped paths', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify([
-        { userId: 'user-1', email: 'builder@example.com', displayName: 'Builder' },
-      ]), { status: 200, headers: { 'Content-Type': 'application/json' } }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        invitationId: 'invite-1',
-        email: 'new@example.com',
-        role: 'viewer',
-        expiresAt: '2026-06-29T09:00:00Z',
-        activationUrl: 'http://testserver/activate/token-1',
-      }), { status: 201, headers: { 'Content-Type': 'application/json' } }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        invitationId: 'invite-1',
-        email: 'new@example.com',
-        role: 'viewer',
-        expiresAt: '2026-06-29T09:00:00Z',
-        activationUrl: 'http://testserver/activate/token-2',
-      }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
-      .mockResolvedValueOnce(new Response(null, { status: 204 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
+    const member = {
         userId: 'user-1',
         email: 'builder@example.com',
         displayName: 'Builder',
@@ -44,29 +28,55 @@ describe('Members API', () => {
         reviewer: null,
         lastLoginAt: null,
         invitationId: null,
-      }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        userId: 'user-1',
-        email: 'builder@example.com',
-        displayName: 'Builder',
-        role: 'operator',
-        userStatus: 'active',
-        membershipStatus: 'disabled',
-        reviewer: null,
-        lastLoginAt: null,
-        invitationId: null,
-      }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        userId: 'user-1',
-        email: 'builder@example.com',
-        displayName: 'Builder',
-        role: 'operator',
-        userStatus: 'active',
-        membershipStatus: 'active',
-        reviewer: null,
-        lastLoginAt: null,
-        invitationId: null,
-      }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      } as const
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
+      if (url === '/api/workspaces/workspace-1/members' && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([
+          { userId: 'user-1', email: 'builder@example.com', displayName: 'Builder' },
+        ]), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      }
+      if (url === '/api/workspaces/workspace-1/invitations' && init?.method === 'POST') {
+        return Promise.resolve(new Response(JSON.stringify({
+          invitationId: 'invite-1',
+          email: 'new@example.com',
+          role: 'viewer',
+          expiresAt: '2026-06-29T09:00:00Z',
+          activationUrl: 'http://testserver/activate/token-1',
+        }), { status: 201, headers: { 'Content-Type': 'application/json' } }))
+      }
+      if (url === '/api/workspaces/workspace-1/invitations/invite-1/resend') {
+        return Promise.resolve(new Response(JSON.stringify({
+          invitationId: 'invite-1',
+          email: 'new@example.com',
+          role: 'viewer',
+          expiresAt: '2026-06-29T09:00:00Z',
+          activationUrl: 'http://testserver/activate/token-2',
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      }
+      if (
+        url === '/api/workspaces/workspace-1/invitations/invite-1/copy'
+        || url === '/api/workspaces/workspace-1/invitations/invite-1/revoke'
+      ) {
+        return Promise.resolve(new Response(null, { status: 204 }))
+      }
+      if (url === '/api/workspaces/workspace-1/members/user-1' && init?.method === 'PATCH') {
+        return Promise.resolve(new Response(JSON.stringify(member), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      }
+      if (url === '/api/workspaces/workspace-1/members/user-1/disable') {
+        return Promise.resolve(new Response(JSON.stringify({ ...member, membershipStatus: 'disabled' }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      }
+      if (url === '/api/workspaces/workspace-1/members/user-1/enable') {
+        return Promise.resolve(new Response(JSON.stringify(member), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      }
+      if (url === '/api/workspaces/workspace-1/members/user-1/user/disable') {
+        return Promise.resolve(new Response(JSON.stringify({ ...member, userStatus: 'disabled' }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      }
+      if (url === '/api/workspaces/workspace-1/members/user-1/user/enable') {
+        return Promise.resolve(new Response(JSON.stringify(member), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      }
+      return Promise.reject(new Error(`Unhandled request: ${String(url)}`))
+    })
     vi.stubGlobal('fetch', fetchMock)
 
     await expect(listMembers('workspace-1')).resolves.toHaveLength(1)
@@ -76,6 +86,7 @@ describe('Members API', () => {
     await expect(resendInvitation('workspace-1', 'invite-1')).resolves.toMatchObject({
       activationUrl: 'http://testserver/activate/token-2',
     })
+    await expect(recordInvitationLinkCopy('workspace-1', 'invite-1')).resolves.toBeUndefined()
     await expect(revokeInvitation('workspace-1', 'invite-1')).resolves.toBeUndefined()
     await expect(updateMemberRole('workspace-1', 'user-1', 'operator')).resolves.toMatchObject({
       role: 'operator',
@@ -85,6 +96,12 @@ describe('Members API', () => {
     })
     await expect(enableMember('workspace-1', 'user-1')).resolves.toMatchObject({
       membershipStatus: 'active',
+    })
+    await expect(disableUser('workspace-1', 'user-1')).resolves.toMatchObject({
+      userStatus: 'disabled',
+    })
+    await expect(enableUser('workspace-1', 'user-1')).resolves.toMatchObject({
+      userStatus: 'active',
     })
   })
 })

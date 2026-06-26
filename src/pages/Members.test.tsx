@@ -89,6 +89,9 @@ describe('Members page', () => {
           headers: { 'Content-Type': 'application/json' },
         }))
       }
+      if (url === `/api/workspaces/${workspace.id}/invitations/invite-3/copy`) {
+        return Promise.resolve(new Response(null, { status: 204 }))
+      }
       if (url === `/api/workspaces/${workspace.id}/members/user-1` && init?.method === 'PATCH') {
         return Promise.resolve(new Response(JSON.stringify({
           ...members[0],
@@ -117,6 +120,10 @@ describe('Members page', () => {
 
     await user.click(screen.getByRole('button', { name: '复制激活链接' }))
     expect(await screen.findByText('激活链接已复制。')).toBeInTheDocument()
+    expect(fetch).toHaveBeenCalledWith(
+      `/api/workspaces/${workspace.id}/invitations/invite-3/copy`,
+      expect.objectContaining({ method: 'POST' }),
+    )
 
     await user.selectOptions(screen.getByLabelText('builder@example.com 的角色'), 'operator')
     await user.click(screen.getByRole('button', { name: '保存 builder@example.com 的角色' }))
@@ -159,6 +166,24 @@ describe('Members page', () => {
           headers: { 'Content-Type': 'application/json' },
         }))
       }
+      if (url === `/api/workspaces/${workspace.id}/members/user-1/user/disable`) {
+        currentMembers = currentMembers.map((member) => member.userId === 'user-1'
+          ? { ...member, userStatus: 'disabled' }
+          : member)
+        return Promise.resolve(new Response(JSON.stringify(currentMembers[0]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/members/user-1/user/enable`) {
+        currentMembers = currentMembers.map((member) => member.userId === 'user-1'
+          ? { ...member, userStatus: 'active' }
+          : member)
+        return Promise.resolve(new Response(JSON.stringify(currentMembers[0]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }))
+      }
       return Promise.reject(new Error(`Unhandled request: ${String(url)}`))
     }))
     const user = userEvent.setup()
@@ -176,6 +201,17 @@ describe('Members page', () => {
     })
 
     await user.click(screen.getByRole('button', { name: '启用 builder@example.com' }))
+    await waitFor(() => {
+      const activeBadges = screen.getAllByText('active')
+      expect(activeBadges.length).toBeGreaterThan(0)
+    })
+
+    await user.click(screen.getByRole('button', { name: '停用 User builder@example.com' }))
+    await waitFor(() => {
+      expect(screen.getByText('disabled')).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByRole('button', { name: '启用 User builder@example.com' }))
     await waitFor(() => {
       const activeBadges = screen.getAllByText('active')
       expect(activeBadges.length).toBeGreaterThan(0)

@@ -30,6 +30,18 @@ export async function resendInvitation(
   ))
 }
 
+export async function recordInvitationLinkCopy(
+  workspaceId: string,
+  invitationId: string,
+): Promise<void> {
+  const response = await apiFetch(workspacePath(workspaceId, `/invitations/${invitationId}/copy`), {
+    method: 'POST',
+  })
+  if (!response.ok) {
+    await readJson(response)
+  }
+}
+
 export async function revokeInvitation(
   workspaceId: string,
   invitationId: string,
@@ -70,6 +82,26 @@ export async function enableMember(
 ): Promise<WorkspaceMember> {
   return readJson<WorkspaceMember>(await apiFetch(
     workspacePath(workspaceId, `/members/${userId}/enable`),
+    { method: 'POST' },
+  ))
+}
+
+export async function disableUser(
+  workspaceId: string,
+  userId: string,
+): Promise<WorkspaceMember> {
+  return readJson<WorkspaceMember>(await apiFetch(
+    workspacePath(workspaceId, `/members/${userId}/user/disable`),
+    { method: 'POST' },
+  ))
+}
+
+export async function enableUser(
+  workspaceId: string,
+  userId: string,
+): Promise<WorkspaceMember> {
+  return readJson<WorkspaceMember>(await apiFetch(
+    workspacePath(workspaceId, `/members/${userId}/user/enable`),
     { method: 'POST' },
   ))
 }
