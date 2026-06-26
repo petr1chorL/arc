@@ -45,12 +45,17 @@ export function Login() {
     <div className="auth-shell">
       <section className="auth-card">
         <div className="auth-copy">
+          <div className="auth-mark">CO</div>
           <p className="section-kicker">IDENTITY & ACCESS</p>
           <h1>登录 ARC.ONE</h1>
           <span>使用 Workspace 成员身份进入当前协作空间。</span>
         </div>
 
         <form className="auth-form" onSubmit={handleSubmit}>
+          <div className="auth-status-pill">
+            <span />
+            Workspace protected
+          </div>
           <label className="form-field">
             <span>邮箱</span>
             <input
@@ -75,6 +80,7 @@ export function Login() {
           <button className="button primary full" disabled={isSubmitting} type="submit">
             {isSubmitting ? '登录中...' : '登录'}
           </button>
+          <small>Session 与 CSRF 校验已启用</small>
         </form>
       </section>
     </div>
