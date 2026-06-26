@@ -491,3 +491,84 @@ def test_observability_human_sla_filters_by_reviewer_and_group(tmp_path):
     assert group_response.status_code == 200
     assert group_response.json()["totals"]["activeTasks"] == 1
     assert group_response.json()["risks"][0]["title"] == "审核组任务"
+
+
+def test_observability_cost_usage_groups_by_workflow_and_model(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'observability-cost-usage.db'}",
+    )
+    create_run(
+        client,
+        workspace_id,
+        name="新品研究流程",
+        status="已完成",
+        current_node="流程完成",
+        duration_ms=900,
+        started_offset_minutes=-30,
+        prompt_tokens=100,
+        completion_tokens=50,
+        cost_usd=0.15,
+    )
+    create_run(
+        client,
+        workspace_id,
+        name="新品研究流程",
+        status="已完成",
+        current_node="流程完成",
+        duration_ms=800,
+        started_offset_minutes=-20,
+        prompt_tokens=40,
+        completion_tokens=20,
+        cost_usd=0.06,
+    )
+    create_run(
+        client,
+        workspace_id,
+        name="价格监控流程",
+        status="失败",
+        current_node="价格抓取",
+        duration_ms=700,
+        started_offset_minutes=-10,
+        prompt_tokens=30,
+        completion_tokens=10,
+        cost_usd=0.04,
+    )
+    with client.app.state.session_factory() as session:
+        price_run = session.scalar(
+            select(WorkflowRunRecord).where(
+                WorkflowRunRecord.workspace_id == workspace_id,
+                WorkflowRunRecord.name == "价格监控流程",
+            ),
+        )
+        assert price_run is not None
+        price_run.model = "deepseek-reasoner"
+        for node in session.scalars(
+            select(NodeRunRecord).where(NodeRunRecord.run_id == price_run.id),
+        ):
+            node.model = "deepseek-reasoner"
+        session.commit()
+
+    response = client.get(workspace_url(workspace_id, "/observability/cost-usage"))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["costConfigured"] is False
+    assert body["totals"] == {
+        "runs": 3,
+        "totalPromptTokens": 170,
+        "totalCompletionTokens": 80,
+        "totalTokens": 250,
+        "totalCostUsd": 0.25,
+    }
+    assert body["byWorkflow"][0] == {
+        "name": "新品研究流程",
+        "runs": 2,
+        "promptTokens": 140,
+        "completionTokens": 70,
+        "totalTokens": 210,
+        "costUsd": 0.21,
+        "averageScore": 88,
+    }
+    assert body["byModel"][0]["name"] == "deepseek-v4-pro"
+    assert body["byModel"][0]["runs"] == 2
+    assert body["byModel"][1]["name"] == "deepseek-reasoner"

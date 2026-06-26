@@ -479,6 +479,37 @@ class ObservabilityHumanSlaOverviewRead(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class ObservabilityCostUsageTotalsRead(BaseModel):
+    runs: int
+    total_prompt_tokens: int = Field(serialization_alias="totalPromptTokens")
+    total_completion_tokens: int = Field(serialization_alias="totalCompletionTokens")
+    total_tokens: int = Field(serialization_alias="totalTokens")
+    total_cost_usd: float = Field(serialization_alias="totalCostUsd")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ObservabilityCostUsageGroupRead(BaseModel):
+    name: str
+    runs: int
+    prompt_tokens: int = Field(serialization_alias="promptTokens")
+    completion_tokens: int = Field(serialization_alias="completionTokens")
+    total_tokens: int = Field(serialization_alias="totalTokens")
+    cost_usd: float = Field(serialization_alias="costUsd")
+    average_score: int | None = Field(serialization_alias="averageScore")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ObservabilityCostUsageRead(BaseModel):
+    cost_configured: bool = Field(serialization_alias="costConfigured")
+    totals: ObservabilityCostUsageTotalsRead
+    by_workflow: list[ObservabilityCostUsageGroupRead] = Field(serialization_alias="byWorkflow")
+    by_model: list[ObservabilityCostUsageGroupRead] = Field(serialization_alias="byModel")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class HumanReviewRead(BaseModel):
     id: str
     run_id: str = Field(serialization_alias="runId")

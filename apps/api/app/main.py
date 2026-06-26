@@ -53,6 +53,9 @@ from app.schemas import (
     HumanTaskTransfer,
     NodeRunRead,
     ObservabilityAuditEventRead,
+    ObservabilityCostUsageGroupRead,
+    ObservabilityCostUsageRead,
+    ObservabilityCostUsageTotalsRead,
     ObservabilityHumanSlaGroupRead,
     ObservabilityHumanSlaOverviewRead,
     ObservabilityHumanSlaReviewerRead,
@@ -342,6 +345,30 @@ def create_app(
             due_at=task.due_at,
             escalation_at=task.escalation_at,
             next_action="进入人工审核页处理该任务",
+        )
+
+    def cost_usage_group(name: str, runs: list[WorkflowRunRecord]) -> ObservabilityCostUsageGroupRead:
+        scores = [run.score for run in runs if run.score is not None]
+        return ObservabilityCostUsageGroupRead(
+            name=name or "未记录",
+            runs=len(runs),
+            prompt_tokens=sum(run.prompt_tokens for run in runs),
+            completion_tokens=sum(run.completion_tokens for run in runs),
+            total_tokens=sum(run.prompt_tokens + run.completion_tokens for run in runs),
+            cost_usd=round(sum(float(run.cost_usd or 0) for run in runs), 6),
+            average_score=round(sum(scores) / len(scores)) if scores else None,
+        )
+
+    def grouped_cost_usage(
+        runs: list[WorkflowRunRecord],
+        key: Callable[[WorkflowRunRecord], str],
+    ) -> list[ObservabilityCostUsageGroupRead]:
+        groups: dict[str, list[WorkflowRunRecord]] = {}
+        for run in runs:
+            groups.setdefault(key(run), []).append(run)
+        return sorted(
+            [cost_usage_group(name, group_runs) for name, group_runs in groups.items()],
+            key=lambda item: (-item.cost_usd, -item.total_tokens, item.name),
         )
 
     @router.get("/agents", response_model=list[AgentRead])
@@ -1040,6 +1067,41 @@ def create_app(
                 ObservabilityHumanSlaGroupRead(id=group.id, name=group.name)
                 for group in groups
             ],
+        )
+
+    @router.get("/observability/cost-usage", response_model=ObservabilityCostUsageRead)
+    def observability_cost_usage(
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> ObservabilityCostUsageRead:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "run.read",
+            action="observability.cost_usage.read",
+            target_type="workspace",
+            target_id=context.workspace.id,
+            request=request,
+        )
+        runs = list(session.scalars(
+            select(WorkflowRunRecord)
+            .where(WorkflowRunRecord.workspace_id == context.workspace.id),
+        ))
+        return ObservabilityCostUsageRead(
+            cost_configured=(
+                settings.model_input_usd_per_million_tokens > 0
+                or settings.model_output_usd_per_million_tokens > 0
+            ),
+            totals=ObservabilityCostUsageTotalsRead(
+                runs=len(runs),
+                total_prompt_tokens=sum(run.prompt_tokens for run in runs),
+                total_completion_tokens=sum(run.completion_tokens for run in runs),
+                total_tokens=sum(run.prompt_tokens + run.completion_tokens for run in runs),
+                total_cost_usd=round(sum(float(run.cost_usd or 0) for run in runs), 6),
+            ),
+            by_workflow=grouped_cost_usage(runs, lambda run: run.name),
+            by_model=grouped_cost_usage(runs, lambda run: run.model),
         )
 
     @router.get("/observability/runs/{run_id}", response_model=ObservabilityRunDetailRead)
