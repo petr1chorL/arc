@@ -120,7 +120,7 @@ describe('Workflows', () => {
       workflowVersion: workflow.version,
       agentId: null,
       agentVersion: null,
-      status: '已完成',
+      status: '宸插畬鎴?',
       input: '分析新品机会',
       output: '工作流真实执行完成并生成了结构化结果。',
       score: 100,
@@ -160,6 +160,8 @@ describe('Workflows', () => {
     await user.click(screen.getByRole('button', { name: '开始运行' }))
 
     expect(await screen.findByText('工作流真实执行完成并生成了结构化结果。')).toBeInTheDocument()
+    expect(screen.getByText('已完成')).toBeInTheDocument()
+    expect(screen.queryByText('宸插畬鎴?')).not.toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith(`/api/workspaces/${workspace.id}/workflows/workflow-1/runs`, expect.objectContaining({
       method: 'POST',
     }))

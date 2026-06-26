@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWorkspace } from '../auth/workspaceContextState'
 import { listRuns } from '../api/execution'
 import { StatusBadge } from '../components/StatusBadge'
+import { isWaitingForHumanReview } from '../domain/statusText'
 import type { ExecutionRun, NodeExecution } from '../types'
 
 function formatDuration(durationMs: number) {
@@ -119,7 +120,7 @@ export function Runs() {
           <div><span>模型成本</span><strong>${selected.costUsd.toFixed(6)}</strong></div>
         </div>
 
-        {selected.status === '需介入' && (
+        {isWaitingForHumanReview(selected.status) && (
           <div className="review-handoff-notice run-review-notice">
             <div>
               <strong>等待人工审核</strong>

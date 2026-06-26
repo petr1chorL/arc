@@ -50,6 +50,7 @@ import { runWorkflow } from '../api/execution'
 import { listReviewers, listReviewGroups } from '../api/humanTasks'
 import { WorkflowNode, type WorkflowNodeData } from '../components/WorkflowNode'
 import { fromContractGraph, toContractGraph } from '../domain/workflows'
+import { displayStatus, isWaitingForHumanReview } from '../domain/statusText'
 import type {
   AgentVersion,
   ExecutionRun,
@@ -251,7 +252,7 @@ export function Workflows() {
         version: currentWorkflow?.version,
       })
       setRunResult(result)
-      setFeedback(result.status === '需介入' ? '等待人工审核处理' : '工作流运行已完成')
+      setFeedback(isWaitingForHumanReview(result.status) ? '等待人工审核处理' : '工作流运行已完成')
     } catch (runError) {
       setErrors([runError instanceof Error ? runError.message : '工作流运行失败'])
     } finally {
@@ -464,7 +465,7 @@ export function Workflows() {
             </div>
             {runResult && (
               <div className="agent-test-result">
-                {runResult.status === '需介入' && (
+                {isWaitingForHumanReview(runResult.status) && (
                   <div className="review-handoff-notice">
                     <div>
                       <strong>工作流已暂停在人工审核节点</strong>
@@ -475,7 +476,7 @@ export function Workflows() {
                   </div>
                 )}
                 <div className="run-kpis">
-                  <div><span>状态</span><strong>{runResult.status}</strong></div>
+                  <div><span>状态</span><strong>{displayStatus(runResult.status)}</strong></div>
                   <div><span>Token</span><strong>{runResult.totalTokens}</strong></div>
                   <div><span>质量得分</span><strong>{runResult.score ?? '待评估'}</strong></div>
                   <div><span>耗时</span><strong>{runResult.durationMs} ms</strong></div>

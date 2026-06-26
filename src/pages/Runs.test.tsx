@@ -60,7 +60,7 @@ describe('Runs', () => {
 
   it('renders persisted run metrics, output and node attempts', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
-      new Response(JSON.stringify([run]), { status: 200 }),
+      new Response(JSON.stringify([{ ...run, status: '宸插畬鎴?' }]), { status: 200 }),
     ))
 
     render(
@@ -71,6 +71,8 @@ describe('Runs', () => {
 
     expect(await screen.findByRole('heading', { name: '新品研究流程' })).toBeInTheDocument()
     expect(screen.getAllByText('这是由真实运行记录返回的完整分析结果。')).toHaveLength(2)
+    expect(screen.getAllByText('已完成').length).toBeGreaterThanOrEqual(1)
+    expect(screen.queryByText('宸插畬鎴?')).not.toBeInTheDocument()
     expect(screen.getByText('20')).toBeInTheDocument()
     expect(screen.getByText(/尝试 2 次/)).toBeInTheDocument()
   })
