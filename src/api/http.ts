@@ -31,8 +31,7 @@ function shouldAttachCsrfToken(method: string) {
 
 function shouldDispatchSessionExpired(path: string, status: number) {
   if (status !== 401) return false
-  if (!path.startsWith('/api/')) return false
-  return !path.startsWith('/api/auth/login')
+  return path.startsWith('/api/workspaces/')
 }
 
 export async function apiFetch(

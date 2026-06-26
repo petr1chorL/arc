@@ -59,4 +59,56 @@ describe('apiFetch', () => {
 
     window.removeEventListener('auth-session-expired', handler)
   })
+
+  it('does not dispatch auth-session-expired for auth session 401 responses', async () => {
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ detail: '未登录' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      ))
+
+    const handler = vi.fn()
+    window.addEventListener('auth-session-expired', handler)
+
+    await apiFetch('/api/health')
+    await apiFetch('/api/auth/session')
+
+    expect(handler).not.toHaveBeenCalled()
+
+    window.removeEventListener('auth-session-expired', handler)
+  })
+
+  it('does not dispatch auth-session-expired for invitation 401 responses', async () => {
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ detail: '邀请不可用' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      ))
+
+    const handler = vi.fn()
+    window.addEventListener('auth-session-expired', handler)
+
+    await apiFetch('/api/health')
+    await apiFetch('/api/invitations/token')
+
+    expect(handler).not.toHaveBeenCalled()
+
+    window.removeEventListener('auth-session-expired', handler)
+  })
 })
