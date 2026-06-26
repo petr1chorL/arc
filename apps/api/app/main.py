@@ -19,6 +19,7 @@ from app.model_gateway import ModelGateway, OpenAICompatibleGateway
 from app.models import (
     AgentRecord,
     AgentVersionRecord,
+    AuditEventRecord,
     Base,
     HumanReviewRecord,
     HumanTaskRecord,
@@ -50,6 +51,14 @@ from app.schemas import (
     HumanTaskRead,
     HumanTaskTransfer,
     NodeRunRead,
+    ObservabilityAuditEventRead,
+    ObservabilityHumanTaskRead,
+    ObservabilityNodeRunRead,
+    ObservabilityOverviewRead,
+    ObservabilityRiskRead,
+    ObservabilityRunDetailRead,
+    ObservabilityRunSummaryRead,
+    ObservabilityTotalsRead,
     ReviewerRead,
     ReviewGroupRead,
     ReviewDecision,
@@ -237,6 +246,57 @@ def create_app(
         payload = RunRead.model_validate(run)
         return payload.model_copy(
             update={"nodes": [NodeRunRead.model_validate(node) for node in nodes]},
+        )
+
+    def observability_priority(run: WorkflowRunRecord) -> tuple[int, str]:
+        if run.status in {"失败", "澶辫触"}:
+            return (0, "critical")
+        if run.status == "恢复失败":
+            return (1, "critical")
+        if run.status in {"需介入", "等待审核", "绛夊緟瀹℃牳"}:
+            return (2, "warning")
+        if run.status in {"运行中", "等待中"}:
+            return (3, "warning")
+        return (4, "normal")
+
+    def observability_next_action(run: WorkflowRunRecord) -> str:
+        if run.status in {"失败", "澶辫触"}:
+            return "查看失败节点和错误信息"
+        if run.status == "恢复失败":
+            return "进入人工审核重试恢复"
+        if run.status in {"需介入", "等待审核", "绛夊緟瀹℃牳"}:
+            return "进入人工审核处理 Human Task"
+        if run.status in {"运行中", "等待中"}:
+            return "等待运行完成或刷新状态"
+        return "查看产出物和节点耗时"
+
+    def observability_summary(run: WorkflowRunRecord) -> ObservabilityRunSummaryRead:
+        return ObservabilityRunSummaryRead(
+            id=run.id,
+            workflow_name=run.name,
+            status=run.status,
+            current_node=run.current_node,
+            started_at=run.started_at,
+            completed_at=run.completed_at,
+            duration_ms=run.duration_ms,
+            score=run.score,
+            cost_usd=round(float(run.cost_usd or 0), 6),
+            prompt_tokens=run.prompt_tokens,
+            completion_tokens=run.completion_tokens,
+            priority=observability_priority(run)[1],
+            next_action=observability_next_action(run),
+        )
+
+    def observability_risk(run: WorkflowRunRecord) -> ObservabilityRiskRead | None:
+        priority = observability_priority(run)[1]
+        if priority == "normal":
+            return None
+        return ObservabilityRiskRead(
+            run_id=run.id,
+            title=run.name,
+            severity=priority,
+            message=f"{run.status} · {run.current_node or '未知节点'}",
+            next_action=observability_next_action(run),
         )
 
     @router.get("/agents", response_model=list[AgentRead])
@@ -804,6 +864,115 @@ def create_app(
             request=request,
         )
         return run_response(find_run(context.workspace.id, run_id, session), session)
+
+    @router.get("/observability/overview", response_model=ObservabilityOverviewRead)
+    def observability_overview(
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> ObservabilityOverviewRead:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "run.read",
+            action="observability.overview",
+            target_type="workspace",
+            target_id=context.workspace.id,
+            request=request,
+        )
+        runs = list(session.scalars(
+            select(WorkflowRunRecord)
+            .where(WorkflowRunRecord.workspace_id == context.workspace.id),
+        ))
+        durations = [run.duration_ms for run in runs if run.duration_ms]
+        sorted_runs = sorted(
+            runs,
+            key=lambda run: (
+                observability_priority(run)[0],
+                -run.started_at.timestamp(),
+            ),
+        )
+        risks = [
+            risk
+            for risk in (observability_risk(run) for run in sorted_runs)
+            if risk is not None
+        ]
+        totals = ObservabilityTotalsRead(
+            runs=len(runs),
+            succeeded=sum(1 for run in runs if run.status in {"已完成", "宸插畬鎴?"}),
+            failed=sum(1 for run in runs if run.status in {"失败", "澶辫触"}),
+            waiting_for_human=sum(
+                1
+                for run in runs
+                if run.status in {"需介入", "等待审核", "绛夊緟瀹℃牳"}
+            ),
+            resume_failed=sum(1 for run in runs if run.status == "恢复失败"),
+            average_duration_ms=round(sum(durations) / len(durations)) if durations else None,
+            total_prompt_tokens=sum(run.prompt_tokens for run in runs),
+            total_completion_tokens=sum(run.completion_tokens for run in runs),
+            total_cost_usd=round(sum(float(run.cost_usd or 0) for run in runs), 6),
+        )
+        return ObservabilityOverviewRead(
+            totals=totals,
+            risks=risks[:10],
+            recent_runs=[observability_summary(run) for run in sorted_runs[:20]],
+        )
+
+    @router.get("/observability/runs/{run_id}", response_model=ObservabilityRunDetailRead)
+    def observability_run_detail(
+        run_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> ObservabilityRunDetailRead:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "run.read",
+            action="observability.run.read",
+            target_type="run",
+            target_id=run_id,
+            request=request,
+        )
+        run = find_run(context.workspace.id, run_id, session)
+        nodes = list(session.scalars(
+            select(NodeRunRecord)
+            .where(
+                NodeRunRecord.workspace_id == context.workspace.id,
+                NodeRunRecord.run_id == run.id,
+            )
+            .order_by(NodeRunRecord.started_at.asc()),
+        ))
+        human_tasks = list(session.scalars(
+            select(HumanTaskRecord)
+            .where(
+                HumanTaskRecord.workspace_id == context.workspace.id,
+                HumanTaskRecord.workflow_run_id == run.id,
+            )
+            .order_by(HumanTaskRecord.created_at.asc()),
+        ))
+        task_ids = [task.id for task in human_tasks]
+        audit_events = list(session.scalars(
+            select(AuditEventRecord)
+            .where(
+                AuditEventRecord.workspace_id == context.workspace.id,
+                AuditEventRecord.human_task_id.in_(task_ids),
+            )
+            .order_by(AuditEventRecord.created_at.asc()),
+        )) if task_ids else []
+        summary = observability_summary(run)
+        return ObservabilityRunDetailRead(
+            **summary.model_dump(),
+            nodes=[ObservabilityNodeRunRead.model_validate(node) for node in nodes],
+            human_tasks=[
+                ObservabilityHumanTaskRead.model_validate(task)
+                for task in human_tasks
+            ],
+            audit_events=[
+                ObservabilityAuditEventRead.model_validate(event)
+                for event in audit_events
+            ],
+        )
 
     @router.get("/reviews", response_model=list[HumanReviewRead])
     def list_reviews(

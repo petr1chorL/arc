@@ -330,6 +330,108 @@ class RunRead(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
+class ObservabilityTotalsRead(BaseModel):
+    runs: int
+    succeeded: int
+    failed: int
+    waiting_for_human: int = Field(serialization_alias="waitingForHuman")
+    resume_failed: int = Field(serialization_alias="resumeFailed")
+    average_duration_ms: int | None = Field(serialization_alias="averageDurationMs")
+    total_prompt_tokens: int = Field(serialization_alias="totalPromptTokens")
+    total_completion_tokens: int = Field(serialization_alias="totalCompletionTokens")
+    total_cost_usd: float = Field(serialization_alias="totalCostUsd")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ObservabilityRunSummaryRead(BaseModel):
+    id: str
+    workflow_name: str = Field(serialization_alias="workflowName")
+    status: str
+    current_node: str = Field(serialization_alias="currentNode")
+    started_at: datetime = Field(serialization_alias="startedAt")
+    completed_at: datetime | None = Field(serialization_alias="completedAt")
+    duration_ms: int | None = Field(serialization_alias="durationMs")
+    score: int | None
+    cost_usd: float = Field(serialization_alias="costUsd")
+    prompt_tokens: int = Field(serialization_alias="promptTokens")
+    completion_tokens: int = Field(serialization_alias="completionTokens")
+    priority: Literal["critical", "warning", "normal"]
+    next_action: str = Field(serialization_alias="nextAction")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ObservabilityRiskRead(BaseModel):
+    run_id: str = Field(serialization_alias="runId")
+    title: str
+    severity: Literal["critical", "warning"]
+    message: str
+    next_action: str = Field(serialization_alias="nextAction")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ObservabilityOverviewRead(BaseModel):
+    totals: ObservabilityTotalsRead
+    risks: list[ObservabilityRiskRead]
+    recent_runs: list[ObservabilityRunSummaryRead] = Field(serialization_alias="recentRuns")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ObservabilityNodeRunRead(BaseModel):
+    id: str
+    node_id: str = Field(serialization_alias="nodeId")
+    node_type: str = Field(serialization_alias="nodeType")
+    node_name: str = Field(serialization_alias="nodeName")
+    status: str
+    duration_ms: int = Field(serialization_alias="durationMs")
+    attempts: int
+    score: int | None
+    model: str
+    prompt_tokens: int = Field(serialization_alias="promptTokens")
+    completion_tokens: int = Field(serialization_alias="completionTokens")
+    cost_usd: float = Field(serialization_alias="costUsd")
+    error: str
+    started_at: datetime = Field(serialization_alias="startedAt")
+    completed_at: datetime | None = Field(serialization_alias="completedAt")
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class ObservabilityHumanTaskRead(BaseModel):
+    id: str
+    title: str
+    status: str
+    sla_status: str = Field(serialization_alias="slaStatus")
+    assignee_reviewer_id: str | None = Field(serialization_alias="assigneeReviewerId")
+    assignee_group_id: str | None = Field(serialization_alias="assigneeGroupId")
+    due_at: datetime = Field(serialization_alias="dueAt")
+    escalation_at: datetime = Field(serialization_alias="escalationAt")
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class ObservabilityAuditEventRead(BaseModel):
+    id: str
+    event_type: str | None = Field(serialization_alias="eventType")
+    actor_id: str | None = Field(serialization_alias="actorId")
+    outcome: str | None
+    reason: str
+    created_at: datetime = Field(serialization_alias="createdAt")
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class ObservabilityRunDetailRead(ObservabilityRunSummaryRead):
+    nodes: list[ObservabilityNodeRunRead]
+    human_tasks: list[ObservabilityHumanTaskRead] = Field(serialization_alias="humanTasks")
+    audit_events: list[ObservabilityAuditEventRead] = Field(serialization_alias="auditEvents")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class HumanReviewRead(BaseModel):
     id: str
     run_id: str = Field(serialization_alias="runId")
