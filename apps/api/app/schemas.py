@@ -47,6 +47,32 @@ class ChangePasswordCreate(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class WorkspaceCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    slug: str = Field(min_length=1, max_length=120)
+
+    @field_validator("name", "slug")
+    @classmethod
+    def reject_blank_workspace_values(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("字段不能为空")
+        return normalized
+
+
+class WorkspaceRead(BaseModel):
+    id: str
+    organization_id: str = Field(serialization_alias="organizationId")
+    name: str
+    slug: str
+    status: str
+    created_by: str | None = Field(serialization_alias="createdBy")
+    created_at: datetime = Field(serialization_alias="createdAt")
+    updated_at: datetime = Field(serialization_alias="updatedAt")
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
 class AgentCreate(BaseModel):
     name: str = Field(max_length=80)
     role: str = Field(max_length=240)

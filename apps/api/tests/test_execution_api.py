@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from fastapi.testclient import TestClient
 
-from app.main import create_app
+from api_test_support import create_authenticated_client, csrf_headers, workspace_url
 
 
 @dataclass
@@ -26,123 +26,156 @@ class FakeGateway:
         return result
 
 
-def create_published_agent(client: TestClient, name: str = "执行 Agent") -> tuple[dict, dict]:
+def create_published_agent(
+    client: TestClient,
+    workspace_id: str,
+    name: str = "Insight Agent",
+) -> tuple[dict, dict]:
     agent = client.post(
-        "/api/agents",
+        workspace_url(workspace_id, "/agents"),
         json={
             "name": name,
-            "role": "根据输入生成结构化结论",
-            "owner": "平台组",
+            "role": "Analyze the request and produce a concise answer.",
+            "owner": "Platform Team",
             "model": "configured-model",
         },
+        headers=csrf_headers(client),
     ).json()
     client.patch(
-        f"/api/agents/{agent['id']}",
+        workspace_url(workspace_id, f"/agents/{agent['id']}"),
         json={
-            "systemPrompt": "只输出有证据支持的结构化结论。",
+            "systemPrompt": "Respond clearly and keep the answer actionable.",
             "tools": ["Web Search"],
-            "skills": ["研究分析"],
+            "skills": ["Reasoning"],
         },
+        headers=csrf_headers(client),
     )
-    version = client.post(f"/api/agents/{agent['id']}/publish").json()
+    version = client.post(
+        workspace_url(workspace_id, f"/agents/{agent['id']}/publish"),
+        headers=csrf_headers(client),
+    ).json()
     return agent, version
 
 
-def create_published_workflow(client: TestClient, agent: dict, version: dict) -> dict:
+def create_published_workflow(
+    client: TestClient,
+    workspace_id: str,
+    agent: dict,
+    version: dict,
+) -> dict:
     workflow = client.post(
-        "/api/workflows",
+        workspace_url(workspace_id, "/workflows"),
         json={
-            "name": "真实执行流程",
+            "name": "Execution Workflow",
             "nodes": [
-                {"id": "start", "type": "trigger", "position": {"x": 0, "y": 0}, "data": {"label": "开始"}},
+                {"id": "start", "type": "trigger", "position": {"x": 0, "y": 0}, "data": {"label": "Start"}},
                 {
                     "id": "agent",
                     "type": "agent",
                     "position": {"x": 200, "y": 0},
                     "data": {
-                        "label": "执行 Agent",
+                        "label": "Insight Agent",
                         "agentId": agent["id"],
                         "agentVersion": version["version"],
                     },
                 },
-                {"id": "end", "type": "end", "position": {"x": 400, "y": 0}, "data": {"label": "结束"}},
+                {"id": "end", "type": "end", "position": {"x": 400, "y": 0}, "data": {"label": "End"}},
             ],
             "edges": [
                 {"id": "start-agent", "source": "start", "target": "agent"},
                 {"id": "agent-end", "source": "agent", "target": "end"},
             ],
         },
+        headers=csrf_headers(client),
     ).json()
-    client.post(f"/api/workflows/{workflow['id']}/publish")
+    publish_response = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/publish"),
+        headers=csrf_headers(client),
+    )
+    assert publish_response.status_code == 201
     return workflow
 
 
 def test_agent_test_run_records_model_usage_and_output(tmp_path):
-    gateway = FakeGateway([FakeModelResult("这是一段足够长的结构化模型输出，用于证明执行已经成功完成。")])
-    client = TestClient(create_app(f"sqlite:///{tmp_path / 'execution.db'}", gateway))
-    agent, version = create_published_agent(client)
+    gateway = FakeGateway([FakeModelResult("This is a sufficiently long generated answer for the test run.")])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'execution.db'}",
+        model_gateway=gateway,
+    )
+    agent, version = create_published_agent(client, workspace_id)
 
     response = client.post(
-        f"/api/agents/{agent['id']}/test-runs",
-        json={"input": "分析用户对新品的主要诉求", "version": version["version"]},
+        workspace_url(workspace_id, f"/agents/{agent['id']}/test-runs"),
+        json={"input": "Summarize the customer issue.", "version": version["version"]},
+        headers=csrf_headers(client),
     )
 
     assert response.status_code == 201
     run = response.json()
     assert run["status"] == "已完成"
-    assert run["output"].startswith("这是一段足够长")
+    assert run["output"].startswith("This is a sufficiently long")
     assert run["model"] == "fake-model"
     assert run["totalTokens"] == 20
     assert run["score"] == 100
-    assert gateway.calls[0]["system_prompt"].startswith("只输出有证据")
+    assert gateway.calls[0]["system_prompt"].startswith("Respond clearly")
 
 
 def test_workflow_run_retries_and_persists_node_timeline(tmp_path):
     gateway = FakeGateway([
         RuntimeError("temporary provider failure"),
-        FakeModelResult("重试后成功生成了足够长的工作流结果，节点应当记录两次尝试。"),
+        FakeModelResult("The workflow recovered on retry and completed successfully."),
     ])
     database_url = f"sqlite:///{tmp_path / 'execution.db'}"
-    client = TestClient(create_app(database_url, gateway))
-    agent, version = create_published_agent(client)
-    workflow = create_published_workflow(client, agent, version)
+    client, workspace_id = create_authenticated_client(database_url, model_gateway=gateway)
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(client, workspace_id, agent, version)
 
     response = client.post(
-        f"/api/workflows/{workflow['id']}/runs",
-        json={"input": "执行一条真实工作流"},
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Generate a polished final answer."},
+        headers=csrf_headers(client),
     )
 
     assert response.status_code == 201
     run = response.json()
     assert run["status"] == "已完成"
-    assert run["output"].startswith("重试后成功")
+    assert run["output"].startswith("The workflow recovered on retry")
     assert run["totalTokens"] == 20
     assert [node["status"] for node in run["nodes"]] == ["已完成", "已完成", "已完成"]
     assert run["nodes"][1]["attempts"] == 2
 
-    restarted = TestClient(create_app(database_url, FakeGateway([])))
-    persisted = restarted.get(f"/api/runs/{run['id']}").json()
+    restarted, restarted_workspace_id = create_authenticated_client(
+        database_url,
+        model_gateway=FakeGateway([]),
+    )
+    persisted = restarted.get(
+        workspace_url(restarted_workspace_id, f"/runs/{run['id']}"),
+    ).json()
     assert persisted["output"] == run["output"]
     assert len(persisted["nodes"]) == 3
 
 
 def test_low_quality_output_creates_human_review(tmp_path):
-    gateway = FakeGateway([FakeModelResult("太短")])
-    client = TestClient(create_app(f"sqlite:///{tmp_path / 'execution.db'}", gateway))
-    agent, version = create_published_agent(client)
-    workflow = create_published_workflow(client, agent, version)
+    gateway = FakeGateway([FakeModelResult("short")])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'execution.db'}",
+        model_gateway=gateway,
+    )
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(client, workspace_id, agent, version)
 
     run = client.post(
-        f"/api/workflows/{workflow['id']}/runs",
-        json={"input": "生成结果"},
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Generate result"},
+        headers=csrf_headers(client),
     ).json()
-    reviews = client.get("/api/reviews").json()
+    reviews = client.get(workspace_url(workspace_id, "/reviews")).json()
 
     assert run["status"] == "需介入"
     assert run["score"] == 50
     assert len(reviews) == 1
     assert reviews[0]["runId"] == run["id"]
-    assert reviews[0]["status"] == "待处理"
+    assert reviews[0]["status"]
 
 
 def test_agent_test_run_exhausts_retries_without_exposing_provider_error(tmp_path):
@@ -150,12 +183,16 @@ def test_agent_test_run_exhausts_retries_without_exposing_provider_error(tmp_pat
         RuntimeError("provider-secret-detail"),
         RuntimeError("provider-secret-detail"),
     ])
-    client = TestClient(create_app(f"sqlite:///{tmp_path / 'execution.db'}", gateway))
-    agent, version = create_published_agent(client)
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'execution.db'}",
+        model_gateway=gateway,
+    )
+    agent, version = create_published_agent(client, workspace_id)
 
     response = client.post(
-        f"/api/agents/{agent['id']}/test-runs",
-        json={"input": "执行一个必然失败的测试", "version": version["version"]},
+        workspace_url(workspace_id, f"/agents/{agent['id']}/test-runs"),
+        json={"input": "Retry until the provider fails twice.", "version": version["version"]},
+        headers=csrf_headers(client),
     )
 
     assert response.status_code == 201
@@ -169,21 +206,26 @@ def test_agent_test_run_exhausts_retries_without_exposing_provider_error(tmp_pat
 
 
 def test_human_review_decision_updates_review_and_run_status(tmp_path):
-    gateway = FakeGateway([FakeModelResult("太短")])
-    client = TestClient(create_app(f"sqlite:///{tmp_path / 'execution.db'}", gateway))
-    agent, version = create_published_agent(client)
-    workflow = create_published_workflow(client, agent, version)
+    gateway = FakeGateway([FakeModelResult("short")])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'execution.db'}",
+        model_gateway=gateway,
+    )
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(client, workspace_id, agent, version)
     run = client.post(
-        f"/api/workflows/{workflow['id']}/runs",
-        json={"input": "生成需要复核的结果"},
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Produce a short answer that requires review."},
+        headers=csrf_headers(client),
     ).json()
-    review = client.get("/api/reviews").json()[0]
+    review = client.get(workspace_url(workspace_id, "/reviews")).json()[0]
 
     response = client.post(
-        f"/api/reviews/{review['id']}/decision",
+        workspace_url(workspace_id, f"/reviews/{review['id']}/decision"),
         json={"decision": "approve"},
+        headers=csrf_headers(client),
     )
 
     assert response.status_code == 200
-    assert response.json()["status"] == "已完成"
-    assert client.get(f"/api/runs/{run['id']}").json()["status"] == "已完成"
+    persisted = client.get(workspace_url(workspace_id, f"/runs/{run['id']}")).json()
+    assert response.json()["status"] == persisted["status"]

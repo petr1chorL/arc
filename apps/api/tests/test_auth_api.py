@@ -1129,11 +1129,11 @@ def test_bootstrap_cli_creates_admin_without_printing_password(
         )
 
 
-def test_legacy_business_api_remains_anonymous_until_task_four(tmp_path):
+def test_legacy_business_api_is_removed_after_task_four(tmp_path):
     client = TestClient(
         create_app(f"sqlite:///{tmp_path / 'anonymous-agents.db'}"),
     )
 
     response = client.get("/api/agents")
 
-    assert response.status_code == 200
+    assert response.status_code == 404

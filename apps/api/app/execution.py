@@ -87,6 +87,7 @@ class ExecutionService:
             f"{system_prompt}\n\n职责：{role}\n可用工具：{tools}\n可用技能：{skills}"
         ).strip()
         node_run = NodeRunRecord(
+            workspace_id=run.workspace_id,
             run_id=run.id,
             node_id=node_id,
             node_type="agent",
@@ -147,6 +148,7 @@ class ExecutionService:
             raise RuntimeError("已发布 Agent 版本不存在")
         snapshot = version.snapshot
         run = WorkflowRunRecord(
+            workspace_id=version.workspace_id,
             kind="agent",
             name=f"{snapshot['name']} 测试运行",
             agent_id=agent_id,
@@ -187,6 +189,7 @@ class ExecutionService:
             raise RuntimeError("已发布工作流版本不存在")
         snapshot = version.snapshot
         run = WorkflowRunRecord(
+            workspace_id=version.workspace_id,
             kind="workflow",
             name=snapshot["name"],
             workflow_id=workflow_id,
@@ -272,6 +275,7 @@ class ExecutionService:
             else:
                 now = utc_now()
                 node_run = NodeRunRecord(
+                    workspace_id=run.workspace_id,
                     run_id=run.id,
                     node_id=node_id,
                     node_type=node["type"],
@@ -345,6 +349,7 @@ class ExecutionService:
                 node_runs[-1],
             )
             session.add(HumanReviewRecord(
+                workspace_id=run.workspace_id,
                 run_id=run.id,
                 node_run_id=scored_node.id,
                 title=f"复核低分产出：{scored_node.node_name}",
@@ -355,6 +360,7 @@ class ExecutionService:
             run.status = "已完成"
         if node_runs:
             session.add(ArtifactRecord(
+                workspace_id=run.workspace_id,
                 run_id=run.id,
                 source_node_run_id=node_runs[-1].id,
                 content=run.output_text,
@@ -392,6 +398,7 @@ class WorkflowResumeService:
         if existing is not None and existing.status == "succeeded":
             return task
         request = existing or ResumeRequestRecord(
+            workspace_id=task.workspace_id,
             human_task_id=task.id,
             decision_id=decision.id,
             action=decision.decision,
