@@ -133,6 +133,25 @@ class SessionRecord(Base):
     user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
 
+class InvitationRecord(Base):
+    __tablename__ = "invitations"
+    __table_args__ = (
+        UniqueConstraint("token_digest", name="uq_invitation_token_digest"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    organization_id: Mapped[str] = mapped_column(String(36), index=True)
+    workspace_id: Mapped[str] = mapped_column(String(36), index=True)
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
+    role: Mapped[str] = mapped_column(String(32))
+    token_digest: Mapped[str] = mapped_column(String(64))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class AgentRecord(Base):
     __tablename__ = "agents"
 

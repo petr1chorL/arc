@@ -253,6 +253,39 @@ class AuthenticationService:
             session_record.revoked_reason = reason
             session.commit()
 
+    def revoke_user_sessions(
+        self,
+        session: Session,
+        user_id: str,
+        reason: str,
+    ) -> None:
+        now = self._now()
+        session.execute(
+            update(SessionRecord)
+            .where(
+                SessionRecord.user_id == user_id,
+                SessionRecord.revoked_at.is_(None),
+            )
+            .values(
+                revoked_at=now,
+                revoked_reason=reason,
+            ),
+        )
+
+    def set_password(
+        self,
+        session: Session,
+        user: UserRecord,
+        *,
+        display_name: str,
+        password: str,
+    ) -> None:
+        now = self._now()
+        user.display_name = display_name.strip()
+        user.password_hash = self.security.hash_password(password)
+        user.password_changed_at = now
+        user.updated_at = now
+
     def change_password(
         self,
         session: Session,
@@ -273,9 +306,12 @@ class AuthenticationService:
             raise PasswordChangeError("新密码不能与当前密码相同")
 
         now = self._now()
-        user.password_hash = self.security.hash_password(new_password)
-        user.password_changed_at = now
-        user.updated_at = now
+        self.set_password(
+            session,
+            user,
+            display_name=user.display_name,
+            password=new_password,
+        )
         session.execute(
             update(SessionRecord)
             .where(

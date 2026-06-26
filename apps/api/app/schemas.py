@@ -73,6 +73,82 @@ class WorkspaceRead(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
+WorkspaceRole = Literal["viewer", "operator", "builder", "workspace_admin"]
+
+
+class InvitationCreate(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    role: WorkspaceRole
+
+    @field_validator("email")
+    @classmethod
+    def reject_blank_email(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("邮箱不能为空")
+        return normalized
+
+
+class ReviewerQualificationRead(BaseModel):
+    role: str
+    is_expert: bool = Field(serialization_alias="isExpert")
+    is_active: bool = Field(serialization_alias="isActive")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class WorkspaceMemberRead(BaseModel):
+    user_id: str = Field(serialization_alias="userId")
+    invitation_id: str | None = Field(default=None, serialization_alias="invitationId")
+    email: str
+    display_name: str = Field(serialization_alias="displayName")
+    role: WorkspaceRole
+    user_status: str = Field(serialization_alias="userStatus")
+    membership_status: str = Field(serialization_alias="membershipStatus")
+    reviewer: ReviewerQualificationRead | None = None
+    last_login_at: datetime | None = Field(default=None, serialization_alias="lastLoginAt")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class InvitationLinkRead(BaseModel):
+    invitation_id: str = Field(serialization_alias="invitationId")
+    email: str
+    role: WorkspaceRole
+    expires_at: datetime = Field(serialization_alias="expiresAt")
+    activation_url: str = Field(serialization_alias="activationUrl")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class InvitationPreviewRead(BaseModel):
+    email: str
+    workspace_name: str = Field(serialization_alias="workspaceName")
+    role: WorkspaceRole
+    expires_at: datetime = Field(serialization_alias="expiresAt")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class InvitationActivateCreate(BaseModel):
+    display_name: str = Field(alias="displayName", min_length=1, max_length=160)
+    password: str = Field(min_length=12, max_length=1024)
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    @field_validator("display_name")
+    @classmethod
+    def reject_blank_display_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("显示名称不能为空")
+        return normalized
+
+
+class MembershipRoleUpdate(BaseModel):
+    role: WorkspaceRole
+
+
 class AgentCreate(BaseModel):
     name: str = Field(max_length=80)
     role: str = Field(max_length=240)

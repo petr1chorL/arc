@@ -44,10 +44,36 @@ export interface WorkspaceSummary {
 }
 
 export interface InvitationPreview {
-  email?: string
-  workspaceName?: string
-  role?: WorkspaceRole
-  expiresAt?: string
+  email: string
+  workspaceName: string
+  role: WorkspaceRole
+  expiresAt: string
+}
+
+export interface ReviewerQualification {
+  role: string
+  isExpert: boolean
+  isActive: boolean
+}
+
+export interface WorkspaceMember {
+  userId: string
+  invitationId: string | null
+  email: string
+  displayName: string
+  role: WorkspaceRole
+  userStatus: string
+  membershipStatus: string
+  reviewer: ReviewerQualification | null
+  lastLoginAt: string | null
+}
+
+export interface InvitationLink {
+  invitationId: string
+  email: string
+  role: WorkspaceRole
+  expiresAt: string
+  activationUrl: string
 }
 
 export interface Agent {

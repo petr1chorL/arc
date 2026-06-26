@@ -2,8 +2,10 @@ from collections.abc import Callable
 
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.audit import AuditActor, AuditService
 from app.auth import (
     AccountLocked,
     AuthenticationError,
@@ -11,10 +13,23 @@ from app.auth import (
     AuthenticationService,
     CsrfError,
     PasswordChangeError,
+    aware_utc,
 )
 from app.config import Settings
-from app.models import SessionRecord, UserRecord
-from app.schemas import AuthSessionRead, ChangePasswordCreate, LoginCreate
+from app.models import (
+    InvitationRecord,
+    SessionRecord,
+    UserRecord,
+    WorkspaceMembershipRecord,
+    WorkspaceRecord,
+)
+from app.schemas import (
+    AuthSessionRead,
+    ChangePasswordCreate,
+    InvitationActivateCreate,
+    InvitationPreviewRead,
+    LoginCreate,
+)
 
 
 class SessionAuthenticationError(Exception):
@@ -62,8 +77,9 @@ def create_auth_router(
     get_session: Callable,
     service: AuthenticationService,
     settings: Settings,
-    ) -> APIRouter:
-    router = APIRouter(prefix="/api/auth", tags=["auth"])
+) -> APIRouter:
+    router = APIRouter(tags=["auth"])
+    audit_service = AuditService()
 
     def set_auth_cookies(
         response: Response,
@@ -97,6 +113,46 @@ def create_auth_router(
         expected = f"{request.url.scheme}://{request.headers.get('host', '')}"
         if origin.rstrip("/") != expected:
             raise HTTPException(status_code=403, detail="Origin 校验失败")
+
+    def build_activation_url(request: Request, token: str) -> str:
+        return str(request.base_url).rstrip("/") + f"/activate/{token}"
+
+    def resolve_active_invitation(
+        session: Session,
+        token: str,
+    ) -> tuple[
+        InvitationRecord,
+        UserRecord,
+        WorkspaceRecord,
+        WorkspaceMembershipRecord,
+    ]:
+        invitation = session.scalar(
+            select(InvitationRecord).where(
+                InvitationRecord.token_digest == service.security.digest_token(token),
+            ),
+        )
+        if invitation is None:
+            raise HTTPException(status_code=409, detail="邀请已失效")
+
+        now = service._now()
+        if invitation.revoked_at is not None:
+            raise HTTPException(status_code=409, detail="邀请已撤销")
+        if invitation.used_at is not None:
+            raise HTTPException(status_code=409, detail="邀请已使用")
+        if aware_utc(invitation.expires_at) <= now:
+            raise HTTPException(status_code=409, detail="邀请已过期")
+
+        user = session.get(UserRecord, invitation.user_id)
+        workspace = session.get(WorkspaceRecord, invitation.workspace_id)
+        membership = session.scalar(
+            select(WorkspaceMembershipRecord).where(
+                WorkspaceMembershipRecord.workspace_id == invitation.workspace_id,
+                WorkspaceMembershipRecord.user_id == invitation.user_id,
+            ),
+        )
+        if user is None or workspace is None or membership is None:
+            raise HTTPException(status_code=409, detail="邀请已失效")
+        return invitation, user, workspace, membership
 
     def authenticated(
         session: Session = Depends(get_session),
@@ -132,7 +188,7 @@ def create_auth_router(
             raise HTTPException(status_code=403, detail=str(error)) from None
         return authenticated_context
 
-    @router.post("/login", response_model=AuthSessionRead)
+    @router.post("/api/auth/login", response_model=AuthSessionRead)
     def login(
         payload: LoginCreate,
         request: Request,
@@ -160,7 +216,7 @@ def create_auth_router(
         set_auth_cookies(response, session_token, csrf_token)
         return AuthSessionRead(user=user)
 
-    @router.get("/session", response_model=AuthSessionRead)
+    @router.get("/api/auth/session", response_model=AuthSessionRead)
     def read_session(
         context: tuple[
             UserRecord,
@@ -171,7 +227,7 @@ def create_auth_router(
         user, _, _ = context
         return AuthSessionRead(user=user)
 
-    @router.post("/logout", status_code=204)
+    @router.post("/api/auth/logout", status_code=204)
     def logout(
         response: Response,
         context: tuple[
@@ -184,7 +240,7 @@ def create_auth_router(
         service.revoke_session(session, session_record, "logout")
         clear_auth_cookies(response, settings)
 
-    @router.post("/change-password", status_code=204)
+    @router.post("/api/auth/change-password", status_code=204)
     def change_password(
         payload: ChangePasswordCreate,
         response: Response,
@@ -205,5 +261,63 @@ def create_auth_router(
         except PasswordChangeError as error:
             raise HTTPException(status_code=422, detail=str(error)) from None
         clear_auth_cookies(response, settings)
+
+    @router.get("/api/invitations/{token}", response_model=InvitationPreviewRead)
+    def preview_invitation(
+        token: str,
+        request: Request,
+        session: Session = Depends(get_session),
+    ) -> InvitationPreviewRead:
+        require_same_origin(request)
+        invitation, user, workspace, _ = resolve_active_invitation(session, token)
+        return InvitationPreviewRead(
+            email=user.email or "",
+            workspace_name=workspace.name,
+            role=invitation.role,
+            expires_at=invitation.expires_at,
+        )
+
+    @router.post("/api/invitations/{token}/activate", status_code=204)
+    def activate_invitation(
+        token: str,
+        payload: InvitationActivateCreate,
+        request: Request,
+        session: Session = Depends(get_session),
+    ) -> None:
+        require_same_origin(request)
+        invitation, user, workspace, membership = resolve_active_invitation(session, token)
+        now = service._now()
+        service.set_password(
+            session,
+            user,
+            display_name=payload.display_name,
+            password=payload.password,
+        )
+        user.status = "active"
+        user.failed_login_count = 0
+        user.locked_until = None
+        user.last_workspace_id = workspace.id
+        membership.status = "active"
+        membership.role = invitation.role
+        membership.activated_at = now
+        membership.updated_at = now
+        invitation.used_at = now
+        audit_service.record(
+            session,
+            actor=AuditActor(
+                organization_id=user.organization_id,
+                workspace_id=workspace.id,
+                actor_user_id=user.id,
+                session_id=None,
+            ),
+            action="member.invitation.activate",
+            target_type="invitation",
+            target_id=invitation.id,
+            outcome="success",
+            request=request,
+            metadata={"userId": user.id},
+            workspace_id=workspace.id,
+        )
+        session.commit()
 
     return router

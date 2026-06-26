@@ -11,6 +11,7 @@ import { ActivateInvitation } from './pages/ActivateInvitation'
 import { Dashboard } from './pages/Dashboard'
 import { Evaluations } from './pages/Evaluations'
 import { Login } from './pages/Login'
+import { Members } from './pages/Members'
 import { Reviews } from './pages/Reviews'
 import { Runs } from './pages/Runs'
 import { Workflows } from './pages/Workflows'
@@ -78,7 +79,7 @@ function App() {
                 <Route path="evaluations" element={<Evaluations />} />
                 <Route path="runs" element={<Runs />} />
                 <Route path="reviews" element={<Reviews />} />
-                <Route path="settings/members" element={<SettingsStub title="成员与权限" />} />
+                <Route path="settings/members" element={<Members />} />
                 <Route path="settings/audit" element={<SettingsStub title="审计日志" />} />
               </Route>
             </Route>
