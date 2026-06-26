@@ -25,6 +25,18 @@ const roleOptions: Array<{ value: WorkspaceRole; label: string }> = [
 ]
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const reviewerQualificationsUpdatedEvent = 'reviewer-qualifications-updated'
+
+function broadcastReviewerQualificationsUpdated(workspaceId: string) {
+  window.dispatchEvent(new CustomEvent(reviewerQualificationsUpdatedEvent, {
+    detail: { workspaceId },
+  }))
+  try {
+    localStorage.setItem(reviewerQualificationsUpdatedEvent, `${workspaceId}:${Date.now()}`)
+  } catch {
+    // Same-tab listeners are already notified; storage can be unavailable in private contexts.
+  }
+}
 
 function formatTimestamp(value: string | null) {
   if (!value) return '从未登录'
@@ -159,6 +171,7 @@ export function Members() {
       setMembers((current) => current.map((item) => item.userId === member.userId ? updated : item))
       setDraftReviewerRoles((current) => ({ ...current, [member.userId]: updated.reviewer?.role ?? '' }))
       setDraftReviewerExpertFlags((current) => ({ ...current, [member.userId]: updated.reviewer?.isExpert ?? false }))
+      broadcastReviewerQualificationsUpdated(workspace.id)
       setStatusMessage(`${member.email} 审核资格已更新。`)
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : '审核资格更新失败')
@@ -175,6 +188,7 @@ export function Members() {
       const updated = await revokeReviewerQualification(workspace.id, member.userId)
       setMembers((current) => current.map((item) => item.userId === member.userId ? updated : item))
       setDraftReviewerExpertFlags((current) => ({ ...current, [member.userId]: false }))
+      broadcastReviewerQualificationsUpdated(workspace.id)
       setStatusMessage(`${member.email} 审核资格已撤销。`)
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : '审核资格撤销失败')

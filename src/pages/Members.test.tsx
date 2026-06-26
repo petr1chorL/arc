@@ -70,6 +70,8 @@ describe('Members page', () => {
       value: { writeText: clipboardWrite },
       configurable: true,
     })
+    const qualificationListener = vi.fn()
+    window.addEventListener('reviewer-qualifications-updated', qualificationListener)
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
       if (url === `/api/workspaces/${workspace.id}/members` && !init?.method) {
@@ -171,6 +173,8 @@ describe('Members page', () => {
 
     await user.click(screen.getByRole('button', { name: '撤销 builder@example.com 审核资格' }))
     expect(await screen.findByText('builder@example.com 审核资格已撤销。')).toBeInTheDocument()
+    expect(qualificationListener).toHaveBeenCalledTimes(2)
+    window.removeEventListener('reviewer-qualifications-updated', qualificationListener)
   })
 
   it('shows server conflict reasons for resend and updates membership state for disable and enable', async () => {

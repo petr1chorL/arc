@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AuthContext, type AuthContextValue } from '../auth/authContext'
@@ -178,6 +178,33 @@ describe('Reviews', () => {
     expect(screen.getByText('当前用户')).toBeInTheDocument()
     expect(screen.getByText('林晓 · 产品审核人')).toBeInTheDocument()
     expect(screen.queryByLabelText('当前操作者')).not.toBeInTheDocument()
+  })
+
+  it('refreshes reviewer identity when qualifications change', async () => {
+    let reviewerCallCount = 0
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === `/api/workspaces/${workspace.id}/reviewers` && !init?.method) {
+        reviewerCallCount += 1
+        return response(reviewerCallCount === 1
+          ? reviewers
+          : reviewers.map((reviewer) => (
+            reviewer.id === 'reviewer-1' ? { ...reviewer, isActive: false } : reviewer
+          )))
+      }
+      return baseFetch(url, init)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderReviews()
+
+    expect(await screen.findByText('林晓 · 产品审核人')).toBeInTheDocument()
+
+    window.dispatchEvent(new Event('reviewer-qualifications-updated'))
+
+    await waitFor(() => {
+      expect(screen.getByText('未获得 Reviewer 资格')).toBeInTheDocument()
+    })
+    expect(reviewerCallCount).toBeGreaterThanOrEqual(2)
   })
 
   it('validates and submits modification with the current artifact version', async () => {

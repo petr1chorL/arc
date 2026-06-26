@@ -40,6 +40,7 @@ import type {
 type MobilePane = 'queue' | 'review' | 'context'
 
 const terminalStatuses = new Set(['已通过', '修改后通过', '已驳回', '已退回'])
+const reviewerQualificationsUpdatedEvent = 'reviewer-qualifications-updated'
 
 function formatTime(value: string) {
   return new Date(value).toLocaleString('zh-CN', {
@@ -97,6 +98,25 @@ export function Reviews() {
 
   useEffect(() => {
     void loadWorkspace()
+  }, [loadWorkspace])
+
+  useEffect(() => {
+    function refreshReviewers() {
+      void loadWorkspace()
+    }
+
+    function refreshReviewersFromStorage(event: StorageEvent) {
+      if (event.key === reviewerQualificationsUpdatedEvent) {
+        void loadWorkspace()
+      }
+    }
+
+    window.addEventListener(reviewerQualificationsUpdatedEvent, refreshReviewers)
+    window.addEventListener('storage', refreshReviewersFromStorage)
+    return () => {
+      window.removeEventListener(reviewerQualificationsUpdatedEvent, refreshReviewers)
+      window.removeEventListener('storage', refreshReviewersFromStorage)
+    }
   }, [loadWorkspace])
 
   useEffect(() => {
