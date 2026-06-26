@@ -354,6 +354,9 @@ React Flow 节点/连线
 - 人工 SLA 运营区块展示活跃任务、待认领、审核中、即将到期、已逾期、已升级和恢复失败。
 - 支持按 Reviewer 和审核组过滤 Human Task SLA 风险。
 - SLA 风险项可跳转到人工审核页，并携带 `taskId` 查询参数。
+- 成本与模型调用区块展示运行次数、总 Token、Prompt Token、Completion Token 和累计成本。
+- 支持按工作流和模型聚合 Token 与成本。
+- 模型单价未配置时明确提示“成本单价未配置”，不把 `$0.0000` 伪装成真实成本。
 
 后端 API：
 
@@ -361,6 +364,7 @@ React Flow 节点/连线
 GET /api/workspaces/{workspace_id}/observability/overview
 GET /api/workspaces/{workspace_id}/observability/runs/{run_id}
 GET /api/workspaces/{workspace_id}/observability/human-sla
+GET /api/workspaces/{workspace_id}/observability/cost-usage
 ```
 
 未实现：
@@ -368,7 +372,7 @@ GET /api/workspaces/{workspace_id}/observability/human-sla
 - 页面内状态和工作流名称筛选。
 - 外部观测栈接入。
 - 主动告警通知。
-- 成本治理详情页。
+- 预算审批、成本告警和成本治理详情页。
 
 ## 10. 成员与权限
 
@@ -602,6 +606,7 @@ V0.6 仍未引入后台任务队列、身份系统和外部通知 SDK。
 - V0.7B 修复 Human 节点 `direct_reviewer` 与后端校验不一致的问题，指定审核人的参与快照可正确进入 Human Task 并完成认领。
 - V0.8A 完成运行观测页浏览器验收：页面可打开，真实风险数据可渲染，风险状态规整为“等待审核”，浏览器日志无 error/warn。
 - V0.8A 完成人工 SLA 运营浏览器验收：SLA 区块、Reviewer/审核组筛选器和 `/reviews?taskId=...` 跳转链接可见，浏览器日志无 error/warn。
+- V0.8C 完成成本与模型调用浏览器验收：区块、未配置单价提示、按工作流聚合和按模型聚合可见，浏览器日志无 error/warn。
 
 验证时没有发现浏览器控制台错误。
 

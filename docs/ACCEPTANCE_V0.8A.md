@@ -16,6 +16,10 @@ V0.8A 已经完成两个可运行的观测闭环：
 8. 页面展示活跃任务、待认领、审核中、即将到期、已逾期、已升级和恢复失败。
 9. 页面支持按 Reviewer 和审核组过滤 Human Task SLA 风险。
 10. SLA 风险项可以跳转到人工审核页的对应任务。
+11. 前端新增“成本与模型调用”区块。
+12. 页面展示运行次数、总 Token、Prompt Token、Completion Token 和累计成本。
+13. 页面按工作流和模型聚合 Token 与成本。
+14. 模型单价未配置时明确提示“成本单价未配置”，避免把 `$0.0000` 误读为真实成本。
 
 ## 页面入口
 
@@ -59,7 +63,13 @@ GET /api/workspaces/{workspace_id}/observability/human-sla?reviewerId={reviewer_
 GET /api/workspaces/{workspace_id}/observability/human-sla?groupId={group_id}
 ```
 
-两个接口都会走 Workspace 权限和资源隔离。
+成本与模型调用：
+
+```text
+GET /api/workspaces/{workspace_id}/observability/cost-usage
+```
+
+这些接口都会走 Workspace 权限和资源隔离。
 
 ## 你验收时看什么
 
@@ -72,7 +82,9 @@ GET /api/workspaces/{workspace_id}/observability/human-sla?groupId={group_id}
 7. “人工 SLA 运营”区块能看到活跃任务、待认领、审核中、即将到期、已逾期、已升级、恢复失败。
 8. Reviewer 和审核组筛选器存在，并能刷新 SLA 风险列表。
 9. SLA 风险项里的“进入人工审核页处理该任务”链接包含 `taskId` 参数。
-10. 浏览器控制台没有 error。
+10. “成本与模型调用”区块能看到按工作流和按模型聚合的 Token。
+11. 如果本地没有配置模型单价，页面要显示“成本单价未配置”。
+12. 浏览器控制台没有 error。
 
 ## 已完成验证
 
@@ -96,6 +108,9 @@ npm run build
 - 页面成功渲染“人工 SLA 运营”。
 - Reviewer 和审核组筛选器可见。
 - SLA 风险项可以跳到 `/reviews?taskId=...`。
+- 页面成功渲染“成本与模型调用”。
+- 成本单价未配置时页面显示“成本单价未配置”。
+- 页面展示按工作流和按模型聚合的调用统计。
 - 浏览器日志无 error/warn。
 
 ## 未包含在本轮
@@ -104,6 +119,6 @@ npm run build
 - 运行风险列表的状态和工作流名称筛选。
 - 外部观测栈，例如 OpenTelemetry、Prometheus、Grafana。
 - 主动告警通知。
-- 成本治理详情页。
+- 预算审批、成本告警和成本治理详情页。
 
-这些进入 V0.8A 后续小切片或 V0.8B。
+这些进入 V0.8 后续小切片或 V0.9+。

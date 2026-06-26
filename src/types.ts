@@ -486,3 +486,28 @@ export interface HumanSlaOverview {
   reviewers: HumanSlaFilterOption[]
   groups: HumanSlaFilterOption[]
 }
+
+export interface CostUsageTotals {
+  runs: number
+  totalPromptTokens: number
+  totalCompletionTokens: number
+  totalTokens: number
+  totalCostUsd: number
+}
+
+export interface CostUsageGroup {
+  name: string
+  runs: number
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  costUsd: number
+  averageScore: number | null
+}
+
+export interface CostUsageOverview {
+  costConfigured: boolean
+  totals: CostUsageTotals
+  byWorkflow: CostUsageGroup[]
+  byModel: CostUsageGroup[]
+}

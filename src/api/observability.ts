@@ -1,4 +1,5 @@
 import type {
+  CostUsageOverview,
   HumanSlaOverview,
   ObservabilityOverview,
   ObservabilityRunDetail,
@@ -36,4 +37,8 @@ export async function getHumanSlaOverview(
   return readJson<HumanSlaOverview>(
     await apiFetch(workspacePath(workspaceId, `/human-sla${query ? `?${query}` : ''}`)),
   )
+}
+
+export async function getCostUsageOverview(workspaceId: string): Promise<CostUsageOverview> {
+  return readJson<CostUsageOverview>(await apiFetch(workspacePath(workspaceId, '/cost-usage')))
 }

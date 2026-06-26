@@ -133,6 +133,35 @@ const humanSla = {
   groups: [{ id: 'group-1', name: '产品审核组' }],
 }
 
+const costUsage = {
+  costConfigured: false,
+  totals: {
+    runs: 3,
+    totalPromptTokens: 170,
+    totalCompletionTokens: 80,
+    totalTokens: 250,
+    totalCostUsd: 0.25,
+  },
+  byWorkflow: [{
+    name: '新品研究流程',
+    runs: 2,
+    promptTokens: 140,
+    completionTokens: 70,
+    totalTokens: 210,
+    costUsd: 0.21,
+    averageScore: 88,
+  }],
+  byModel: [{
+    name: 'deepseek-v4-pro',
+    runs: 2,
+    promptTokens: 140,
+    completionTokens: 70,
+    totalTokens: 210,
+    costUsd: 0.21,
+    averageScore: 88,
+  }],
+}
+
 const emptyHumanSla = {
   totals: {
     activeTasks: 0,
@@ -146,6 +175,19 @@ const emptyHumanSla = {
   risks: [],
   reviewers: [],
   groups: [],
+}
+
+const emptyCostUsage = {
+  costConfigured: false,
+  totals: {
+    runs: 0,
+    totalPromptTokens: 0,
+    totalCompletionTokens: 0,
+    totalTokens: 0,
+    totalCostUsd: 0,
+  },
+  byWorkflow: [],
+  byModel: [],
 }
 
 function renderPage() {
@@ -172,6 +214,9 @@ describe('Observability', () => {
       if (path === '/api/workspaces/workspace-1/observability/human-sla') {
         return new Response(JSON.stringify(humanSla), { status: 200 })
       }
+      if (path === '/api/workspaces/workspace-1/observability/cost-usage') {
+        return new Response(JSON.stringify(costUsage), { status: 200 })
+      }
       if (path === '/api/workspaces/workspace-1/observability/runs/run-failed') {
         return new Response(JSON.stringify(detail), { status: 200 })
       }
@@ -182,7 +227,7 @@ describe('Observability', () => {
     renderPage()
 
     expect(await screen.findByRole('heading', { name: '运行观测' })).toBeInTheDocument()
-    expect(screen.getByText('3')).toBeInTheDocument()
+    expect(screen.getAllByText('3').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('失败运行')).toBeInTheDocument()
     expect(screen.getByText('失败 · 数据清洗 Agent / 查看失败节点和错误信息')).toBeInTheDocument()
     expect(screen.getAllByText('Amazon 评论分析').length).toBeGreaterThanOrEqual(1)
@@ -194,6 +239,10 @@ describe('Observability', () => {
       'href',
       '/w/ai-capability-center/reviews?taskId=task-overdue',
     )
+    expect(await screen.findByText('成本与模型调用')).toBeInTheDocument()
+    expect(screen.getByText('成本单价未配置')).toBeInTheDocument()
+    expect(screen.getByText('新品研究流程')).toBeInTheDocument()
+    expect(screen.getByText('deepseek-v4-pro')).toBeInTheDocument()
     expect(screen.getByText('节点执行链路')).toBeInTheDocument()
     expect(screen.getByText('人工审核任务')).toBeInTheDocument()
     expect(screen.getByText('质量门未通过')).toBeInTheDocument()
@@ -218,6 +267,9 @@ describe('Observability', () => {
       }
       if (path === '/api/workspaces/workspace-1/observability/human-sla') {
         return new Response(JSON.stringify(humanSla), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/observability/cost-usage') {
+        return new Response(JSON.stringify(costUsage), { status: 200 })
       }
       if (path === '/api/workspaces/workspace-1/observability/runs/run-failed') {
         return new Response(JSON.stringify(detail), { status: 200 })
@@ -245,6 +297,9 @@ describe('Observability', () => {
       const path = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
       if (path === '/api/workspaces/workspace-1/observability/human-sla') {
         return new Response(JSON.stringify(emptyHumanSla), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/observability/cost-usage') {
+        return new Response(JSON.stringify(emptyCostUsage), { status: 200 })
       }
       return new Response(JSON.stringify({
         totals: {
@@ -279,6 +334,9 @@ describe('Observability', () => {
       }
       if (path === '/api/workspaces/workspace-1/observability/runs/run-failed') {
         return new Response(JSON.stringify(detail), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/observability/cost-usage') {
+        return new Response(JSON.stringify(costUsage), { status: 200 })
       }
       if (path.startsWith('/api/workspaces/workspace-1/observability/human-sla')) {
         return new Response(JSON.stringify(humanSla), { status: 200 })

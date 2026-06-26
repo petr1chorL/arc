@@ -3191,6 +3191,78 @@ kbd {
   font-size: 10px;
 }
 
+.cost-usage-panel {
+  overflow: hidden;
+  box-shadow: var(--shadow-out);
+}
+
+.cost-config-warning {
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: #fff5ef;
+  color: var(--orange);
+  font-size: 10px;
+}
+
+.cost-usage-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid var(--soft-line);
+}
+
+.cost-usage-summary .observability-metric {
+  min-height: 92px;
+  padding: 14px;
+}
+
+.cost-usage-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  padding: 16px;
+}
+
+.cost-usage-table {
+  display: grid;
+  gap: 10px;
+}
+
+.cost-usage-table h4 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.cost-usage-table article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 13px;
+  border: 1px solid var(--soft-line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-out);
+}
+
+.cost-usage-table strong,
+.cost-usage-table span {
+  display: block;
+}
+
+.cost-usage-table span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.cost-usage-table em {
+  color: var(--ink);
+  font: normal 13px var(--mono);
+}
+
 .observability-run-list,
 .observability-detail {
   overflow: hidden;
@@ -3468,6 +3540,10 @@ kbd {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
+  .cost-usage-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .observability-layout {
     grid-template-columns: 1fr;
   }
@@ -3482,8 +3558,13 @@ kbd {
 
   .observability-metrics,
   .human-sla-metrics,
+  .cost-usage-summary,
   .observability-detail-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .cost-usage-columns {
+    grid-template-columns: 1fr;
   }
 
   .human-sla-header,
@@ -3506,6 +3587,7 @@ kbd {
 @media (max-width: 520px) {
   .observability-metrics,
   .human-sla-metrics,
+  .cost-usage-summary,
   .observability-detail-grid {
     grid-template-columns: 1fr;
   }

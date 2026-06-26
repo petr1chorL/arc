@@ -1,4 +1,5 @@
 import {
+  BarChart3,
   AlertTriangle,
   ArrowRight,
   ClipboardList,
@@ -14,6 +15,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import {
+  getCostUsageOverview,
   getHumanSlaOverview,
   getObservabilityOverview,
   getObservabilityRunDetail,
@@ -22,6 +24,8 @@ import { useWorkspace } from '../auth/workspaceContextState'
 import { StatusBadge } from '../components/StatusBadge'
 import { displayStatus } from '../domain/statusText'
 import type {
+  CostUsageGroup,
+  CostUsageOverview,
   HumanSlaOverview,
   HumanSlaRisk,
   ObservabilityOverview,
@@ -65,14 +69,17 @@ export function Observability() {
   const [selectedRunId, setSelectedRunId] = useState('')
   const [detail, setDetail] = useState<ObservabilityRunDetail | null>(null)
   const [humanSla, setHumanSla] = useState<HumanSlaOverview | null>(null)
+  const [costUsage, setCostUsage] = useState<CostUsageOverview | null>(null)
   const [reviewerId, setReviewerId] = useState('')
   const [groupId, setGroupId] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isDetailLoading, setIsDetailLoading] = useState(false)
   const [isHumanSlaLoading, setIsHumanSlaLoading] = useState(true)
+  const [isCostUsageLoading, setIsCostUsageLoading] = useState(true)
   const [error, setError] = useState('')
   const [detailError, setDetailError] = useState('')
   const [humanSlaError, setHumanSlaError] = useState('')
+  const [costUsageError, setCostUsageError] = useState('')
 
   const candidateRuns = useMemo(() => {
     if (!overview) return []
@@ -121,6 +128,19 @@ export function Observability() {
     }
   }, [groupId, reviewerId, workspace.id])
 
+  const loadCostUsage = useCallback(async () => {
+    setIsCostUsageLoading(true)
+    setCostUsageError('')
+    try {
+      setCostUsage(await getCostUsageOverview(workspace.id))
+    } catch (loadError) {
+      setCostUsage(null)
+      setCostUsageError(loadError instanceof Error ? loadError.message : '成本与模型调用数据加载失败')
+    } finally {
+      setIsCostUsageLoading(false)
+    }
+  }, [workspace.id])
+
   useEffect(() => {
     void loadOverview()
   }, [loadOverview])
@@ -128,6 +148,10 @@ export function Observability() {
   useEffect(() => {
     void loadHumanSla()
   }, [loadHumanSla])
+
+  useEffect(() => {
+    void loadCostUsage()
+  }, [loadCostUsage])
 
   useEffect(() => {
     if (!selectedRunId) {
@@ -188,6 +212,7 @@ export function Observability() {
           onClick={() => {
             void loadOverview()
             void loadHumanSla()
+            void loadCostUsage()
           }}
         >
           <RefreshCw size={15} />刷新
@@ -212,6 +237,12 @@ export function Observability() {
         onReviewerChange={setReviewerId}
         onGroupChange={setGroupId}
         reviewPath={workspacePath('reviews')}
+      />
+
+      <CostUsagePanel
+        costUsage={costUsage}
+        isLoading={isCostUsageLoading}
+        error={costUsageError}
       />
 
       <div className="observability-layout">
@@ -263,6 +294,74 @@ export function Observability() {
           {!isDetailLoading && !detailError && detail && <RunTroubleshooting detail={detail} />}
         </section>
       </div>
+    </div>
+  )
+}
+
+function CostUsagePanel({
+  costUsage,
+  isLoading,
+  error,
+}: {
+  costUsage: CostUsageOverview | null
+  isLoading: boolean
+  error: string
+}) {
+  return (
+    <section className="panel cost-usage-panel">
+      <div className="panel-header">
+        <div>
+          <span className="section-kicker">MODEL USAGE</span>
+          <h3>成本与模型调用</h3>
+        </div>
+        {costUsage && !costUsage.costConfigured && (
+          <span className="cost-config-warning">成本单价未配置</span>
+        )}
+      </div>
+
+      {isLoading && <div className="table-state">正在加载成本与模型调用数据...</div>}
+      {error && <div className="table-state error" role="alert">{error}</div>}
+      {!isLoading && !error && costUsage && (
+        <>
+          <div className="cost-usage-summary">
+            <MetricCard label="运行次数" value={costUsage.totals.runs} icon={<Route size={17} />} />
+            <MetricCard label="总 Token" value={costUsage.totals.totalTokens} icon={<BarChart3 size={17} />} />
+            <MetricCard label="Prompt Token" value={costUsage.totals.totalPromptTokens} icon={<BarChart3 size={17} />} />
+            <MetricCard label="Completion Token" value={costUsage.totals.totalCompletionTokens} icon={<BarChart3 size={17} />} />
+            <MetricCard label="累计成本" value={formatCost(costUsage.totals.totalCostUsd)} icon={<Coins size={17} />} />
+          </div>
+
+          <div className="cost-usage-columns">
+            <CostUsageTable title="按工作流" rows={costUsage.byWorkflow} />
+            <CostUsageTable title="按模型" rows={costUsage.byModel} />
+          </div>
+        </>
+      )}
+    </section>
+  )
+}
+
+function CostUsageTable({
+  title,
+  rows,
+}: {
+  title: string
+  rows: CostUsageGroup[]
+}) {
+  return (
+    <div className="cost-usage-table">
+      <h4>{title}</h4>
+      {rows.length === 0
+        ? <p className="muted-copy">暂无调用记录。</p>
+        : rows.map((row) => (
+          <article key={row.name}>
+            <div>
+              <strong>{row.name}</strong>
+              <span>{row.runs} 次运行 / {row.totalTokens} Token / 均分 {row.averageScore ?? '待评估'}</span>
+            </div>
+            <em>{formatCost(row.costUsd)}</em>
+          </article>
+        ))}
     </div>
   )
 }
