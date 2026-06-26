@@ -1,5 +1,6 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AuthContext, type AuthContextValue } from '../auth/authContext'
 import { WorkspaceProvider } from '../auth/WorkspaceContext'
@@ -54,6 +55,13 @@ const task = {
   escalationGroupId: 'group-escalation',
   createdAt: '2026-06-25T01:00:00Z',
   updatedAt: '2026-06-25T01:00:00Z',
+}
+
+const taskFromLink = {
+  ...task,
+  id: 'task-from-link',
+  title: '从 SLA 风险进入的任务',
+  artifactVersionId: 'artifact-link-v1',
 }
 
 const detail = {
@@ -118,6 +126,18 @@ const candidate = {
   confirmedAt: null,
 }
 
+const detailFromLink = {
+  ...detail,
+  ...taskFromLink,
+  artifact: {
+    id: 'artifact-link-v1',
+    version: 1,
+    content: '这是从观测中心 taskId 深链进入的任务。',
+    createdBy: 'system',
+    createdAt: '2026-06-25T01:30:00Z',
+  },
+}
+
 const completedRun = {
   id: 'run-completed-1',
   kind: 'workflow',
@@ -149,10 +169,13 @@ function response(data: unknown, status = 200) {
 
 function baseFetch(url: string, init?: RequestInit) {
   if (url === `/api/workspaces/${workspace.id}/human-tasks` && !init?.method) {
-    return response([task])
+    return response([task, taskFromLink])
   }
   if (url === `/api/workspaces/${workspace.id}/human-tasks/task-1` && !init?.method) {
     return response(detail)
+  }
+  if (url === `/api/workspaces/${workspace.id}/human-tasks/task-from-link` && !init?.method) {
+    return response(detailFromLink)
   }
   if (url === `/api/workspaces/${workspace.id}/reviewers` && !init?.method) return response(reviewers)
   if (url === `/api/workspaces/${workspace.id}/review-groups` && !init?.method) return response(groups)
@@ -170,7 +193,7 @@ function emptyFetch(url: string, init?: RequestInit) {
   return response({ detail: 'Not Found' }, 404)
 }
 
-function renderReviews(userId = 'user-reviewer-1') {
+function renderReviews(userId = 'user-reviewer-1', initialPath = '/w/ai-capability-center/reviews') {
   const authValue: AuthContextValue = {
     user: {
       id: userId,
@@ -185,11 +208,13 @@ function renderReviews(userId = 'user-reviewer-1') {
     refreshSession: vi.fn(),
   }
   return render(
-    <AuthContext.Provider value={authValue}>
-      <WorkspaceProvider workspace={workspace}>
-        <Reviews />
-      </WorkspaceProvider>
-    </AuthContext.Provider>,
+    <MemoryRouter initialEntries={[initialPath]}>
+      <AuthContext.Provider value={authValue}>
+        <WorkspaceProvider workspace={workspace}>
+          <Reviews />
+        </WorkspaceProvider>
+      </AuthContext.Provider>
+    </MemoryRouter>,
   )
 }
 
@@ -213,6 +238,15 @@ describe('Reviews', () => {
     expect(screen.getByText('当前用户')).toBeInTheDocument()
     expect(screen.getByText('林晓 · 产品审核人')).toBeInTheDocument()
     expect(screen.queryByLabelText('当前操作者')).not.toBeInTheDocument()
+  })
+
+  it('selects the human task from the taskId query parameter', async () => {
+    vi.stubGlobal('fetch', vi.fn(baseFetch))
+
+    renderReviews('user-reviewer-1', '/w/ai-capability-center/reviews?taskId=task-from-link')
+
+    expect(await screen.findByText(detailFromLink.artifact.content)).toBeInTheDocument()
+    expect(screen.getByText('从 SLA 风险进入的任务')).toBeInTheDocument()
   })
 
   it('shows a guided empty state when the workspace has no human tasks', async () => {

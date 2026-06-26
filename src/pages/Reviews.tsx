@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '../auth/authContext'
 import { useWorkspace } from '../auth/workspaceContextState'
 import {
@@ -58,6 +59,8 @@ function formatTime(value: string) {
 export function Reviews() {
   const { user } = useAuth()
   const { workspace, workspacePath } = useWorkspace()
+  const [searchParams] = useSearchParams()
+  const requestedTaskId = searchParams.get('taskId') ?? ''
   const [tasks, setTasks] = useState<HumanTask[]>([])
   const [detail, setDetail] = useState<HumanTaskDetail | null>(null)
   const [reviewers, setReviewers] = useState<Reviewer[]>([])
@@ -94,14 +97,16 @@ export function Reviews() {
       setCandidates(nextCandidates)
       setRuns(nextRuns)
       setSelectedId((current) => (
-        nextTasks.some((task) => task.id === current)
+        requestedTaskId && nextTasks.some((task) => task.id === requestedTaskId)
+          ? requestedTaskId
+          : nextTasks.some((task) => task.id === current)
           ? current
           : nextTasks[0]?.id ?? ''
       ))
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : '人工任务加载失败')
     }
-  }, [workspace.id])
+  }, [requestedTaskId, workspace.id])
 
   useEffect(() => {
     void loadWorkspace()
