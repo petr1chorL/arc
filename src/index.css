@@ -3362,6 +3362,73 @@ kbd {
   font: 500 10px var(--mono);
 }
 
+.observability-filter-bar {
+  display: grid;
+  grid-template-columns: 136px minmax(160px, 1fr) 132px auto;
+  gap: 10px;
+  align-items: end;
+  padding: 0 15px 15px;
+  border-bottom: 1px solid var(--soft-line);
+}
+
+.observability-filter-bar label {
+  display: grid;
+  gap: 6px;
+}
+
+.observability-filter-bar label span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.observability-filter-bar select,
+.observability-filter-bar input {
+  min-width: 0;
+  height: 38px;
+  border: 1px solid rgba(142, 158, 188, 0.22);
+  border-radius: 12px;
+  color: var(--ink);
+  background: var(--surface);
+  box-shadow: var(--shadow-in);
+  font: 700 12px var(--font);
+}
+
+.observability-filter-bar select {
+  padding: 0 10px;
+}
+
+.observability-filter-bar input {
+  padding: 0 12px;
+}
+
+.observability-filter-bar .button {
+  min-height: 38px;
+  white-space: nowrap;
+}
+
+.observability-filter-empty {
+  display: grid;
+  gap: 6px;
+  margin: 15px;
+  padding: 16px;
+  border: 1px dashed rgba(105, 125, 166, 0.32);
+  border-radius: 14px;
+  color: var(--muted);
+  background: rgba(244, 248, 253, 0.62);
+  box-shadow: var(--shadow-in);
+}
+
+.observability-filter-empty strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.observability-filter-empty span {
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .observability-risk-strip {
   display: grid;
   gap: 10px;
@@ -3467,6 +3534,12 @@ kbd {
   grid-column: 1 / -1;
   color: var(--muted);
   font: normal 10px var(--mono);
+}
+
+@media (max-width: 860px) {
+  .observability-filter-bar {
+    grid-template-columns: 1fr;
+  }
 }
 
 .observability-detail-header {

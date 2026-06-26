@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   getCostUsageOverview,
   getHumanSlaOverview,
@@ -63,8 +63,17 @@ function riskMessage(risk: ObservabilityRisk, runs: ObservabilityRunSummary[]) {
   return `${displayStatus(relatedRun?.status ?? status)} · ${relatedRun?.currentNode || node}`
 }
 
+const runStatusOptions = ['全部', '失败', '需介入', '恢复失败', '已完成']
+const riskOptions = [
+  { label: '全部风险', value: 'all' },
+  { label: '高风险', value: 'critical' },
+  { label: '中风险', value: 'warning' },
+  { label: '普通', value: 'normal' },
+]
+
 export function Observability() {
   const { workspace, workspacePath } = useWorkspace()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [overview, setOverview] = useState<ObservabilityOverview | null>(null)
   const [selectedRunId, setSelectedRunId] = useState('')
   const [detail, setDetail] = useState<ObservabilityRunDetail | null>(null)
@@ -80,6 +89,28 @@ export function Observability() {
   const [detailError, setDetailError] = useState('')
   const [humanSlaError, setHumanSlaError] = useState('')
   const [costUsageError, setCostUsageError] = useState('')
+  const statusFilter = searchParams.get('status') || '全部'
+  const workflowFilter = searchParams.get('workflow') || ''
+  const riskFilter = searchParams.get('risk') || 'all'
+  const requestedRunId = searchParams.get('runId') || ''
+
+  const writeSearchParams = useCallback((updates: Record<string, string>) => {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current)
+      Object.entries(updates).forEach(([key, value]) => {
+        if (
+          !value
+          || (key === 'status' && value === '全部')
+          || (key === 'risk' && value === 'all')
+        ) {
+          next.delete(key)
+        } else {
+          next.set(key, value)
+        }
+      })
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
 
   const candidateRuns = useMemo(() => {
     if (!overview) return []
@@ -91,20 +122,31 @@ export function Observability() {
     })
   }, [overview])
 
+  const filteredRuns = useMemo(() => {
+    const workflowNeedle = workflowFilter.trim().toLowerCase()
+    return candidateRuns.filter((run) => {
+      const matchesStatus = statusFilter === '全部' || displayStatus(run.status) === statusFilter
+      const matchesWorkflow = !workflowNeedle || run.workflowName.toLowerCase().includes(workflowNeedle)
+      const matchesRisk = riskFilter === 'all' || run.priority === riskFilter
+      return matchesStatus && matchesWorkflow && matchesRisk
+    })
+  }, [candidateRuns, riskFilter, statusFilter, workflowFilter])
+
+  const filteredRisks = useMemo(() => {
+    if (!overview) return []
+    const visibleRunIds = new Set(filteredRuns.map((run) => run.id))
+    return overview.risks.filter((risk) => (
+      visibleRunIds.has(risk.runId)
+      && (riskFilter === 'all' || risk.severity === riskFilter)
+    ))
+  }, [filteredRuns, overview, riskFilter])
+
   const loadOverview = useCallback(async () => {
     setIsLoading(true)
     setError('')
     try {
       const nextOverview = await getObservabilityOverview(workspace.id)
       setOverview(nextOverview)
-      const firstRiskId = nextOverview.risks[0]?.runId
-      const firstRun = nextOverview.recentRuns.find((run) => run.id === firstRiskId) ?? nextOverview.recentRuns[0]
-      setSelectedRunId((current) => {
-        const stillExists = [
-          ...nextOverview.recentRuns.map((run) => run.id),
-        ].includes(current)
-        return stillExists ? current : firstRun?.id ?? ''
-      })
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : '运行观测数据加载失败')
     } finally {
@@ -152,6 +194,23 @@ export function Observability() {
   useEffect(() => {
     void loadCostUsage()
   }, [loadCostUsage])
+
+  useEffect(() => {
+    if (!overview) return
+    setSelectedRunId((current) => {
+      const visibleRunIds = new Set(filteredRuns.map((run) => run.id))
+      if (requestedRunId && visibleRunIds.has(requestedRunId)) return requestedRunId
+      if (current && visibleRunIds.has(current)) return current
+      const firstRiskRun = filteredRuns.find((run) => filteredRisks.some((risk) => risk.runId === run.id))
+      return firstRiskRun?.id ?? filteredRuns[0]?.id ?? ''
+    })
+  }, [filteredRisks, filteredRuns, overview, requestedRunId])
+
+  useEffect(() => {
+    if (!selectedRunId) return
+    if (searchParams.get('runId') === selectedRunId) return
+    writeSearchParams({ runId: selectedRunId })
+  }, [searchParams, selectedRunId, writeSearchParams])
 
   useEffect(() => {
     if (!selectedRunId) {
@@ -249,16 +308,70 @@ export function Observability() {
         <section className="panel observability-run-list">
           <div className="panel-header">
             <div><span className="section-kicker">风险优先</span><h3>待排障运行</h3></div>
-            <small>{candidateRuns.length} 个实例</small>
+            <small>{filteredRuns.length} / {candidateRuns.length} 个实例</small>
           </div>
 
-          {overview.risks.length > 0 && (
+          <div className="observability-filter-bar">
+            <label>
+              <span>运行状态</span>
+              <select
+                aria-label="运行状态筛选"
+                value={statusFilter}
+                onChange={(event) => writeSearchParams({ status: event.target.value })}
+              >
+                {runStatusOptions.map((status) => <option key={status}>{status}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>工作流名称</span>
+              <input
+                aria-label="工作流名称筛选"
+                value={workflowFilter}
+                onChange={(event) => writeSearchParams({ workflow: event.target.value })}
+                placeholder="搜索工作流"
+              />
+            </label>
+            <label>
+              <span>风险等级</span>
+              <select
+                aria-label="风险等级筛选"
+                value={riskFilter}
+                onChange={(event) => writeSearchParams({ risk: event.target.value })}
+              >
+                {riskOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </label>
+            <button
+              className="button ghost compact"
+              type="button"
+              onClick={() => writeSearchParams({
+                status: '',
+                workflow: '',
+                risk: '',
+                runId: '',
+              })}
+            >
+              清空筛选
+            </button>
+          </div>
+
+          {filteredRuns.length === 0 && (
+            <div className="observability-filter-empty">
+              <strong>当前筛选无运行</strong>
+              <span>换一个状态、工作流名称或风险等级，或清空筛选查看全部运行。</span>
+            </div>
+          )}
+
+          {filteredRisks.length > 0 && (
             <div className="observability-risk-strip">
-              {overview.risks.map((risk) => (
+              {filteredRisks.map((risk) => (
                 <button
                   key={risk.runId}
                   className={`observability-run-card ${selectedRunId === risk.runId ? 'selected' : ''}`}
-                  onClick={() => setSelectedRunId(risk.runId)}
+                  onClick={() => {
+                    setSelectedRunId(risk.runId)
+                    writeSearchParams({ runId: risk.runId })
+                  }}
                 >
                   <span className={`risk-dot ${risk.severity}`} />
                   <strong>{risk.title}</strong>
@@ -271,11 +384,14 @@ export function Observability() {
 
           <div className="observability-recent-list">
             <h4>最近运行</h4>
-            {overview.recentRuns.map((run) => (
+            {filteredRuns.map((run) => (
               <button
                 key={run.id}
                 className={`observability-run-row ${selectedRunId === run.id ? 'selected' : ''}`}
-                onClick={() => setSelectedRunId(run.id)}
+                onClick={() => {
+                  setSelectedRunId(run.id)
+                  writeSearchParams({ runId: run.id })
+                }}
               >
                 <span>
                   <strong>{run.workflowName}</strong>

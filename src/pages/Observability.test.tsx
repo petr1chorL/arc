@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WorkspaceProvider } from '../auth/WorkspaceContext'
 import { Observability } from './Observability'
@@ -190,11 +190,17 @@ const emptyCostUsage = {
   byModel: [],
 }
 
-function renderPage() {
+function LocationProbe() {
+  const location = useLocation()
+  return <output aria-label="当前筛选参数">{location.search}</output>
+}
+
+function renderPage(initialPath = '/w/ai-capability-center/observability') {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[initialPath]}>
       <WorkspaceProvider workspace={workspace}>
         <Observability />
+        <LocationProbe />
       </WorkspaceProvider>
     </MemoryRouter>,
   )
@@ -286,10 +292,87 @@ describe('Observability', () => {
     await user.click(await screen.findByRole('button', { name: /价格监控流程/ }))
 
     expect(await screen.findByText('等待人工审核')).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledWith(
-      '/api/workspaces/workspace-1/observability/runs/run-waiting',
-      expect.objectContaining({ credentials: 'same-origin' }),
-    )
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/workspaces/workspace-1/observability/runs/run-waiting',
+        expect.objectContaining({ credentials: 'same-origin' }),
+      )
+    })
+  })
+
+  it('applies status workflow and risk filters from the URL', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
+      if (path === '/api/workspaces/workspace-1/observability/overview') {
+        return new Response(JSON.stringify(overview), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/observability/human-sla') {
+        return new Response(JSON.stringify(humanSla), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/observability/cost-usage') {
+        return new Response(JSON.stringify(costUsage), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/observability/runs/run-waiting') {
+        return new Response(JSON.stringify({
+          ...overview.recentRuns[1],
+          input: '复核价格',
+          output: '等待人工审核',
+          error: '',
+          model: 'deepseek-v4-pro',
+          nodes: [],
+          humanTasks: [],
+          auditEvents: [],
+        }), { status: 200 })
+      }
+      throw new Error(`Unexpected fetch: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage('/w/ai-capability-center/observability?status=需介入&workflow=价格&risk=warning')
+
+    expect(await screen.findByDisplayValue('需介入')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('价格')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('中风险')).toBeInTheDocument()
+    expect((await screen.findAllByText('价格监控流程')).length).toBeGreaterThanOrEqual(1)
+    expect(screen.queryByText('Amazon 评论分析')).not.toBeInTheDocument()
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/workspaces/workspace-1/observability/runs/run-waiting',
+        expect.objectContaining({ credentials: 'same-origin' }),
+      )
+    })
+  })
+
+  it('syncs filter changes and selected run to the URL query', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
+      if (path === '/api/workspaces/workspace-1/observability/overview') {
+        return new Response(JSON.stringify(overview), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/observability/human-sla') {
+        return new Response(JSON.stringify(humanSla), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/observability/cost-usage') {
+        return new Response(JSON.stringify(costUsage), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/observability/runs/run-failed') {
+        return new Response(JSON.stringify(detail), { status: 200 })
+      }
+      throw new Error(`Unexpected fetch: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage()
+
+    await user.selectOptions(await screen.findByLabelText('运行状态筛选'), '失败')
+    await user.type(screen.getByLabelText('工作流名称筛选'), 'Amazon')
+    await user.selectOptions(screen.getByLabelText('风险等级筛选'), 'critical')
+
+    expect(screen.getByLabelText('当前筛选参数')).toHaveTextContent('status=%E5%A4%B1%E8%B4%A5')
+    expect(screen.getByLabelText('当前筛选参数')).toHaveTextContent('workflow=Amazon')
+    expect(screen.getByLabelText('当前筛选参数')).toHaveTextContent('risk=critical')
+    expect(screen.getByLabelText('当前筛选参数')).toHaveTextContent('runId=run-failed')
   })
 
   it('shows a clear empty state when no runs exist', async () => {
