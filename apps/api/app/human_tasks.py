@@ -1089,7 +1089,7 @@ class HumanTaskService:
         )
         session.add(golden)
         session.flush()
-        candidate.status = "宸茬‘璁?"
+        candidate.status = "已确认"
         candidate.confirmed_at = self.now()
         self.audit(
             session,

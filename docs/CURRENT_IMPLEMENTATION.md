@@ -291,11 +291,20 @@ React Flow 节点/连线
 
 实现：
 
+- 从 FastAPI 读取 Workspace 级评估资产概览。
+- 展示反馈候选、待确认候选、已确认候选、Golden Sample、覆盖工作流和覆盖 Agent。
+- 展示最近反馈候选的状态、原因和标签。
+- 无候选数据时展示空状态。
 - Rubric 卡片。
 - 评分维度和权重。
 - 硬性门禁。
 - 自动流转阈值。
-- Golden Set 和回归测试概览外观。
+
+后端 API：
+
+```text
+GET /api/workspaces/{workspace_id}/evaluations/overview
+```
 
 未实现：
 
@@ -607,6 +616,7 @@ V0.6 仍未引入后台任务队列、身份系统和外部通知 SDK。
 - V0.8A 完成运行观测页浏览器验收：页面可打开，真实风险数据可渲染，风险状态规整为“等待审核”，浏览器日志无 error/warn。
 - V0.8A 完成人工 SLA 运营浏览器验收：SLA 区块、Reviewer/审核组筛选器和 `/reviews?taskId=...` 跳转链接可见，浏览器日志无 error/warn。
 - V0.8C 完成成本与模型调用浏览器验收：区块、未配置单价提示、按工作流聚合和按模型聚合可见，浏览器日志无 error/warn。
+- V0.9A 完成评估资产概览浏览器验收：真实 API 概览区块、空状态和 Rubric 卡片可见，浏览器日志无 error/warn。
 
 验证时没有发现浏览器控制台错误。
 

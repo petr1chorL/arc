@@ -359,6 +359,33 @@ export interface GoldenSample {
   createdAt: string
 }
 
+export interface EvaluationOverviewTotals {
+  feedbackCandidates: number
+  pendingCandidates: number
+  confirmedCandidates: number
+  goldenSamples: number
+  coveredWorkflows: number
+  coveredAgents: number
+}
+
+export interface EvaluationFeedbackCandidateSummary {
+  id: string
+  reason: string
+  tags: string[]
+  workflowId: string | null
+  agentId: string | null
+  sourceNodeId: string
+  createdBy: string
+  status: string
+  createdAt: string
+  confirmedAt: string | null
+}
+
+export interface EvaluationOverview {
+  totals: EvaluationOverviewTotals
+  recentCandidates: EvaluationFeedbackCandidateSummary[]
+}
+
 export interface ObservabilityTotals {
   totalRuns: number
   succeededRuns: number

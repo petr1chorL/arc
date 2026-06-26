@@ -21,6 +21,8 @@ from app.models import (
     AgentVersionRecord,
     AuditEventRecord,
     Base,
+    FeedbackCandidateRecord,
+    GoldenSampleRecord,
     HumanReviewRecord,
     HumanTaskRecord,
     NodeRunRecord,
@@ -42,6 +44,7 @@ from app.schemas import (
     AgentCreate,
     AgentRead,
     AgentUpdate,
+    EvaluationOverviewRead,
     FeedbackCandidateRead,
     GoldenSampleConfirm,
     GoldenSampleRead,
@@ -1456,6 +1459,87 @@ def create_app(
             request=request,
         )
         return human_task_service.list_feedback_candidates(session, context.workspace.id)
+
+    @router.get("/evaluations/overview", response_model=EvaluationOverviewRead)
+    def get_evaluations_overview(
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> dict:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "asset.read",
+            action="evaluation.overview",
+            target_type="workspace",
+            target_id=context.workspace.id,
+            request=request,
+        )
+        candidate_count = session.scalar(
+            select(func.count())
+            .select_from(FeedbackCandidateRecord)
+            .where(FeedbackCandidateRecord.workspace_id == context.workspace.id),
+        ) or 0
+        pending_count = session.scalar(
+            select(func.count())
+            .select_from(FeedbackCandidateRecord)
+            .where(
+                FeedbackCandidateRecord.workspace_id == context.workspace.id,
+                FeedbackCandidateRecord.confirmed_at.is_(None),
+            ),
+        ) or 0
+        confirmed_count = session.scalar(
+            select(func.count())
+            .select_from(FeedbackCandidateRecord)
+            .where(
+                FeedbackCandidateRecord.workspace_id == context.workspace.id,
+                FeedbackCandidateRecord.confirmed_at.is_not(None),
+            ),
+        ) or 0
+        golden_count = session.scalar(
+            select(func.count())
+            .select_from(GoldenSampleRecord)
+            .where(GoldenSampleRecord.workspace_id == context.workspace.id),
+        ) or 0
+        workflow_count = session.scalar(
+            select(func.count(func.distinct(FeedbackCandidateRecord.workflow_id)))
+            .where(FeedbackCandidateRecord.workspace_id == context.workspace.id),
+        ) or 0
+        agent_count = session.scalar(
+            select(func.count(func.distinct(FeedbackCandidateRecord.agent_id)))
+            .where(FeedbackCandidateRecord.workspace_id == context.workspace.id),
+        ) or 0
+        recent_candidates = list(session.scalars(
+            select(FeedbackCandidateRecord)
+            .where(FeedbackCandidateRecord.workspace_id == context.workspace.id)
+            .order_by(FeedbackCandidateRecord.created_at.desc())
+            .limit(5),
+        ))
+        return {
+            "totals": {
+                "feedback_candidates": candidate_count,
+                "pending_candidates": pending_count,
+                "confirmed_candidates": confirmed_count,
+                "golden_samples": golden_count,
+                "covered_workflows": workflow_count,
+                "covered_agents": agent_count,
+            },
+            "recent_candidates": [
+                {
+                    "id": candidate.id,
+                    "reason": candidate.reason,
+                    "tags": candidate.tags,
+                    "workflow_id": candidate.workflow_id,
+                    "agent_id": candidate.agent_id,
+                    "source_node_id": candidate.source_node_id,
+                    "created_by": candidate.created_by,
+                    "status": "已确认" if candidate.confirmed_at is not None else "待确认",
+                    "created_at": candidate.created_at,
+                    "confirmed_at": candidate.confirmed_at,
+                }
+                for candidate in recent_candidates
+            ],
+        }
 
     @router.get(
         "/feedback-candidates/{candidate_id}",

@@ -689,3 +689,38 @@ class GoldenSampleRead(BaseModel):
     created_at: datetime = Field(serialization_alias="createdAt")
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class EvaluationOverviewTotalsRead(BaseModel):
+    feedback_candidates: int = Field(serialization_alias="feedbackCandidates")
+    pending_candidates: int = Field(serialization_alias="pendingCandidates")
+    confirmed_candidates: int = Field(serialization_alias="confirmedCandidates")
+    golden_samples: int = Field(serialization_alias="goldenSamples")
+    covered_workflows: int = Field(serialization_alias="coveredWorkflows")
+    covered_agents: int = Field(serialization_alias="coveredAgents")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class EvaluationFeedbackCandidateSummaryRead(BaseModel):
+    id: str
+    reason: str
+    tags: list[str]
+    workflow_id: str | None = Field(serialization_alias="workflowId")
+    agent_id: str | None = Field(serialization_alias="agentId")
+    source_node_id: str = Field(serialization_alias="sourceNodeId")
+    created_by: str = Field(serialization_alias="createdBy")
+    status: str
+    created_at: datetime = Field(serialization_alias="createdAt")
+    confirmed_at: datetime | None = Field(serialization_alias="confirmedAt")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class EvaluationOverviewRead(BaseModel):
+    totals: EvaluationOverviewTotalsRead
+    recent_candidates: list[EvaluationFeedbackCandidateSummaryRead] = Field(
+        serialization_alias="recentCandidates",
+    )
+
+    model_config = ConfigDict(populate_by_name=True)

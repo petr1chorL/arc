@@ -561,3 +561,43 @@ def test_expert_confirms_feedback_candidate_idempotently(tmp_path):
     event_types = [event["eventType"] for event in detail["auditEvents"]]
     assert "feedback_candidate_created" in event_types
     assert "golden_sample_confirmed" in event_types
+
+
+def test_evaluations_overview_summarizes_feedback_and_golden_samples(tmp_path):
+    client, workspace_id, task, reviewers = create_task(tmp_path)
+    login_reviewer(client, reviewers[0]["email"])
+    client.post(
+        workspace_url(workspace_id, f"/human-tasks/{task['id']}/decisions"),
+        json={
+            **decision_body(task, reviewers[0]["id"], "modify_and_approve"),
+            "modifiedContent": "The evaluation-ready rewrite becomes a golden output.",
+            "tags": ["accuracy", "evidence"],
+        },
+        headers=csrf_headers(client),
+    )
+    candidate = client.get(workspace_url(workspace_id, "/feedback-candidates")).json()[0]
+    expert = next(reviewer for reviewer in reviewers if reviewer["isExpert"])
+    login_reviewer(client, expert["email"])
+    client.post(
+        workspace_url(workspace_id, f"/feedback-candidates/{candidate['id']}/confirm"),
+        json={
+            "reason": "confirm for evaluation overview",
+            "idempotencyKey": "evaluation-overview-confirm-1",
+        },
+        headers=csrf_headers(client),
+    )
+
+    overview = client.get(workspace_url(workspace_id, "/evaluations/overview"))
+
+    assert overview.status_code == 200
+    payload = overview.json()
+    assert payload["totals"] == {
+        "feedbackCandidates": 1,
+        "pendingCandidates": 0,
+        "confirmedCandidates": 1,
+        "goldenSamples": 1,
+        "coveredWorkflows": 1,
+        "coveredAgents": 1,
+    }
+    assert payload["recentCandidates"][0]["id"] == candidate["id"]
+    assert payload["recentCandidates"][0]["status"] == "已确认"

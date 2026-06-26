@@ -913,6 +913,95 @@ kbd {
 .rubric-card footer { border-color: var(--soft-line); color: var(--muted); }
 .rubric-card footer button { color: var(--teal); }
 
+.evaluation-assets {
+  padding: 22px;
+  border: 0;
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  box-shadow: var(--shadow-raised-sm);
+}
+
+.evaluation-assets > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.evaluation-assets h2 {
+  margin: 4px 0 0;
+  color: var(--ink);
+  font-size: 18px;
+}
+
+.evaluation-candidate-list {
+  display: grid;
+  gap: 12px;
+}
+
+.evaluation-candidate {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: start;
+  padding: 16px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.22);
+  box-shadow: var(--shadow-inset);
+}
+
+.evaluation-candidate h3 {
+  margin: 6px 0 5px;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.evaluation-candidate p,
+.evaluation-candidate .mono {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.candidate-tags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: 280px;
+}
+
+.candidate-tags span {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.4);
+  color: var(--muted);
+  font-size: 10px;
+  box-shadow: var(--shadow-raised-sm);
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.42);
+  color: var(--muted);
+  font-size: 10px;
+  box-shadow: var(--shadow-raised-sm);
+}
+
+.status-pill.success {
+  color: var(--soft-success);
+}
+
+.status-pill.danger {
+  color: var(--red);
+}
+
 .run-layout,
 .review-layout { gap: 20px; }
 
