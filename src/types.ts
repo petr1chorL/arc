@@ -358,3 +358,95 @@ export interface GoldenSample {
   reason: string
   createdAt: string
 }
+
+export interface ObservabilityTotals {
+  totalRuns: number
+  succeededRuns: number
+  failedRuns: number
+  waitingForHuman: number
+  resumeFailed: number
+  averageDurationMs: number
+  totalPromptTokens: number
+  totalCompletionTokens: number
+  totalCostUsd: number
+}
+
+export interface ObservabilityRunSummary {
+  id: string
+  workflowName: string
+  status: string
+  score: number | null
+  currentNode: string
+  startedAt: string
+  completedAt: string | null
+  durationMs: number | null
+  costUsd: number
+  promptTokens: number
+  completionTokens: number
+  priority: 'critical' | 'warning' | 'normal'
+  nextAction: string
+}
+
+export interface ObservabilityRisk {
+  runId: string
+  title: string
+  severity: 'critical' | 'warning'
+  message: string
+  nextAction: string
+}
+
+export interface ObservabilityOverview {
+  totals: ObservabilityTotals
+  risks: ObservabilityRisk[]
+  recentRuns: ObservabilityRunSummary[]
+}
+
+export interface ObservabilityNodeRun {
+  id: string
+  nodeId: string
+  nodeType: string
+  nodeName: string
+  status: string
+  input: string
+  output: string
+  error: string
+  score: number | null
+  durationMs: number
+  attempts: number
+  model: string
+  promptTokens: number
+  completionTokens: number
+  costUsd: number
+  startedAt: string
+  completedAt: string | null
+}
+
+export interface ObservabilityHumanTask {
+  id: string
+  title: string
+  status: string
+  slaStatus: string
+  dueAt: string
+  escalationAt: string
+  assigneeReviewerId: string | null
+  assigneeGroupId: string | null
+}
+
+export interface ObservabilityAuditEvent {
+  id: string
+  eventType: string | null
+  actorId: string | null
+  outcome: string | null
+  reason: string
+  createdAt: string
+}
+
+export interface ObservabilityRunDetail extends ObservabilityRunSummary {
+  input: string
+  output: string
+  error: string
+  model: string
+  nodes: ObservabilityNodeRun[]
+  humanTasks: ObservabilityHumanTask[]
+  auditEvents: ObservabilityAuditEvent[]
+}

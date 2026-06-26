@@ -80,6 +80,17 @@ describe('Layout', () => {
     )
   })
 
+  it('links to the observability troubleshooting page inside the current workspace', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([]), { status: 200 }),
+    ))
+
+    renderLayout()
+
+    const observabilityLink = await screen.findByRole('link', { name: '运行观测' })
+    expect(observabilityLink).toHaveAttribute('href', '/w/ai-capability-center/observability')
+  })
+
   it('keeps the shell usable when the human task count fails', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ detail: '服务暂不可用' }), { status: 503 }),

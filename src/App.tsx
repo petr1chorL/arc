@@ -12,6 +12,7 @@ import { Dashboard } from './pages/Dashboard'
 import { Evaluations } from './pages/Evaluations'
 import { Login } from './pages/Login'
 import { Members } from './pages/Members'
+import { Observability } from './pages/Observability'
 import { Reviews } from './pages/Reviews'
 import { Runs } from './pages/Runs'
 import { Workflows } from './pages/Workflows'
@@ -68,6 +69,7 @@ function App() {
           <Route path="/agents/:agentId" element={<LegacyWorkspaceRedirect />} />
           <Route path="/evaluations" element={<LegacyWorkspaceRedirect suffix="evaluations" />} />
           <Route path="/runs" element={<LegacyWorkspaceRedirect suffix="runs" />} />
+          <Route path="/observability" element={<LegacyWorkspaceRedirect suffix="observability" />} />
           <Route path="/reviews" element={<LegacyWorkspaceRedirect suffix="reviews" />} />
           <Route element={<ProtectedRoute />}>
             <Route path="/w/:workspaceSlug" element={<WorkspaceRoute />}>
@@ -78,6 +80,7 @@ function App() {
                 <Route path="agents/:agentId" element={<AgentDetail />} />
                 <Route path="evaluations" element={<Evaluations />} />
                 <Route path="runs" element={<Runs />} />
+                <Route path="observability" element={<Observability />} />
                 <Route path="reviews" element={<Reviews />} />
                 <Route path="settings/members" element={<Members />} />
                 <Route path="settings/audit" element={<SettingsStub title="审计日志" />} />

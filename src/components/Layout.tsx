@@ -10,6 +10,7 @@ import {
   Network,
   Search,
   Settings,
+  ShieldAlert,
   UsersRound,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -26,6 +27,7 @@ const navigation = [
   { path: 'agents', label: 'Agent 资产', icon: Bot },
   { path: 'evaluations', label: '评估中心', icon: ClipboardCheck },
   { path: 'runs', label: '运行中心', icon: Activity },
+  { path: 'observability', label: '运行观测', icon: ShieldAlert },
   { path: 'reviews', label: '人工审核', icon: Blocks },
 ]
 
@@ -35,6 +37,7 @@ const titles: Record<string, { title: string; eyebrow: string }> = {
   '/agents': { title: 'Agent 资产', eyebrow: 'AGENT REGISTRY' },
   '/evaluations': { title: '评估中心', eyebrow: 'EVALUATION OPS' },
   '/runs': { title: '运行中心', eyebrow: 'RUNTIME' },
+  '/observability': { title: '运行观测', eyebrow: 'OBSERVABILITY' },
   '/reviews': { title: '人工审核', eyebrow: 'HUMAN IN THE LOOP' },
   '/settings/members': { title: '成员与权限', eyebrow: 'ACCESS CONTROL' },
   '/settings/audit': { title: '审计日志', eyebrow: 'AUDIT TRAIL' },

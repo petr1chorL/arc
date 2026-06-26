@@ -3032,3 +3032,389 @@ kbd {
     min-height: 44px;
   }
 }
+
+.observability {
+  max-width: 1480px;
+  margin: 0 auto;
+}
+
+.observability-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 22px 24px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  box-shadow: var(--shadow-out);
+}
+
+.observability-hero h2 {
+  margin: 5px 0 4px;
+  color: var(--ink);
+  font-size: 26px;
+}
+
+.observability-hero p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.observability-metrics {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.observability-metric {
+  min-height: 112px;
+  display: grid;
+  align-content: space-between;
+  padding: 17px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  box-shadow: var(--shadow-out);
+}
+
+.observability-metric span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.observability-metric strong {
+  color: var(--ink);
+  font: 600 22px var(--mono);
+}
+
+.observability-metric.warning span,
+.observability-metric.warning strong {
+  color: var(--orange);
+}
+
+.observability-metric.danger span,
+.observability-metric.danger strong {
+  color: var(--red);
+}
+
+.observability-layout {
+  display: grid;
+  grid-template-columns: 380px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.observability-run-list,
+.observability-detail {
+  overflow: hidden;
+}
+
+.observability-run-list .panel-header small {
+  color: var(--muted);
+  font: 500 10px var(--mono);
+}
+
+.observability-risk-strip {
+  display: grid;
+  gap: 10px;
+  padding: 15px;
+  border-bottom: 1px solid var(--soft-line);
+}
+
+.observability-run-card,
+.observability-run-row {
+  width: 100%;
+  border: 1px solid transparent;
+  color: var(--ink);
+  text-align: left;
+  background: var(--surface);
+  box-shadow: var(--shadow-out);
+  cursor: pointer;
+}
+
+.observability-run-card {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 13px;
+  border-radius: 12px;
+}
+
+.observability-run-card strong,
+.observability-run-card small {
+  grid-column: 2;
+}
+
+.observability-run-card small {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.observability-run-card .status-badge {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  align-self: center;
+}
+
+.observability-run-card.selected,
+.observability-run-row.selected {
+  border-color: #94a8cf;
+  box-shadow: var(--shadow-in);
+}
+
+.risk-dot {
+  grid-row: 1 / span 2;
+  width: 9px;
+  height: 9px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: #95a0ad;
+}
+
+.risk-dot.critical {
+  background: var(--red);
+}
+
+.risk-dot.warning {
+  background: var(--orange);
+}
+
+.observability-recent-list {
+  display: grid;
+  gap: 9px;
+  padding: 15px;
+}
+
+.observability-recent-list h4,
+.observability-section h4,
+.observability-result h4 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.observability-run-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  padding: 12px;
+  border-radius: 11px;
+}
+
+.observability-run-row span strong,
+.observability-run-row span small {
+  display: block;
+}
+
+.observability-run-row span small {
+  margin-top: 4px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.observability-run-row em {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font: normal 10px var(--mono);
+}
+
+.observability-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 24px;
+  border-bottom: 1px solid var(--soft-line);
+}
+
+.observability-detail-header h3 {
+  margin: 5px 0;
+  color: var(--ink);
+  font-size: 20px;
+}
+
+.observability-detail-header p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.observability-next-action {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  margin: 18px 22px 0;
+  padding: 14px;
+  border-radius: 14px;
+  background: #fff5ef;
+  color: var(--orange);
+}
+
+.observability-next-action svg {
+  margin-top: 2px;
+}
+
+.observability-next-action strong,
+.observability-next-action span {
+  display: block;
+}
+
+.observability-next-action span {
+  margin-top: 4px;
+  color: #8f6d5c;
+}
+
+.observability-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin-top: 18px;
+  border-top: 1px solid var(--soft-line);
+  border-bottom: 1px solid var(--soft-line);
+}
+
+.observability-detail-grid > div {
+  padding: 15px 20px;
+  border-right: 1px solid var(--soft-line);
+}
+
+.observability-detail-grid > div:last-child {
+  border-right: 0;
+}
+
+.observability-detail-grid span {
+  display: block;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.observability-detail-grid strong {
+  display: block;
+  margin-top: 7px;
+  color: var(--ink);
+  font: 600 17px var(--mono);
+}
+
+.observability-result,
+.observability-section {
+  display: grid;
+  gap: 12px;
+  padding: 22px 24px;
+  border-bottom: 1px solid var(--soft-line);
+}
+
+.observability-result > div {
+  display: grid;
+  gap: 7px;
+  padding: 14px;
+  border-radius: 12px;
+  background: #eef3f8;
+  box-shadow: var(--shadow-in);
+}
+
+.observability-result span {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.observability-result p,
+.observability-node p,
+.observability-audit p {
+  margin: 0;
+  color: var(--ink);
+  line-height: 1.6;
+}
+
+.observability-node,
+.observability-human-task,
+.observability-audit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--soft-line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-out);
+}
+
+.observability-node p,
+.observability-audit p {
+  grid-column: 1 / -1;
+  color: var(--muted);
+}
+
+.observability-node span,
+.observability-human-task span,
+.observability-audit span,
+.muted-copy {
+  color: var(--muted);
+}
+
+.observability-empty {
+  max-width: 560px;
+  margin: 72px auto;
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 42px;
+  text-align: center;
+  box-shadow: var(--shadow-out);
+}
+
+.observability-empty h2,
+.observability-empty p {
+  margin: 0;
+}
+
+.observability-empty svg {
+  color: var(--blue);
+}
+
+@media (max-width: 1180px) {
+  .observability-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .observability-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .observability-hero,
+  .observability-detail-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .observability-metrics,
+  .observability-detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .observability-detail-grid > div:nth-child(2n) {
+    border-right: 0;
+  }
+}
+
+@media (max-width: 520px) {
+  .observability-metrics,
+  .observability-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .observability-detail-grid > div {
+    border-right: 0;
+    border-bottom: 1px solid var(--soft-line);
+  }
+
+  .observability-detail-grid > div:last-child {
+    border-bottom: 0;
+  }
+}
