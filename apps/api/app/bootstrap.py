@@ -8,7 +8,14 @@ from sqlalchemy.orm import Session
 from app.auth import normalize_email
 from app.config import Settings
 from app.database import create_database
-from app.migrations import ensure_current_schema
+from app.migrations import (
+    DEFAULT_ORGANIZATION_NAME,
+    DEFAULT_ORGANIZATION_SLUG,
+    DEFAULT_WORKSPACE_NAME,
+    DEFAULT_WORKSPACE_SLUG,
+    ensure_current_schema,
+    ensure_default_workspace,
+)
 from app.models import (
     Base,
     OrganizationRecord,
@@ -20,52 +27,21 @@ from app.models import (
 from app.security import SecurityService
 
 
-DEFAULT_ORGANIZATION_NAME = "安克创新"
-DEFAULT_ORGANIZATION_SLUG = "anker-innovation"
-DEFAULT_WORKSPACE_NAME = "AI 能力中心"
-DEFAULT_WORKSPACE_SLUG = "ai-capability-center"
-
-
 def bootstrap_default_workspace(
     session: Session,
     *,
     organization_name: str = DEFAULT_ORGANIZATION_NAME,
     organization_slug: str = DEFAULT_ORGANIZATION_SLUG,
 ) -> tuple[OrganizationRecord, WorkspaceRecord]:
-    now = utc_now()
-    organization = session.scalar(
-        select(OrganizationRecord).where(
-            OrganizationRecord.slug == organization_slug,
-        ),
+    organization_id, workspace_id = ensure_default_workspace(
+        session.connection(),
+        organization_name=organization_name,
+        organization_slug=organization_slug,
     )
-    if organization is None:
-        organization = OrganizationRecord(
-            name=organization_name,
-            slug=organization_slug,
-            status="active",
-            created_at=now,
-            updated_at=now,
-        )
-        session.add(organization)
-        session.flush()
-
-    workspace = session.scalar(
-        select(WorkspaceRecord).where(
-            WorkspaceRecord.organization_id == organization.id,
-            WorkspaceRecord.slug == DEFAULT_WORKSPACE_SLUG,
-        ),
-    )
-    if workspace is None:
-        workspace = WorkspaceRecord(
-            organization_id=organization.id,
-            name=DEFAULT_WORKSPACE_NAME,
-            slug=DEFAULT_WORKSPACE_SLUG,
-            status="active",
-            created_at=now,
-            updated_at=now,
-        )
-        session.add(workspace)
-        session.flush()
+    organization = session.get(OrganizationRecord, organization_id)
+    workspace = session.get(WorkspaceRecord, workspace_id)
+    if organization is None or workspace is None:
+        raise RuntimeError("默认组织或 Workspace 创建失败")
     return organization, workspace
 
 

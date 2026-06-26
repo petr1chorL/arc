@@ -137,6 +137,7 @@ class AgentRecord(Base):
     __tablename__ = "agents"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(80))
     role: Mapped[str] = mapped_column(String(240))
     owner: Mapped[str] = mapped_column(String(80))
@@ -156,6 +157,7 @@ class AgentVersionRecord(Base):
     __tablename__ = "agent_versions"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     agent_id: Mapped[str] = mapped_column(String(36), index=True)
     version: Mapped[str] = mapped_column(String(20))
     snapshot: Mapped[dict] = mapped_column(JSON)
@@ -166,6 +168,7 @@ class WorkflowRecord(Base):
     __tablename__ = "workflows"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(120))
     status: Mapped[str] = mapped_column(String(20), default="草稿")
     version: Mapped[str] = mapped_column(String(20), default="未发布")
@@ -179,6 +182,7 @@ class WorkflowVersionRecord(Base):
     __tablename__ = "workflow_versions"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     workflow_id: Mapped[str] = mapped_column(String(36), index=True)
     version: Mapped[str] = mapped_column(String(20))
     snapshot: Mapped[dict] = mapped_column(JSON)
@@ -189,6 +193,7 @@ class WorkflowRunRecord(Base):
     __tablename__ = "workflow_runs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     kind: Mapped[str] = mapped_column(String(20), default="workflow")
     name: Mapped[str] = mapped_column(String(160))
     workflow_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
@@ -215,6 +220,7 @@ class NodeRunRecord(Base):
     __tablename__ = "node_runs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     run_id: Mapped[str] = mapped_column(String(36), index=True)
     node_id: Mapped[str] = mapped_column(String(120))
     node_type: Mapped[str] = mapped_column(String(40))
@@ -241,6 +247,7 @@ class ArtifactRecord(Base):
     __tablename__ = "artifacts"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     run_id: Mapped[str] = mapped_column(String(36), index=True)
     source_node_run_id: Mapped[str] = mapped_column(String(36))
     artifact_type: Mapped[str] = mapped_column(String(80), default="text")
@@ -253,6 +260,7 @@ class ArtifactVersionRecord(Base):
     __tablename__ = "artifact_versions"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     artifact_id: Mapped[str] = mapped_column(String(36), index=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
     parent_version_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
@@ -265,6 +273,7 @@ class ArtifactDiffRecord(Base):
     __tablename__ = "artifact_diffs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     human_task_id: Mapped[str] = mapped_column(String(36), index=True)
     from_version_id: Mapped[str] = mapped_column(String(36))
     to_version_id: Mapped[str] = mapped_column(String(36), unique=True)
@@ -278,6 +287,8 @@ class ReviewerRecord(Base):
     __tablename__ = "reviewers"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(80))
     role: Mapped[str] = mapped_column(String(80))
     is_expert: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -289,6 +300,7 @@ class ReviewGroupRecord(Base):
     __tablename__ = "review_groups"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(100), unique=True)
     assignment_mode: Mapped[str] = mapped_column(String(32), default="group_claim")
     rotation_cursor: Mapped[int] = mapped_column(Integer, default=0)
@@ -303,6 +315,7 @@ class ReviewGroupMemberRecord(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     group_id: Mapped[str] = mapped_column(String(36), index=True)
     reviewer_id: Mapped[str] = mapped_column(String(36), index=True)
     role: Mapped[str] = mapped_column(String(80), default="审核人")
@@ -312,6 +325,7 @@ class HumanTaskRecord(Base):
     __tablename__ = "human_tasks"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     workflow_run_id: Mapped[str] = mapped_column(String(36), index=True)
     node_run_id: Mapped[str] = mapped_column(String(36), unique=True)
     human_node_id: Mapped[str] = mapped_column(String(120))
@@ -353,6 +367,7 @@ class ReviewDecisionRecord(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     human_task_id: Mapped[str] = mapped_column(String(36), index=True)
     reviewer_id: Mapped[str] = mapped_column(String(36), index=True)
     decision: Mapped[str] = mapped_column(String(32))
@@ -370,6 +385,7 @@ class ResumeRequestRecord(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     human_task_id: Mapped[str] = mapped_column(String(36), index=True)
     decision_id: Mapped[str] = mapped_column(String(36))
     action: Mapped[str] = mapped_column(String(32))
@@ -383,6 +399,7 @@ class AuditEventRecord(Base):
     __tablename__ = "audit_events"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     human_task_id: Mapped[str] = mapped_column(String(36), index=True)
     event_type: Mapped[str] = mapped_column(String(64))
     actor_id: Mapped[str] = mapped_column(String(80))
@@ -400,6 +417,7 @@ class NotificationOutboxRecord(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     event_key: Mapped[str] = mapped_column(String(160))
     human_task_id: Mapped[str] = mapped_column(String(36), index=True)
     event_type: Mapped[str] = mapped_column(String(64))
@@ -417,6 +435,7 @@ class FeedbackCandidateRecord(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     human_task_id: Mapped[str] = mapped_column(String(36), index=True)
     decision_id: Mapped[str] = mapped_column(String(36))
     original_version_id: Mapped[str] = mapped_column(String(36))
@@ -442,6 +461,7 @@ class GoldenSampleRecord(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     candidate_id: Mapped[str] = mapped_column(String(36), index=True)
     input_text: Mapped[str] = mapped_column(Text)
     expected_output: Mapped[str] = mapped_column(Text)
@@ -455,6 +475,7 @@ class HumanReviewRecord(Base):
     __tablename__ = "human_reviews"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     run_id: Mapped[str] = mapped_column(String(36), index=True)
     node_run_id: Mapped[str] = mapped_column(String(36))
     title: Mapped[str] = mapped_column(String(200))
