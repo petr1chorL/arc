@@ -63,12 +63,16 @@ const overview = {
 
 const detail = {
   ...overview.recentRuns[0],
+  traceId: 'trace-run-failed',
   input: '拉取近 7 天评论',
   output: '',
   error: 'Amazon 数据连接器鉴权超时',
   model: 'deepseek-v4-pro',
   nodes: [{
     id: 'node-1',
+    traceId: 'trace-run-failed',
+    spanId: 'span-agent',
+    parentSpanId: null,
     nodeId: 'fetch',
     nodeType: 'agent',
     nodeName: '数据清洗 Agent',
@@ -85,6 +89,27 @@ const detail = {
     costUsd: 0.04,
     startedAt: '2026-06-26T08:00:00Z',
     completedAt: '2026-06-26T08:00:01Z',
+  }, {
+    id: 'node-2',
+    traceId: 'trace-run-failed',
+    spanId: 'span-human',
+    parentSpanId: 'span-agent',
+    nodeId: 'human-review',
+    nodeType: 'human',
+    nodeName: '人工审核',
+    status: '等待审核',
+    input: '等待人工复核',
+    output: '',
+    error: '',
+    score: null,
+    durationMs: 100,
+    attempts: 1,
+    model: '',
+    promptTokens: 0,
+    completionTokens: 0,
+    costUsd: 0,
+    startedAt: '2026-06-26T08:00:01Z',
+    completedAt: null,
   }],
   humanTasks: [{
     id: 'task-1',
@@ -98,6 +123,8 @@ const detail = {
   }],
   auditEvents: [{
     id: 'event-1',
+    traceId: 'trace-run-failed',
+    spanId: 'span-human',
     eventType: 'human_task_created',
     actorId: 'system',
     outcome: null,
@@ -250,6 +277,13 @@ describe('Observability', () => {
     expect(screen.getByText('新品研究流程')).toBeInTheDocument()
     expect(screen.getByText('deepseek-v4-pro')).toBeInTheDocument()
     expect(screen.getByText('节点执行链路')).toBeInTheDocument()
+    expect(screen.getByText('Trace ID')).toBeInTheDocument()
+    expect(screen.getByText('trace-run-failed')).toBeInTheDocument()
+    expect(screen.getByText('Span span-agent')).toBeInTheDocument()
+    expect(screen.getByText('父 Span root')).toBeInTheDocument()
+    expect(screen.getByText('Span span-human')).toBeInTheDocument()
+    expect(screen.getByText('父 Span span-agent')).toBeInTheDocument()
+    expect(screen.getByText('审计 Span span-human')).toBeInTheDocument()
     expect(screen.getByText('人工审核任务')).toBeInTheDocument()
     expect(screen.getByText('质量门未通过')).toBeInTheDocument()
   })

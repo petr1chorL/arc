@@ -659,6 +659,30 @@ def ensure_current_schema(engine: Engine) -> None:
             "tags": "TEXT NOT NULL DEFAULT '[]'",
         },
     )
+    ensure_columns(
+        engine,
+        "workflow_runs",
+        {
+            "trace_id": "VARCHAR(80) NOT NULL DEFAULT ''",
+        },
+    )
+    ensure_columns(
+        engine,
+        "node_runs",
+        {
+            "trace_id": "VARCHAR(80) NOT NULL DEFAULT ''",
+            "span_id": "VARCHAR(80) NOT NULL DEFAULT ''",
+            "parent_span_id": "VARCHAR(80)",
+        },
+    )
+    ensure_columns(
+        engine,
+        "audit_events",
+        {
+            "trace_id": "VARCHAR(80) NOT NULL DEFAULT ''",
+            "span_id": "VARCHAR(80)",
+        },
+    )
     for table_name in WORKSPACE_TABLES:
         ensure_columns(
             engine,

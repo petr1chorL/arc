@@ -340,6 +340,46 @@ def test_observability_run_detail_includes_nodes_and_human_tasks(tmp_path):
     assert body["auditEvents"][0]["eventType"] == "task_created"
 
 
+def test_observability_run_detail_includes_trace_context(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'observability-trace.db'}",
+    )
+    run = create_run(
+        client,
+        workspace_id,
+        name="带 Trace 的待人工流程",
+        status="需介入",
+        current_node="人工审核",
+        duration_ms=1500,
+        started_offset_minutes=-10,
+    )
+    create_human_task_for_run(client, workspace_id, run)
+
+    response = client.get(workspace_url(workspace_id, f"/observability/runs/{run.id}"))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["traceId"] == f"trace-{run.id}"
+    assert body["nodes"][0]["traceId"] == body["traceId"]
+    assert body["nodes"][0]["spanId"] == f"span-{body['nodes'][0]['id']}"
+    assert body["nodes"][0]["parentSpanId"] is None
+    assert body["nodes"][1]["traceId"] == body["traceId"]
+    assert body["nodes"][1]["parentSpanId"] == body["nodes"][0]["spanId"]
+    assert body["auditEvents"][0]["traceId"] == body["traceId"]
+    assert body["auditEvents"][0]["spanId"] == body["nodes"][1]["spanId"]
+
+    with client.app.state.session_factory() as session:
+        stored_run = session.get(WorkflowRunRecord, run.id)
+        stored_nodes = list(session.scalars(
+            select(NodeRunRecord)
+            .where(NodeRunRecord.run_id == run.id)
+            .order_by(NodeRunRecord.started_at.asc()),
+        ))
+        assert stored_run is not None
+        assert stored_run.trace_id == body["traceId"]
+        assert stored_nodes[1].parent_span_id == stored_nodes[0].span_id
+
+
 def test_observability_run_detail_is_workspace_scoped(tmp_path):
     client, workspace_id = create_authenticated_client(
         f"sqlite:///{tmp_path / 'observability-scope.db'}",

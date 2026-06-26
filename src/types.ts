@@ -400,6 +400,7 @@ export interface ObservabilityTotals {
 
 export interface ObservabilityRunSummary {
   id: string
+  traceId: string
   workflowName: string
   status: string
   score: number | null
@@ -430,6 +431,9 @@ export interface ObservabilityOverview {
 
 export interface ObservabilityNodeRun {
   id: string
+  traceId: string
+  spanId: string
+  parentSpanId: string | null
   nodeId: string
   nodeType: string
   nodeName: string
@@ -461,6 +465,8 @@ export interface ObservabilityHumanTask {
 
 export interface ObservabilityAuditEvent {
   id: string
+  traceId: string
+  spanId: string | null
   eventType: string | null
   actorId: string | null
   outcome: string | null

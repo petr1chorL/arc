@@ -617,6 +617,10 @@ function RunTroubleshooting({ detail }: { detail: ObservabilityRunDetail }) {
           <span className="mono">{detail.id}</span>
           <h3>{detail.workflowName}</h3>
         <p>{runTitle(detail)} / {formatTime(detail.startedAt)} 启动</p>
+          <div className="observability-trace-chip">
+            <span>Trace ID</span>
+            <strong>{detail.traceId}</strong>
+          </div>
         </div>
         <StatusBadge status={detail.status} />
       </header>
@@ -651,6 +655,8 @@ function RunTroubleshooting({ detail }: { detail: ObservabilityRunDetail }) {
               <div>
                 <strong>{node.nodeName}</strong>
                 <span>{node.nodeType} / 尝试 {node.attempts} 次 / {formatDuration(node.durationMs)}</span>
+                <em>Span {node.spanId}</em>
+                <em>父 Span {node.parentSpanId ?? 'root'}</em>
               </div>
               <StatusBadge status={node.status} />
               <p>{node.output || node.error || node.input}</p>
@@ -681,6 +687,7 @@ function RunTroubleshooting({ detail }: { detail: ObservabilityRunDetail }) {
             <article className="observability-audit" key={event.id}>
               <span>{formatTime(event.createdAt)}</span>
               <strong>{event.eventType ?? '事件'}</strong>
+              <em>审计 Span {event.spanId ?? '未关联'}</em>
               <p>{event.reason || event.outcome || '未记录原因'}</p>
             </article>
           ))}

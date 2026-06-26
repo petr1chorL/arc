@@ -231,6 +231,7 @@ class WorkflowRunRecord(Base):
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)
     current_node: Mapped[str] = mapped_column(String(160), default="")
     error: Mapped[str] = mapped_column(Text, default="")
+    trace_id: Mapped[str] = mapped_column(String(80), default="", index=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -258,6 +259,9 @@ class NodeRunRecord(Base):
     attempts: Mapped[int] = mapped_column(Integer, default=1)
     score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     error: Mapped[str] = mapped_column(Text, default="")
+    trace_id: Mapped[str] = mapped_column(String(80), default="", index=True)
+    span_id: Mapped[str] = mapped_column(String(80), default="", index=True)
+    parent_span_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -441,6 +445,8 @@ class AuditEventRecord(Base):
     before_status: Mapped[str] = mapped_column(String(32), default="")
     after_status: Mapped[str] = mapped_column(String(32), default="")
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    trace_id: Mapped[str] = mapped_column(String(80), default="", index=True)
+    span_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 

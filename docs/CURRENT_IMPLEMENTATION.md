@@ -1,6 +1,6 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.8B 运行观测筛选与可分享视图
+> 对应版本：V0.8D Trace ID 与运行链路骨架
 > 更新时间：2026-06-27
 
 ## 1. 当前版本是什么
@@ -359,6 +359,9 @@ GET /api/workspaces/{workspace_id}/evaluations/overview
 - 点击运行后加载节点级排障详情。
 - 支持运行状态、工作流名称和风险等级筛选。
 - 筛选条件与当前运行通过 URL query 同步，便于刷新保留和分享排障视图。
+- 运行详情展示 `Trace ID`，节点执行链路展示 `Span` 与父 `Span`。
+- 旧运行数据在读取观测详情时会懒回填轻量 Trace/Span 字段。
+- 审计事件会挂到同一 Trace，并尽量关联到对应 Human Task 节点 Span。
 - 详情展示当前处理建议、输入/结果、节点执行链路、人工审核任务和审计事件。
 - 无运行数据时提示先发布并运行工作流。
 - 状态文案通过 `displayStatus` 规整历史乱码状态。
@@ -381,6 +384,7 @@ GET /api/workspaces/{workspace_id}/observability/cost-usage
 未实现：
 
 - 外部观测栈接入。
+- 跨服务分布式 Trace 采集。
 - 主动告警通知。
 - 预算审批、成本告警和成本治理详情页。
 
@@ -619,6 +623,7 @@ TypeScript 编译检查
 - V0.7B 修复 Human 节点 `direct_reviewer` 与后端校验不一致的问题，指定审核人的参与快照可正确进入 Human Task 并完成认领。
 - V0.8A 完成运行观测页浏览器验收：页面可打开，真实风险数据可渲染，风险状态规整为“等待审核”，浏览器日志无 error/warn。
 - V0.8B 完成运行观测筛选测试：运行状态、工作流名称、风险等级可从 URL 初始化，筛选变更和选中运行会同步 URL query。
+- V0.8D 完成 Trace 骨架测试：运行详情返回 Trace ID、节点 Span、父 Span 和审计事件 Span 关联，旧 SQLite 表可补列。
 - V0.8A 完成人工 SLA 运营浏览器验收：SLA 区块、Reviewer/审核组筛选器和 `/reviews?taskId=...` 跳转链接可见，浏览器日志无 error/warn。
 - V0.8C 完成成本与模型调用浏览器验收：区块、未配置单价提示、按工作流聚合和按模型聚合可见，浏览器日志无 error/warn。
 - V0.9A 完成评估资产概览浏览器验收：真实 API 概览区块、空状态和 Rubric 卡片可见，浏览器日志无 error/warn。

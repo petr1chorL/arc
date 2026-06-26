@@ -346,6 +346,7 @@ class ObservabilityTotalsRead(BaseModel):
 
 class ObservabilityRunSummaryRead(BaseModel):
     id: str
+    trace_id: str = Field(serialization_alias="traceId")
     workflow_name: str = Field(serialization_alias="workflowName")
     status: str
     current_node: str = Field(serialization_alias="currentNode")
@@ -382,6 +383,9 @@ class ObservabilityOverviewRead(BaseModel):
 
 class ObservabilityNodeRunRead(BaseModel):
     id: str
+    trace_id: str = Field(serialization_alias="traceId")
+    span_id: str = Field(serialization_alias="spanId")
+    parent_span_id: str | None = Field(serialization_alias="parentSpanId")
     node_id: str = Field(serialization_alias="nodeId")
     node_type: str = Field(serialization_alias="nodeType")
     node_name: str = Field(serialization_alias="nodeName")
@@ -415,6 +419,8 @@ class ObservabilityHumanTaskRead(BaseModel):
 
 class ObservabilityAuditEventRead(BaseModel):
     id: str
+    trace_id: str = Field(serialization_alias="traceId")
+    span_id: str | None = Field(serialization_alias="spanId")
     event_type: str | None = Field(serialization_alias="eventType")
     actor_id: str | None = Field(serialization_alias="actorId")
     outcome: str | None

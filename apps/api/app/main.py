@@ -285,6 +285,7 @@ def create_app(
     def observability_summary(run: WorkflowRunRecord) -> ObservabilityRunSummaryRead:
         return ObservabilityRunSummaryRead(
             id=run.id,
+            trace_id=run.trace_id or f"trace-{run.id}",
             workflow_name=run.name,
             status=run.status,
             current_node=run.current_node,
@@ -298,6 +299,40 @@ def create_app(
             priority=observability_priority(run)[1],
             next_action=observability_next_action(run),
         )
+
+    def ensure_observability_trace_context(
+        session: Session,
+        run: WorkflowRunRecord,
+        nodes: list[NodeRunRecord],
+        human_tasks: list[HumanTaskRecord],
+        audit_events: list[AuditEventRecord],
+    ) -> None:
+        if not run.trace_id:
+            run.trace_id = f"trace-{run.id}"
+
+        previous_span_id: str | None = None
+        for node in nodes:
+            if not node.trace_id:
+                node.trace_id = run.trace_id
+            if not node.span_id:
+                node.span_id = f"span-{node.id}"
+            if previous_span_id and not node.parent_span_id:
+                node.parent_span_id = previous_span_id
+            previous_span_id = node.span_id
+
+        task_span_by_id = {
+            task.id: node.span_id
+            for task in human_tasks
+            for node in nodes
+            if task.node_run_id == node.id
+        }
+        for event in audit_events:
+            if not event.trace_id:
+                event.trace_id = run.trace_id
+            if not event.span_id and event.human_task_id:
+                event.span_id = task_span_by_id.get(event.human_task_id)
+
+        session.commit()
 
     def observability_risk(run: WorkflowRunRecord) -> ObservabilityRiskRead | None:
         priority = observability_priority(run)[1]
@@ -1149,6 +1184,13 @@ def create_app(
             )
             .order_by(AuditEventRecord.created_at.asc()),
         )) if task_ids else []
+        ensure_observability_trace_context(
+            session,
+            run,
+            nodes,
+            human_tasks,
+            audit_events,
+        )
         summary = observability_summary(run)
         return ObservabilityRunDetailRead(
             **summary.model_dump(),
