@@ -13,7 +13,7 @@ import {
   X,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useWorkspace } from '../auth/WorkspaceContext'
+import { useWorkspace } from '../auth/workspaceContextState'
 import {
   claimHumanTask,
   confirmFeedbackCandidate,

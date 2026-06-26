@@ -10,7 +10,7 @@ import {
   Sparkles,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { useWorkspace } from '../auth/WorkspaceContext'
+import { useWorkspace } from '../auth/workspaceContextState'
 import { metrics, reviews, runs } from '../data/mock'
 import { StatusBadge } from '../components/StatusBadge'
 

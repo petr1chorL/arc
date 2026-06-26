@@ -1,14 +1,7 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { useAuth, getPreferredWorkspace } from '../auth/AuthProvider'
-
-function resolveRedirectPath(
-  fallbackPath: string,
-  fromPathname: string | undefined,
-): string {
-  if (!fromPathname || fromPathname === '/login') return fallbackPath
-  return fromPathname
-}
+import { useAuth } from '../auth/authContext'
+import { getPreferredWorkspace, resolveAuthRedirectPath } from '../auth/authNavigation'
 
 export function Login() {
   const auth = useAuth()
@@ -18,23 +11,17 @@ export function Login() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const fromPathname = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname
 
-  const preferredWorkspace = useMemo(
-    () => getPreferredWorkspace(auth.user, auth.workspaces),
-    [auth.user, auth.workspaces],
-  )
-
-  useEffect(() => {
-    if (auth.status !== 'authenticated' || !preferredWorkspace) return
-    const fromPathname = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname
-    navigate(
-      resolveRedirectPath(`/w/${preferredWorkspace.slug}`, fromPathname),
-      { replace: true },
-    )
-  }, [auth.status, location.state, navigate, preferredWorkspace])
+  const preferredWorkspace = getPreferredWorkspace(auth.user, auth.workspaces)
 
   if (auth.status === 'authenticated' && preferredWorkspace) {
-    return <Navigate to={`/w/${preferredWorkspace.slug}`} replace />
+    return (
+      <Navigate
+        to={resolveAuthRedirectPath(preferredWorkspace, fromPathname) ?? `/w/${preferredWorkspace.slug}`}
+        replace
+      />
+    )
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -42,14 +29,10 @@ export function Login() {
     setIsSubmitting(true)
     setError('')
     try {
-      await auth.login(email.trim(), password)
-      const workspace = getPreferredWorkspace(auth.user, auth.workspaces) ?? preferredWorkspace
-      if (workspace) {
-        const fromPathname = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname
-        navigate(
-          resolveRedirectPath(`/w/${workspace.slug}`, fromPathname),
-          { replace: true },
-        )
+      const { preferredWorkspace: nextWorkspace } = await auth.login(email.trim(), password)
+      const redirectPath = resolveAuthRedirectPath(nextWorkspace, fromPathname)
+      if (redirectPath) {
+        navigate(redirectPath, { replace: true })
       }
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : '登录失败')
@@ -90,7 +73,7 @@ export function Login() {
           </label>
           {error && <div className="inline-feedback error" role="alert">{error}</div>}
           <button className="button primary full" disabled={isSubmitting} type="submit">
-            {isSubmitting ? '登录中…' : '登录'}
+            {isSubmitting ? '登录中...' : '登录'}
           </button>
         </form>
       </section>

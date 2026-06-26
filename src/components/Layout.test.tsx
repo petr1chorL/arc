@@ -1,10 +1,10 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { WorkspaceProvider } from '../auth/WorkspaceContext'
+import { WorkspaceContext } from '../auth/workspaceContextState'
 import { Layout } from './Layout'
 
-vi.mock('../auth/AuthProvider', () => ({
+vi.mock('../auth/authContext', () => ({
   useAuth: () => ({
     user: {
       id: 'user-1',
@@ -27,17 +27,29 @@ const workspace = {
 }
 
 function renderLayout(initialEntry = `/w/${workspace.slug}`) {
+  const value = {
+    workspace,
+    workspaceApiPath(path: string) {
+      const normalized = path.startsWith('/') ? path : `/${path}`
+      return `/api/workspaces/${workspace.id}${normalized}`
+    },
+    workspacePath(path = '') {
+      const normalized = path ? (path.startsWith('/') ? path : `/${path}`) : ''
+      return `/w/${workspace.slug}${normalized}`
+    },
+  }
+
   return render(
-    <WorkspaceProvider workspace={workspace}>
-      <MemoryRouter initialEntries={[initialEntry]}>
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <WorkspaceContext.Provider value={value}>
         <Routes>
           <Route path="/w/:workspaceSlug" element={<Layout />}>
-            <Route index element={<div>首页</div>} />
-            <Route path="reviews" element={<div>审核工作台</div>} />
+            <Route index element={<div>HOME</div>} />
+            <Route path="reviews" element={<div>REVIEWS</div>} />
           </Route>
         </Routes>
-      </MemoryRouter>
-    </WorkspaceProvider>,
+      </WorkspaceContext.Provider>
+    </MemoryRouter>,
   )
 }
 
@@ -60,7 +72,8 @@ describe('Layout', () => {
     renderLayout()
 
     expect(await screen.findByText('2')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '人工审核' })).toHaveTextContent('人工审核2')
+    const reviewsLink = screen.getByRole('link', { name: '人工审核' })
+    expect(reviewsLink).toHaveTextContent('人工审核2')
     expect(fetchMock).toHaveBeenCalledWith(
       `/api/workspaces/${workspace.id}/human-tasks`,
       expect.objectContaining({ credentials: 'same-origin' }),
@@ -74,9 +87,10 @@ describe('Layout', () => {
 
     renderLayout()
 
-    expect(await screen.findByText('首页')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '人工审核' })).toHaveTextContent('人工审核')
-    expect(screen.getByRole('link', { name: '人工审核' }).querySelector('em')).toBeNull()
+    expect(await screen.findByText('HOME')).toBeInTheDocument()
+    const reviewsLink = screen.getByRole('link', { name: '人工审核' })
+    expect(reviewsLink).toHaveTextContent('人工审核')
+    expect(reviewsLink.querySelector('em')).toBeNull()
   })
 
   it('refreshes the review count when a human task changes', async () => {

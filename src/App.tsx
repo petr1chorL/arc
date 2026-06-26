@@ -1,5 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
-import { AuthProvider, getPreferredWorkspace, useAuth } from './auth/AuthProvider'
+import { AuthProvider } from './auth/AuthProvider'
+import { useAuth } from './auth/authContext'
+import { getPreferredWorkspace } from './auth/authNavigation'
 import { ProtectedRoute } from './auth/ProtectedRoute'
 import { WorkspaceRoute } from './auth/WorkspaceRoute'
 import { Layout } from './components/Layout'

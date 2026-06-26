@@ -1,6 +1,6 @@
 import { Play, RefreshCw, Search } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useWorkspace } from '../auth/WorkspaceContext'
+import { useWorkspace } from '../auth/workspaceContextState'
 import { listRuns } from '../api/execution'
 import { StatusBadge } from '../components/StatusBadge'
 import type { ExecutionRun, NodeExecution } from '../types'

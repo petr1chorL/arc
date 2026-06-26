@@ -1,7 +1,7 @@
 import { Bot, Boxes, Filter, PencilLine, Plus, Search, Wrench } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useWorkspace } from '../auth/WorkspaceContext'
+import { useWorkspace } from '../auth/workspaceContextState'
 import { createAgent, listAgents, type CreateAgentInput } from '../api/agents'
 import { AgentCreateDialog } from '../components/AgentCreateDialog'
 import { StatusBadge } from '../components/StatusBadge'

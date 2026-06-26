@@ -1,6 +1,6 @@
 import { Outlet, useParams } from 'react-router-dom'
-import { useAuth } from './AuthProvider'
-import { WorkspaceProvider } from './WorkspaceContext'
+import { useAuth } from './authContext'
+import { WorkspaceContext } from './workspaceContextState'
 
 export function WorkspaceRoute() {
   const { workspaceSlug = '' } = useParams()
@@ -15,9 +15,21 @@ export function WorkspaceRoute() {
     )
   }
 
+  const value = {
+    workspace,
+    workspaceApiPath(path: string) {
+      const normalized = path.startsWith('/') ? path : `/${path}`
+      return `/api/workspaces/${workspace.id}${normalized}`
+    },
+    workspacePath(path = '') {
+      const normalized = path ? (path.startsWith('/') ? path : `/${path}`) : ''
+      return `/w/${workspace.slug}${normalized}`
+    },
+  }
+
   return (
-    <WorkspaceProvider workspace={workspace}>
+    <WorkspaceContext.Provider value={value}>
       <Outlet />
-    </WorkspaceProvider>
+    </WorkspaceContext.Provider>
   )
 }

@@ -1,7 +1,5 @@
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useState,
@@ -11,19 +9,8 @@ import { getSession, login as loginRequest, logout as logoutRequest } from '../a
 import { listWorkspaces } from '../api/workspaces'
 import type { AuthUser, WorkspaceSummary } from '../types'
 import { ApiError } from '../api/http'
-
-type AuthStatus = 'loading' | 'authenticated' | 'anonymous'
-
-interface AuthContextValue {
-  user: AuthUser | null
-  workspaces: WorkspaceSummary[]
-  status: AuthStatus
-  login: (email: string, password: string) => Promise<void>
-  logout: () => Promise<void>
-  refreshSession: () => Promise<void>
-}
-
-const AuthContext = createContext<AuthContextValue | null>(null)
+import { getPreferredWorkspace } from './authNavigation'
+import { AuthContext, type AuthContextValue, type AuthStatus } from './authContext'
 
 function decorateWorkspaces(
   workspaces: WorkspaceSummary[],
@@ -33,18 +20,6 @@ function decorateWorkspaces(
     ...workspace,
     isOrganizationAdmin: workspace.isOrganizationAdmin ?? user.isOrganizationAdmin,
   }))
-}
-
-export function getPreferredWorkspace(
-  user: AuthUser | null,
-  workspaces: WorkspaceSummary[],
-): WorkspaceSummary | null {
-  if (!workspaces.length) return null
-  if (user?.lastWorkspaceId) {
-    const matched = workspaces.find((workspace) => workspace.id === user.lastWorkspaceId)
-    if (matched) return matched
-  }
-  return workspaces[0] ?? null
 }
 
 export function AuthProvider({ children }: PropsWithChildren) {
@@ -87,6 +62,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setUser(session.user)
     setWorkspaces(nextWorkspaces)
     setStatus('authenticated')
+    return {
+      user: session.user,
+      workspaces: nextWorkspaces,
+      preferredWorkspace: getPreferredWorkspace(session.user, nextWorkspaces),
+    }
   }, [])
 
   const logout = useCallback(async () => {
@@ -123,12 +103,4 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }), [login, logout, refreshSession, status, user, workspaces])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
-}
-
-export function useAuth(): AuthContextValue {
-  const value = useContext(AuthContext)
-  if (!value) {
-    throw new Error('useAuth 必须在 AuthProvider 内使用')
-  }
-  return value
 }

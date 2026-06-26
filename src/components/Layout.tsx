@@ -13,10 +13,11 @@ import {
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { useAuth } from '../auth/AuthProvider'
-import { CapabilityGuard, workspaceHasCapability } from '../auth/CapabilityGuard'
-import { useWorkspace } from '../auth/WorkspaceContext'
 import { listHumanTasks } from '../api/humanTasks'
+import { useAuth } from '../auth/authContext'
+import { CapabilityGuard } from '../auth/CapabilityGuard'
+import { workspaceHasCapability } from '../auth/workspaceCapabilities'
+import { useWorkspace } from '../auth/workspaceContextState'
 
 const navigation = [
   { path: '', label: '运营总览', icon: Gauge },
@@ -38,6 +39,8 @@ const titles: Record<string, { title: string; eyebrow: string }> = {
   '/settings/audit': { title: '审计日志', eyebrow: 'AUDIT TRAIL' },
 }
 
+const completedHumanTaskStatuses = ['已通过', '修改后通过', '已驳回', '已退回']
+
 export function Layout() {
   const auth = useAuth()
   const navigate = useNavigate()
@@ -45,21 +48,14 @@ export function Layout() {
   const { workspace, workspacePath } = useWorkspace()
   const [pendingReviewCount, setPendingReviewCount] = useState(0)
   const relativePath = location.pathname.replace(`/w/${workspace.slug}`, '')
-  const pageKey = relativePath.startsWith('/agents/')
-    ? '/agents'
-    : relativePath || ''
+  const pageKey = relativePath.startsWith('/agents/') ? '/agents' : relativePath || ''
   const page = titles[pageKey] ?? titles['']
 
   useEffect(() => {
     function refreshPendingReviewCount() {
       void listHumanTasks(workspace.id)
         .then((tasks) => setPendingReviewCount(
-          tasks.filter((task) => ![
-            '已通过',
-            '修改后通过',
-            '已驳回',
-            '已退回',
-          ].includes(task.status)).length,
+          tasks.filter((task) => !completedHumanTaskStatuses.includes(task.status)).length,
         ))
         .catch(() => setPendingReviewCount(0))
     }
@@ -89,18 +85,18 @@ export function Layout() {
           {navigation.map(({ path, label, icon: Icon }) => {
             const to = workspacePath(path)
             return (
-            <NavLink
-              key={path || 'index'}
-              to={to}
-              end={!path}
-              title={label}
-              aria-label={label}
-              className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}
-            >
-              <Icon size={18} strokeWidth={1.8} />
-              <span>{label}</span>
-              {path === 'reviews' && pendingReviewCount > 0 && <em>{pendingReviewCount}</em>}
-            </NavLink>
+              <NavLink
+                key={path || 'index'}
+                to={to}
+                end={!path}
+                title={label}
+                aria-label={label}
+                className={({ isActive }) => (isActive ? 'nav-item active' : 'nav-item')}
+              >
+                <Icon size={18} strokeWidth={1.8} />
+                <span>{label}</span>
+                {path === 'reviews' && pendingReviewCount > 0 && <em>{pendingReviewCount}</em>}
+              </NavLink>
             )
           })}
           <CapabilityGuard capability="member.manage">
@@ -108,7 +104,7 @@ export function Layout() {
               to={workspacePath('settings/members')}
               title="成员与权限"
               aria-label="成员与权限"
-              className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}
+              className={({ isActive }) => (isActive ? 'nav-item active' : 'nav-item')}
             >
               <Settings size={18} strokeWidth={1.8} />
               <span>成员与权限</span>
@@ -119,7 +115,7 @@ export function Layout() {
               to={workspacePath('settings/audit')}
               title="审计日志"
               aria-label="审计日志"
-              className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}
+              className={({ isActive }) => (isActive ? 'nav-item active' : 'nav-item')}
             >
               <ClipboardCheck size={18} strokeWidth={1.8} />
               <span>审计日志</span>
@@ -128,8 +124,14 @@ export function Layout() {
         </nav>
 
         <div className="sidebar-footer">
-          <button className="sidebar-link" title="平台设置" aria-label="平台设置"><Settings size={17} /><span>平台设置</span></button>
-          <button className="sidebar-link" title="帮助中心" aria-label="帮助中心"><CircleHelp size={17} /><span>帮助中心</span></button>
+          <button className="sidebar-link" title="平台设置" aria-label="平台设置">
+            <Settings size={17} />
+            <span>平台设置</span>
+          </button>
+          <button className="sidebar-link" title="帮助中心" aria-label="帮助中心">
+            <CircleHelp size={17} />
+            <span>帮助中心</span>
+          </button>
           <div className="workspace-switcher">
             <div className="avatar">{(auth.user?.displayName ?? 'A').slice(0, 2).toUpperCase()}</div>
             <div className="workspace-switcher-copy">
@@ -167,7 +169,7 @@ export function Layout() {
             <label className="global-search">
               <Search size={16} />
               <input aria-label="全局搜索" placeholder="搜索工作流、Agent、运行实例" />
-              <kbd>⌘ K</kbd>
+              <kbd>Ctrl K</kbd>
             </label>
             <button className="icon-button" title="通知"><Bell size={18} /><i /></button>
             <div className="topbar-user">

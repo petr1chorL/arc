@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { useWorkspace } from '../auth/WorkspaceContext'
+import { useWorkspace } from '../auth/workspaceContextState'
 import {
   deactivateAgent,
   getAgent,

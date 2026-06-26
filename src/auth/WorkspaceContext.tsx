@@ -1,13 +1,6 @@
-import { createContext, useContext, useMemo, type PropsWithChildren } from 'react'
+import { useMemo, type PropsWithChildren } from 'react'
 import type { WorkspaceSummary } from '../types'
-
-interface WorkspaceContextValue {
-  workspace: WorkspaceSummary
-  workspaceApiPath: (path: string) => string
-  workspacePath: (path?: string) => string
-}
-
-const WorkspaceContext = createContext<WorkspaceContextValue | null>(null)
+import { WorkspaceContext, type WorkspaceContextValue } from './workspaceContextState'
 
 export function WorkspaceProvider({
   workspace,
@@ -20,20 +13,10 @@ export function WorkspaceProvider({
       return `/api/workspaces/${workspace.id}${normalized}`
     },
     workspacePath(path = '') {
-      const normalized = path
-        ? (path.startsWith('/') ? path : `/${path}`)
-        : ''
+      const normalized = path ? (path.startsWith('/') ? path : `/${path}`) : ''
       return `/w/${workspace.slug}${normalized}`
     },
   }), [workspace])
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>
-}
-
-export function useWorkspace(): WorkspaceContextValue {
-  const value = useContext(WorkspaceContext)
-  if (!value) {
-    throw new Error('useWorkspace 必须在 WorkspaceProvider 内使用')
-  }
-  return value
 }
