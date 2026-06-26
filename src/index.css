@@ -31,6 +31,17 @@ button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
 a { color: inherit; text-decoration: none; }
 #root { min-height: 100vh; }
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 
 .app-shell { display: grid; grid-template-columns: 228px minmax(0, 1fr); height: 100vh; }
 .sidebar { background: var(--sidebar); color: #f2f5f3; display: flex; flex-direction: column; min-height: 0; }
@@ -519,6 +530,7 @@ textarea:focus-visible {
 .workspace-switcher {
   display: flex;
   justify-content: center;
+  position: relative;
   width: 46px;
   height: 46px;
   margin-top: 5px;
@@ -530,6 +542,36 @@ textarea:focus-visible {
 
 .workspace-switcher > div:not(.avatar),
 .workspace-switcher > svg { display: none; }
+
+.workspace-switcher-select {
+  position: absolute;
+  inset: 0;
+  display: block;
+  cursor: pointer;
+}
+
+.workspace-switcher-select select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.workspace-switcher-select svg {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 12px;
+  height: 12px;
+  padding: 2px;
+  border-radius: 50%;
+  color: var(--muted);
+  background: var(--surface);
+  box-shadow: var(--shadow-raised-sm);
+  pointer-events: none;
+}
 
 .avatar {
   width: 31px;
@@ -1581,6 +1623,59 @@ kbd {
   background: var(--surface);
   color: var(--ink);
   box-shadow: var(--shadow-inset);
+}
+
+.topbar-user {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 310px;
+  padding: 0 8px 0 12px;
+  border-radius: 13px;
+  background: var(--surface);
+  box-shadow: var(--shadow-inset);
+  color: var(--muted);
+}
+
+.topbar-user-main {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  min-width: 0;
+}
+
+.topbar-user-main strong,
+.topbar-user-main span,
+.topbar-user-role {
+  white-space: nowrap;
+}
+
+.topbar-user-main strong {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.topbar-user-main span {
+  overflow: hidden;
+  max-width: 135px;
+  color: #5d6b84;
+  font-size: 12px;
+  text-overflow: ellipsis;
+}
+
+.topbar-user-role {
+  color: #6b7890;
+  font-size: 10px;
+}
+
+.topbar-user .button.compact {
+  min-height: 26px;
+  padding: 0 7px;
+  border-radius: 8px;
+  color: #5d6b84;
+  font-size: 10px;
 }
 
 .members-reviewer-cell {

@@ -133,7 +133,7 @@ export function Layout() {
             <span>帮助中心</span>
           </button>
           <div className="workspace-switcher">
-            <div className="avatar">{(auth.user?.displayName ?? 'A').slice(0, 2).toUpperCase()}</div>
+            <div className="avatar">{workspace.name.slice(0, 2).toUpperCase()}</div>
             <div className="workspace-switcher-copy">
               <strong>{auth.user?.displayName ?? '未登录用户'}</strong>
               <span>{workspace.name}</span>
@@ -173,11 +173,11 @@ export function Layout() {
             </label>
             <button className="icon-button" title="通知"><Bell size={18} /><i /></button>
             <div className="topbar-user">
-              <div>
+              <div className="topbar-user-main">
                 <strong>{auth.user?.displayName ?? '访客'}</strong>
                 <span>{auth.user?.email ?? ''}</span>
               </div>
-              <small>
+              <small className="topbar-user-role">
                 {workspaceHasCapability(workspace, auth.user?.isOrganizationAdmin, 'member.manage')
                   ? 'Workspace 管理员'
                   : '成员'}
