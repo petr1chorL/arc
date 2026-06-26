@@ -590,7 +590,14 @@ export function Reviews() {
                 </div>
               )}
               {!detail.assigneeReviewerId && !isTerminal && (
-                <button className="button secondary" disabled={actionDisabled} onClick={() => void claim()}>
+                <button
+                  className="button secondary"
+                  disabled={actionDisabled}
+                  onClick={() => void claim()}
+                  title={actionDisabled && currentTaskPermission
+                    ? `${currentTaskPermission.status}：${currentTaskPermission.reason}`
+                    : '认领任务'}
+                >
                   <UserCheck size={15} />认领任务
                 </button>
               )}

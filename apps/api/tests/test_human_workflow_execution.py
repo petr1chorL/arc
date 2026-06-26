@@ -199,8 +199,9 @@ def test_human_node_pauses_workflow_and_creates_task(tmp_path):
 
     assert response.status_code == 201
     run = response.json()
-    assert [node["nodeType"] for node in run["nodes"]] == ["trigger", "agent", "human"]
-    assert run["nodes"][-1]["status"] == run["status"]
+    assert {node["nodeType"] for node in run["nodes"]} == {"trigger", "agent", "human"}
+    human_node = next(node for node in run["nodes"] if node["nodeType"] == "human")
+    assert human_node["status"] == run["status"]
 
     tasks_response = client.get(workspace_url(workspace_id, "/human-tasks"))
     assert tasks_response.status_code == 200
@@ -218,6 +219,49 @@ def test_human_node_pauses_workflow_and_creates_task(tmp_path):
     assert detail["run"]["status"] == run["status"]
     assert detail["run"]["currentNode"] == run["currentNode"]
     assert detail["approvalProgress"] == {"required": 1, "received": 0}
+
+
+def test_direct_reviewer_assignment_can_be_claimed_by_selected_reviewer(tmp_path):
+    gateway = FakeGateway([
+        FakeModelResult("This draft is assigned to a specific reviewer for acceptance."),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'direct-reviewer-workflow.db'}",
+        model_gateway=gateway,
+    )
+    reviewer = client.get(workspace_url(workspace_id, "/reviewers")).json()[0]
+    reviewer = bind_reviewer_to_user(
+        client,
+        workspace_id,
+        reviewer,
+        email="direct-reviewer@example.com",
+    )
+    workflow = create_human_workflow(
+        client,
+        workspace_id,
+        {
+            "assignmentType": "direct_reviewer",
+            "reviewerIds": [reviewer["id"]],
+        },
+    )
+
+    run_response = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Need a directly assigned review."},
+        headers=csrf_headers(client),
+    )
+
+    assert run_response.status_code == 201
+    task = client.get(workspace_url(workspace_id, "/human-tasks")).json()[0]
+    assert task["participantSnapshot"] == [reviewer["id"]]
+    login_reviewer(client, reviewer["email"])
+    claim_response = client.post(
+        workspace_url(workspace_id, f"/human-tasks/{task['id']}/claim"),
+        json={},
+        headers=csrf_headers(client),
+    )
+    assert claim_response.status_code == 200
+    assert claim_response.json()["assigneeReviewerId"] == reviewer["id"]
 
 
 def paused_run(

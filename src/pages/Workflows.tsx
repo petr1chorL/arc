@@ -596,6 +596,7 @@ function NodeInspector({
                     </option>
                   ))}
                 </select>
+                <small>这里只显示已授予 Reviewer 资格且仍启用的成员。没看到的人，请先到成员与权限绑定 Reviewer 资格。</small>
               </label>
             ) : (
               <label className="form-field">

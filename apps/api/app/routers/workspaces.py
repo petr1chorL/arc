@@ -1,4 +1,5 @@
-from datetime import timedelta
+from collections.abc import Callable
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import func, select
@@ -34,11 +35,16 @@ def create_workspaces_router(
     context_service: RequestContextService,
     authorization_service: AuthorizationService,
     audit_service: AuditService,
+    clock: Callable[[], datetime] = utc_now,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/workspaces", tags=["workspaces"])
     security = SecurityService()
     settings = Settings()
     authentication_service = AuthenticationService(security, settings)
+
+    def current_time() -> datetime:
+        current = clock()
+        return current if current.tzinfo else current.replace(tzinfo=timezone.utc)
 
     def build_activation_url(request: Request, token: str) -> str:
         return str(request.base_url).rstrip("/") + f"/activate/{token}"
@@ -234,7 +240,7 @@ def create_workspaces_router(
             target_id=None,
             request=request,
         )
-        now = utc_now()
+        now = current_time()
         workspace = WorkspaceRecord(
             organization_id=context.organization.id,
             name=payload.name.strip(),
@@ -355,7 +361,7 @@ def create_workspaces_router(
             target_id=workspace_id,
             request=request,
         )
-        now = utc_now()
+        now = current_time()
         normalized = normalize_email(payload.email)
         user = session.scalar(
             select(UserRecord).where(
@@ -578,7 +584,7 @@ def create_workspaces_router(
             raise HTTPException(status_code=409, detail="邀请已失效")
 
         raw_token = security.new_token()
-        now = utc_now()
+        now = current_time()
         invitation.token_digest = security.digest_token(raw_token)
         invitation.expires_at = now + timedelta(hours=settings.invitation_hours)
         invitation.revoked_at = None
@@ -633,7 +639,7 @@ def create_workspaces_router(
             raise HTTPException(status_code=404, detail="邀请不存在")
         if invitation.used_at is not None:
             raise HTTPException(status_code=409, detail="邀请已使用")
-        invitation.revoked_at = utc_now()
+        invitation.revoked_at = current_time()
         record_success(
             session,
             context,
@@ -676,7 +682,7 @@ def create_workspaces_router(
         ):
             raise HTTPException(status_code=409, detail="必须至少保留一名有效 Workspace 管理员")
         membership.role = payload.role
-        membership.updated_at = utc_now()
+        membership.updated_at = current_time()
         reviewer = session.scalar(
             select(ReviewerRecord).where(
                 ReviewerRecord.workspace_id == workspace_id,
@@ -727,7 +733,7 @@ def create_workspaces_router(
         ):
             raise HTTPException(status_code=409, detail="必须至少保留一名有效 Workspace 管理员")
         membership.status = "disabled"
-        membership.updated_at = utc_now()
+        membership.updated_at = current_time()
         reviewer = session.scalar(
             select(ReviewerRecord).where(
                 ReviewerRecord.workspace_id == workspace_id,
@@ -772,7 +778,7 @@ def create_workspaces_router(
         if user.status != "active":
             raise HTTPException(status_code=409, detail="用户尚未激活")
         membership.status = "active"
-        membership.updated_at = utc_now()
+        membership.updated_at = current_time()
         reviewer = session.scalar(
             select(ReviewerRecord).where(
                 ReviewerRecord.workspace_id == workspace_id,
@@ -823,7 +829,7 @@ def create_workspaces_router(
         ):
             raise HTTPException(status_code=409, detail="必须至少保留一名有效 Workspace 管理员")
         user.status = "disabled"
-        user.updated_at = utc_now()
+        user.updated_at = current_time()
         authentication_service.revoke_user_sessions(session, user.id, "user_disabled")
         reviewer = session.scalar(
             select(ReviewerRecord).where(
@@ -870,7 +876,7 @@ def create_workspaces_router(
             user.status = "active"
             user.failed_login_count = 0
             user.locked_until = None
-            user.updated_at = utc_now()
+            user.updated_at = current_time()
         reviewer = session.scalar(
             select(ReviewerRecord).where(
                 ReviewerRecord.workspace_id == workspace_id,
@@ -932,7 +938,7 @@ def create_workspaces_router(
                 role=role,
                 is_expert=payload.is_expert,
                 is_active=True,
-                created_at=utc_now(),
+                created_at=current_time(),
             )
             session.add(reviewer)
         else:

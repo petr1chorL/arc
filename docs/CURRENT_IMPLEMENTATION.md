@@ -223,6 +223,7 @@ Agent、工作流、运行中心和人工审核页面不再读取其中的 Agent
 - 点击节点打开配置面板。
 - 修改节点名称。
 - Human 节点配置指定审核人、审核组、组内认领或轮询分配。
+- 指定审核人只展示已授予且启用的 Reviewer 资格；未出现的成员需要先到成员与权限绑定 Reviewer 资格。
 - Human 节点配置任一通过、全员通过和 N 人通过。
 - Human 节点配置截止时间、升级时间和升级组。
 - 发布前校验 Human 节点分配、会签人数和 SLA 参数。
@@ -546,8 +547,8 @@ V0.6 仍未引入后台任务队列、身份系统和外部通知 SDK。
 
 已经完成：
 
-- `apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q`：32 项后端测试通过。
-- `npm test -- --run`：23 个前端测试文件、64 项测试通过。
+- `apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q`：13 个后端测试文件、123 项测试通过。
+- `npm test -- --run`：23 个前端测试文件、65 项测试通过。
 - `npm run lint`：Oxlint 通过。
 - `npm run build`：TypeScript 编译与 Vite 生产构建通过。
 - Human 节点发布前校验覆盖分配方式、会签人数和 SLA 参数。
@@ -564,6 +565,7 @@ V0.6 仍未引入后台任务队列、身份系统和外部通知 SDK。
 - `390×844` 下节点库横向滚动，手动触发和流程完成节点均可访问，页面无整体横向溢出。
 - 浏览器验收期间控制台无 warning 或 error。
 - V0.7B 人工审核页当前任务权限状态卡完成浏览器验收：无权限时展示“不能处理”、原因和下一步，并禁用认领与审核决定按钮。
+- V0.7B 修复 Human 节点 `direct_reviewer` 与后端校验不一致的问题，指定审核人的参与快照可正确进入 Human Task 并完成认领。
 
 验证时没有发现浏览器控制台错误。
 

@@ -105,9 +105,10 @@ def validate_workflow(
                 .order_by(ReviewGroupRecord.created_at.asc()),
             )
             group_id = default_group.id if default_group else None
-        if assignment_type not in {"direct", "group_claim", "round_robin"}:
+        direct_assignment_types = {"direct", "direct_reviewer"}
+        if assignment_type not in {*direct_assignment_types, "group_claim", "round_robin"}:
             errors.append(f"Human 节点 {node['id']} 的分配方式无效")
-        if assignment_type == "direct" and not reviewer_ids:
+        if assignment_type in direct_assignment_types and not reviewer_ids:
             errors.append(f"Human 节点 {node['id']} 直接分配必须选择审核人")
         if assignment_type == "round_robin" and not group_id:
             errors.append(f"Human 节点 {node['id']} 轮询分配必须选择审核组")
@@ -115,7 +116,7 @@ def validate_workflow(
         review_policy = data.get("reviewPolicy", "any_one")
         required_approvals = int(data.get("requiredApprovals", 1))
         participant_count = len(reviewer_ids)
-        if assignment_type != "direct" and group_id:
+        if assignment_type not in direct_assignment_types and group_id:
             participant_count = session.scalar(
                 select(func.count())
                 .select_from(ReviewGroupMemberRecord)

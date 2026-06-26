@@ -129,6 +129,7 @@ def create_app(
             context_service,
             authorization_service,
             audit_service,
+            clock=auth_clock,
         ),
     )
 

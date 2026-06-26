@@ -312,6 +312,47 @@ describe('Workflows', () => {
     }))
   })
 
+  it('explains that direct reviewer options only include active reviewer qualifications', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const reviewers = [
+      { id: 'reviewer-admin', name: '管理员', role: '产品审核人', isExpert: false, isActive: true },
+      { id: 'reviewer-inactive', name: '未授权成员', role: '内容审核人', isExpert: false, isActive: false },
+    ]
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === `/api/workspaces/${workspace.id}/workflows` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([workflow]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/agents` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/reviewers` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify(reviewers), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/review-groups` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWorkflows()
+
+    await user.click(await screen.findByTestId('flow-node-human-1'))
+    await user.selectOptions(screen.getByLabelText('分配方式'), 'direct_reviewer')
+
+    expect(screen.getByRole('option', { name: '管理员 · 产品审核人' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: '未授权成员 · 内容审核人' })).not.toBeInTheDocument()
+    expect(screen.getByText('这里只显示已授予 Reviewer 资格且仍启用的成员。没看到的人，请先到成员与权限绑定 Reviewer 资格。')).toBeInTheDocument()
+  })
+
   it('offers start and end nodes in the node palette', async () => {
     const user = userEvent.setup()
     vi.stubGlobal('ResizeObserver', class {

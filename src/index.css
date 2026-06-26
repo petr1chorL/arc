@@ -678,6 +678,14 @@ kbd {
 .button:hover { transform: translateY(-1px); }
 .button:active { transform: none; box-shadow: var(--shadow-pressed); }
 
+.button:disabled,
+.icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+  transform: none;
+  box-shadow: var(--shadow-pressed);
+}
+
 .button.primary {
   background: var(--teal);
   color: #fff;
