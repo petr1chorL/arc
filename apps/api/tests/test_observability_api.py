@@ -9,6 +9,8 @@ from app.models import (
     HumanTaskRecord,
     NodeRunRecord,
     OrganizationRecord,
+    ReviewerRecord,
+    ReviewGroupRecord,
     WorkspaceRecord,
     WorkflowRunRecord,
 )
@@ -142,6 +144,83 @@ def create_human_task_for_run(client: TestClient, workspace_id: str, run: Workfl
         ))
         session.commit()
         return task.id
+
+
+def create_human_task(
+    client: TestClient,
+    workspace_id: str,
+    *,
+    title: str,
+    status: str,
+    sla_status: str,
+    due_offset_minutes: int,
+    escalation_offset_minutes: int,
+    reviewer_id: str | None = None,
+    group_id: str | None = None,
+) -> str:
+    run = create_run(
+        client,
+        workspace_id,
+        name=title,
+        status="需介入",
+        current_node="人工审核",
+        duration_ms=500,
+        started_offset_minutes=-30,
+    )
+    with client.app.state.session_factory() as session:
+        node_run = session.scalar(
+            select(NodeRunRecord).where(
+                NodeRunRecord.workspace_id == workspace_id,
+                NodeRunRecord.run_id == run.id,
+                NodeRunRecord.node_type == "human",
+            ),
+        )
+        assert node_run is not None
+        task = HumanTaskRecord(
+            workspace_id=workspace_id,
+            workflow_run_id=run.id,
+            node_run_id=node_run.id,
+            human_node_id="human-1",
+            source_node_id="agent-1",
+            artifact_version_id=f"artifact-{title}",
+            title=title,
+            status=status,
+            assignment_type="direct_reviewer" if reviewer_id else "group_claim",
+            assignee_reviewer_id=reviewer_id,
+            assignee_group_id=group_id,
+            review_policy="any_one",
+            required_approvals=1,
+            participant_snapshot=[reviewer_id] if reviewer_id else [],
+            due_at=FIXED_NOW + timedelta(minutes=due_offset_minutes),
+            escalation_at=FIXED_NOW + timedelta(minutes=escalation_offset_minutes),
+            sla_status=sla_status,
+            escalation_group_id=group_id,
+            created_at=FIXED_NOW + timedelta(minutes=-20),
+            updated_at=FIXED_NOW + timedelta(minutes=-10),
+        )
+        session.add(task)
+        session.commit()
+        return task.id
+
+
+def create_review_directory(client: TestClient, workspace_id: str) -> tuple[str, str]:
+    with client.app.state.session_factory() as session:
+        reviewer = ReviewerRecord(
+            workspace_id=workspace_id,
+            user_id="reviewer-user",
+            name="产品审核人",
+            role="产品审核人",
+            is_active=True,
+        )
+        group = ReviewGroupRecord(
+            workspace_id=workspace_id,
+            name="产品审核组",
+            assignment_mode="group_claim",
+            is_escalation_group=True,
+        )
+        session.add_all([reviewer, group])
+        session.commit()
+        return reviewer.id, group.id
 
 
 def create_second_workspace(client: TestClient) -> str:
@@ -295,3 +374,120 @@ def test_observability_overview_empty_state(tmp_path):
     assert body["totals"]["averageDurationMs"] is None
     assert body["recentRuns"] == []
     assert body["risks"] == []
+
+
+def test_observability_human_sla_overview_counts_active_backlog_and_risks(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'observability-human-sla.db'}",
+    )
+    reviewer_id, group_id = create_review_directory(client, workspace_id)
+    overdue_id = create_human_task(
+        client,
+        workspace_id,
+        title="已逾期审核",
+        status="待认领",
+        sla_status="已逾期",
+        due_offset_minutes=-20,
+        escalation_offset_minutes=40,
+        group_id=group_id,
+    )
+    create_human_task(
+        client,
+        workspace_id,
+        title="即将到期审核",
+        status="审核中",
+        sla_status="即将到期",
+        due_offset_minutes=15,
+        escalation_offset_minutes=60,
+        reviewer_id=reviewer_id,
+    )
+    create_human_task(
+        client,
+        workspace_id,
+        title="已升级审核",
+        status="待认领",
+        sla_status="已升级",
+        due_offset_minutes=-60,
+        escalation_offset_minutes=-5,
+        group_id=group_id,
+    )
+    create_human_task(
+        client,
+        workspace_id,
+        title="恢复失败审核",
+        status="恢复失败",
+        sla_status="正常",
+        due_offset_minutes=120,
+        escalation_offset_minutes=240,
+        reviewer_id=reviewer_id,
+    )
+    create_human_task(
+        client,
+        workspace_id,
+        title="已完成审核不应统计",
+        status="已通过",
+        sla_status="已逾期",
+        due_offset_minutes=-120,
+        escalation_offset_minutes=-60,
+        reviewer_id=reviewer_id,
+    )
+
+    response = client.get(workspace_url(workspace_id, "/observability/human-sla"))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["totals"] == {
+        "activeTasks": 4,
+        "unclaimed": 2,
+        "inReview": 1,
+        "dueSoon": 1,
+        "overdue": 1,
+        "escalated": 1,
+        "resumeFailed": 1,
+    }
+    overdue_risk = next(item for item in body["risks"] if item["taskId"] == overdue_id)
+    assert overdue_risk["severity"] == "critical"
+    assert overdue_risk["nextAction"] == "进入人工审核页处理该任务"
+    assert {item["id"] for item in body["reviewers"]} == {reviewer_id}
+    assert {item["id"] for item in body["groups"]} == {group_id}
+
+
+def test_observability_human_sla_filters_by_reviewer_and_group(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'observability-human-sla-filter.db'}",
+    )
+    reviewer_id, group_id = create_review_directory(client, workspace_id)
+    create_human_task(
+        client,
+        workspace_id,
+        title="指定审核人任务",
+        status="审核中",
+        sla_status="即将到期",
+        due_offset_minutes=15,
+        escalation_offset_minutes=60,
+        reviewer_id=reviewer_id,
+    )
+    create_human_task(
+        client,
+        workspace_id,
+        title="审核组任务",
+        status="待认领",
+        sla_status="已逾期",
+        due_offset_minutes=-15,
+        escalation_offset_minutes=60,
+        group_id=group_id,
+    )
+
+    reviewer_response = client.get(
+        workspace_url(workspace_id, f"/observability/human-sla?reviewerId={reviewer_id}"),
+    )
+    group_response = client.get(
+        workspace_url(workspace_id, f"/observability/human-sla?groupId={group_id}"),
+    )
+
+    assert reviewer_response.status_code == 200
+    assert reviewer_response.json()["totals"]["activeTasks"] == 1
+    assert reviewer_response.json()["risks"][0]["title"] == "指定审核人任务"
+    assert group_response.status_code == 200
+    assert group_response.json()["totals"]["activeTasks"] == 1
+    assert group_response.json()["risks"][0]["title"] == "审核组任务"

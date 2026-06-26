@@ -25,6 +25,7 @@ from app.models import (
     HumanTaskRecord,
     NodeRunRecord,
     ReviewerRecord,
+    ReviewGroupRecord,
     WorkspaceRecord,
     WorkflowRecord,
     WorkflowRunRecord,
@@ -52,6 +53,11 @@ from app.schemas import (
     HumanTaskTransfer,
     NodeRunRead,
     ObservabilityAuditEventRead,
+    ObservabilityHumanSlaGroupRead,
+    ObservabilityHumanSlaOverviewRead,
+    ObservabilityHumanSlaReviewerRead,
+    ObservabilityHumanSlaRiskRead,
+    ObservabilityHumanSlaTotalsRead,
     ObservabilityHumanTaskRead,
     ObservabilityNodeRunRead,
     ObservabilityOverviewRead,
@@ -297,6 +303,45 @@ def create_app(
             severity=priority,
             message=f"{run.status} · {run.current_node or '未知节点'}",
             next_action=observability_next_action(run),
+        )
+
+    def human_sla_severity(task: HumanTaskRecord) -> str | None:
+        if task.status in {"恢复失败", "鎭㈠澶辫触"}:
+            return "critical"
+        if task.sla_status in {"已逾期", "已升级", "宸查€炬湡", "宸插崌绾?"}:
+            return "critical"
+        if task.sla_status in {"即将到期", "鍗冲皢鍒版湡"}:
+            return "warning"
+        return None
+
+    def human_sla_priority(task: HumanTaskRecord) -> tuple[int, float]:
+        severity = human_sla_severity(task)
+        if task.status in {"恢复失败", "鎭㈠澶辫触"}:
+            priority = 0
+        elif task.sla_status in {"已逾期", "已升级", "宸查€炬湡", "宸插崌绾?"}:
+            priority = 1
+        elif severity == "warning":
+            priority = 2
+        else:
+            priority = 3
+        return priority, task.due_at.timestamp()
+
+    def human_sla_risk(task: HumanTaskRecord) -> ObservabilityHumanSlaRiskRead | None:
+        severity = human_sla_severity(task)
+        if severity is None:
+            return None
+        return ObservabilityHumanSlaRiskRead(
+            task_id=task.id,
+            run_id=task.workflow_run_id,
+            title=task.title,
+            status=task.status,
+            sla_status=task.sla_status,
+            severity=severity,
+            assignee_reviewer_id=task.assignee_reviewer_id,
+            assignee_group_id=task.assignee_group_id,
+            due_at=task.due_at,
+            escalation_at=task.escalation_at,
+            next_action="进入人工审核页处理该任务",
         )
 
     @router.get("/agents", response_model=list[AgentRead])
@@ -916,6 +961,85 @@ def create_app(
             totals=totals,
             risks=risks[:10],
             recent_runs=[observability_summary(run) for run in sorted_runs[:20]],
+        )
+
+    @router.get("/observability/human-sla", response_model=ObservabilityHumanSlaOverviewRead)
+    def observability_human_sla(
+        request: Request,
+        reviewer_id: str | None = Query(default=None, alias="reviewerId"),
+        group_id: str | None = Query(default=None, alias="groupId"),
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> ObservabilityHumanSlaOverviewRead:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "run.read",
+            action="observability.human_sla.read",
+            target_type="workspace",
+            target_id=context.workspace.id,
+            request=request,
+        )
+        tasks = human_task_service.list_tasks(
+            session,
+            context.workspace.id,
+            reviewer_id=reviewer_id,
+            group_id=group_id,
+            active=True,
+        )
+        risks = [
+            risk
+            for risk in (
+                human_sla_risk(task)
+                for task in sorted(tasks, key=human_sla_priority)
+            )
+            if risk is not None
+        ]
+        reviewer_ids = {
+            task.assignee_reviewer_id
+            for task in tasks
+            if task.assignee_reviewer_id
+        }
+        group_ids = {
+            task.assignee_group_id
+            for task in tasks
+            if task.assignee_group_id
+        }
+        reviewers = list(session.scalars(
+            select(ReviewerRecord)
+            .where(
+                ReviewerRecord.workspace_id == context.workspace.id,
+                ReviewerRecord.id.in_(reviewer_ids),
+            )
+            .order_by(ReviewerRecord.name.asc()),
+        )) if reviewer_ids else []
+        groups = list(session.scalars(
+            select(ReviewGroupRecord)
+            .where(
+                ReviewGroupRecord.workspace_id == context.workspace.id,
+                ReviewGroupRecord.id.in_(group_ids),
+            )
+            .order_by(ReviewGroupRecord.name.asc()),
+        )) if group_ids else []
+        return ObservabilityHumanSlaOverviewRead(
+            totals=ObservabilityHumanSlaTotalsRead(
+                active_tasks=len(tasks),
+                unclaimed=sum(1 for task in tasks if task.status in {"待认领", "寰呰棰?"}),
+                in_review=sum(1 for task in tasks if task.status in {"审核中", "瀹℃牳涓?"}),
+                due_soon=sum(1 for task in tasks if task.sla_status in {"即将到期", "鍗冲皢鍒版湡"}),
+                overdue=sum(1 for task in tasks if task.sla_status in {"已逾期", "宸查€炬湡"}),
+                escalated=sum(1 for task in tasks if task.sla_status in {"已升级", "宸插崌绾?"}),
+                resume_failed=sum(1 for task in tasks if task.status in {"恢复失败", "鎭㈠澶辫触"}),
+            ),
+            risks=risks[:10],
+            reviewers=[
+                ObservabilityHumanSlaReviewerRead(id=reviewer.id, name=reviewer.name)
+                for reviewer in reviewers
+            ],
+            groups=[
+                ObservabilityHumanSlaGroupRead(id=group.id, name=group.name)
+                for group in groups
+            ],
         )
 
     @router.get("/observability/runs/{run_id}", response_model=ObservabilityRunDetailRead)

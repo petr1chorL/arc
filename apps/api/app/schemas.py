@@ -432,6 +432,53 @@ class ObservabilityRunDetailRead(ObservabilityRunSummaryRead):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class ObservabilityHumanSlaTotalsRead(BaseModel):
+    active_tasks: int = Field(serialization_alias="activeTasks")
+    unclaimed: int
+    in_review: int = Field(serialization_alias="inReview")
+    due_soon: int = Field(serialization_alias="dueSoon")
+    overdue: int
+    escalated: int
+    resume_failed: int = Field(serialization_alias="resumeFailed")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ObservabilityHumanSlaRiskRead(BaseModel):
+    task_id: str = Field(serialization_alias="taskId")
+    run_id: str = Field(serialization_alias="runId")
+    title: str
+    status: str
+    sla_status: str = Field(serialization_alias="slaStatus")
+    severity: Literal["critical", "warning"]
+    assignee_reviewer_id: str | None = Field(serialization_alias="assigneeReviewerId")
+    assignee_group_id: str | None = Field(serialization_alias="assigneeGroupId")
+    due_at: datetime = Field(serialization_alias="dueAt")
+    escalation_at: datetime = Field(serialization_alias="escalationAt")
+    next_action: str = Field(serialization_alias="nextAction")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ObservabilityHumanSlaReviewerRead(BaseModel):
+    id: str
+    name: str
+
+
+class ObservabilityHumanSlaGroupRead(BaseModel):
+    id: str
+    name: str
+
+
+class ObservabilityHumanSlaOverviewRead(BaseModel):
+    totals: ObservabilityHumanSlaTotalsRead
+    risks: list[ObservabilityHumanSlaRiskRead]
+    reviewers: list[ObservabilityHumanSlaReviewerRead]
+    groups: list[ObservabilityHumanSlaGroupRead]
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class HumanReviewRead(BaseModel):
     id: str
     run_id: str = Field(serialization_alias="runId")

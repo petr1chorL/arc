@@ -38,7 +38,16 @@ class HumanTaskPermission(RuntimeError):
     pass
 
 
-TERMINAL_TASK_STATUSES = {"宸查€氳繃", "淇敼鍚庨€氳繃", "宸查┏鍥?", "宸查€€鍥?", "鎭㈠澶辫触"}
+TERMINAL_TASK_STATUSES = {
+    "已通过",
+    "修改后通过",
+    "已驳回",
+    "已退回",
+    "宸查€氳繃",
+    "淇敼鍚庨€氳繃",
+    "宸查┏鍥?",
+    "宸查€€鍥?",
+}
 
 
 class HumanTaskService:
@@ -442,7 +451,16 @@ class HumanTaskService:
         for task in tasks:
             self.refresh_sla(session, task)
         session.commit()
-        terminal_statuses = {"宸查€氳繃", "淇敼鍚庨€氳繃", "宸查┏鍥?", "宸查€€鍥?"}
+        terminal_statuses = {
+            "已通过",
+            "修改后通过",
+            "已驳回",
+            "已退回",
+            "宸查€氳繃",
+            "淇敼鍚庨€氳繃",
+            "宸查┏鍥?",
+            "宸查€€鍥?",
+        }
         return [
             task
             for task in tasks
