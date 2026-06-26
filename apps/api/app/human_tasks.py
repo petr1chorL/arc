@@ -587,7 +587,7 @@ class HumanTaskService:
                     task.workspace_id,
                 )
                 task.escalated_at = now
-                task.sla_status = "宸插崌绾?"
+                task.sla_status = "已升级"
                 self.audit(
                     session,
                     task=task,
@@ -605,7 +605,7 @@ class HumanTaskService:
                     payload={"slaStatus": task.sla_status},
                 )
         elif now >= due_at:
-            task.sla_status = "宸查€炬湡"
+            task.sla_status = "已逾期"
             if task.overdue_recorded_at is None:
                 task.overdue_recorded_at = now
                 self.audit(
@@ -616,7 +616,7 @@ class HumanTaskService:
                     before_status=before,
                 )
         elif now >= due_at - timedelta(minutes=15):
-            task.sla_status = "鍗冲皢鍒版湡"
+            task.sla_status = "即将到期"
             if task.due_reminder_sent_at is None:
                 task.due_reminder_sent_at = now
                 self.audit(
@@ -637,7 +637,7 @@ class HumanTaskService:
                     payload={"dueAt": due_at.isoformat()},
                 )
         else:
-            task.sla_status = "姝ｅ父"
+            task.sla_status = "正常"
         task.updated_at = now
         return task
 

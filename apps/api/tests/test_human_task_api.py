@@ -443,7 +443,12 @@ def test_sla_refresh_reminds_overdues_and_escalates_once(tmp_path):
     clock.advance(minutes=60)
     escalated = client.get(workspace_url(workspace_id, "/human-tasks")).json()[0]
 
-    assert len({initial_status, due_soon["slaStatus"], overdue["slaStatus"], escalated["slaStatus"]}) == 4
+    assert [initial_status, due_soon["slaStatus"], overdue["slaStatus"], escalated["slaStatus"]] == [
+        "正常",
+        "即将到期",
+        "已逾期",
+        "已升级",
+    ]
     assert escalated["assigneeGroupId"] == escalation_group["id"]
 
     client.get(workspace_url(workspace_id, "/human-tasks"))
