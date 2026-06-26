@@ -44,6 +44,9 @@ const overview = {
     completionTokens: 20,
     priority: 'critical',
     nextAction: '查看失败节点和错误信息',
+    failureCategory: 'connector_auth_timeout',
+    failureCategoryLabel: '连接器鉴权超时',
+    troubleshootingHint: '检查连接器凭证、权限范围和上游接口响应时间，必要时刷新授权后重跑失败节点。',
   }, {
     id: 'run-waiting',
     workflowName: '价格监控流程',
@@ -58,6 +61,9 @@ const overview = {
     completionTokens: 60,
     priority: 'warning',
     nextAction: '进入人工审核处理 Human Task',
+    failureCategory: 'human_review_blocked',
+    failureCategoryLabel: '等待人工审核',
+    troubleshootingHint: '进入人工审核页确认任务归属、SLA 和审核资格，完成通过、驳回或退回重跑决策。',
   }],
 }
 
@@ -262,9 +268,11 @@ describe('Observability', () => {
     expect(await screen.findByRole('heading', { name: '运行观测' })).toBeInTheDocument()
     expect(screen.getAllByText('3').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('失败运行')).toBeInTheDocument()
-    expect(screen.getByText('失败 · 数据清洗 Agent / 查看失败节点和错误信息')).toBeInTheDocument()
+    expect(screen.getByText('失败 · 数据清洗 Agent / 连接器鉴权超时 / 查看失败节点和错误信息')).toBeInTheDocument()
     expect(screen.getAllByText('Amazon 评论分析').length).toBeGreaterThanOrEqual(1)
     expect(await screen.findByText('Amazon 数据连接器鉴权超时')).toBeInTheDocument()
+    expect(screen.getAllByText('连接器鉴权超时').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText('检查连接器凭证、权限范围和上游接口响应时间，必要时刷新授权后重跑失败节点。')).toBeInTheDocument()
     expect(await screen.findByText('人工 SLA 运营')).toBeInTheDocument()
     expect(screen.getByText('活跃任务')).toBeInTheDocument()
     expect(screen.getByText('已逾期审核')).toBeInTheDocument()
@@ -325,7 +333,7 @@ describe('Observability', () => {
 
     await user.click(await screen.findByRole('button', { name: /价格监控流程/ }))
 
-    expect(await screen.findByText('等待人工审核')).toBeInTheDocument()
+    expect((await screen.findAllByText('等待人工审核')).length).toBeGreaterThanOrEqual(1)
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         '/api/workspaces/workspace-1/observability/runs/run-waiting',
@@ -334,7 +342,7 @@ describe('Observability', () => {
     })
   })
 
-  it('applies status workflow and risk filters from the URL', async () => {
+  it('applies status workflow risk and failure filters from the URL', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const path = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
       if (path === '/api/workspaces/workspace-1/observability/overview') {
@@ -362,11 +370,12 @@ describe('Observability', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    renderPage('/w/ai-capability-center/observability?status=需介入&workflow=价格&risk=warning')
+    renderPage('/w/ai-capability-center/observability?status=需介入&workflow=价格&risk=warning&failure=human_review_blocked')
 
     expect(await screen.findByDisplayValue('需介入')).toBeInTheDocument()
     expect(screen.getByDisplayValue('价格')).toBeInTheDocument()
     expect(screen.getByDisplayValue('中风险')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('等待人工审核')).toBeInTheDocument()
     expect((await screen.findAllByText('价格监控流程')).length).toBeGreaterThanOrEqual(1)
     expect(screen.queryByText('Amazon 评论分析')).not.toBeInTheDocument()
     await waitFor(() => {
@@ -402,10 +411,12 @@ describe('Observability', () => {
     await user.selectOptions(await screen.findByLabelText('运行状态筛选'), '失败')
     await user.type(screen.getByLabelText('工作流名称筛选'), 'Amazon')
     await user.selectOptions(screen.getByLabelText('风险等级筛选'), 'critical')
+    await user.selectOptions(screen.getByLabelText('失败原因筛选'), 'connector_auth_timeout')
 
     expect(screen.getByLabelText('当前筛选参数')).toHaveTextContent('status=%E5%A4%B1%E8%B4%A5')
     expect(screen.getByLabelText('当前筛选参数')).toHaveTextContent('workflow=Amazon')
     expect(screen.getByLabelText('当前筛选参数')).toHaveTextContent('risk=critical')
+    expect(screen.getByLabelText('当前筛选参数')).toHaveTextContent('failure=connector_auth_timeout')
     expect(screen.getByLabelText('当前筛选参数')).toHaveTextContent('runId=run-failed')
   })
 

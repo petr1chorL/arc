@@ -310,6 +310,42 @@ def test_observability_overview_prioritizes_risky_runs(tmp_path):
     assert body["risks"][1]["runId"] == waiting.id
 
 
+def test_observability_classifies_failure_category_and_hint(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'observability-failure-category.db'}",
+    )
+    failed = create_run(
+        client,
+        workspace_id,
+        name="Amazon 评论采集",
+        status="失败",
+        current_node="数据连接器",
+        duration_ms=1800,
+        started_offset_minutes=-15,
+        error="Amazon 数据连接器鉴权超时",
+        prompt_tokens=50,
+        completion_tokens=0,
+        cost_usd=0.02,
+    )
+
+    overview_response = client.get(workspace_url(workspace_id, "/observability/overview"))
+    detail_response = client.get(workspace_url(workspace_id, f"/observability/runs/{failed.id}"))
+
+    assert overview_response.status_code == 200
+    overview_body = overview_response.json()
+    failed_summary = overview_body["recentRuns"][0]
+    assert failed_summary["id"] == failed.id
+    assert failed_summary["failureCategory"] == "connector_auth_timeout"
+    assert failed_summary["failureCategoryLabel"] == "连接器鉴权超时"
+    assert "检查连接器凭证" in failed_summary["troubleshootingHint"]
+
+    assert detail_response.status_code == 200
+    detail_body = detail_response.json()
+    assert detail_body["failureCategory"] == "connector_auth_timeout"
+    assert detail_body["failureCategoryLabel"] == "连接器鉴权超时"
+    assert detail_body["troubleshootingHint"] == failed_summary["troubleshootingHint"]
+
+
 def test_observability_run_detail_includes_nodes_and_human_tasks(tmp_path):
     client, workspace_id = create_authenticated_client(
         f"sqlite:///{tmp_path / 'observability-detail.db'}",

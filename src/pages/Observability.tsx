@@ -70,6 +70,16 @@ const riskOptions = [
   { label: '中风险', value: 'warning' },
   { label: '普通', value: 'normal' },
 ]
+const failureOptions = [
+  { label: '全部原因', value: 'all' },
+  { label: '连接器鉴权超时', value: 'connector_auth_timeout' },
+  { label: '模型调用失败', value: 'model_call_failed' },
+  { label: '等待人工审核', value: 'human_review_blocked' },
+  { label: '恢复执行失败', value: 'resume_failed' },
+  { label: '质量门禁未通过', value: 'quality_gate_failed' },
+  { label: '未知异常', value: 'unknown' },
+  { label: '无异常', value: 'normal' },
+]
 
 export function Observability() {
   const { workspace, workspacePath } = useWorkspace()
@@ -92,6 +102,7 @@ export function Observability() {
   const statusFilter = searchParams.get('status') || '全部'
   const workflowFilter = searchParams.get('workflow') || ''
   const riskFilter = searchParams.get('risk') || 'all'
+  const failureFilter = searchParams.get('failure') || 'all'
   const requestedRunId = searchParams.get('runId') || ''
 
   const writeSearchParams = useCallback((updates: Record<string, string>) => {
@@ -102,6 +113,7 @@ export function Observability() {
           !value
           || (key === 'status' && value === '全部')
           || (key === 'risk' && value === 'all')
+          || (key === 'failure' && value === 'all')
         ) {
           next.delete(key)
         } else {
@@ -128,9 +140,10 @@ export function Observability() {
       const matchesStatus = statusFilter === '全部' || displayStatus(run.status) === statusFilter
       const matchesWorkflow = !workflowNeedle || run.workflowName.toLowerCase().includes(workflowNeedle)
       const matchesRisk = riskFilter === 'all' || run.priority === riskFilter
-      return matchesStatus && matchesWorkflow && matchesRisk
+      const matchesFailure = failureFilter === 'all' || run.failureCategory === failureFilter
+      return matchesStatus && matchesWorkflow && matchesRisk && matchesFailure
     })
-  }, [candidateRuns, riskFilter, statusFilter, workflowFilter])
+  }, [candidateRuns, failureFilter, riskFilter, statusFilter, workflowFilter])
 
   const filteredRisks = useMemo(() => {
     if (!overview) return []
@@ -341,6 +354,16 @@ export function Observability() {
                 {riskOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
             </label>
+            <label>
+              <span>失败原因</span>
+              <select
+                aria-label="失败原因筛选"
+                value={failureFilter}
+                onChange={(event) => writeSearchParams({ failure: event.target.value })}
+              >
+                {failureOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </label>
             <button
               className="button ghost compact"
               type="button"
@@ -348,6 +371,7 @@ export function Observability() {
                 status: '',
                 workflow: '',
                 risk: '',
+                failure: '',
                 runId: '',
               })}
             >
@@ -358,7 +382,7 @@ export function Observability() {
           {filteredRuns.length === 0 && (
             <div className="observability-filter-empty">
               <strong>当前筛选无运行</strong>
-              <span>换一个状态、工作流名称或风险等级，或清空筛选查看全部运行。</span>
+              <span>换一个状态、工作流名称、风险等级或失败原因，或清空筛选查看全部运行。</span>
             </div>
           )}
 
@@ -375,7 +399,13 @@ export function Observability() {
                 >
                   <span className={`risk-dot ${risk.severity}`} />
                   <strong>{risk.title}</strong>
-                  <small>{riskMessage(risk, overview.recentRuns)} / {risk.nextAction}</small>
+                  <small>
+                    {riskMessage(risk, overview.recentRuns)}
+                    {' / '}
+                    {overview.recentRuns.find((run) => run.id === risk.runId)?.failureCategoryLabel ?? '未分类'}
+                    {' / '}
+                    {risk.nextAction}
+                  </small>
                   <StatusBadge status={risk.severity === 'critical' ? '高' : '中'} />
                 </button>
               ))}
@@ -395,7 +425,7 @@ export function Observability() {
               >
                 <span>
                   <strong>{run.workflowName}</strong>
-                  <small>{runTitle(run)}</small>
+                  <small>{runTitle(run)} / {run.failureCategoryLabel}</small>
                 </span>
                 <StatusBadge status={run.status} />
                 <em>{formatOptionalDuration(run.durationMs)}</em>
@@ -628,8 +658,9 @@ function RunTroubleshooting({ detail }: { detail: ObservabilityRunDetail }) {
       <div className="observability-next-action">
         <ShieldAlert size={18} />
         <div>
-          <strong>{detail.nextAction}</strong>
+          <strong>{detail.failureCategoryLabel} · {detail.nextAction}</strong>
           <span>当前节点：{detail.currentNode || '未记录'} / 状态：{displayStatus(detail.status)}</span>
+          <p>{detail.troubleshootingHint}</p>
         </div>
       </div>
 

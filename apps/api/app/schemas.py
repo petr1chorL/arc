@@ -359,6 +359,9 @@ class ObservabilityRunSummaryRead(BaseModel):
     completion_tokens: int = Field(serialization_alias="completionTokens")
     priority: Literal["critical", "warning", "normal"]
     next_action: str = Field(serialization_alias="nextAction")
+    failure_category: str = Field(serialization_alias="failureCategory")
+    failure_category_label: str = Field(serialization_alias="failureCategoryLabel")
+    troubleshooting_hint: str = Field(serialization_alias="troubleshootingHint")
 
     model_config = ConfigDict(populate_by_name=True)
 

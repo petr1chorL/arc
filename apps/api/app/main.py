@@ -282,7 +282,59 @@ def create_app(
             return "等待运行完成或刷新状态"
         return "查看产出物和节点耗时"
 
+    def observability_failure_classification(run: WorkflowRunRecord) -> tuple[str, str, str]:
+        text = " ".join([
+            run.status or "",
+            run.current_node or "",
+            run.error or "",
+        ]).lower()
+
+        if run.status == "恢复失败":
+            return (
+                "resume_failed",
+                "恢复执行失败",
+                "检查人工审核决策后的恢复日志，确认失败节点可重跑后再重试恢复。",
+            )
+        if run.status in {"需介入", "等待审核", "绛夊緟瀹℃牳"} or "人工审核" in text:
+            return (
+                "human_review_blocked",
+                "等待人工审核",
+                "进入人工审核页确认任务归属、SLA 和审核资格，完成通过、驳回或退回重跑决策。",
+            )
+        if any(keyword in text for keyword in ["鉴权", "auth", "401", "403", "凭证", "超时", "timeout"]) and any(
+            keyword in text for keyword in ["连接器", "connector", "工具", "tool", "api"]
+        ):
+            return (
+                "connector_auth_timeout",
+                "连接器鉴权超时",
+                "检查连接器凭证、权限范围和上游接口响应时间，必要时刷新授权后重跑失败节点。",
+            )
+        if any(keyword in text for keyword in ["模型", "model", "llm", "provider", "deepseek", "openai"]):
+            return (
+                "model_call_failed",
+                "模型调用失败",
+                "检查模型供应商配置、模型名称、限流和请求上下文；确认后重跑失败节点。",
+            )
+        if any(keyword in text for keyword in ["质量门", "质量门禁", "quality gate", "score", "rubric"]):
+            return (
+                "quality_gate_failed",
+                "质量门禁未通过",
+                "查看评分维度、门禁阈值和产出物证据，必要时修订产出后提交人工审核。",
+            )
+        if run.status in {"失败", "澶辫触"}:
+            return (
+                "unknown",
+                "未知异常",
+                "查看失败节点错误、审计事件和输入输出上下文，补充明确错误原因后再重跑。",
+            )
+        return (
+            "normal",
+            "无异常",
+            "本次运行暂无阻塞原因，可继续查看产出物、节点耗时和成本信号。",
+        )
+
     def observability_summary(run: WorkflowRunRecord) -> ObservabilityRunSummaryRead:
+        failure_category, failure_category_label, troubleshooting_hint = observability_failure_classification(run)
         return ObservabilityRunSummaryRead(
             id=run.id,
             trace_id=run.trace_id or f"trace-{run.id}",
@@ -298,6 +350,9 @@ def create_app(
             completion_tokens=run.completion_tokens,
             priority=observability_priority(run)[1],
             next_action=observability_next_action(run),
+            failure_category=failure_category,
+            failure_category_label=failure_category_label,
+            troubleshooting_hint=troubleshooting_hint,
         )
 
     def ensure_observability_trace_context(

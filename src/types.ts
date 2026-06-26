@@ -413,6 +413,9 @@ export interface ObservabilityRunSummary {
   completionTokens: number
   priority: 'critical' | 'warning' | 'normal'
   nextAction: string
+  failureCategory: string
+  failureCategoryLabel: string
+  troubleshootingHint: string
 }
 
 export interface ObservabilityRisk {
