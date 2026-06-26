@@ -14,6 +14,7 @@ import {
   saveReviewerQualification,
   updateMemberRole,
 } from '../api/members'
+import { useAuth } from '../auth/authContext'
 import { useWorkspace } from '../auth/workspaceContextState'
 import type { WorkspaceMember, WorkspaceRole } from '../types'
 
@@ -50,11 +51,14 @@ function qualificationLabel(member: WorkspaceMember) {
 }
 
 export function Members() {
+  const { user } = useAuth()
   const { workspace } = useWorkspace()
   const [members, setMembers] = useState<WorkspaceMember[]>([])
   const [draftRoles, setDraftRoles] = useState<Record<string, WorkspaceRole>>({})
   const [draftReviewerRoles, setDraftReviewerRoles] = useState<Record<string, string>>({})
   const [draftReviewerExpertFlags, setDraftReviewerExpertFlags] = useState<Record<string, boolean>>({})
+  const [quickReviewerRole, setQuickReviewerRole] = useState('产品审核人')
+  const [quickReviewerIsExpert, setQuickReviewerIsExpert] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isInviteOpen, setIsInviteOpen] = useState(false)
   const [inviteEmail, setInviteEmail] = useState('')
@@ -93,6 +97,7 @@ export function Members() {
     () => members.filter((member) => member.membershipStatus === 'active').length,
     [members],
   )
+  const currentMember = members.find((member) => member.userId === user?.id)
 
   async function copyActivationLink() {
     if (!activationUrl || !activationInvitationId) return
@@ -175,6 +180,38 @@ export function Members() {
       setStatusMessage(`${member.email} 审核资格已更新。`)
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : '审核资格更新失败')
+    } finally {
+      setBusyKey('')
+    }
+  }
+
+  async function handleCurrentReviewerBind() {
+    if (!currentMember) {
+      setSubmitError('当前账号不在成员列表中')
+      return
+    }
+    const nextRole = quickReviewerRole.trim()
+    if (!nextRole) {
+      setSubmitError('请填写当前账号审核角色')
+      return
+    }
+    setBusyKey('current-reviewer')
+    setSubmitError('')
+    try {
+      const updated = await saveReviewerQualification(workspace.id, currentMember.userId, {
+        role: nextRole,
+        isExpert: quickReviewerIsExpert,
+      })
+      setMembers((current) => current.map((item) => item.userId === currentMember.userId ? updated : item))
+      setDraftReviewerRoles((current) => ({ ...current, [currentMember.userId]: updated.reviewer?.role ?? '' }))
+      setDraftReviewerExpertFlags((current) => ({
+        ...current,
+        [currentMember.userId]: updated.reviewer?.isExpert ?? false,
+      }))
+      broadcastReviewerQualificationsUpdated(workspace.id)
+      setStatusMessage('当前账号已绑定 Reviewer 资格。')
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : '当前账号审核资格绑定失败')
     } finally {
       setBusyKey('')
     }
@@ -290,6 +327,53 @@ export function Members() {
           </button>
         </div>
       </div>
+
+      {currentMember && (
+        <section className="panel members-current-reviewer" aria-label="当前账号审核资格">
+          <div>
+            <span className="section-kicker">REVIEWER SETUP</span>
+            <h3>
+              {currentMember.reviewer?.isActive
+                ? '当前账号已具备 Reviewer 资格'
+                : '当前账号未获得 Reviewer 资格'}
+            </h3>
+            <p>
+              {currentMember.reviewer?.isActive
+                ? `${currentMember.email} · ${currentMember.reviewer.role}${currentMember.reviewer.isExpert ? ' · 专家' : ''}`
+                : '绑定后即可回到人工审核页认领任务或提交审核决定。'}
+            </p>
+          </div>
+          {!currentMember.reviewer?.isActive && (
+            <div className="members-current-reviewer-form">
+              <label>
+                <span>审核角色</span>
+                <input
+                  aria-label="当前账号审核角色"
+                  value={quickReviewerRole}
+                  onChange={(event) => setQuickReviewerRole(event.target.value)}
+                />
+              </label>
+              <label className="members-inline-toggle">
+                <input
+                  aria-label="当前账号专家审核"
+                  type="checkbox"
+                  checked={quickReviewerIsExpert}
+                  onChange={(event) => setQuickReviewerIsExpert(event.target.checked)}
+                />
+                <span>专家</span>
+              </label>
+              <button
+                className="button primary"
+                disabled={busyKey === 'current-reviewer'}
+                onClick={() => void handleCurrentReviewerBind()}
+              >
+                <ShieldCheck size={15} />
+                绑定当前账号为 Reviewer
+              </button>
+            </div>
+          )}
+        </section>
+      )}
 
       {(statusMessage || submitError || activationUrl) && (
         <div className={`inline-feedback ${submitError ? 'error' : ''}`} role={submitError ? 'alert' : 'status'}>

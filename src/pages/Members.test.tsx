@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { AuthContext, type AuthContextValue } from '../auth/authContext'
 import { WorkspaceContext } from '../auth/workspaceContextState'
 import { Members } from './Members'
 
@@ -37,23 +38,38 @@ const members = [
   },
 ]
 
-function renderPage() {
+function renderPage(userId = 'user-1') {
+  const authValue: AuthContextValue = {
+    user: {
+      id: userId,
+      email: userId === 'user-2' ? 'invitee@example.com' : 'builder@example.com',
+      displayName: userId === 'user-2' ? 'invitee@example.com' : 'Builder',
+      isOrganizationAdmin: false,
+    },
+    workspaces: [workspace],
+    status: 'authenticated',
+    login: vi.fn(),
+    logout: vi.fn(),
+    refreshSession: vi.fn(),
+  }
   return render(
     <MemoryRouter>
-      <WorkspaceContext.Provider
-        value={{
-          workspace,
-          workspaceApiPath(path: string) {
-            return `/api/workspaces/${workspace.id}${path}`
-          },
-          workspacePath(path = '') {
-            const normalized = path ? `/${path}` : ''
-            return `/w/${workspace.slug}${normalized}`
-          },
-        }}
-      >
-        <Members />
-      </WorkspaceContext.Provider>
+      <AuthContext.Provider value={authValue}>
+        <WorkspaceContext.Provider
+          value={{
+            workspace,
+            workspaceApiPath(path: string) {
+              return `/api/workspaces/${workspace.id}${path}`
+            },
+            workspacePath(path = '') {
+              const normalized = path ? `/${path}` : ''
+              return `/w/${workspace.slug}${normalized}`
+            },
+          }}
+        >
+          <Members />
+        </WorkspaceContext.Provider>
+      </AuthContext.Provider>
     </MemoryRouter>,
   )
 }
@@ -174,6 +190,49 @@ describe('Members page', () => {
     await user.click(screen.getByRole('button', { name: '撤销 builder@example.com 审核资格' }))
     expect(await screen.findByText('builder@example.com 审核资格已撤销。')).toBeInTheDocument()
     expect(qualificationListener).toHaveBeenCalledTimes(2)
+    window.removeEventListener('reviewer-qualifications-updated', qualificationListener)
+  })
+
+  it('binds the current account as a reviewer for acceptance', async () => {
+    const user = userEvent.setup()
+    const qualificationListener = vi.fn()
+    window.addEventListener('reviewer-qualifications-updated', qualificationListener)
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
+      if (url === `/api/workspaces/${workspace.id}/members` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify(members), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/members/user-2/reviewer` && init?.method === 'PUT') {
+        return Promise.resolve(new Response(JSON.stringify({
+          ...members[1],
+          reviewer: { role: '产品审核人', isExpert: false, isActive: true },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }))
+      }
+      return Promise.reject(new Error(`Unhandled request: ${String(url)}`))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage('user-2')
+
+    expect(await screen.findByText('当前账号未获得 Reviewer 资格')).toBeInTheDocument()
+    expect(screen.getByLabelText('当前账号审核角色')).toHaveValue('产品审核人')
+    await user.click(screen.getByRole('button', { name: '绑定当前账号为 Reviewer' }))
+
+    expect(await screen.findByText('当前账号已绑定 Reviewer 资格。')).toBeInTheDocument()
+    const bindCall = fetchMock.mock.calls.find(([input, init]) => (
+      input === `/api/workspaces/${workspace.id}/members/user-2/reviewer` && init?.method === 'PUT'
+    ))
+    expect(JSON.parse(bindCall?.[1]?.body as string)).toEqual({
+      role: '产品审核人',
+      isExpert: false,
+    })
+    expect(qualificationListener).toHaveBeenCalledTimes(1)
     window.removeEventListener('reviewer-qualifications-updated', qualificationListener)
   })
 

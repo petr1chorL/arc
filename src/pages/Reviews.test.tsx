@@ -412,6 +412,8 @@ describe('Reviews', () => {
     await screen.findByText(detail.artifact.content)
     expect(screen.getByText('当前用户')).toBeInTheDocument()
     expect(screen.getByText('未获得 Reviewer 资格')).toBeInTheDocument()
+    expect(screen.getByText('当前任务权限')).toBeInTheDocument()
+    expect(screen.getByText('当前账号未绑定 Reviewer 资格，所以不能认领任务或提交审核决定。')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '认领任务' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '通过' })).toBeDisabled()
   })

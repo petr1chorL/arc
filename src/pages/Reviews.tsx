@@ -167,6 +167,7 @@ export function Reviews() {
   const selectedGroup = groups.find((group) => group.id === detail?.assigneeGroupId)
   const isTerminal = detail ? terminalStatuses.has(detail.status) : true
   const actionDisabled = isBusy || isTerminal || !hasReviewerQualification
+  const currentTaskPermission = detail ? getCurrentTaskPermission() : ''
 
   function getReviewNextStep() {
     if (!hasReviewerQualification) {
@@ -185,6 +186,23 @@ export function Reviews() {
       return '最近运行失败；先到运行中心查看失败节点，再重新运行。'
     }
     return '继续观察最近运行状态，或重新运行包含人工审核节点的工作流。'
+  }
+
+  function getCurrentTaskPermission() {
+    if (!detail) return ''
+    if (!hasReviewerQualification) {
+      return '当前账号未绑定 Reviewer 资格，所以不能认领任务或提交审核决定。'
+    }
+    if (isTerminal) {
+      return '当前任务已进入终态，只能查看审计记录和产出物。'
+    }
+    if (detail.assigneeReviewerId && detail.assigneeReviewerId !== currentReviewer?.id) {
+      return '当前任务已分配给其他审核人，你可以先转交或等待对方处理。'
+    }
+    if (currentReviewer && !detail.participantSnapshot.includes(currentReviewer.id)) {
+      return '当前 Reviewer 不在该任务参与范围内，不能认领或提交决定。'
+    }
+    return '当前账号可以处理该任务。'
   }
 
   function updateTask(nextTask: HumanTask) {
@@ -524,6 +542,10 @@ export function Reviews() {
                     ? `${currentReviewer.name} · ${currentReviewer.role}${currentReviewer.isExpert ? ' · 专家' : ''}`
                     : '未获得 Reviewer 资格'}
                 </small>
+              </div>
+              <div className="review-permission-note" aria-label="当前任务权限">
+                <span>当前任务权限</span>
+                <strong>{currentTaskPermission}</strong>
               </div>
               {!detail.assigneeReviewerId && !isTerminal && (
                 <button className="button secondary" disabled={isBusy || !hasReviewerQualification} onClick={() => void claim()}>

@@ -335,7 +335,26 @@ React Flow 节点/连线
 - Trace。
 - 运行回放。
 
-## 10. 人工协作与反馈闭环
+## 10. 成员与权限
+
+文件：`src/pages/Members.tsx`
+
+实现：
+
+- 展示 Workspace 成员、平台角色、User 状态、Membership 状态和最近登录时间。
+- 支持邀请成员、重发邀请、撤销邀请和复制一次性激活链接。
+- 支持更新成员平台角色、停用/启用 Membership、停用/启用 User。
+- 支持为成员保存或撤销 Reviewer 资格。
+- 页面顶部提供当前账号 Reviewer 快捷绑定入口，便于验收人工审核闭环。
+- Reviewer 资格更新后会广播刷新事件，人工审核页可同步更新当前账号资格。
+
+未实现：
+
+- 企业通讯录同步。
+- 角色批量管理。
+- 成员搜索、分页和审计导出。
+
+## 11. 人工协作与反馈闭环
 
 文件：`src/pages/Reviews.tsx`
 
@@ -357,6 +376,7 @@ React Flow 节点/连线
 - 人工修改生成 FeedbackCandidate，专家可确认唯一 Golden Sample。
 - 导航角标显示未终结 Human Task 数量。
 - 移动端使用分段视图切换队列、审核和上下文。
+- 有 Human Task 时，审核区展示当前任务权限，解释按钮可用或禁用的原因。
 - V0.7B 首个切片增加审核概览：待处理任务、我的参与范围、SLA 风险和待确认反馈。
 - 无 Human Task 时，页面解释任务来自工作流 Human 节点，并提供进入工作流编排和成员与权限的入口。
 - 无 Human Task 时，页面提供 3 步验收路径：配置 Human 节点并发布、运行至需介入、回到人工审核提交决定。
@@ -376,7 +396,7 @@ React Flow 节点/连线
 - JSON 字段级可视化 Diff；当前工作台以统一文本 Diff 为主。
 - 人工审核页面不会创建演示任务；正式 Human Task 仍由工作流运行到 Human 节点时产生。
 
-## 11. 运营总览
+## 12. 运营总览
 
 文件：`src/pages/Dashboard.tsx`
 
@@ -391,7 +411,7 @@ React Flow 节点/连线
 
 后续建议改用 Apache ECharts，并从运营指标 API 读取数据。
 
-## 12. 样式系统
+## 13. 样式系统
 
 文件：`src/index.css`
 
@@ -431,7 +451,7 @@ styles/
 
 也可以引入 CSS Modules，但不建议为了技术统一直接重写现有样式。
 
-## 13. 当前状态管理
+## 14. 当前状态管理
 
 没有引入 Redux、Zustand 或 TanStack Query。
 
@@ -452,7 +472,7 @@ styles/
 Schema 校验：Zod
 ```
 
-## 14. 当前构建和质量检查
+## 15. 当前构建和质量检查
 
 ### 开发
 
@@ -487,7 +507,7 @@ TypeScript 编译检查
 - Pytest：字段校验、Agent 生命周期、工作流 DAG、Human Task、分配会签、恢复执行、SLA、反馈候选和 Golden Sample。
 - 浏览器验收：关键页面桌面端与移动端布局、真实 API 数据链路和控制台错误检查。
 
-## 15. 当前依赖
+## 16. 当前依赖
 
 生产依赖：
 
@@ -522,12 +542,12 @@ TypeScript 编译检查
 
 V0.6 仍未引入后台任务队列、身份系统和外部通知 SDK。
 
-## 16. 当前版本验证记录
+## 17. 当前版本验证记录
 
 已经完成：
 
 - `apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q`：32 项后端测试通过。
-- `npm test -- --run`：23 个前端测试文件、62 项测试通过。
+- `npm test -- --run`：23 个前端测试文件、63 项测试通过。
 - `npm run lint`：Oxlint 通过。
 - `npm run build`：TypeScript 编译与 Vite 生产构建通过。
 - Human 节点发布前校验覆盖分配方式、会签人数和 SLA 参数。
@@ -548,7 +568,7 @@ V0.6 仍未引入后台任务队列、身份系统和外部通知 SDK。
 
 当前机器未安装 Docker，因此 PostgreSQL Compose 配置与跨数据库正式迁移工具尚未进行容器运行验证；V0.6 的轻量增量迁移仅针对默认 SQLite。
 
-## 17. 下一步代码改造
+## 18. 下一步代码改造
 
 建议按以下顺序改造当前代码：
 
