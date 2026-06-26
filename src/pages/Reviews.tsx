@@ -315,6 +315,11 @@ export function Reviews() {
           <h2>暂无人工任务</h2>
           <p>工作流运行到人工审核节点后，任务会自动进入这里。</p>
         </div>
+        <ol className="review-acceptance-steps" aria-label="人工审核任务验收路径">
+          <li>在工作流编排中加入人工审核节点并发布版本</li>
+          <li>运行已发布工作流，等待状态进入需介入</li>
+          <li>回到人工审核页认领任务并提交决定</li>
+        </ol>
         <div className="review-empty-grid">
           <div>
             <span>当前 Reviewer 资格</span>

@@ -165,6 +165,71 @@ describe('Workflows', () => {
     }))
   })
 
+  it('guides the user to Reviews when a workflow pauses for human review', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const waitingRun = {
+      id: 'run-human-1',
+      kind: 'workflow',
+      name: workflow.name,
+      workflowId: workflow.id,
+      workflowVersion: workflow.version,
+      agentId: null,
+      agentVersion: null,
+      status: '需介入',
+      input: '生成新品定义',
+      output: 'Agent 产出已暂停，等待人工审核。',
+      score: 82,
+      model: 'configured-model',
+      promptTokens: 12,
+      completionTokens: 8,
+      totalTokens: 20,
+      costUsd: 0.001,
+      durationMs: 1200,
+      currentNode: '人工审核',
+      error: '',
+      startedAt: '2026-06-24T08:00:00Z',
+      completedAt: null,
+      nodes: [],
+    }
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === `/api/workspaces/${workspace.id}/workflows` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([workflow]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/agents` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/runs')) {
+        return Promise.resolve(new Response(JSON.stringify(waitingRun), { status: 201 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWorkflows()
+
+    await user.click(await screen.findByRole('button', { name: '运行工作流' }))
+    await user.type(screen.getByLabelText('运行输入'), '生成新品定义')
+    await user.click(screen.getByRole('button', { name: '开始运行' }))
+
+    expect(await screen.findByText('工作流已暂停在人工审核节点')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '去人工审核处理' })).toHaveAttribute(
+      'href',
+      '/w/ai-capability-center/reviews',
+    )
+    expect(screen.getByRole('link', { name: '查看运行记录' })).toHaveAttribute(
+      'href',
+      '/w/ai-capability-center/runs',
+    )
+  })
+
   it('serializes human assignment signoff and sla settings', async () => {
     const user = userEvent.setup()
     vi.stubGlobal('ResizeObserver', class {

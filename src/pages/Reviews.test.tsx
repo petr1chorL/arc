@@ -195,6 +195,9 @@ describe('Reviews', () => {
 
     expect(await screen.findByRole('heading', { name: '暂无人工任务' })).toBeInTheDocument()
     expect(screen.getByText('工作流运行到人工审核节点后，任务会自动进入这里。')).toBeInTheDocument()
+    expect(screen.getByText('在工作流编排中加入人工审核节点并发布版本')).toBeInTheDocument()
+    expect(screen.getByText('运行已发布工作流，等待状态进入需介入')).toBeInTheDocument()
+    expect(screen.getByText('回到人工审核页认领任务并提交决定')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: '去工作流编排' })).toHaveAttribute(
       'href',
       '/w/ai-capability-center/workflows',

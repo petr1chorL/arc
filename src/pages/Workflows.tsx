@@ -111,7 +111,7 @@ interface PublishedAgentOption {
 }
 
 export function Workflows() {
-  const { workspace } = useWorkspace()
+  const { workspace, workspacePath } = useWorkspace()
   const [nodes, setNodes, onNodesChange] = useNodesState(createDefaultNodes())
   const [edges, setEdges, onEdgesChange] = useEdgesState(createDefaultEdges())
   const [workflows, setWorkflows] = useState<WorkflowDraft[]>([])
@@ -251,7 +251,7 @@ export function Workflows() {
         version: currentWorkflow?.version,
       })
       setRunResult(result)
-      setFeedback('工作流运行已完成')
+      setFeedback(result.status === '需介入' ? '等待人工审核处理' : '工作流运行已完成')
     } catch (runError) {
       setErrors([runError instanceof Error ? runError.message : '工作流运行失败'])
     } finally {
@@ -464,6 +464,16 @@ export function Workflows() {
             </div>
             {runResult && (
               <div className="agent-test-result">
+                {runResult.status === '需介入' && (
+                  <div className="review-handoff-notice">
+                    <div>
+                      <strong>工作流已暂停在人工审核节点</strong>
+                      <span>系统已经创建 Human Task。下一步到人工审核页认领并提交决定，运行中心会记录暂停与恢复状态。</span>
+                    </div>
+                    <a className="button primary" href={workspacePath('reviews')}>去人工审核处理</a>
+                    <a className="button secondary" href={workspacePath('runs')}>查看运行记录</a>
+                  </div>
+                )}
                 <div className="run-kpis">
                   <div><span>状态</span><strong>{runResult.status}</strong></div>
                   <div><span>Token</span><strong>{runResult.totalTokens}</strong></div>

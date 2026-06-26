@@ -74,4 +74,22 @@ describe('Runs', () => {
     expect(screen.getByText('20')).toBeInTheDocument()
     expect(screen.getByText(/尝试 2 次/)).toBeInTheDocument()
   })
+
+  it('links a waiting workflow run to the human review queue', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([{ ...run, status: '需介入', currentNode: '人工审核' }]), { status: 200 }),
+    ))
+
+    render(
+      <WorkspaceProvider workspace={workspace}>
+        <Runs />
+      </WorkspaceProvider>,
+    )
+
+    expect(await screen.findByText('等待人工审核')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '去人工审核处理' })).toHaveAttribute(
+      'href',
+      '/w/ai-capability-center/reviews',
+    )
+  })
 })

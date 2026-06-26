@@ -15,7 +15,7 @@ function formatTime(value: string) {
 }
 
 export function Runs() {
-  const { workspace } = useWorkspace()
+  const { workspace, workspacePath } = useWorkspace()
   const [runs, setRuns] = useState<ExecutionRun[]>([])
   const [selectedId, setSelectedId] = useState('')
   const [query, setQuery] = useState('')
@@ -118,6 +118,16 @@ export function Runs() {
           <div><span>质量得分</span><strong>{selected.score ?? '待评估'}</strong></div>
           <div><span>模型成本</span><strong>${selected.costUsd.toFixed(6)}</strong></div>
         </div>
+
+        {selected.status === '需介入' && (
+          <div className="review-handoff-notice run-review-notice">
+            <div>
+              <strong>等待人工审核</strong>
+              <span>当前运行停在 {selected.currentNode || '人工审核节点'}。处理对应 Human Task 后，运行状态会继续更新。</span>
+            </div>
+            <a className="button primary" href={workspacePath('reviews')}>去人工审核处理</a>
+          </div>
+        )}
 
         <div className="review-section">
           <div className="review-section-title"><h3>最终产出</h3><span>{selected.model || '未记录模型'}</span></div>
