@@ -15,6 +15,12 @@ class AuditActor:
 
 
 class AuditService:
+    @staticmethod
+    def request_id(request: Request | None) -> str | None:
+        if request is None:
+            return None
+        return request.headers.get("X-Request-ID") or request.headers.get("X-Request-Id")
+
     def record(
         self,
         session: Session,
@@ -37,6 +43,7 @@ class AuditService:
             target_type=target_type,
             target_id=target_id,
             outcome=outcome,
+            request_id=self.request_id(request),
             ip_address=request.client.host if request and request.client else None,
             event_metadata=metadata or {},
         )

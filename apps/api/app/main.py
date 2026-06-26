@@ -1025,6 +1025,7 @@ def create_app(
             if detail["status"] in {"宸查€氳繃", "淇敼鍚庨€氳繃", "宸查┏鍥?", "宸查€€鍥?"}:
                 workflow_resume_service.apply_outcome(
                     session=session,
+                    workspace_id=context.workspace.id,
                     task_id=task_id,
                     decision_id=decision.id,
                 )
@@ -1059,7 +1060,11 @@ def create_app(
             request=request,
         )
         try:
-            workflow_resume_service.retry(session=session, task_id=task_id)
+            workflow_resume_service.retry(
+                session=session,
+                workspace_id=context.workspace.id,
+                task_id=task_id,
+            )
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from None
         detail = human_task_service.get_task_detail(session, context.workspace.id, task_id)

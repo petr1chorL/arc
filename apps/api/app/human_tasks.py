@@ -192,14 +192,33 @@ class HumanTaskService:
         reviewer_id: str,
         workspace_id: str,
     ) -> ReviewerRecord:
-        reviewer = session.get(ReviewerRecord, reviewer_id)
+        reviewer = session.scalar(
+            select(ReviewerRecord).where(
+                ReviewerRecord.id == reviewer_id,
+                ReviewerRecord.workspace_id == workspace_id,
+            ),
+        )
         if (
             reviewer is None
-            or reviewer.workspace_id != workspace_id
             or not reviewer.is_active
         ):
             raise HumanTaskValidation("瀹℃牳浜轰笉瀛樺湪鎴栧凡鍋滅敤")
         return reviewer
+
+    def workspace_group(
+        self,
+        session: Session,
+        workspace_id: str,
+        group_id: str | None,
+    ) -> ReviewGroupRecord | None:
+        if not group_id:
+            return None
+        return session.scalar(
+            select(ReviewGroupRecord).where(
+                ReviewGroupRecord.id == group_id,
+                ReviewGroupRecord.workspace_id == workspace_id,
+            ),
+        )
 
     def audit(
         self,
@@ -281,11 +300,11 @@ class HumanTaskService:
         group: ReviewGroupRecord | None = None
         if not participant_snapshot:
             group = (
-                session.get(ReviewGroupRecord, assignee_group_id)
+                self.workspace_group(session, run.workspace_id, assignee_group_id)
                 if assignee_group_id
                 else self.default_product_group(session, run.workspace_id)
             )
-            if group is None or group.workspace_id != run.workspace_id:
+            if group is None:
                 raise HumanTaskValidation("瀹℃牳缁勪笉瀛樺湪")
             assignee_group_id = assignee_group_id or group.id
             participant_snapshot = self.group_reviewer_ids(
@@ -305,10 +324,9 @@ class HumanTaskService:
         assignee_reviewer_id = None
         task_status = "寰呰棰?"
         if assignment_type == "round_robin":
-            group = group or session.get(ReviewGroupRecord, assignee_group_id)
+            group = group or self.workspace_group(session, run.workspace_id, assignee_group_id)
             if (
                 group is None
-                or group.workspace_id != run.workspace_id
                 or not participant_snapshot
             ):
                 raise HumanTaskValidation("杞鍒嗛厤闇€瑕佸寘鍚垚鍛樼殑瀹℃牳缁?")
@@ -391,10 +409,12 @@ class HumanTaskService:
         workspace_id: str,
         task_id: str,
     ) -> HumanTaskRecord | None:
-        task = session.get(HumanTaskRecord, task_id)
-        if task is None or task.workspace_id != workspace_id:
-            return None
-        return task
+        return session.scalar(
+            select(HumanTaskRecord).where(
+                HumanTaskRecord.id == task_id,
+                HumanTaskRecord.workspace_id == workspace_id,
+            ),
+        )
 
     def get_task_detail(self, session: Session, workspace_id: str, task_id: str) -> dict | None:
         task = self.get_task(session, workspace_id, task_id)
@@ -402,8 +422,18 @@ class HumanTaskService:
             return None
         self.refresh_sla(session, task)
         session.commit()
-        artifact_version = session.get(ArtifactVersionRecord, task.artifact_version_id)
-        run = session.get(WorkflowRunRecord, task.workflow_run_id)
+        artifact_version = session.scalar(
+            select(ArtifactVersionRecord).where(
+                ArtifactVersionRecord.id == task.artifact_version_id,
+                ArtifactVersionRecord.workspace_id == workspace_id,
+            ),
+        )
+        run = session.scalar(
+            select(WorkflowRunRecord).where(
+                WorkflowRunRecord.id == task.workflow_run_id,
+                WorkflowRunRecord.workspace_id == workspace_id,
+            ),
+        )
         if artifact_version is None or run is None:
             return None
         received = session.scalar(
@@ -478,8 +508,8 @@ class HumanTaskService:
         before = task.sla_status
         if now >= escalation_at:
             if task.escalated_at is None:
-                group = session.get(ReviewGroupRecord, task.escalation_group_id)
-                if group is None or group.workspace_id != task.workspace_id:
+                group = self.workspace_group(session, task.workspace_id, task.escalation_group_id)
+                if group is None:
                     raise HumanTaskValidation("鍗囩骇瀹℃牳缁勪笉瀛樺湪")
                 task.assignee_group_id = group.id
                 task.assignee_reviewer_id = None
@@ -604,8 +634,8 @@ class HumanTaskService:
             task.assignee_reviewer_id = reviewer_id
             task.status = "瀹℃牳涓?"
         else:
-            group = session.get(ReviewGroupRecord, group_id)
-            if group is None or group.workspace_id != workspace_id:
+            group = self.workspace_group(session, workspace_id, group_id)
+            if group is None:
                 raise HumanTaskValidation("瀹℃牳缁勪笉瀛樺湪")
             task.assignee_group_id = group.id
             task.assignee_reviewer_id = None
@@ -684,7 +714,12 @@ class HumanTaskService:
         modified_version: ArtifactVersionRecord | None = None
         artifact_diff: ArtifactDiffRecord | None = None
         if decision == "modify_and_approve":
-            current_version = session.get(ArtifactVersionRecord, task.artifact_version_id)
+            current_version = session.scalar(
+                select(ArtifactVersionRecord).where(
+                    ArtifactVersionRecord.id == task.artifact_version_id,
+                    ArtifactVersionRecord.workspace_id == workspace_id,
+                ),
+            )
             normalized = (modified_content or "").strip()
             if current_version is None:
                 raise HumanTaskValidation("褰撳墠浜у嚭鐗╃増鏈笉瀛樺湪")
@@ -760,7 +795,12 @@ class HumanTaskService:
             and modified_version is not None
             and artifact_diff is not None
         ):
-            run = session.get(WorkflowRunRecord, task.workflow_run_id)
+            run = session.scalar(
+                select(WorkflowRunRecord).where(
+                    WorkflowRunRecord.id == task.workflow_run_id,
+                    WorkflowRunRecord.workspace_id == workspace_id,
+                ),
+            )
             source_node_run = session.scalar(
                 select(NodeRunRecord)
                 .where(
@@ -840,9 +880,24 @@ class HumanTaskService:
         session: Session,
         candidate: FeedbackCandidateRecord,
     ) -> dict:
-        original = session.get(ArtifactVersionRecord, candidate.original_version_id)
-        modified = session.get(ArtifactVersionRecord, candidate.modified_version_id)
-        diff = session.get(ArtifactDiffRecord, candidate.diff_id)
+        original = session.scalar(
+            select(ArtifactVersionRecord).where(
+                ArtifactVersionRecord.id == candidate.original_version_id,
+                ArtifactVersionRecord.workspace_id == candidate.workspace_id,
+            ),
+        )
+        modified = session.scalar(
+            select(ArtifactVersionRecord).where(
+                ArtifactVersionRecord.id == candidate.modified_version_id,
+                ArtifactVersionRecord.workspace_id == candidate.workspace_id,
+            ),
+        )
+        diff = session.scalar(
+            select(ArtifactDiffRecord).where(
+                ArtifactDiffRecord.id == candidate.diff_id,
+                ArtifactDiffRecord.workspace_id == candidate.workspace_id,
+            ),
+        )
         if original is None or modified is None or diff is None:
             raise RuntimeError("鍙嶉鍊欓€夊叧鑱旂増鏈笉瀹屾暣")
         return {
@@ -882,10 +937,15 @@ class HumanTaskService:
         workspace_id: str,
         candidate_id: str,
     ) -> dict | None:
-        candidate = session.get(FeedbackCandidateRecord, candidate_id)
+        candidate = session.scalar(
+            select(FeedbackCandidateRecord).where(
+                FeedbackCandidateRecord.id == candidate_id,
+                FeedbackCandidateRecord.workspace_id == workspace_id,
+            ),
+        )
         return (
             self.feedback_candidate_payload(session, candidate)
-            if candidate is not None and candidate.workspace_id == workspace_id
+            if candidate is not None
             else None
         )
 
@@ -899,8 +959,13 @@ class HumanTaskService:
         reason: str,
         idempotency_key: str,
     ) -> GoldenSampleRecord:
-        candidate = session.get(FeedbackCandidateRecord, candidate_id)
-        if candidate is None or candidate.workspace_id != workspace_id:
+        candidate = session.scalar(
+            select(FeedbackCandidateRecord).where(
+                FeedbackCandidateRecord.id == candidate_id,
+                FeedbackCandidateRecord.workspace_id == workspace_id,
+            ),
+        )
+        if candidate is None:
             raise HumanTaskValidation("鍙嶉鍊欓€変笉瀛樺湪")
         reviewer = self.active_reviewer(session, reviewer_id, workspace_id)
         if not reviewer.is_expert:
@@ -924,9 +989,24 @@ class HumanTaskService:
         )
         if existing is not None:
             raise HumanTaskConflict("鍙嶉鍊欓€夊凡纭榛勯噾鏍锋湰")
-        modified = session.get(ArtifactVersionRecord, candidate.modified_version_id)
-        run = session.get(WorkflowRunRecord, candidate.workflow_run_id)
-        task = session.get(HumanTaskRecord, candidate.human_task_id)
+        modified = session.scalar(
+            select(ArtifactVersionRecord).where(
+                ArtifactVersionRecord.id == candidate.modified_version_id,
+                ArtifactVersionRecord.workspace_id == workspace_id,
+            ),
+        )
+        run = session.scalar(
+            select(WorkflowRunRecord).where(
+                WorkflowRunRecord.id == candidate.workflow_run_id,
+                WorkflowRunRecord.workspace_id == workspace_id,
+            ),
+        )
+        task = session.scalar(
+            select(HumanTaskRecord).where(
+                HumanTaskRecord.id == candidate.human_task_id,
+                HumanTaskRecord.workspace_id == workspace_id,
+            ),
+        )
         if modified is None or run is None or task is None:
             raise HumanTaskValidation("榛勯噾鏍锋湰鏉ユ簮鏁版嵁涓嶅畬鏁?")
         golden = GoldenSampleRecord(

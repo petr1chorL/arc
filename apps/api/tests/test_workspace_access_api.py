@@ -11,8 +11,11 @@ from app.models import (
     AgentRecord,
     AuditEventRecord,
     Base,
+    FeedbackCandidateRecord,
+    HumanTaskRecord,
     OrganizationRecord,
     UserRecord,
+    WorkflowRunRecord,
     WorkflowRecord,
     WorkflowVersionRecord,
     WorkspaceMembershipRecord,
@@ -414,7 +417,7 @@ def test_post_workspaces_requires_org_admin_creates_workspace_and_membership_and
     denied = client.post(
         "/api/workspaces",
         json={"name": "Builder Workspace", "slug": "builder-workspace"},
-        headers=csrf_headers(client),
+        headers={**csrf_headers(client), "X-Request-ID": "req-denied-workspace"},
     )
     assert denied.status_code == 403
 
@@ -425,13 +428,14 @@ def test_post_workspaces_requires_org_admin_creates_workspace_and_membership_and
         assert denied_event is not None
         assert denied_event.outcome == "denied"
         assert denied_event.workspace_id is None
+        assert denied_event.request_id == "req-denied-workspace"
 
     client.cookies.clear()
     login_admin(client)
     created = client.post(
         "/api/workspaces",
         json={"name": "New Workspace", "slug": "new-workspace"},
-        headers=csrf_headers(client),
+        headers={**csrf_headers(client), "X-Request-ID": "req-success-workspace"},
     )
     assert created.status_code == 201
 
@@ -451,6 +455,7 @@ def test_post_workspaces_requires_org_admin_creates_workspace_and_membership_and
         assert success_event is not None
         assert success_event.outcome == "success"
         assert success_event.workspace_id == workspace_id
+        assert success_event.request_id == "req-success-workspace"
 
 
 def test_legacy_business_paths_are_not_anonymous_compatible_entrypoints(workspace_context):
@@ -499,3 +504,75 @@ def test_successful_asset_mutations_write_success_audit_events(workspace_context
             ),
         )
         assert any(event.outcome == "success" for event in events)
+
+
+def test_cross_workspace_run_human_task_and_feedback_candidate_queries_return_404(workspace_context):
+    client: TestClient = workspace_context["client"]
+    session_factory = workspace_context["session_factory"]
+    workspace_a = workspace_context["workspaces"]["a"]
+    workspace_b = workspace_context["workspaces"]["b"]
+
+    with session_factory() as session:
+        now = datetime(2026, 6, 26, 9, 30, tzinfo=timezone.utc)
+        run = WorkflowRunRecord(
+            workspace_id=workspace_b,
+            kind="workflow",
+            name="Private Run",
+            workflow_id=workspace_context["workflow_id"],
+            workflow_version="v1.0.0",
+            input_text="secret",
+        )
+        session.add(run)
+        session.flush()
+        task = HumanTaskRecord(
+            workspace_id=workspace_b,
+            workflow_run_id=run.id,
+            node_run_id="node-run-b",
+            human_node_id="human-1",
+            source_node_id="agent-1",
+            artifact_version_id="artifact-version-b",
+            title="Private Task",
+            status="pending",
+            assignment_type="group_claim",
+            participant_snapshot=[],
+            review_policy="any_one",
+            required_approvals=1,
+            due_at=now,
+            escalation_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(task)
+        session.flush()
+        candidate = FeedbackCandidateRecord(
+            workspace_id=workspace_b,
+            human_task_id=task.id,
+            decision_id="decision-b",
+            original_version_id="artifact-version-1",
+            modified_version_id="artifact-version-2",
+            diff_id="diff-b",
+            reason="private candidate",
+            tags=[],
+            workflow_run_id=run.id,
+            workflow_id=workspace_context["workflow_id"],
+            agent_id=workspace_context["agents"]["b"],
+            source_node_id="agent-1",
+            created_by="reviewer-b",
+        )
+        session.add(candidate)
+        session.commit()
+        run_id = run.id
+        task_id = task.id
+        candidate_id = candidate.id
+
+    login_client(client, email=workspace_context["users"]["builder"])
+
+    run_response = client.get(workspace_url(workspace_a, f"/runs/{run_id}"))
+    task_response = client.get(workspace_url(workspace_a, f"/human-tasks/{task_id}"))
+    candidate_response = client.get(
+        workspace_url(workspace_a, f"/feedback-candidates/{candidate_id}"),
+    )
+
+    assert run_response.status_code == 404
+    assert task_response.status_code == 404
+    assert candidate_response.status_code == 404

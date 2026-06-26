@@ -382,11 +382,23 @@ class WorkflowResumeService:
         self,
         *,
         session: Session,
+        workspace_id: str,
         task_id: str,
         decision_id: str,
     ) -> HumanTaskRecord:
-        task = session.get(HumanTaskRecord, task_id)
-        decision = session.get(ReviewDecisionRecord, decision_id)
+        task = session.scalar(
+            select(HumanTaskRecord).where(
+                HumanTaskRecord.id == task_id,
+                HumanTaskRecord.workspace_id == workspace_id,
+            ),
+        )
+        decision = session.scalar(
+            select(ReviewDecisionRecord).where(
+                ReviewDecisionRecord.id == decision_id,
+                ReviewDecisionRecord.workspace_id == workspace_id,
+                ReviewDecisionRecord.human_task_id == task_id,
+            ),
+        )
         if task is None or decision is None:
             raise RuntimeError("审核任务或决定不存在")
         existing = session.scalar(
@@ -434,7 +446,12 @@ class WorkflowResumeService:
             request.status = "failed"
             request.error = "工作流恢复失败，请稍后重试"
             task.status = "恢复失败"
-            run = session.get(WorkflowRunRecord, task.workflow_run_id)
+            run = session.scalar(
+                select(WorkflowRunRecord).where(
+                    WorkflowRunRecord.id == task.workflow_run_id,
+                    WorkflowRunRecord.workspace_id == workspace_id,
+                ),
+            )
             if run is not None:
                 run.status = "恢复失败"
                 run.error = request.error
@@ -453,13 +470,16 @@ class WorkflowResumeService:
         self,
         *,
         session: Session,
+        workspace_id: str,
         task_id: str,
     ) -> HumanTaskRecord:
         request = session.scalar(
             select(ResumeRequestRecord)
+            .join(HumanTaskRecord, HumanTaskRecord.id == ResumeRequestRecord.human_task_id)
             .where(
                 ResumeRequestRecord.human_task_id == task_id,
                 ResumeRequestRecord.status == "failed",
+                HumanTaskRecord.workspace_id == workspace_id,
             )
             .order_by(ResumeRequestRecord.created_at.desc()),
         )
@@ -467,6 +487,7 @@ class WorkflowResumeService:
             raise RuntimeError("没有可重试的恢复请求")
         return self.apply_outcome(
             session=session,
+            workspace_id=workspace_id,
             task_id=task_id,
             decision_id=request.decision_id,
         )
@@ -478,9 +499,24 @@ class WorkflowResumeService:
         task: HumanTaskRecord,
         decision: ReviewDecisionRecord,
     ) -> None:
-        run = session.get(WorkflowRunRecord, task.workflow_run_id)
-        human_node_run = session.get(NodeRunRecord, task.node_run_id)
-        artifact_version = session.get(ArtifactVersionRecord, task.artifact_version_id)
+        run = session.scalar(
+            select(WorkflowRunRecord).where(
+                WorkflowRunRecord.id == task.workflow_run_id,
+                WorkflowRunRecord.workspace_id == task.workspace_id,
+            ),
+        )
+        human_node_run = session.scalar(
+            select(NodeRunRecord).where(
+                NodeRunRecord.id == task.node_run_id,
+                NodeRunRecord.workspace_id == task.workspace_id,
+            ),
+        )
+        artifact_version = session.scalar(
+            select(ArtifactVersionRecord).where(
+                ArtifactVersionRecord.id == task.artifact_version_id,
+                ArtifactVersionRecord.workspace_id == task.workspace_id,
+            ),
+        )
         if run is None or human_node_run is None or artifact_version is None:
             raise RuntimeError("恢复执行所需数据不完整")
         now = utc_now()
