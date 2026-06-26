@@ -1445,6 +1445,31 @@ kbd {
   box-shadow: var(--shadow-inset);
 }
 
+.members-reviewer-cell {
+  display: grid;
+  min-width: 210px;
+  gap: 8px;
+}
+
+.members-reviewer-cell input[type='text'],
+.members-reviewer-cell input:not([type]) {
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-inset);
+}
+
+.members-inline-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
 .status-chip {
   display: inline-flex;
   align-items: center;
@@ -1458,6 +1483,11 @@ kbd {
 .status-chip.neutral {
   color: var(--ink);
   background: rgba(101, 121, 168, 0.08);
+}
+
+.status-chip.success {
+  color: #46613d;
+  background: rgba(114, 151, 96, 0.16);
 }
 
 .members-actions {

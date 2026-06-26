@@ -178,6 +178,18 @@ def create_task(
     return client, workspace_id, task, reviewers
 
 
+def test_default_unbound_reviewers_are_inactive(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'default-reviewers.db'}",
+    )
+
+    reviewers = client.get(workspace_url(workspace_id, "/reviewers")).json()
+
+    assert len(reviewers) == 3
+    assert all(reviewer["userId"] is None for reviewer in reviewers)
+    assert all(reviewer["isActive"] is False for reviewer in reviewers)
+
+
 def decision_body(task: dict, reviewer_id: str, decision: str) -> dict:
     return {
         "decision": decision,
@@ -285,10 +297,20 @@ def test_directory_claim_conflict_and_transfer(tmp_path):
     assert conflict.status_code == 409
 
     login_reviewer(client, first["email"])
-    transferred = client.post(
+    legacy_transfer = client.post(
         workspace_url(workspace_id, f"/human-tasks/{task['id']}/transfer"),
         json={
             "reviewerId": second["id"],
+            "reason": "legacy transfer field should be rejected",
+        },
+        headers=csrf_headers(client),
+    )
+    assert legacy_transfer.status_code == 422
+
+    transferred = client.post(
+        workspace_url(workspace_id, f"/human-tasks/{task['id']}/transfer"),
+        json={
+            "targetReviewerId": second["id"],
             "reason": "transfer in test",
         },
         headers=csrf_headers(client),

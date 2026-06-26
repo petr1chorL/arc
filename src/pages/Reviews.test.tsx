@@ -274,7 +274,13 @@ describe('Reviews', () => {
     const transferCall = fetchMock.mock.calls.find(([url]) => (
       url === `/api/workspaces/${workspace.id}/human-tasks/task-1/transfer`
     ))
-    expect(JSON.parse(transferCall?.[1]?.body as string)).not.toHaveProperty('actorId')
+    const transferBody = JSON.parse(transferCall?.[1]?.body as string)
+    expect(transferBody).toEqual(expect.objectContaining({
+      targetReviewerId: 'reviewer-1',
+      reason: '需要质量专家处理',
+    }))
+    expect(transferBody).not.toHaveProperty('reviewerId')
+    expect(transferBody).not.toHaveProperty('actorId')
     const confirmCall = fetchMock.mock.calls.find(([url]) => (
       url === `/api/workspaces/${workspace.id}/feedback-candidates/candidate-1/confirm`
     ))

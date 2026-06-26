@@ -47,7 +47,7 @@ export async function transferHumanTask(
   workspaceId: string,
   taskId: string,
   input: {
-    reviewerId?: string
+    targetReviewerId?: string
     groupId?: string
     reason: string
   },

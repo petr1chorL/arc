@@ -9,6 +9,8 @@ import {
   recordInvitationLinkCopy,
   resendInvitation,
   revokeInvitation,
+  revokeReviewerQualification,
+  saveReviewerQualification,
   updateMemberRole,
 } from './members'
 
@@ -63,6 +65,18 @@ describe('Members API', () => {
       if (url === '/api/workspaces/workspace-1/members/user-1' && init?.method === 'PATCH') {
         return Promise.resolve(new Response(JSON.stringify(member), { status: 200, headers: { 'Content-Type': 'application/json' } }))
       }
+      if (url === '/api/workspaces/workspace-1/members/user-1/reviewer' && init?.method === 'PUT') {
+        return Promise.resolve(new Response(JSON.stringify({
+          ...member,
+          reviewer: { role: '内容审核人', isExpert: true, isActive: true },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      }
+      if (url === '/api/workspaces/workspace-1/members/user-1/reviewer' && init?.method === 'DELETE') {
+        return Promise.resolve(new Response(JSON.stringify({
+          ...member,
+          reviewer: { role: '内容审核人', isExpert: false, isActive: false },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      }
       if (url === '/api/workspaces/workspace-1/members/user-1/disable') {
         return Promise.resolve(new Response(JSON.stringify({ ...member, membershipStatus: 'disabled' }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
       }
@@ -91,6 +105,15 @@ describe('Members API', () => {
     await expect(updateMemberRole('workspace-1', 'user-1', 'operator')).resolves.toMatchObject({
       role: 'operator',
     })
+    await expect(saveReviewerQualification('workspace-1', 'user-1', {
+      role: '内容审核人',
+      isExpert: true,
+    })).resolves.toMatchObject({
+      reviewer: { role: '内容审核人', isExpert: true, isActive: true },
+    })
+    await expect(revokeReviewerQualification('workspace-1', 'user-1')).resolves.toMatchObject({
+      reviewer: { isActive: false },
+    })
     await expect(disableMember('workspace-1', 'user-1')).resolves.toMatchObject({
       membershipStatus: 'disabled',
     })
@@ -102,6 +125,13 @@ describe('Members API', () => {
     })
     await expect(enableUser('workspace-1', 'user-1')).resolves.toMatchObject({
       userStatus: 'active',
+    })
+    const reviewerSaveCall = fetchMock.mock.calls.find(([input, init]) => (
+      input === '/api/workspaces/workspace-1/members/user-1/reviewer' && init?.method === 'PUT'
+    ))
+    expect(JSON.parse(reviewerSaveCall?.[1]?.body as string)).toEqual({
+      role: '内容审核人',
+      isExpert: true,
     })
   })
 })

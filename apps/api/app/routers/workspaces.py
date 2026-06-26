@@ -21,6 +21,7 @@ from app.schemas import (
     InvitationLinkRead,
     MembershipRoleUpdate,
     ReviewerQualificationRead,
+    ReviewerQualificationUpdate,
     WorkspaceCreate,
     WorkspaceMemberRead,
     WorkspaceRead,
@@ -885,6 +886,120 @@ def create_workspaces_router(
             target_id=user.id,
             request=request,
             metadata={"workspaceId": workspace_id},
+            workspace_id=workspace_id,
+        )
+        session.commit()
+        return serialize_member(user, membership, reviewer, invitation)
+
+    @router.put(
+        "/{workspace_id}/members/{user_id}/reviewer",
+        response_model=WorkspaceMemberRead,
+    )
+    def save_reviewer_qualification(
+        workspace_id: str,
+        user_id: str,
+        payload: ReviewerQualificationUpdate,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> WorkspaceMemberRead:
+        context, session = context_bundle
+        membership, user = find_membership(session, workspace_id, user_id)
+        if user.status != "active" or membership.status != "active":
+            raise HTTPException(status_code=409, detail="Reviewer qualification requires an active user and membership")
+        reviewer = session.scalar(
+            select(ReviewerRecord).where(
+                ReviewerRecord.workspace_id == workspace_id,
+                ReviewerRecord.user_id == user_id,
+            ),
+        )
+        action = "reviewer.update" if reviewer else "reviewer.grant"
+        authorization_service.require_capability(
+            session,
+            context,
+            "reviewer.manage",
+            action=action,
+            target_type="reviewer",
+            target_id=reviewer.id if reviewer else user_id,
+            request=request,
+            metadata={"workspaceId": workspace_id, "userId": user_id},
+        )
+        role = payload.role.strip()
+        if reviewer is None:
+            reviewer = ReviewerRecord(
+                workspace_id=workspace_id,
+                user_id=user_id,
+                name=user.display_name,
+                role=role,
+                is_expert=payload.is_expert,
+                is_active=True,
+                created_at=utc_now(),
+            )
+            session.add(reviewer)
+        else:
+            reviewer.name = user.display_name
+            reviewer.role = role
+            reviewer.is_expert = payload.is_expert
+            reviewer.is_active = True
+        session.flush()
+        invitation = latest_invitation_by_user(session, workspace_id).get(user_id)
+        record_success(
+            session,
+            context,
+            action=action,
+            target_type="reviewer",
+            target_id=reviewer.id,
+            request=request,
+            metadata={
+                "userId": user_id,
+                "role": role,
+                "isExpert": payload.is_expert,
+            },
+            workspace_id=workspace_id,
+        )
+        session.commit()
+        return serialize_member(user, membership, reviewer, invitation)
+
+    @router.delete(
+        "/{workspace_id}/members/{user_id}/reviewer",
+        response_model=WorkspaceMemberRead,
+    )
+    def revoke_reviewer_qualification(
+        workspace_id: str,
+        user_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> WorkspaceMemberRead:
+        context, session = context_bundle
+        membership, user = find_membership(session, workspace_id, user_id)
+        reviewer = session.scalar(
+            select(ReviewerRecord).where(
+                ReviewerRecord.workspace_id == workspace_id,
+                ReviewerRecord.user_id == user_id,
+            ),
+        )
+        if reviewer is None:
+            raise HTTPException(status_code=404, detail="Reviewer qualification does not exist")
+        authorization_service.require_capability(
+            session,
+            context,
+            "reviewer.manage",
+            action="reviewer.revoke",
+            target_type="reviewer",
+            target_id=reviewer.id,
+            request=request,
+            metadata={"workspaceId": workspace_id, "userId": user_id},
+        )
+        reviewer.is_active = False
+        reviewer.is_expert = False
+        invitation = latest_invitation_by_user(session, workspace_id).get(user_id)
+        record_success(
+            session,
+            context,
+            action="reviewer.revoke",
+            target_type="reviewer",
+            target_id=reviewer.id,
+            request=request,
+            metadata={"userId": user_id},
             workspace_id=workspace_id,
         )
         session.commit()

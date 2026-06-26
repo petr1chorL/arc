@@ -387,6 +387,79 @@ def test_member_role_change_and_enable_disable_guards(tmp_path):
     assert downgrade_last_admin.status_code == 409
 
 
+def test_reviewer_qualification_grant_update_and_revoke_are_audited(tmp_path):
+    context = create_membership_context(tmp_path)
+    client: TestClient = context["client"]
+    session_factory = context["session_factory"]
+    workspace_id = context["workspace_id"]
+    workspace_admin_id = context["workspace_admin_id"]
+    member_id = context["member_id"]
+
+    login(client, WORKSPACE_ADMIN_EMAIL)
+
+    granted = client.put(
+        f"/api/workspaces/{workspace_id}/members/{workspace_admin_id}/reviewer",
+        json={"role": "质量审核人", "isExpert": False},
+        headers=csrf_headers(client),
+    )
+    assert granted.status_code == 200
+    assert granted.json()["reviewer"] == {
+        "role": "质量审核人",
+        "isExpert": False,
+        "isActive": True,
+    }
+
+    updated = client.put(
+        f"/api/workspaces/{workspace_id}/members/{workspace_admin_id}/reviewer",
+        json={"role": "质量专家", "isExpert": True},
+        headers=csrf_headers(client),
+    )
+    assert updated.status_code == 200
+    assert updated.json()["reviewer"] == {
+        "role": "质量专家",
+        "isExpert": True,
+        "isActive": True,
+    }
+
+    revoked = client.delete(
+        f"/api/workspaces/{workspace_id}/members/{workspace_admin_id}/reviewer",
+        headers=csrf_headers(client),
+    )
+    assert revoked.status_code == 200
+    assert revoked.json()["reviewer"]["isActive"] is False
+    assert revoked.json()["reviewer"]["isExpert"] is False
+
+    disabled = client.post(
+        f"/api/workspaces/{workspace_id}/members/{member_id}/disable",
+        headers=csrf_headers(client),
+    )
+    assert disabled.status_code == 200
+    blocked = client.put(
+        f"/api/workspaces/{workspace_id}/members/{member_id}/reviewer",
+        json={"role": "不可授予", "isExpert": False},
+        headers=csrf_headers(client),
+    )
+    assert blocked.status_code == 409
+
+    with session_factory() as session:
+        events = list(
+            session.scalars(
+                select(AuditEventRecord).where(
+                    AuditEventRecord.action.in_(
+                        ["reviewer.grant", "reviewer.update", "reviewer.revoke"],
+                    ),
+                ).order_by(AuditEventRecord.created_at.asc(), AuditEventRecord.id.asc()),
+            ),
+        )
+        assert [event.action for event in events] == [
+            "reviewer.grant",
+            "reviewer.update",
+            "reviewer.revoke",
+        ]
+        assert all(event.workspace_id == workspace_id for event in events)
+        assert all(event.organization_id is not None for event in events)
+
+
 def test_disabled_user_cannot_be_reinvited_or_reactivated(tmp_path):
     context = create_membership_context(tmp_path)
     client: TestClient = context["client"]

@@ -75,6 +75,7 @@ class HumanTaskService:
                 workspace_id=workspace_id,
                 name="鏋楁檽",
                 role="浜у搧瀹℃牳浜?",
+                is_active=False,
                 created_at=now,
             ),
             ReviewerRecord(
@@ -82,6 +83,7 @@ class HumanTaskService:
                 name="闄堝崜",
                 role="璐ㄩ噺涓撳",
                 is_expert=True,
+                is_active=False,
                 created_at=now + timedelta(microseconds=1),
             ),
             ReviewerRecord(
@@ -89,6 +91,7 @@ class HumanTaskService:
                 name="鍛ㄥ畞",
                 role="瀹℃牳璐熻矗浜?",
                 is_expert=True,
+                is_active=False,
                 created_at=now + timedelta(microseconds=2),
             ),
         ]

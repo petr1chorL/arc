@@ -41,16 +41,17 @@ describe('Human Task API', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     await transferHumanTask(workspaceId, taskId, {
-      reviewerId: 'reviewer-2',
+      targetReviewerId: 'reviewer-2',
       reason: '需要专家处理',
     })
 
     const [, init] = fetchMock.mock.calls[0]
     const body = JSON.parse(init?.body as string)
     expect(body).toEqual({
-      reviewerId: 'reviewer-2',
+      targetReviewerId: 'reviewer-2',
       reason: '需要专家处理',
     })
+    expect(body).not.toHaveProperty('reviewerId')
     expect(body).not.toHaveProperty('actorId')
   })
 

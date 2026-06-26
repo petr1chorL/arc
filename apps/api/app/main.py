@@ -995,7 +995,7 @@ def create_app(
                 context.workspace.id,
                 task_id,
                 actor_reviewer=actor_reviewer,
-                reviewer_id=payload.reviewer_id,
+                reviewer_id=payload.target_reviewer_id,
                 group_id=payload.group_id,
                 reason=payload.reason,
             )

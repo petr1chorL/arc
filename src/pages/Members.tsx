@@ -10,6 +10,8 @@ import {
   recordInvitationLinkCopy,
   resendInvitation,
   revokeInvitation,
+  revokeReviewerQualification,
+  saveReviewerQualification,
   updateMemberRole,
 } from '../api/members'
 import { useWorkspace } from '../auth/workspaceContextState'
@@ -31,6 +33,7 @@ function formatTimestamp(value: string | null) {
 
 function qualificationLabel(member: WorkspaceMember) {
   if (!member.reviewer) return '未授予'
+  if (!member.reviewer.isActive) return '已撤销'
   return member.reviewer.isExpert ? `${member.reviewer.role} · 专家` : member.reviewer.role
 }
 
@@ -38,6 +41,8 @@ export function Members() {
   const { workspace } = useWorkspace()
   const [members, setMembers] = useState<WorkspaceMember[]>([])
   const [draftRoles, setDraftRoles] = useState<Record<string, WorkspaceRole>>({})
+  const [draftReviewerRoles, setDraftReviewerRoles] = useState<Record<string, string>>({})
+  const [draftReviewerExpertFlags, setDraftReviewerExpertFlags] = useState<Record<string, boolean>>({})
   const [isLoading, setIsLoading] = useState(true)
   const [isInviteOpen, setIsInviteOpen] = useState(false)
   const [inviteEmail, setInviteEmail] = useState('')
@@ -55,6 +60,12 @@ export function Members() {
       const nextMembers = await listMembers(workspace.id)
       setMembers(nextMembers)
       setDraftRoles(Object.fromEntries(nextMembers.map((member) => [member.userId, member.role])))
+      setDraftReviewerRoles(Object.fromEntries(
+        nextMembers.map((member) => [member.userId, member.reviewer?.role ?? '']),
+      ))
+      setDraftReviewerExpertFlags(Object.fromEntries(
+        nextMembers.map((member) => [member.userId, member.reviewer?.isExpert ?? false]),
+      ))
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : '成员列表加载失败')
     } finally {
@@ -127,6 +138,46 @@ export function Members() {
       setStatusMessage(`${member.email} 角色已更新。`)
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : '角色更新失败')
+    } finally {
+      setBusyKey('')
+    }
+  }
+
+  async function handleReviewerSave(member: WorkspaceMember) {
+    const nextRole = (draftReviewerRoles[member.userId] ?? member.reviewer?.role ?? '').trim()
+    if (!nextRole) {
+      setSubmitError('请填写审核资格角色')
+      return
+    }
+    setBusyKey(`reviewer:${member.userId}`)
+    setSubmitError('')
+    try {
+      const updated = await saveReviewerQualification(workspace.id, member.userId, {
+        role: nextRole,
+        isExpert: draftReviewerExpertFlags[member.userId] ?? false,
+      })
+      setMembers((current) => current.map((item) => item.userId === member.userId ? updated : item))
+      setDraftReviewerRoles((current) => ({ ...current, [member.userId]: updated.reviewer?.role ?? '' }))
+      setDraftReviewerExpertFlags((current) => ({ ...current, [member.userId]: updated.reviewer?.isExpert ?? false }))
+      setStatusMessage(`${member.email} 审核资格已更新。`)
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : '审核资格更新失败')
+    } finally {
+      setBusyKey('')
+    }
+  }
+
+  async function handleReviewerRevoke(member: WorkspaceMember) {
+    if (!member.reviewer?.isActive) return
+    setBusyKey(`reviewer:${member.userId}`)
+    setSubmitError('')
+    try {
+      const updated = await revokeReviewerQualification(workspace.id, member.userId)
+      setMembers((current) => current.map((item) => item.userId === member.userId ? updated : item))
+      setDraftReviewerExpertFlags((current) => ({ ...current, [member.userId]: false }))
+      setStatusMessage(`${member.email} 审核资格已撤销。`)
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : '审核资格撤销失败')
     } finally {
       setBusyKey('')
     }
@@ -279,7 +330,38 @@ export function Members() {
                     <span className="status-chip neutral">{member.role}</span>
                   </div>
                 </td>
-                <td>{qualificationLabel(member)}</td>
+                <td>
+                  <div className="members-reviewer-cell">
+                    <span className={`status-chip ${member.reviewer?.isActive ? 'success' : 'neutral'}`}>
+                      {qualificationLabel(member)}
+                    </span>
+                    <input
+                      aria-label={`${member.email} 的审核角色`}
+                      value={draftReviewerRoles[member.userId] ?? ''}
+                      placeholder="审核角色"
+                      onChange={(event) => {
+                        setDraftReviewerRoles((current) => ({
+                          ...current,
+                          [member.userId]: event.target.value,
+                        }))
+                      }}
+                    />
+                    <label className="members-inline-toggle">
+                      <input
+                        aria-label={`${member.email} 专家审核`}
+                        type="checkbox"
+                        checked={draftReviewerExpertFlags[member.userId] ?? false}
+                        onChange={(event) => {
+                          setDraftReviewerExpertFlags((current) => ({
+                            ...current,
+                            [member.userId]: event.target.checked,
+                          }))
+                        }}
+                      />
+                      <span>专家</span>
+                    </label>
+                  </div>
+                </td>
                 <td><span className="status-chip neutral">{member.userStatus}</span></td>
                 <td><span className="status-chip neutral">{member.membershipStatus}</span></td>
                 <td>{formatTimestamp(member.lastLoginAt)}</td>
@@ -313,6 +395,24 @@ export function Members() {
                           撤销
                         </button>
                       </>
+                    )}
+                    <button
+                      className="button ghost compact"
+                      aria-label={`保存 ${member.email} 审核资格`}
+                      disabled={busyKey === `reviewer:${member.userId}`}
+                      onClick={() => void handleReviewerSave(member)}
+                    >
+                      保存审核
+                    </button>
+                    {member.reviewer?.isActive && (
+                      <button
+                        className="button ghost compact"
+                        aria-label={`撤销 ${member.email} 审核资格`}
+                        disabled={busyKey === `reviewer:${member.userId}`}
+                        onClick={() => void handleReviewerRevoke(member)}
+                      >
+                        撤销审核
+                      </button>
                     )}
                     <button
                       className="button ghost compact"

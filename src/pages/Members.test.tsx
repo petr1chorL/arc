@@ -102,6 +102,24 @@ describe('Members page', () => {
           headers: { 'Content-Type': 'application/json' },
         }))
       }
+      if (url === `/api/workspaces/${workspace.id}/members/user-1/reviewer` && init?.method === 'PUT') {
+        return Promise.resolve(new Response(JSON.stringify({
+          ...members[0],
+          reviewer: { role: '法务审核人', isExpert: false, isActive: true },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/members/user-1/reviewer` && init?.method === 'DELETE') {
+        return Promise.resolve(new Response(JSON.stringify({
+          ...members[0],
+          reviewer: { role: '法务审核人', isExpert: false, isActive: false },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }))
+      }
       return Promise.reject(new Error(`Unhandled request: ${String(url)}`))
     }))
 
@@ -137,6 +155,22 @@ describe('Members page', () => {
     await waitFor(() => {
       expect(screen.getByLabelText('builder@example.com 的角色')).toHaveValue('operator')
     })
+
+    await user.clear(screen.getByLabelText('builder@example.com 的审核角色'))
+    await user.type(screen.getByLabelText('builder@example.com 的审核角色'), '法务审核人')
+    await user.click(screen.getByLabelText('builder@example.com 专家审核'))
+    await user.click(screen.getByRole('button', { name: '保存 builder@example.com 审核资格' }))
+    expect(await screen.findByText('builder@example.com 审核资格已更新。')).toBeInTheDocument()
+    const reviewerSaveCall = vi.mocked(fetch).mock.calls.find(([input, init]) => (
+      input === `/api/workspaces/${workspace.id}/members/user-1/reviewer` && init?.method === 'PUT'
+    ))
+    expect(JSON.parse(reviewerSaveCall?.[1]?.body as string)).toEqual({
+      role: '法务审核人',
+      isExpert: false,
+    })
+
+    await user.click(screen.getByRole('button', { name: '撤销 builder@example.com 审核资格' }))
+    expect(await screen.findByText('builder@example.com 审核资格已撤销。')).toBeInTheDocument()
   })
 
   it('shows server conflict reasons for resend and updates membership state for disable and enable', async () => {

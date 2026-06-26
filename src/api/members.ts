@@ -66,6 +66,28 @@ export async function updateMemberRole(
   }))
 }
 
+export async function saveReviewerQualification(
+  workspaceId: string,
+  userId: string,
+  input: { role: string; isExpert: boolean },
+): Promise<WorkspaceMember> {
+  return readJson<WorkspaceMember>(await apiFetch(workspacePath(workspaceId, `/members/${userId}/reviewer`), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  }))
+}
+
+export async function revokeReviewerQualification(
+  workspaceId: string,
+  userId: string,
+): Promise<WorkspaceMember> {
+  return readJson<WorkspaceMember>(await apiFetch(
+    workspacePath(workspaceId, `/members/${userId}/reviewer`),
+    { method: 'DELETE' },
+  ))
+}
+
 export async function disableMember(
   workspaceId: string,
   userId: string,

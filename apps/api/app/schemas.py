@@ -97,6 +97,21 @@ class ReviewerQualificationRead(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class ReviewerQualificationUpdate(BaseModel):
+    role: str = Field(min_length=1, max_length=80)
+    is_expert: bool = Field(default=False, alias="isExpert")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    @field_validator("role")
+    @classmethod
+    def reject_blank_role(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("role cannot be blank")
+        return normalized
+
+
 class WorkspaceMemberRead(BaseModel):
     user_id: str = Field(serialization_alias="userId")
     invitation_id: str | None = Field(default=None, serialization_alias="invitationId")
@@ -437,7 +452,7 @@ class HumanTaskClaim(BaseModel):
 
 
 class HumanTaskTransfer(BaseModel):
-    reviewer_id: str | None = Field(default=None, alias="reviewerId")
+    target_reviewer_id: str | None = Field(default=None, alias="targetReviewerId")
     group_id: str | None = Field(default=None, alias="groupId")
     reason: str = Field(min_length=1, max_length=1000)
 

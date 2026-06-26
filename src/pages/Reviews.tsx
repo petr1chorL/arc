@@ -168,7 +168,7 @@ export function Reviews() {
     setError('')
     try {
       const updated = await transferHumanTask(workspace.id, detail.id, {
-        reviewerId: transferReviewerId,
+        targetReviewerId: transferReviewerId,
         reason: transferReason.trim(),
       })
       updateTask(updated)
