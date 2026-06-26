@@ -10,6 +10,7 @@ import {
   Network,
   Search,
   Settings,
+  UsersRound,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
@@ -106,7 +107,7 @@ export function Layout() {
               aria-label="成员与权限"
               className={({ isActive }) => (isActive ? 'nav-item active' : 'nav-item')}
             >
-              <Settings size={18} strokeWidth={1.8} />
+              <UsersRound size={18} strokeWidth={1.8} />
               <span>成员与权限</span>
             </NavLink>
           </CapabilityGuard>
