@@ -27,8 +27,11 @@ import {
   retryHumanTaskResume,
   transferHumanTask,
 } from '../api/humanTasks'
+import { listRuns } from '../api/execution'
 import { StatusBadge } from '../components/StatusBadge'
+import { displayStatus } from '../domain/statusText'
 import type {
+  ExecutionRun,
   FeedbackCandidate,
   HumanTask,
   HumanTaskDecision,
@@ -60,6 +63,7 @@ export function Reviews() {
   const [reviewers, setReviewers] = useState<Reviewer[]>([])
   const [groups, setGroups] = useState<ReviewGroup[]>([])
   const [candidates, setCandidates] = useState<FeedbackCandidate[]>([])
+  const [runs, setRuns] = useState<ExecutionRun[]>([])
   const [selectedId, setSelectedId] = useState('')
   const [statusFilter, setStatusFilter] = useState('全部')
   const [slaFilter, setSlaFilter] = useState('全部')
@@ -77,16 +81,18 @@ export function Reviews() {
   const loadWorkspace = useCallback(async () => {
     setError('')
     try {
-      const [nextTasks, nextReviewers, nextGroups, nextCandidates] = await Promise.all([
+      const [nextTasks, nextReviewers, nextGroups, nextCandidates, nextRuns] = await Promise.all([
         listHumanTasks(workspace.id),
         listReviewers(workspace.id),
         listReviewGroups(workspace.id),
         listFeedbackCandidates(workspace.id),
+        listRuns(workspace.id).catch(() => []),
       ])
       setTasks(nextTasks)
       setReviewers(nextReviewers)
       setGroups(nextGroups)
       setCandidates(nextCandidates)
+      setRuns(nextRuns)
       setSelectedId((current) => (
         nextTasks.some((task) => task.id === current)
           ? current
@@ -155,10 +161,31 @@ export function Reviews() {
     )).length
     : 0
   const pendingFeedbackCount = candidates.filter((candidate) => candidate.status === '待确认').length
+  const latestRun = runs[0]
+  const latestRunStatus = latestRun ? displayStatus(latestRun.status) : '暂无运行'
   const selectedCandidate = candidates.find((candidate) => candidate.humanTaskId === selectedId)
   const selectedGroup = groups.find((group) => group.id === detail?.assigneeGroupId)
   const isTerminal = detail ? terminalStatuses.has(detail.status) : true
   const actionDisabled = isBusy || isTerminal || !hasReviewerQualification
+
+  function getReviewNextStep() {
+    if (!hasReviewerQualification) {
+      return '先在成员与权限中绑定 Reviewer 资格，再运行包含人工审核节点的工作流。'
+    }
+    if (!latestRun) {
+      return '先发布并运行一个包含人工审核节点的工作流。'
+    }
+    if (latestRunStatus === '需介入') {
+      return '最近运行已经进入人工审核，刷新队列或检查当前账号是否具备该任务参与资格。'
+    }
+    if (latestRunStatus === '已完成') {
+      return '最近运行已完成但没有停在人工审核；请检查工作流是否包含并连通 Human 节点。'
+    }
+    if (latestRunStatus === '失败') {
+      return '最近运行失败；先到运行中心查看失败节点，再重新运行。'
+    }
+    return '继续观察最近运行状态，或重新运行包含人工审核节点的工作流。'
+  }
 
   function updateTask(nextTask: HumanTask) {
     setTasks((current) => current.map((task) => (
@@ -320,6 +347,31 @@ export function Reviews() {
           <li>运行已发布工作流，等待状态进入需介入</li>
           <li>回到人工审核页认领任务并提交决定</li>
         </ol>
+        <section className="review-diagnostic-panel" aria-label="人工审核验收诊断">
+          <div className="context-title"><ShieldCheck size={15} /><h3>验收诊断</h3></div>
+          <div className="review-diagnostic-grid">
+            <div>
+              <span>当前账号</span>
+              <strong>{user?.displayName ?? '未登录'}</strong>
+            </div>
+            <div>
+              <span>Reviewer 资格</span>
+              <strong>{hasReviewerQualification ? currentReviewer?.role : '未获得'}</strong>
+            </div>
+            <div>
+              <span>人工任务数量</span>
+              <strong>{tasks.length}</strong>
+            </div>
+            <div>
+              <span>最近运行状态</span>
+              <strong>{latestRunStatus}</strong>
+            </div>
+            <div className="wide">
+              <span>下一步建议</span>
+              <strong>{getReviewNextStep()}</strong>
+            </div>
+          </div>
+        </section>
         <div className="review-empty-grid">
           <div>
             <span>当前 Reviewer 资格</span>

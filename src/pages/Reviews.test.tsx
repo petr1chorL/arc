@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AuthContext, type AuthContextValue } from '../auth/authContext'
@@ -118,6 +118,31 @@ const candidate = {
   confirmedAt: null,
 }
 
+const completedRun = {
+  id: 'run-completed-1',
+  kind: 'workflow',
+  name: '新品研究流程',
+  workflowId: 'workflow-1',
+  workflowVersion: 'v1.0.0',
+  agentId: null,
+  agentVersion: null,
+  status: '已完成',
+  input: '测试',
+  output: '流程已结束，没有进入人工审核。',
+  score: 86,
+  model: '',
+  promptTokens: 0,
+  completionTokens: 0,
+  totalTokens: 0,
+  costUsd: 0,
+  durationMs: 10,
+  currentNode: '流程完成',
+  error: '',
+  startedAt: '2026-06-25T02:00:00Z',
+  completedAt: '2026-06-25T02:00:10Z',
+  nodes: [],
+}
+
 function response(data: unknown, status = 200) {
   return Promise.resolve(new Response(JSON.stringify(data), { status }))
 }
@@ -132,6 +157,7 @@ function baseFetch(url: string, init?: RequestInit) {
   if (url === `/api/workspaces/${workspace.id}/reviewers` && !init?.method) return response(reviewers)
   if (url === `/api/workspaces/${workspace.id}/review-groups` && !init?.method) return response(groups)
   if (url === `/api/workspaces/${workspace.id}/feedback-candidates` && !init?.method) return response([])
+  if (url === `/api/workspaces/${workspace.id}/runs` && !init?.method) return response([completedRun])
   return response({ detail: 'Not Found' }, 404)
 }
 
@@ -140,6 +166,7 @@ function emptyFetch(url: string, init?: RequestInit) {
   if (url === `/api/workspaces/${workspace.id}/reviewers` && !init?.method) return response(reviewers)
   if (url === `/api/workspaces/${workspace.id}/review-groups` && !init?.method) return response(groups)
   if (url === `/api/workspaces/${workspace.id}/feedback-candidates` && !init?.method) return response([])
+  if (url === `/api/workspaces/${workspace.id}/runs` && !init?.method) return response([completedRun])
   return response({ detail: 'Not Found' }, 404)
 }
 
@@ -206,6 +233,24 @@ describe('Reviews', () => {
       'href',
       '/w/ai-capability-center/settings/members',
     )
+  })
+
+  it('diagnoses why the review queue is empty', async () => {
+    vi.stubGlobal('fetch', vi.fn(emptyFetch))
+
+    renderReviews('user-without-reviewer')
+
+    const diagnostics = within(await screen.findByLabelText('人工审核验收诊断'))
+    expect(diagnostics.getByText('当前账号')).toBeInTheDocument()
+    expect(diagnostics.getByText('林晓')).toBeInTheDocument()
+    expect(diagnostics.getByText('Reviewer 资格')).toBeInTheDocument()
+    expect(diagnostics.getByText('未获得')).toBeInTheDocument()
+    expect(diagnostics.getByText('人工任务数量')).toBeInTheDocument()
+    expect(diagnostics.getByText('0')).toBeInTheDocument()
+    expect(diagnostics.getByText('最近运行状态')).toBeInTheDocument()
+    expect(diagnostics.getByText('已完成')).toBeInTheDocument()
+    expect(diagnostics.getByText('下一步建议')).toBeInTheDocument()
+    expect(diagnostics.getByText('先在成员与权限中绑定 Reviewer 资格，再运行包含人工审核节点的工作流。')).toBeInTheDocument()
   })
 
   it('shows review workload metrics and filtered empty guidance', async () => {
