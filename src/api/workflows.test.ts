@@ -20,6 +20,8 @@ const workflow = {
 }
 
 describe('Workflow API', () => {
+  const workspaceId = 'workspace-1'
+
   afterEach(() => {
     vi.unstubAllGlobals()
   })
@@ -41,11 +43,11 @@ describe('Workflow API', () => {
     vi.stubGlobal('fetch', fetchMock)
     const draft = { name: workflow.name, nodes: [], edges: [] }
 
-    await expect(listWorkflows()).resolves.toEqual([workflow])
-    await expect(createWorkflow(draft)).resolves.toEqual(workflow)
-    await expect(updateWorkflow(workflow.id, draft)).resolves.toEqual(workflow)
-    await expect(validateWorkflow(workflow.id)).resolves.toEqual({ valid: true, errors: [] })
-    await expect(publishWorkflow(workflow.id)).resolves.toEqual(version)
-    await expect(listWorkflowVersions(workflow.id)).resolves.toEqual([version])
+    await expect(listWorkflows(workspaceId)).resolves.toEqual([workflow])
+    await expect(createWorkflow(workspaceId, draft)).resolves.toEqual(workflow)
+    await expect(updateWorkflow(workspaceId, workflow.id, draft)).resolves.toEqual(workflow)
+    await expect(validateWorkflow(workspaceId, workflow.id)).resolves.toEqual({ valid: true, errors: [] })
+    await expect(publishWorkflow(workspaceId, workflow.id)).resolves.toEqual(version)
+    await expect(listWorkflowVersions(workspaceId, workflow.id)).resolves.toEqual([version])
   })
 })

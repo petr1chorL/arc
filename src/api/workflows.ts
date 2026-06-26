@@ -3,7 +3,7 @@ import type {
   WorkflowDraft,
   WorkflowVersion,
 } from '../types'
-import { readJson } from './http'
+import { apiFetch, readJson } from './http'
 
 export interface SaveWorkflowInput {
   name: string
@@ -11,12 +11,16 @@ export interface SaveWorkflowInput {
   edges: WorkflowDraft['edges']
 }
 
-export async function listWorkflows(): Promise<WorkflowDraft[]> {
-  return readJson<WorkflowDraft[]>(await fetch('/api/workflows'))
+function workspacePath(workspaceId: string, path = '') {
+  return `/api/workspaces/${workspaceId}/workflows${path}`
 }
 
-export async function createWorkflow(input: SaveWorkflowInput): Promise<WorkflowDraft> {
-  return readJson<WorkflowDraft>(await fetch('/api/workflows', {
+export async function listWorkflows(workspaceId: string): Promise<WorkflowDraft[]> {
+  return readJson<WorkflowDraft[]>(await apiFetch(workspacePath(workspaceId)))
+}
+
+export async function createWorkflow(workspaceId: string, input: SaveWorkflowInput): Promise<WorkflowDraft> {
+  return readJson<WorkflowDraft>(await apiFetch(workspacePath(workspaceId), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -24,28 +28,29 @@ export async function createWorkflow(input: SaveWorkflowInput): Promise<Workflow
 }
 
 export async function updateWorkflow(
+  workspaceId: string,
   workflowId: string,
   input: SaveWorkflowInput,
 ): Promise<WorkflowDraft> {
-  return readJson<WorkflowDraft>(await fetch(`/api/workflows/${workflowId}`, {
+  return readJson<WorkflowDraft>(await apiFetch(workspacePath(workspaceId, `/${workflowId}`), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   }))
 }
 
-export async function validateWorkflow(workflowId: string): Promise<ValidationResult> {
-  return readJson<ValidationResult>(await fetch(`/api/workflows/${workflowId}/validate`, {
+export async function validateWorkflow(workspaceId: string, workflowId: string): Promise<ValidationResult> {
+  return readJson<ValidationResult>(await apiFetch(workspacePath(workspaceId, `/${workflowId}/validate`), {
     method: 'POST',
   }))
 }
 
-export async function publishWorkflow(workflowId: string): Promise<WorkflowVersion> {
-  return readJson<WorkflowVersion>(await fetch(`/api/workflows/${workflowId}/publish`, {
+export async function publishWorkflow(workspaceId: string, workflowId: string): Promise<WorkflowVersion> {
+  return readJson<WorkflowVersion>(await apiFetch(workspacePath(workspaceId, `/${workflowId}/publish`), {
     method: 'POST',
   }))
 }
 
-export async function listWorkflowVersions(workflowId: string): Promise<WorkflowVersion[]> {
-  return readJson<WorkflowVersion[]>(await fetch(`/api/workflows/${workflowId}/versions`))
+export async function listWorkflowVersions(workspaceId: string, workflowId: string): Promise<WorkflowVersion[]> {
+  return readJson<WorkflowVersion[]>(await apiFetch(workspacePath(workspaceId, `/${workflowId}/versions`)))
 }

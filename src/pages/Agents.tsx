@@ -1,6 +1,7 @@
 import { Bot, Boxes, Filter, PencilLine, Plus, Search, Wrench } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useWorkspace } from '../auth/WorkspaceContext'
 import { createAgent, listAgents, type CreateAgentInput } from '../api/agents'
 import { AgentCreateDialog } from '../components/AgentCreateDialog'
 import { StatusBadge } from '../components/StatusBadge'
@@ -14,6 +15,7 @@ function formatUpdatedAt(value: string) {
 }
 
 export function Agents() {
+  const { workspace, workspacePath } = useWorkspace()
   const [query, setQuery] = useState('')
   const [agents, setAgents] = useState<Agent[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -24,13 +26,13 @@ export function Agents() {
     setIsLoading(true)
     setLoadError('')
     try {
-      setAgents(await listAgents())
+      setAgents(await listAgents(workspace.id))
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : 'Agent 加载失败')
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [workspace.id])
 
   useEffect(() => {
     void load()
@@ -47,7 +49,7 @@ export function Agents() {
     : 0
 
   async function handleCreate(input: CreateAgentInput) {
-    const created = await createAgent(input)
+    const created = await createAgent(workspace.id, input)
     setAgents((current) => [created, ...current])
   }
 
@@ -96,12 +98,12 @@ export function Agents() {
               <div className="agent-identity">
                 <div className="agent-symbol"><Bot size={18} /></div>
                 <div>
-                  <Link className="agent-name-link" to={`/agents/${agent.id}`}><strong>{agent.name}</strong></Link>
+                  <Link className="agent-name-link" to={workspacePath(`agents/${agent.id}`)}><strong>{agent.name}</strong></Link>
                   <span>{agent.role}</span>
                   <Link
                     aria-label={`编辑与发布 ${agent.name}`}
                     className="agent-manage-link"
-                    to={`/agents/${agent.id}`}
+                    to={workspacePath(`agents/${agent.id}`)}
                   >
                     <PencilLine size={12} />编辑与发布
                   </Link>

@@ -2,7 +2,14 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { WorkspaceProvider } from '../auth/WorkspaceContext'
 import { AgentDetail } from './AgentDetail'
+
+const workspace = {
+  id: 'workspace-1',
+  slug: 'ai-capability-center',
+  name: 'AI 能力中心',
+}
 
 const agent = {
   id: 'agent-1',
@@ -52,11 +59,13 @@ describe('AgentDetail', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     render(
-      <MemoryRouter initialEntries={['/agents/agent-1']}>
-        <Routes>
-          <Route path="/agents/:agentId" element={<AgentDetail />} />
-        </Routes>
-      </MemoryRouter>,
+      <WorkspaceProvider workspace={workspace}>
+        <MemoryRouter initialEntries={['/w/ai-capability-center/agents/agent-1']}>
+          <Routes>
+            <Route path="/w/ai-capability-center/agents/:agentId" element={<AgentDetail />} />
+          </Routes>
+        </MemoryRouter>
+      </WorkspaceProvider>,
     )
 
     const nameInput = await screen.findByLabelText('名称')
@@ -120,18 +129,20 @@ describe('AgentDetail', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     render(
-      <MemoryRouter initialEntries={['/agents/agent-1']}>
-        <Routes>
-          <Route path="/agents/:agentId" element={<AgentDetail />} />
-        </Routes>
-      </MemoryRouter>,
+      <WorkspaceProvider workspace={workspace}>
+        <MemoryRouter initialEntries={['/w/ai-capability-center/agents/agent-1']}>
+          <Routes>
+            <Route path="/w/ai-capability-center/agents/:agentId" element={<AgentDetail />} />
+          </Routes>
+        </MemoryRouter>
+      </WorkspaceProvider>,
     )
 
     await user.type(await screen.findByLabelText('测试输入'), '分析新需求')
     await user.click(screen.getByRole('button', { name: '运行 Agent' }))
 
     expect(await screen.findByText('这是 Agent 真实执行后返回的结构化结果。')).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledWith('/api/agents/agent-1/test-runs', expect.objectContaining({
+    expect(fetchMock).toHaveBeenCalledWith(`/api/workspaces/${workspace.id}/agents/agent-1/test-runs`, expect.objectContaining({
       method: 'POST',
     }))
   })

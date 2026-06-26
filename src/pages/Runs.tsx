@@ -1,5 +1,6 @@
 import { Play, RefreshCw, Search } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useWorkspace } from '../auth/WorkspaceContext'
 import { listRuns } from '../api/execution'
 import { StatusBadge } from '../components/StatusBadge'
 import type { ExecutionRun, NodeExecution } from '../types'
@@ -14,17 +15,18 @@ function formatTime(value: string) {
 }
 
 export function Runs() {
+  const { workspace } = useWorkspace()
   const [runs, setRuns] = useState<ExecutionRun[]>([])
   const [selectedId, setSelectedId] = useState('')
   const [query, setQuery] = useState('')
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
 
-  async function load() {
+  const load = useCallback(async () => {
     setIsLoading(true)
     setError('')
     try {
-      const nextRuns = await listRuns()
+      const nextRuns = await listRuns(workspace.id)
       setRuns(nextRuns)
       setSelectedId((current) => (
         nextRuns.some((run) => run.id === current) ? current : nextRuns[0]?.id ?? ''
@@ -34,11 +36,11 @@ export function Runs() {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [workspace.id])
 
   useEffect(() => {
     void load()
-  }, [])
+  }, [load])
 
   const filteredRuns = useMemo(() => {
     const keyword = query.trim().toLowerCase()

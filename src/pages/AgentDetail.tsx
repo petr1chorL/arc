@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { useWorkspace } from '../auth/WorkspaceContext'
 import {
   deactivateAgent,
   getAgent,
@@ -32,6 +33,7 @@ function splitValues(value: string) {
 }
 
 export function AgentDetail() {
+  const { workspace, workspacePath } = useWorkspace()
   const { agentId = '' } = useParams()
   const [agent, setAgent] = useState<Agent | null>(null)
   const [versions, setVersions] = useState<AgentVersion[]>([])
@@ -47,8 +49,8 @@ export function AgentDetail() {
   const load = useCallback(async () => {
     try {
       const [nextAgent, nextVersions] = await Promise.all([
-        getAgent(agentId),
-        listAgentVersions(agentId),
+        getAgent(workspace.id, agentId),
+        listAgentVersions(workspace.id, agentId),
       ])
       setAgent(nextAgent)
       setVersions(nextVersions)
@@ -66,7 +68,7 @@ export function AgentDetail() {
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Agent 加载失败')
     }
-  }, [agentId])
+  }, [agentId, workspace.id])
 
   useEffect(() => {
     void load()
@@ -82,7 +84,7 @@ export function AgentDetail() {
     setIsBusy(true)
     setError('')
     try {
-      const saved = await updateAgent(agentId, {
+      const saved = await updateAgent(workspace.id, agentId, {
         ...form,
         tools: splitValues(toolsText),
         skills: splitValues(skillsText),
@@ -101,13 +103,13 @@ export function AgentDetail() {
     setError('')
     try {
       if (form) {
-        await updateAgent(agentId, {
+        await updateAgent(workspace.id, agentId, {
           ...form,
           tools: splitValues(toolsText),
           skills: splitValues(skillsText),
         })
       }
-      const version = await publishAgent(agentId)
+      const version = await publishAgent(workspace.id, agentId)
       setVersions((current) => [version, ...current])
       setAgent((current) => current ? { ...current, version: version.version, status: '在线' } : current)
       setFeedback(`${version.version} 已发布`)
@@ -122,7 +124,7 @@ export function AgentDetail() {
     setIsBusy(true)
     setError('')
     try {
-      setAgent(await deactivateAgent(agentId))
+      setAgent(await deactivateAgent(workspace.id, agentId))
       setFeedback('Agent 已停用')
     } catch (deactivateError) {
       setError(deactivateError instanceof Error ? deactivateError.message : 'Agent 停用失败')
@@ -141,7 +143,7 @@ export function AgentDetail() {
     setError('')
     setRunResult(null)
     try {
-      const result = await runAgent(agentId, {
+      const result = await runAgent(workspace.id, agentId, {
         input,
         version: agent?.version,
       })
@@ -167,7 +169,7 @@ export function AgentDetail() {
     <div className="page-stack asset-detail-page">
       <section className="asset-detail-toolbar">
         <div>
-          <Link className="back-link" to="/agents"><ArrowLeft size={15} />返回 Agent 资产</Link>
+          <Link className="back-link" to={workspacePath('agents')}><ArrowLeft size={15} />返回 Agent 资产</Link>
           <div className="asset-title-line">
             <span className="agent-symbol large"><Bot size={22} /></span>
             <div>

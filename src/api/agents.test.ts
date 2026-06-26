@@ -27,6 +27,8 @@ const apiAgent = {
 }
 
 describe('Agent API', () => {
+  const workspaceId = 'workspace-1'
+
   afterEach(() => {
     vi.unstubAllGlobals()
   })
@@ -39,7 +41,7 @@ describe('Agent API', () => {
       }),
     ))
 
-    await expect(listAgents()).resolves.toEqual([apiAgent])
+    await expect(listAgents(workspaceId)).resolves.toEqual([apiAgent])
   })
 
   it('creates an Agent using the minimum required fields', async () => {
@@ -51,16 +53,17 @@ describe('Agent API', () => {
     )
     vi.stubGlobal('fetch', fetchMock)
 
-    await expect(createAgent({
+    await expect(createAgent(workspaceId, {
       name: apiAgent.name,
       role: apiAgent.role,
       owner: apiAgent.owner,
       model: apiAgent.model,
     })).resolves.toEqual(apiAgent)
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/agents', {
+    const [, init] = fetchMock.mock.calls[0]
+    expect(init).toMatchObject({
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
       body: JSON.stringify({
         name: apiAgent.name,
         role: apiAgent.role,
@@ -68,6 +71,7 @@ describe('Agent API', () => {
         model: apiAgent.model,
       }),
     })
+    expect(new Headers(init?.headers).get('Content-Type')).toBe('application/json')
   })
 
   it('throws an explicit error when the API rejects a request', async () => {
@@ -78,7 +82,7 @@ describe('Agent API', () => {
       }),
     ))
 
-    await expect(createAgent({
+    await expect(createAgent(workspaceId, {
       name: '',
       role: apiAgent.role,
       owner: apiAgent.owner,
@@ -105,8 +109,8 @@ describe('Agent API', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ ...apiAgent, status: '已停用' }), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
-    await expect(getAgent(apiAgent.id)).resolves.toEqual(apiAgent)
-    await expect(updateAgent(apiAgent.id, {
+    await expect(getAgent(workspaceId, apiAgent.id)).resolves.toEqual(apiAgent)
+    await expect(updateAgent(workspaceId, apiAgent.id, {
       name: apiAgent.name,
       role: apiAgent.role,
       owner: apiAgent.owner,
@@ -115,8 +119,8 @@ describe('Agent API', () => {
       tools: ['Web Search'],
       skills: ['竞品分析'],
     })).resolves.toEqual(apiAgent)
-    await expect(listAgentVersions(apiAgent.id)).resolves.toEqual([version])
-    await expect(publishAgent(apiAgent.id)).resolves.toEqual(version)
-    await expect(deactivateAgent(apiAgent.id)).resolves.toMatchObject({ status: '已停用' })
+    await expect(listAgentVersions(workspaceId, apiAgent.id)).resolves.toEqual([version])
+    await expect(publishAgent(workspaceId, apiAgent.id)).resolves.toEqual(version)
+    await expect(deactivateAgent(workspaceId, apiAgent.id)).resolves.toMatchObject({ status: '已停用' })
   })
 })

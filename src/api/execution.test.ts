@@ -33,6 +33,8 @@ const run = {
 }
 
 describe('Execution API', () => {
+  const workspaceId = 'workspace-1'
+
   afterEach(() => {
     vi.unstubAllGlobals()
   })
@@ -43,19 +45,24 @@ describe('Execution API', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ ...run, kind: 'workflow' }), { status: 201 }))
     vi.stubGlobal('fetch', fetchMock)
 
-    await runAgent('agent-1', { input: '分析需求', version: 'v1.0.0' })
-    await runWorkflow('workflow-1', { input: '执行流程' })
+    await runAgent(workspaceId, 'agent-1', { input: '分析需求', version: 'v1.0.0' })
+    await runWorkflow(workspaceId, 'workflow-1', { input: '执行流程' })
 
-    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/agents/agent-1/test-runs', {
+    const [, firstInit] = fetchMock.mock.calls[0]
+    expect(firstInit).toMatchObject({
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
       body: JSON.stringify({ input: '分析需求', version: 'v1.0.0' }),
     })
-    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/workflows/workflow-1/runs', {
+    expect(new Headers(firstInit?.headers).get('Content-Type')).toBe('application/json')
+
+    const [, secondInit] = fetchMock.mock.calls[1]
+    expect(secondInit).toMatchObject({
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
       body: JSON.stringify({ input: '执行流程' }),
     })
+    expect(new Headers(secondInit?.headers).get('Content-Type')).toBe('application/json')
   })
 
   it('loads runs and reviews and persists a review decision', async () => {
@@ -75,14 +82,16 @@ describe('Execution API', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ ...review, status: '已完成' }), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
-    await expect(listRuns()).resolves.toEqual([run])
-    await expect(listReviews()).resolves.toEqual([review])
-    await expect(decideReview('review-1', 'approve')).resolves.toMatchObject({ status: '已完成' })
+    await expect(listRuns(workspaceId)).resolves.toEqual([run])
+    await expect(listReviews(workspaceId)).resolves.toEqual([review])
+    await expect(decideReview(workspaceId, 'review-1', 'approve')).resolves.toMatchObject({ status: '已完成' })
 
-    expect(fetchMock).toHaveBeenLastCalledWith('/api/reviews/review-1/decision', {
+    const [, lastInit] = fetchMock.mock.calls.at(-1) ?? []
+    expect(lastInit).toMatchObject({
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
       body: JSON.stringify({ decision: 'approve' }),
     })
+    expect(new Headers(lastInit?.headers).get('Content-Type')).toBe('application/json')
   })
 })

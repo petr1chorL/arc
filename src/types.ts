@@ -1,6 +1,54 @@
 export type AgentStatus = '在线' | '调试中' | '已停用'
 export type RunStatus = '运行中' | '已完成' | '需介入' | '失败'
 export type ReviewStatus = '待处理' | '处理中' | '已完成' | '已驳回'
+export type WorkspaceRole = 'viewer' | 'operator' | 'builder' | 'workspace_admin'
+export type WorkspaceCapability =
+  | 'asset.read'
+  | 'run.read'
+  | 'audit.read'
+  | 'run.execute'
+  | 'agent.write'
+  | 'agent.publish'
+  | 'workflow.write'
+  | 'workflow.publish'
+  | 'asset.deactivate'
+  | 'member.manage'
+  | 'reviewer.manage'
+  | 'workspace.manage'
+  | 'audit.export'
+
+export interface AuthUser {
+  id: string
+  email: string
+  displayName: string
+  isOrganizationAdmin: boolean
+  lastWorkspaceId?: string | null
+}
+
+export interface AuthSession {
+  user: AuthUser
+}
+
+export interface WorkspaceSummary {
+  id: string
+  organizationId?: string
+  name: string
+  slug: string
+  status?: string
+  createdBy?: string | null
+  createdAt?: string
+  updatedAt?: string
+  role?: WorkspaceRole
+  capabilities?: WorkspaceCapability[]
+  isOrganizationAdmin?: boolean
+}
+
+export interface InvitationPreview {
+  email?: string
+  workspaceName?: string
+  role?: WorkspaceRole
+  expiresAt?: string
+}
 
 export interface Agent {
   id: string

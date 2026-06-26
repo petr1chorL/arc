@@ -36,6 +36,7 @@ import {
   X,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useWorkspace } from '../auth/WorkspaceContext'
 import { listAgentVersions, listAgents } from '../api/agents'
 import {
   createWorkflow,
@@ -110,6 +111,7 @@ interface PublishedAgentOption {
 }
 
 export function Workflows() {
+  const { workspace } = useWorkspace()
   const [nodes, setNodes, onNodesChange] = useNodesState(createDefaultNodes())
   const [edges, setEdges, onEdgesChange] = useEdgesState(createDefaultEdges())
   const [workflows, setWorkflows] = useState<WorkflowDraft[]>([])
@@ -142,16 +144,16 @@ export function Workflows() {
     setSelectedNode(null)
     setFeedback('')
     setErrors([])
-    void listWorkflowVersions(workflow.id).then(setVersions)
-  }, [setEdges, setNodes])
+    void listWorkflowVersions(workspace.id, workflow.id).then(setVersions)
+  }, [setEdges, setNodes, workspace.id])
 
   useEffect(() => {
     async function load() {
       const [savedWorkflows, agents, directoryReviewers, directoryGroups] = await Promise.all([
-        listWorkflows(),
-        listAgents(),
-        listReviewers().catch(() => []),
-        listReviewGroups().catch(() => []),
+        listWorkflows(workspace.id),
+        listAgents(workspace.id),
+        listReviewers(workspace.id).catch(() => []),
+        listReviewGroups(workspace.id).catch(() => []),
       ])
       setReviewers(directoryReviewers)
       setReviewGroups(directoryGroups)
@@ -164,7 +166,7 @@ export function Workflows() {
           .filter((agent) => agent.status !== '已停用')
           .map(async (agent) => ({
             agent,
-            versions: await listAgentVersions(agent.id),
+            versions: await listAgentVersions(workspace.id, agent.id),
           })),
       )
       setAgentOptions(versionGroups.flatMap(({ agent, versions: published }) => (
@@ -176,7 +178,7 @@ export function Workflows() {
       )))
     }
     void load()
-  }, [activateWorkflow])
+  }, [activateWorkflow, workspace.id])
 
   const currentWorkflow = workflows.find((workflow) => workflow.id === currentId)
   const statusText = currentWorkflow
@@ -190,8 +192,8 @@ export function Workflows() {
       const graph = toContractGraph(nodes, edges)
       const input = { name: name.trim() || '未命名工作流', ...graph }
       const saved = currentId
-        ? await updateWorkflow(currentId, input)
-        : await createWorkflow(input)
+        ? await updateWorkflow(workspace.id, currentId, input)
+        : await createWorkflow(workspace.id, input)
       setCurrentId(saved.id)
       setWorkflows((current) => {
         const exists = current.some((workflow) => workflow.id === saved.id)
@@ -207,19 +209,19 @@ export function Workflows() {
     } finally {
       setIsBusy(false)
     }
-  }, [currentId, edges, name, nodes])
+  }, [currentId, edges, name, nodes, workspace.id])
 
   async function publish() {
     const saved = await saveDraft()
     if (!saved) return
     setIsBusy(true)
     try {
-      const validation = await validateWorkflow(saved.id)
+      const validation = await validateWorkflow(workspace.id, saved.id)
       if (!validation.valid) {
         setErrors(validation.errors)
         return
       }
-      const version = await publishWorkflow(saved.id)
+      const version = await publishWorkflow(workspace.id, saved.id)
       setVersions((current) => [version, ...current])
       setWorkflows((current) => current.map((workflow) => (
         workflow.id === saved.id
@@ -244,7 +246,7 @@ export function Workflows() {
     setErrors([])
     setRunResult(null)
     try {
-      const result = await runWorkflow(currentId, {
+      const result = await runWorkflow(workspace.id, currentId, {
         input: runInput.trim(),
         version: currentWorkflow?.version,
       })

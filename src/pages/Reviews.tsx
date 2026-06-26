@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useWorkspace } from '../auth/WorkspaceContext'
 import {
   claimHumanTask,
   confirmFeedbackCandidate,
@@ -49,6 +50,7 @@ function formatTime(value: string) {
 }
 
 export function Reviews() {
+  const { workspace } = useWorkspace()
   const [tasks, setTasks] = useState<HumanTask[]>([])
   const [detail, setDetail] = useState<HumanTaskDetail | null>(null)
   const [reviewers, setReviewers] = useState<Reviewer[]>([])
@@ -73,10 +75,10 @@ export function Reviews() {
     setError('')
     try {
       const [nextTasks, nextReviewers, nextGroups, nextCandidates] = await Promise.all([
-        listHumanTasks(),
-        listReviewers(),
-        listReviewGroups(),
-        listFeedbackCandidates(),
+        listHumanTasks(workspace.id),
+        listReviewers(workspace.id),
+        listReviewGroups(workspace.id),
+        listFeedbackCandidates(workspace.id),
       ])
       setTasks(nextTasks)
       setReviewers(nextReviewers)
@@ -95,7 +97,7 @@ export function Reviews() {
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : '人工任务加载失败')
     }
-  }, [])
+  }, [workspace.id])
 
   useEffect(() => {
     void loadWorkspace()
@@ -107,7 +109,7 @@ export function Reviews() {
       return
     }
     setError('')
-    void getHumanTask(selectedId)
+    void getHumanTask(workspace.id, selectedId)
       .then((nextDetail) => {
         setDetail(nextDetail)
         setEditedContent(nextDetail.artifact.content)
@@ -117,7 +119,7 @@ export function Reviews() {
       .catch((loadError) => {
         setError(loadError instanceof Error ? loadError.message : '人工任务详情加载失败')
       })
-  }, [selectedId])
+  }, [selectedId, workspace.id])
 
   const filteredTasks = useMemo(() => tasks.filter((task) => (
     (statusFilter === '全部' || task.status === statusFilter)
@@ -144,7 +146,7 @@ export function Reviews() {
     setIsBusy(true)
     setError('')
     try {
-      const updated = await claimHumanTask(detail.id, operatorId)
+      const updated = await claimHumanTask(workspace.id, detail.id, operatorId)
       updateTask(updated)
       setDetail((current) => current ? { ...current, ...updated } : current)
       notifyHumanTasksUpdated()
@@ -165,7 +167,7 @@ export function Reviews() {
     setIsBusy(true)
     setError('')
     try {
-      const updated = await transferHumanTask(detail.id, {
+      const updated = await transferHumanTask(workspace.id, detail.id, {
         actorId: operatorId,
         reviewerId: transferReviewerId,
         reason: transferReason.trim(),
@@ -198,7 +200,7 @@ export function Reviews() {
     setIsBusy(true)
     setError('')
     try {
-      const updated = await decideHumanTask(detail.id, {
+      const updated = await decideHumanTask(workspace.id, detail.id, {
         reviewerId: operatorId,
         decision,
         reason: reason.trim(),
@@ -215,7 +217,7 @@ export function Reviews() {
       setMessage('审核决定已提交')
       setReason('')
       setIsEditing(false)
-      setCandidates(await listFeedbackCandidates())
+      setCandidates(await listFeedbackCandidates(workspace.id))
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : '审核决定提交失败')
     } finally {
@@ -228,7 +230,7 @@ export function Reviews() {
     setIsBusy(true)
     setError('')
     try {
-      const updated = await retryHumanTaskResume(detail.id)
+      const updated = await retryHumanTaskResume(workspace.id, detail.id)
       setDetail(updated)
       updateTask(updated)
       notifyHumanTasksUpdated()
@@ -249,7 +251,7 @@ export function Reviews() {
     setIsBusy(true)
     setError('')
     try {
-      await confirmFeedbackCandidate(selectedCandidate.id, {
+      await confirmFeedbackCandidate(workspace.id, selectedCandidate.id, {
         reviewerId: currentOperator.id,
         reason: expertReason.trim(),
         idempotencyKey: `${selectedCandidate.id}:${currentOperator.id}:golden`,

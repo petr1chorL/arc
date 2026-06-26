@@ -1,6 +1,13 @@
 import { render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { WorkspaceProvider } from '../auth/WorkspaceContext'
 import { Runs } from './Runs'
+
+const workspace = {
+  id: 'workspace-1',
+  slug: 'ai-capability-center',
+  name: 'AI 能力中心',
+}
 
 const run = {
   id: 'run-1',
@@ -56,7 +63,11 @@ describe('Runs', () => {
       new Response(JSON.stringify([run]), { status: 200 }),
     ))
 
-    render(<Runs />)
+    render(
+      <WorkspaceProvider workspace={workspace}>
+        <Runs />
+      </WorkspaceProvider>,
+    )
 
     expect(await screen.findByRole('heading', { name: '新品研究流程' })).toBeInTheDocument()
     expect(screen.getAllByText('这是由真实运行记录返回的完整分析结果。')).toHaveLength(2)

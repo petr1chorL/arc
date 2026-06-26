@@ -2,7 +2,14 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { WorkspaceProvider } from '../auth/WorkspaceContext'
 import { Agents } from './Agents'
+
+const workspace = {
+  id: 'workspace-1',
+  slug: 'ai-capability-center',
+  name: 'AI 能力中心',
+}
 
 const existingAgent = {
   id: '6c8c51ec-178c-4517-838c-93b41c0bf1a0',
@@ -46,7 +53,11 @@ describe('Agents page', () => {
       ),
     )
     vi.stubGlobal('fetch', fetchMock)
-    render(<MemoryRouter><Agents /></MemoryRouter>)
+    render(
+      <WorkspaceProvider workspace={workspace}>
+        <MemoryRouter><Agents /></MemoryRouter>
+      </WorkspaceProvider>,
+    )
 
     expect(await screen.findByText('已有 Agent')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '新建 Agent' }))
@@ -65,14 +76,18 @@ describe('Agents page', () => {
       new Response(JSON.stringify([existingAgent]), { status: 200 }),
     ))
 
-    render(<MemoryRouter><Agents /></MemoryRouter>)
+    render(
+      <WorkspaceProvider workspace={workspace}>
+        <MemoryRouter><Agents /></MemoryRouter>
+      </WorkspaceProvider>,
+    )
 
     const manageLink = await screen.findByRole('link', {
       name: '编辑与发布 已有 Agent',
     })
     expect(manageLink).toHaveAttribute(
       'href',
-      `/agents/${existingAgent.id}`,
+      `/w/${workspace.slug}/agents/${existingAgent.id}`,
     )
   })
 })

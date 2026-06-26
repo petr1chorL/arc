@@ -1,7 +1,14 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { WorkspaceProvider } from '../auth/WorkspaceContext'
 import { Reviews } from './Reviews'
+
+const workspace = {
+  id: 'workspace-1',
+  slug: 'ai-capability-center',
+  name: 'AI 能力中心',
+}
 
 const reviewers = [
   { id: 'reviewer-1', name: '林晓', role: '产品审核人', isExpert: false, isActive: true },
@@ -115,16 +122,24 @@ function response(data: unknown, status = 200) {
 }
 
 function baseFetch(url: string, init?: RequestInit) {
-  if (url.startsWith('/api/human-tasks') && !init && url === '/api/human-tasks') {
+  if (url === `/api/workspaces/${workspace.id}/human-tasks` && !init?.method) {
     return response([task])
   }
-  if (url === '/api/human-tasks/task-1' && !init) {
+  if (url === `/api/workspaces/${workspace.id}/human-tasks/task-1` && !init?.method) {
     return response(detail)
   }
-  if (url === '/api/reviewers') return response(reviewers)
-  if (url === '/api/review-groups') return response(groups)
-  if (url === '/api/feedback-candidates') return response([])
+  if (url === `/api/workspaces/${workspace.id}/reviewers` && !init?.method) return response(reviewers)
+  if (url === `/api/workspaces/${workspace.id}/review-groups` && !init?.method) return response(groups)
+  if (url === `/api/workspaces/${workspace.id}/feedback-candidates` && !init?.method) return response([])
   return response({ detail: 'Not Found' }, 404)
+}
+
+function renderReviews() {
+  return render(
+    <WorkspaceProvider workspace={workspace}>
+      <Reviews />
+    </WorkspaceProvider>,
+  )
 }
 
 describe('Reviews', () => {
@@ -135,7 +150,7 @@ describe('Reviews', () => {
   it('renders queue artifact and review context in three panes', async () => {
     vi.stubGlobal('fetch', vi.fn(baseFetch))
 
-    render(<Reviews />)
+    renderReviews()
 
     expect(await screen.findByText('新品定义人工审核')).toBeInTheDocument()
     expect(await screen.findByText(detail.artifact.content)).toBeInTheDocument()
@@ -149,7 +164,7 @@ describe('Reviews', () => {
   it('validates and submits modification with the current artifact version', async () => {
     const user = userEvent.setup()
     const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
-      if (url === '/api/human-tasks/task-1/decisions' && init?.method === 'POST') {
+      if (url === `/api/workspaces/${workspace.id}/human-tasks/task-1/decisions` && init?.method === 'POST') {
         return response({
           ...detail,
           status: '修改后通过',
@@ -165,7 +180,7 @@ describe('Reviews', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    render(<Reviews />)
+    renderReviews()
 
     await screen.findByText(detail.artifact.content)
     await user.click(screen.getByRole('button', { name: '编辑产出物' }))
@@ -180,7 +195,7 @@ describe('Reviews', () => {
 
     expect(await screen.findByText('审核决定已提交')).toBeInTheDocument()
     const decisionCall = fetchMock.mock.calls.find(([url]) => (
-      url === '/api/human-tasks/task-1/decisions'
+      url === `/api/workspaces/${workspace.id}/human-tasks/task-1/decisions`
     ))
     expect(JSON.parse(decisionCall?.[1]?.body as string)).toEqual(expect.objectContaining({
       reviewerId: 'reviewer-1',
@@ -194,14 +209,14 @@ describe('Reviews', () => {
   it('claims transfers and lets an expert confirm a golden sample', async () => {
     const user = userEvent.setup()
     const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
-      if (url === '/api/feedback-candidates') return response([candidate])
-      if (url === '/api/human-tasks/task-1/claim' && init?.method === 'POST') {
+      if (url === `/api/workspaces/${workspace.id}/feedback-candidates`) return response([candidate])
+      if (url === `/api/workspaces/${workspace.id}/human-tasks/task-1/claim` && init?.method === 'POST') {
         return response({ ...task, status: '审核中', assigneeReviewerId: 'reviewer-1' })
       }
-      if (url === '/api/human-tasks/task-1/transfer' && init?.method === 'POST') {
+      if (url === `/api/workspaces/${workspace.id}/human-tasks/task-1/transfer` && init?.method === 'POST') {
         return response({ ...task, status: '审核中', assigneeReviewerId: 'reviewer-2' })
       }
-      if (url === '/api/feedback-candidates/candidate-1/confirm' && init?.method === 'POST') {
+      if (url === `/api/workspaces/${workspace.id}/feedback-candidates/candidate-1/confirm` && init?.method === 'POST') {
         return response({
           id: 'golden-1',
           candidateId: candidate.id,
@@ -216,7 +231,7 @@ describe('Reviews', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    render(<Reviews />)
+    renderReviews()
 
     await screen.findByText('新品定义人工审核')
     await screen.findByText(detail.artifact.content)
@@ -234,7 +249,7 @@ describe('Reviews', () => {
     await user.click(screen.getByRole('button', { name: '确认黄金样本' }))
     expect(await screen.findByText('黄金样本已创建')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/feedback-candidates/candidate-1/confirm',
+      `/api/workspaces/${workspace.id}/feedback-candidates/candidate-1/confirm`,
       expect.objectContaining({ method: 'POST' }),
     )
   })
@@ -243,7 +258,7 @@ describe('Reviews', () => {
     const user = userEvent.setup()
     vi.stubGlobal('fetch', vi.fn(baseFetch))
 
-    render(<Reviews />)
+    renderReviews()
 
     await screen.findByText(detail.artifact.content)
     const queueTab = screen.getByRole('button', { name: '队列' })

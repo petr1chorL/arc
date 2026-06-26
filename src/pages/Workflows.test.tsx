@@ -1,7 +1,15 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { WorkspaceProvider } from '../auth/WorkspaceContext'
 import { Workflows } from './Workflows'
+
+const workspace = {
+  id: 'workspace-1',
+  slug: 'ai-capability-center',
+  name: 'AI 能力中心',
+}
 
 vi.mock('@xyflow/react', async () => {
   const actual = await vi.importActual<typeof import('@xyflow/react')>('@xyflow/react')
@@ -23,7 +31,7 @@ vi.mock('@xyflow/react', async () => {
         targetHandle: null
       }) => void
       onNodeClick?: (event: unknown, node: unknown) => void
-      children?: React.ReactNode
+      children?: ReactNode
     }) => (
       <div>
         <output data-testid="edge-count">{edges.length}</output>
@@ -84,6 +92,14 @@ const workflow = {
   updatedAt: '2026-06-24T07:00:00Z',
 }
 
+function renderWorkflows() {
+  return render(
+    <WorkspaceProvider workspace={workspace}>
+      <Workflows />
+    </WorkspaceProvider>,
+  )
+}
+
 describe('Workflows', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
@@ -120,11 +136,11 @@ describe('Workflows', () => {
       completedAt: '2026-06-24T08:00:01Z',
       nodes: [],
     }
-    const fetchMock = vi.fn().mockImplementation((url: string) => {
-      if (url === '/api/workflows') {
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === `/api/workspaces/${workspace.id}/workflows` && !init?.method) {
         return Promise.resolve(new Response(JSON.stringify([workflow]), { status: 200 }))
       }
-      if (url === '/api/agents') {
+      if (url === `/api/workspaces/${workspace.id}/agents` && !init?.method) {
         return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
       }
       if (url.endsWith('/versions')) {
@@ -137,14 +153,14 @@ describe('Workflows', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    render(<Workflows />)
+    renderWorkflows()
 
     await user.click(await screen.findByRole('button', { name: '运行工作流' }))
     await user.type(screen.getByLabelText('运行输入'), '分析新品机会')
     await user.click(screen.getByRole('button', { name: '开始运行' }))
 
     expect(await screen.findByText('工作流真实执行完成并生成了结构化结果。')).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledWith('/api/workflows/workflow-1/runs', expect.objectContaining({
+    expect(fetchMock).toHaveBeenCalledWith(`/api/workspaces/${workspace.id}/workflows/workflow-1/runs`, expect.objectContaining({
       method: 'POST',
     }))
   })
@@ -177,29 +193,29 @@ describe('Workflows', () => {
       },
     ]
     const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
-      if (url === '/api/workflows' && !init) {
+      if (url === `/api/workspaces/${workspace.id}/workflows` && !init?.method) {
         return Promise.resolve(new Response(JSON.stringify([workflow]), { status: 200 }))
       }
-      if (url === '/api/agents') {
+      if (url === `/api/workspaces/${workspace.id}/agents` && !init?.method) {
         return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
       }
-      if (url === '/api/reviewers') {
+      if (url === `/api/workspaces/${workspace.id}/reviewers` && !init?.method) {
         return Promise.resolve(new Response(JSON.stringify(reviewers), { status: 200 }))
       }
-      if (url === '/api/review-groups') {
+      if (url === `/api/workspaces/${workspace.id}/review-groups` && !init?.method) {
         return Promise.resolve(new Response(JSON.stringify(groups), { status: 200 }))
       }
       if (url.endsWith('/versions')) {
         return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
       }
-      if (url === '/api/workflows/workflow-1' && init?.method === 'PATCH') {
+      if (url === `/api/workspaces/${workspace.id}/workflows/workflow-1` && init?.method === 'PATCH') {
         return Promise.resolve(new Response(JSON.stringify(workflow), { status: 200 }))
       }
       return Promise.resolve(new Response('{}', { status: 404 }))
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    render(<Workflows />)
+    renderWorkflows()
 
     await user.click(await screen.findByTestId('flow-node-human-1'))
     await user.selectOptions(screen.getByLabelText('分配方式'), 'round_robin')
@@ -215,7 +231,7 @@ describe('Workflows', () => {
     await user.click(screen.getByRole('button', { name: '保存草稿' }))
 
     const patchCall = fetchMock.mock.calls.find(([url, init]) => (
-      url === '/api/workflows/workflow-1' && init?.method === 'PATCH'
+      url === `/api/workspaces/${workspace.id}/workflows/workflow-1` && init?.method === 'PATCH'
     ))
     const body = JSON.parse(patchCall?.[1]?.body as string)
     expect(body.nodes[0].data).toEqual(expect.objectContaining({
@@ -237,20 +253,23 @@ describe('Workflows', () => {
       disconnect() {}
     })
     const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
-      if (url === '/api/workflows' && !init) {
+      if (url === `/api/workspaces/${workspace.id}/workflows` && !init?.method) {
         return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
       }
-      if (url === '/api/agents') {
+      if (url === `/api/workspaces/${workspace.id}/agents` && !init?.method) {
         return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
       }
-      if (url === '/api/reviewers' || url === '/api/review-groups') {
+      if (
+        url === `/api/workspaces/${workspace.id}/reviewers`
+        || url === `/api/workspaces/${workspace.id}/review-groups`
+      ) {
         return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
       }
       return Promise.resolve(new Response('{}', { status: 404 }))
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    render(<Workflows />)
+    renderWorkflows()
 
     const triggerButton = await screen.findByRole('button', {
       name: '添加手动触发节点',
@@ -275,14 +294,17 @@ describe('Workflows', () => {
       unobserve() {}
       disconnect() {}
     })
-    const fetchMock = vi.fn().mockImplementation((url: string) => {
-      if (url === '/api/workflows') {
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === `/api/workspaces/${workspace.id}/workflows` && !init?.method) {
         return Promise.resolve(new Response(JSON.stringify([workflow]), { status: 200 }))
       }
-      if (url === '/api/agents') {
+      if (url === `/api/workspaces/${workspace.id}/agents` && !init?.method) {
         return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
       }
-      if (url === '/api/reviewers' || url === '/api/review-groups') {
+      if (
+        url === `/api/workspaces/${workspace.id}/reviewers`
+        || url === `/api/workspaces/${workspace.id}/review-groups`
+      ) {
         return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
       }
       if (url.endsWith('/versions')) {
@@ -292,7 +314,7 @@ describe('Workflows', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    render(<Workflows />)
+    renderWorkflows()
 
     await screen.findByTestId('flow-node-human-1')
     expect(screen.getByTestId('edge-count')).toHaveTextContent('0')
@@ -331,33 +353,36 @@ describe('Workflows', () => {
       edges: [],
     }
     const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
-      if (url === '/api/workflows' && !init) {
+      if (url === `/api/workspaces/${workspace.id}/workflows` && !init?.method) {
         return Promise.resolve(new Response(JSON.stringify([disconnectedWorkflow]), { status: 200 }))
       }
-      if (url === '/api/agents') {
+      if (url === `/api/workspaces/${workspace.id}/agents` && !init?.method) {
         return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
       }
-      if (url === '/api/reviewers' || url === '/api/review-groups') {
+      if (
+        url === `/api/workspaces/${workspace.id}/reviewers`
+        || url === `/api/workspaces/${workspace.id}/review-groups`
+      ) {
         return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
       }
       if (url.endsWith('/versions')) {
         return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
       }
-      if (url === '/api/workflows/workflow-1' && init?.method === 'PATCH') {
+      if (url === `/api/workspaces/${workspace.id}/workflows/workflow-1` && init?.method === 'PATCH') {
         return Promise.resolve(new Response(JSON.stringify(disconnectedWorkflow), { status: 200 }))
       }
       return Promise.resolve(new Response('{}', { status: 404 }))
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    render(<Workflows />)
+    renderWorkflows()
 
     await screen.findByTestId('flow-node-start')
     await user.click(screen.getByTestId('connect-first-two'))
     await user.click(screen.getByRole('button', { name: '保存草稿' }))
 
     const patchCall = fetchMock.mock.calls.find(([url, init]) => (
-      url === '/api/workflows/workflow-1' && init?.method === 'PATCH'
+      url === `/api/workspaces/${workspace.id}/workflows/workflow-1` && init?.method === 'PATCH'
     ))
     const body = JSON.parse(patchCall?.[1]?.body as string)
     expect(body.edges).toEqual([
