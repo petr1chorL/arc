@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     invitation_hours: PositiveInt = 72
     login_max_failures: PositiveInt = 5
     login_lock_minutes: PositiveInt = 15
+    allowed_origins: tuple[str, ...] = (
+        "http://127.0.0.1:4173",
+        "http://localhost:4173",
+    )
     cookie_secure: bool = False
     model_api_key: str = ""
     model_base_url: str = "https://api.deepseek.com"

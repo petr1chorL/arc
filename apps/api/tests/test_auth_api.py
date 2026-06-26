@@ -1032,6 +1032,19 @@ def test_login_rejects_cross_origin_and_allows_same_origin(client):
     assert allowed.status_code == 200
 
 
+def test_login_allows_configured_local_frontend_origin(client):
+    response = client.post(
+        "/api/auth/login",
+        headers={
+            "Host": "127.0.0.1:8000",
+            "Origin": "http://127.0.0.1:4173",
+        },
+        json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD},
+    )
+
+    assert response.status_code == 200
+
+
 def test_authentication_service_stores_only_token_digests(tmp_path, clock):
     engine, session_factory = create_database(
         f"sqlite:///{tmp_path / 'digests.db'}",

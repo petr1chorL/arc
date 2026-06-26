@@ -114,8 +114,10 @@ def create_auth_router(
         origin = request.headers.get("origin")
         if origin is None:
             return
+        normalized_origin = origin.rstrip("/")
         expected = f"{request.url.scheme}://{request.headers.get('host', '')}"
-        if origin.rstrip("/") != expected:
+        allowed_origins = {item.rstrip("/") for item in settings.allowed_origins}
+        if normalized_origin != expected and normalized_origin not in allowed_origins:
             raise HTTPException(status_code=403, detail="Origin 校验失败")
 
     def require_invitation_rate_limit(
