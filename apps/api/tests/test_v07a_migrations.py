@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session
 
@@ -637,12 +639,26 @@ def test_pre_authentication_audit_event_can_remain_without_workspace(tmp_path):
     migrate_twice(engine)
 
     with Session(engine) as session:
+        organization_id = session.execute(
+            text(
+                "SELECT organization_id FROM audit_events "
+                "WHERE id = 'audit-login-failed'"
+            ),
+        ).scalar_one()
+        actor_user_id = session.execute(
+            text(
+                "SELECT actor_user_id FROM audit_events "
+                "WHERE id = 'audit-login-failed'"
+            ),
+        ).scalar_one()
         workspace_id = session.execute(
             text(
                 "SELECT workspace_id FROM audit_events "
                 "WHERE id = 'audit-login-failed'"
             ),
         ).scalar_one()
+        assert organization_id is None
+        assert actor_user_id is None
         assert workspace_id is None
 
 
@@ -737,9 +753,44 @@ def test_legacy_audit_events_become_platform_compatible(tmp_path):
         connection.execute(
             text(
                 """
+                CREATE TABLE reviewers (
+                    id VARCHAR(36) PRIMARY KEY,
+                    name VARCHAR(80) NOT NULL,
+                    role VARCHAR(80) NOT NULL,
+                    is_expert BOOLEAN NOT NULL,
+                    is_active BOOLEAN NOT NULL,
+                    created_at DATETIME NOT NULL
+                )
+                """
+            ),
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO reviewers VALUES (
+                    'reviewer-1', 'Legacy Reviewer', '质量专家', 1, 1,
+                    CURRENT_TIMESTAMP
+                )
+                """
+            ),
+        )
+        connection.execute(
+            text(
+                """
                 INSERT INTO audit_events VALUES (
                     'audit-task', 'task-1', 'task_created', 'system', '',
                     '', 'pending', '{}', CURRENT_TIMESTAMP
+                )
+                """
+            ),
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO audit_events VALUES (
+                    'audit-task-reviewer', 'task-1', 'task_created',
+                    'reviewer-1', '', '', 'pending', '{}',
+                    CURRENT_TIMESTAMP
                 )
                 """
             ),
@@ -766,13 +817,35 @@ def test_legacy_audit_events_become_platform_compatible(tmp_path):
         "ip_address",
         "metadata",
     } <= audit_columns.keys()
+    audit_indexes = inspect(engine).get_indexes("audit_events")
+    assert {
+        "ix_audit_events_workspace_id",
+        "ix_audit_events_organization_id",
+        "ix_audit_events_human_task_id",
+        "ix_audit_events_actor_user_id",
+        "ix_audit_events_session_id",
+        "ix_audit_events_action",
+        "ix_audit_events_target_type",
+        "ix_audit_events_target_id",
+        "ix_audit_events_outcome",
+        "ix_audit_events_request_id",
+    } <= {index["name"] for index in audit_indexes}
 
     with Session(engine) as session:
+        organization = session.scalar(select(OrganizationRecord))
+        reviewer = session.get(ReviewerRecord, "reviewer-1")
         old_event = session.get(AuditEventRecord, "audit-task")
+        reviewer_event = session.get(AuditEventRecord, "audit-task-reviewer")
         assert old_event is not None
         assert old_event.human_task_id == "task-1"
         assert old_event.event_type == "task_created"
         assert old_event.workspace_id is not None
+        assert old_event.organization_id == organization.id
+        assert old_event.actor_user_id is None
+        assert reviewer_event is not None
+        assert reviewer_event.organization_id == organization.id
+        assert reviewer is not None
+        assert reviewer_event.actor_user_id == reviewer.user_id
 
         platform_event = AuditEventRecord(
             human_task_id=None,
@@ -795,6 +868,7 @@ def test_legacy_audit_events_become_platform_compatible(tmp_path):
     with Session(engine) as session:
         platform_event = session.get(AuditEventRecord, event_id)
         old_event = session.get(AuditEventRecord, "audit-task")
+        reviewer_event = session.get(AuditEventRecord, "audit-task-reviewer")
         assert platform_event is not None
         assert platform_event.human_task_id is None
         assert platform_event.workspace_id is None
@@ -802,3 +876,18 @@ def test_legacy_audit_events_become_platform_compatible(tmp_path):
         assert platform_event.event_metadata == {"method": "password"}
         assert old_event is not None
         assert old_event.human_task_id == "task-1"
+        assert reviewer_event is not None
+        assert reviewer_event.actor_user_id is not None
+
+
+def test_ensure_current_schema_skips_non_sqlite_schema_creation(monkeypatch):
+    fake_engine = SimpleNamespace(
+        dialect=SimpleNamespace(name="postgresql"),
+    )
+
+    def explode(*args, **kwargs):
+        raise AssertionError("create_all should not run for non-SQLite engines")
+
+    monkeypatch.setattr(Base.metadata, "create_all", explode)
+
+    ensure_current_schema(fake_engine)

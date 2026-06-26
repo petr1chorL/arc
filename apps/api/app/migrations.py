@@ -105,6 +105,18 @@ AUDIT_EVENT_LEGACY_NULLABLE_COLUMNS = (
     "event_type",
     "actor_id",
 )
+AUDIT_EVENT_PLATFORM_INDEX_COLUMNS = (
+    ("workspace_id", "ix_audit_events_workspace_id"),
+    ("organization_id", "ix_audit_events_organization_id"),
+    ("human_task_id", "ix_audit_events_human_task_id"),
+    ("actor_user_id", "ix_audit_events_actor_user_id"),
+    ("session_id", "ix_audit_events_session_id"),
+    ("action", "ix_audit_events_action"),
+    ("target_type", "ix_audit_events_target_type"),
+    ("target_id", "ix_audit_events_target_id"),
+    ("outcome", "ix_audit_events_outcome"),
+    ("request_id", "ix_audit_events_request_id"),
+)
 
 
 def ensure_columns(
@@ -200,10 +212,30 @@ def _rebuild_audit_events_for_platform_schema(engine: Engine) -> None:
         )
 
 
+def _restore_audit_event_platform_indexes(engine: Engine) -> None:
+    inspector = inspect(engine)
+    if "audit_events" not in inspector.get_table_names():
+        return
+    existing_indexes = {
+        index["name"] for index in inspector.get_indexes("audit_events")
+    }
+    with engine.begin() as connection:
+        for column_name, index_name in AUDIT_EVENT_PLATFORM_INDEX_COLUMNS:
+            if index_name in existing_indexes:
+                continue
+            connection.execute(
+                text(
+                    f'CREATE INDEX "{index_name}" '
+                    f'ON audit_events ("{column_name}")'
+                ),
+            )
+
+
 def ensure_audit_event_platform_schema(engine: Engine) -> None:
     ensure_columns(engine, "audit_events", AUDIT_EVENT_PLATFORM_COLUMNS)
     if _audit_events_need_nullable_rebuild(engine):
         _rebuild_audit_events_for_platform_schema(engine)
+    _restore_audit_event_platform_indexes(engine)
 
 
 def ensure_default_workspace(
@@ -363,6 +395,39 @@ def _backfill_legacy_reviewer_users(
                 "user_id": user_id,
             },
         )
+
+
+def _backfill_legacy_audit_events(
+    connection: Connection,
+    *,
+    organization_id: str,
+) -> None:
+    connection.execute(
+        text(
+            """
+            UPDATE audit_events
+            SET organization_id = :organization_id
+            WHERE organization_id IS NULL
+              AND human_task_id IS NOT NULL
+            """
+        ),
+        {"organization_id": organization_id},
+    )
+    connection.execute(
+        text(
+            """
+            UPDATE audit_events
+            SET actor_user_id = (
+                SELECT reviewers.user_id
+                FROM reviewers
+                WHERE reviewers.id = audit_events.actor_id
+            )
+            WHERE actor_user_id IS NULL
+              AND human_task_id IS NOT NULL
+              AND actor_id IS NOT NULL
+            """
+        ),
+    )
 
 
 def backfill_v07a_workspace(engine: Engine) -> None:
@@ -550,12 +615,16 @@ def backfill_v07a_workspace(engine: Engine) -> None:
             organization_id=organization_id,
             now=now,
         )
+        _backfill_legacy_audit_events(
+            connection,
+            organization_id=organization_id,
+        )
 
 
 def ensure_current_schema(engine: Engine) -> None:
-    Base.metadata.create_all(engine)
     if engine.dialect.name != "sqlite":
         return
+    Base.metadata.create_all(engine)
     ensure_columns(
         engine,
         "agents",
