@@ -166,8 +166,9 @@ export function Reviews() {
   const selectedCandidate = candidates.find((candidate) => candidate.humanTaskId === selectedId)
   const selectedGroup = groups.find((group) => group.id === detail?.assigneeGroupId)
   const isTerminal = detail ? terminalStatuses.has(detail.status) : true
-  const actionDisabled = isBusy || isTerminal || !hasReviewerQualification
-  const currentTaskPermission = detail ? getCurrentTaskPermission() : ''
+  const canHandleCurrentTask = detail ? canCurrentReviewerHandleTask() : false
+  const actionDisabled = isBusy || !canHandleCurrentTask
+  const currentTaskPermission = detail ? getCurrentTaskPermission() : null
 
   function getReviewNextStep() {
     if (!hasReviewerQualification) {
@@ -188,21 +189,56 @@ export function Reviews() {
     return '继续观察最近运行状态，或重新运行包含人工审核节点的工作流。'
   }
 
+  function canCurrentReviewerHandleTask() {
+    return Boolean(
+      detail
+      && currentReviewer
+      && !isTerminal
+      && (!detail.assigneeReviewerId || detail.assigneeReviewerId === currentReviewer.id)
+      && detail.participantSnapshot.includes(currentReviewer.id),
+    )
+  }
+
   function getCurrentTaskPermission() {
-    if (!detail) return ''
+    if (!detail) return null
     if (!hasReviewerQualification) {
-      return '当前账号未绑定 Reviewer 资格，所以不能认领任务或提交审核决定。'
+      return {
+        tone: 'blocked',
+        status: '不能处理',
+        reason: '当前账号未绑定 Reviewer 资格，所以不能认领任务或提交审核决定。',
+        nextStep: '先到成员与权限页绑定当前账号 Reviewer 资格。',
+      }
     }
     if (isTerminal) {
-      return '当前任务已进入终态，只能查看审计记录和产出物。'
+      return {
+        tone: 'neutral',
+        status: '只能查看',
+        reason: '当前任务已进入终态，不能再次提交审核决定。',
+        nextStep: '查看审计时间线或切换其他待处理任务。',
+      }
     }
     if (detail.assigneeReviewerId && detail.assigneeReviewerId !== currentReviewer?.id) {
-      return '当前任务已分配给其他审核人，你可以先转交或等待对方处理。'
+      return {
+        tone: 'blocked',
+        status: '不能处理',
+        reason: '当前任务已分配给其他审核人。',
+        nextStep: '请等待对方处理，或由有权限的人先完成任务转交。',
+      }
     }
     if (currentReviewer && !detail.participantSnapshot.includes(currentReviewer.id)) {
-      return '当前 Reviewer 不在该任务参与范围内，不能认领或提交决定。'
+      return {
+        tone: 'blocked',
+        status: '不能处理',
+        reason: '当前 Reviewer 不在该任务参与范围内，不能认领或提交决定。',
+        nextStep: '把当前账号加入该 Human 节点的审核人或审核组后，再回到这里处理。',
+      }
     }
-    return '当前账号可以处理该任务。'
+    return {
+      tone: 'ready',
+      status: '可以处理',
+      reason: '当前账号在任务参与范围内，可以认领或提交审核决定。',
+      nextStep: '填写审核原因后，选择通过、驳回、退回重跑或修改后通过。',
+    }
   }
 
   function updateTask(nextTask: HumanTask) {
@@ -543,12 +579,18 @@ export function Reviews() {
                     : '未获得 Reviewer 资格'}
                 </small>
               </div>
-              <div className="review-permission-note" aria-label="当前任务权限">
-                <span>当前任务权限</span>
-                <strong>{currentTaskPermission}</strong>
-              </div>
+              {currentTaskPermission && (
+                <div className={`review-permission-note ${currentTaskPermission.tone}`} aria-label="当前任务权限">
+                  <span>当前任务权限</span>
+                  <div>
+                    <strong>{currentTaskPermission.status}</strong>
+                    <p>{currentTaskPermission.reason}</p>
+                    <small>{currentTaskPermission.nextStep}</small>
+                  </div>
+                </div>
+              )}
               {!detail.assigneeReviewerId && !isTerminal && (
-                <button className="button secondary" disabled={isBusy || !hasReviewerQualification} onClick={() => void claim()}>
+                <button className="button secondary" disabled={actionDisabled} onClick={() => void claim()}>
                   <UserCheck size={15} />认领任务
                 </button>
               )}

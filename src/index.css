@@ -2410,6 +2410,72 @@ kbd {
   font-size: 9px;
 }
 
+.review-permission-note {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-column: 1 / -1;
+  grid-row: 2;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 11px 13px;
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow-in);
+}
+
+.review-permission-note > span {
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.review-permission-note > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.review-permission-note strong {
+  width: fit-content;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.review-permission-note p,
+.review-permission-note small {
+  margin: 0;
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.review-permission-note p {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.review-permission-note small {
+  color: var(--muted);
+}
+
+.review-permission-note.blocked strong {
+  color: var(--red);
+  background: var(--red-soft);
+}
+
+.review-permission-note.ready strong {
+  color: var(--teal);
+  background: var(--teal-soft);
+}
+
+.review-permission-note.neutral strong {
+  color: var(--blue);
+  background: var(--blue-soft);
+}
+
 .review-filters select,
 .review-operator-bar select,
 .context-section select,
@@ -2517,13 +2583,18 @@ kbd {
 }
 
 .review-operator-bar {
-  display: flex;
-  min-height: 58px;
-  align-items: end;
-  justify-content: space-between;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  align-items: center;
+  gap: 12px;
   padding: 11px 17px;
   border-bottom: 1px solid var(--soft-line);
+}
+
+.review-operator-bar > .button {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
 }
 
 .review-operator-bar label {
@@ -2815,6 +2886,22 @@ kbd {
   .review-pane.mobile-active {
     display: flex;
     flex-direction: column;
+  }
+
+  .review-operator-bar {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .review-operator-bar > .button {
+    grid-column: 1;
+    grid-row: auto;
+    justify-self: start;
+  }
+
+  .review-permission-note {
+    grid-template-columns: 1fr;
+    grid-row: auto;
   }
 
   .review-task-list {

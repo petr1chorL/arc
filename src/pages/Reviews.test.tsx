@@ -348,7 +348,7 @@ describe('Reviews', () => {
     const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
       if (url === `/api/workspaces/${workspace.id}/feedback-candidates`) return response([candidate])
       if (url === `/api/workspaces/${workspace.id}/human-tasks/task-1/claim` && init?.method === 'POST') {
-        return response({ ...task, status: '审核中', assigneeReviewerId: 'reviewer-1' })
+        return response({ ...task, status: '审核中', assigneeReviewerId: 'reviewer-2' })
       }
       if (url === `/api/workspaces/${workspace.id}/human-tasks/task-1/transfer` && init?.method === 'POST') {
         return response({ ...task, status: '审核中', assigneeReviewerId: 'reviewer-1' })
@@ -414,6 +414,28 @@ describe('Reviews', () => {
     expect(screen.getByText('未获得 Reviewer 资格')).toBeInTheDocument()
     expect(screen.getByText('当前任务权限')).toBeInTheDocument()
     expect(screen.getByText('当前账号未绑定 Reviewer 资格，所以不能认领任务或提交审核决定。')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '认领任务' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '通过' })).toBeDisabled()
+  })
+
+  it('explains and disables actions when the reviewer is outside the task participant scope', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === `/api/workspaces/${workspace.id}/reviewers` && !init?.method) {
+        return response([
+          ...reviewers,
+          { id: 'reviewer-outside', userId: 'user-reviewer-outside', name: '管理员', role: '产品审核人', isExpert: false, isActive: true },
+        ])
+      }
+      return baseFetch(url, init)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderReviews('user-reviewer-outside')
+
+    await screen.findByText(detail.artifact.content)
+    expect(screen.getByText('当前任务权限')).toBeInTheDocument()
+    expect(screen.getByText('不能处理')).toBeInTheDocument()
+    expect(screen.getByText('把当前账号加入该 Human 节点的审核人或审核组后，再回到这里处理。')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '认领任务' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '通过' })).toBeDisabled()
   })
