@@ -41,6 +41,7 @@ type MobilePane = 'queue' | 'review' | 'context'
 
 const terminalStatuses = new Set(['已通过', '修改后通过', '已驳回', '已退回'])
 const reviewerQualificationsUpdatedEvent = 'reviewer-qualifications-updated'
+const reviewStatusOptions = ['全部', '待认领', '审核中', '恢复失败', '已通过', '修改后通过', '已驳回', '已退回']
 
 function formatTime(value: string) {
   return new Date(value).toLocaleString('zh-CN', {
@@ -53,7 +54,7 @@ function formatTime(value: string) {
 
 export function Reviews() {
   const { user } = useAuth()
-  const { workspace } = useWorkspace()
+  const { workspace, workspacePath } = useWorkspace()
   const [tasks, setTasks] = useState<HumanTask[]>([])
   const [detail, setDetail] = useState<HumanTaskDetail | null>(null)
   const [reviewers, setReviewers] = useState<Reviewer[]>([])
@@ -146,6 +147,14 @@ export function Reviews() {
     reviewer.userId === user?.id && reviewer.isActive
   ))
   const hasReviewerQualification = Boolean(currentReviewer)
+  const activeTasks = tasks.filter((task) => !terminalStatuses.has(task.status))
+  const slaRiskTasks = activeTasks.filter((task) => task.slaStatus !== '正常')
+  const myTaskCount = currentReviewer
+    ? activeTasks.filter((task) => (
+      task.assigneeReviewerId === currentReviewer.id || task.participantSnapshot.includes(currentReviewer.id)
+    )).length
+    : 0
+  const pendingFeedbackCount = candidates.filter((candidate) => candidate.status === '待确认').length
   const selectedCandidate = candidates.find((candidate) => candidate.humanTaskId === selectedId)
   const selectedGroup = groups.find((group) => group.id === detail?.assigneeGroupId)
   const isTerminal = detail ? terminalStatuses.has(detail.status) : true
@@ -299,12 +308,68 @@ export function Reviews() {
   }
 
   if (!detail && tasks.length === 0) {
-    return <div className="panel table-state">暂无人工任务。</div>
+    return (
+      <section className="review-empty-state panel">
+        <div>
+          <span className="section-kicker">HUMAN IN THE LOOP</span>
+          <h2>暂无人工任务</h2>
+          <p>工作流运行到人工审核节点后，任务会自动进入这里。</p>
+        </div>
+        <div className="review-empty-grid">
+          <div>
+            <span>当前 Reviewer 资格</span>
+            <strong>{hasReviewerQualification ? currentReviewer?.role : '未获得'}</strong>
+            <small>{hasReviewerQualification ? '可以认领或处理参与范围内的任务' : '需要在成员与权限中绑定审核资格'}</small>
+          </div>
+          <div>
+            <span>审核组</span>
+            <strong>{groups.length}</strong>
+            <small>任务会按 Human 节点配置分配到审核人或审核组</small>
+          </div>
+          <div>
+            <span>待确认反馈</span>
+            <strong>{pendingFeedbackCount}</strong>
+            <small>修改后通过才会产生反馈候选</small>
+          </div>
+        </div>
+        <div className="review-empty-actions">
+          <a className="button primary" href={workspacePath('workflows')}>去工作流编排</a>
+          <a className="button secondary" href={workspacePath('settings/members')}>查看成员与权限</a>
+          <button className="button ghost" onClick={() => void loadWorkspace()}>
+            <RefreshCw size={15} />刷新队列
+          </button>
+        </div>
+      </section>
+    )
   }
 
   return (
-    <div className="review-workbench">
+    <div className="review-workbench-shell">
       {message && <div className="toast"><Check size={16} />{message}</div>}
+      <section className="review-summary-strip" aria-label="人工审核概览">
+        <div>
+          <span>待处理任务</span>
+          <strong>{activeTasks.length}</strong>
+          <small>终态任务不计入待处理</small>
+        </div>
+        <div>
+          <span>我的参与范围</span>
+          <strong>{myTaskCount}</strong>
+          <small>{hasReviewerQualification ? currentReviewer?.role : '需要在成员页配置资格'}</small>
+        </div>
+        <div>
+          <span>SLA 风险</span>
+          <strong>{slaRiskTasks.length}</strong>
+          <small>即将到期、逾期或已升级</small>
+        </div>
+        <div>
+          <span>待确认反馈</span>
+          <strong>{pendingFeedbackCount}</strong>
+          <small>专家可沉淀为 Golden Sample</small>
+        </div>
+      </section>
+
+      <div className="review-workbench">
       <nav className="review-mobile-tabs" aria-label="审核工作台视图">
         {([
           ['queue', '队列'],
@@ -331,10 +396,7 @@ export function Reviews() {
           <label>
             <span>状态</span>
             <select aria-label="任务状态筛选" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-              <option>全部</option>
-              <option>待认领</option>
-              <option>审核中</option>
-              <option>恢复失败</option>
+              {reviewStatusOptions.map((status) => <option key={status}>{status}</option>)}
             </select>
           </label>
           <label>
@@ -349,6 +411,21 @@ export function Reviews() {
           </label>
         </div>
         <div className="review-task-list">
+          {filteredTasks.length === 0 && (
+            <div className="review-filter-empty">
+              <strong>当前筛选无任务</strong>
+              <span>换一个状态或 SLA 条件，或清空筛选查看全部审核任务。</span>
+              <button
+                className="button ghost"
+                onClick={() => {
+                  setStatusFilter('全部')
+                  setSlaFilter('全部')
+                }}
+              >
+                清空筛选
+              </button>
+            </div>
+          )}
           {filteredTasks.map((task) => (
             <button
               className={`review-task-row ${task.id === selectedId ? 'selected' : ''}`}
@@ -537,6 +614,7 @@ export function Reviews() {
           </>
         )}
       </aside>
+      </div>
     </div>
   )
 }

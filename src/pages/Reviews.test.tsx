@@ -135,6 +135,14 @@ function baseFetch(url: string, init?: RequestInit) {
   return response({ detail: 'Not Found' }, 404)
 }
 
+function emptyFetch(url: string, init?: RequestInit) {
+  if (url === `/api/workspaces/${workspace.id}/human-tasks` && !init?.method) return response([])
+  if (url === `/api/workspaces/${workspace.id}/reviewers` && !init?.method) return response(reviewers)
+  if (url === `/api/workspaces/${workspace.id}/review-groups` && !init?.method) return response(groups)
+  if (url === `/api/workspaces/${workspace.id}/feedback-candidates` && !init?.method) return response([])
+  return response({ detail: 'Not Found' }, 404)
+}
+
 function renderReviews(userId = 'user-reviewer-1') {
   const authValue: AuthContextValue = {
     user: {
@@ -178,6 +186,40 @@ describe('Reviews', () => {
     expect(screen.getByText('当前用户')).toBeInTheDocument()
     expect(screen.getByText('林晓 · 产品审核人')).toBeInTheDocument()
     expect(screen.queryByLabelText('当前操作者')).not.toBeInTheDocument()
+  })
+
+  it('shows a guided empty state when the workspace has no human tasks', async () => {
+    vi.stubGlobal('fetch', vi.fn(emptyFetch))
+
+    renderReviews()
+
+    expect(await screen.findByRole('heading', { name: '暂无人工任务' })).toBeInTheDocument()
+    expect(screen.getByText('工作流运行到人工审核节点后，任务会自动进入这里。')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '去工作流编排' })).toHaveAttribute(
+      'href',
+      '/w/ai-capability-center/workflows',
+    )
+    expect(screen.getByRole('link', { name: '查看成员与权限' })).toHaveAttribute(
+      'href',
+      '/w/ai-capability-center/settings/members',
+    )
+  })
+
+  it('shows review workload metrics and filtered empty guidance', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', vi.fn(baseFetch))
+
+    renderReviews()
+
+    expect(await screen.findByText('待处理任务')).toBeInTheDocument()
+    expect(screen.getByText('SLA 风险')).toBeInTheDocument()
+    expect(screen.getByText('待确认反馈')).toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText('任务状态筛选'), '已通过')
+
+    expect(screen.getByText('当前筛选无任务')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '清空筛选' }))
+    expect(screen.getByText('新品定义人工审核')).toBeInTheDocument()
   })
 
   it('refreshes reviewer identity when qualifications change', async () => {
