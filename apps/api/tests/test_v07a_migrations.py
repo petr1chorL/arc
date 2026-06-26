@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, func, select, text
+from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session
 
 from app.bootstrap import (
@@ -12,6 +12,7 @@ from app.migrations import ensure_current_schema
 from app.models import (
     AgentRecord,
     AgentVersionRecord,
+    AuditEventRecord,
     Base,
     GoldenSampleRecord,
     OrganizationRecord,
@@ -643,3 +644,161 @@ def test_pre_authentication_audit_event_can_remain_without_workspace(tmp_path):
             ),
         ).scalar_one()
         assert workspace_id is None
+
+
+def test_platform_audit_events_support_nullable_task_and_platform_columns(
+    tmp_path,
+):
+    engine = create_engine(f"sqlite:///{tmp_path / 'platform-audit.db'}")
+
+    Base.metadata.create_all(engine)
+    ensure_current_schema(engine)
+
+    with Session(engine) as session:
+        platform_event = AuditEventRecord(
+            human_task_id=None,
+            organization_id="org-1",
+            actor_user_id=None,
+            session_id=None,
+            action="auth.login_failed",
+            target_type="session",
+            target_id=None,
+            outcome="failure",
+            request_id="request-1",
+            ip_address="127.0.0.1",
+            event_metadata={"reason": "invalid_credentials"},
+        )
+        session.add(platform_event)
+        session.commit()
+        event_id = platform_event.id
+
+    with Session(engine) as session:
+        event = session.get(AuditEventRecord, event_id)
+        assert event is not None
+        assert event.human_task_id is None
+        assert event.action == "auth.login_failed"
+        assert event.event_metadata == {"reason": "invalid_credentials"}
+
+
+def test_legacy_audit_events_become_platform_compatible(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'legacy-audit.db'}")
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                CREATE TABLE human_tasks (
+                    id VARCHAR(36) PRIMARY KEY,
+                    workflow_run_id VARCHAR(36) NOT NULL,
+                    node_run_id VARCHAR(36) NOT NULL,
+                    human_node_id VARCHAR(120) NOT NULL,
+                    source_node_id VARCHAR(120) NOT NULL,
+                    artifact_version_id VARCHAR(36) NOT NULL,
+                    title VARCHAR(200) NOT NULL,
+                    status VARCHAR(32) NOT NULL,
+                    assignment_type VARCHAR(32) NOT NULL,
+                    review_policy VARCHAR(32) NOT NULL,
+                    required_approvals INTEGER NOT NULL,
+                    participant_snapshot JSON NOT NULL,
+                    created_at DATETIME NOT NULL,
+                    updated_at DATETIME NOT NULL
+                )
+                """
+            ),
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO human_tasks VALUES (
+                    'task-1', 'run-1', 'node-run-1', 'human-1', 'node-1',
+                    'artifact-version-1', 'Legacy Task', 'pending',
+                    'group_claim', 'any_one', 1, '[]',
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                """
+            ),
+        )
+        connection.execute(
+            text(
+                """
+                CREATE TABLE audit_events (
+                    id VARCHAR(36) PRIMARY KEY,
+                    human_task_id VARCHAR(36) NOT NULL,
+                    event_type VARCHAR(64) NOT NULL,
+                    actor_id VARCHAR(80) NOT NULL,
+                    reason TEXT NOT NULL,
+                    before_status VARCHAR(32) NOT NULL,
+                    after_status VARCHAR(32) NOT NULL,
+                    payload JSON NOT NULL,
+                    created_at DATETIME NOT NULL
+                )
+                """
+            ),
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO audit_events VALUES (
+                    'audit-task', 'task-1', 'task_created', 'system', '',
+                    '', 'pending', '{}', CURRENT_TIMESTAMP
+                )
+                """
+            ),
+        )
+
+    ensure_current_schema(engine)
+    ensure_current_schema(engine)
+
+    audit_columns = {
+        column["name"]: column
+        for column in inspect(engine).get_columns("audit_events")
+    }
+    assert audit_columns["human_task_id"]["nullable"] is True
+    assert {
+        "organization_id",
+        "workspace_id",
+        "actor_user_id",
+        "session_id",
+        "action",
+        "target_type",
+        "target_id",
+        "outcome",
+        "request_id",
+        "ip_address",
+        "metadata",
+    } <= audit_columns.keys()
+
+    with Session(engine) as session:
+        old_event = session.get(AuditEventRecord, "audit-task")
+        assert old_event is not None
+        assert old_event.human_task_id == "task-1"
+        assert old_event.event_type == "task_created"
+        assert old_event.workspace_id is not None
+
+        platform_event = AuditEventRecord(
+            human_task_id=None,
+            organization_id=None,
+            workspace_id=None,
+            actor_user_id=None,
+            session_id="session-1",
+            action="auth.login_failed",
+            target_type="session",
+            target_id="session-1",
+            outcome="failure",
+            request_id="request-2",
+            ip_address="127.0.0.1",
+            event_metadata={"method": "password"},
+        )
+        session.add(platform_event)
+        session.commit()
+        event_id = platform_event.id
+
+    with Session(engine) as session:
+        platform_event = session.get(AuditEventRecord, event_id)
+        old_event = session.get(AuditEventRecord, "audit-task")
+        assert platform_event is not None
+        assert platform_event.human_task_id is None
+        assert platform_event.workspace_id is None
+        assert platform_event.action == "auth.login_failed"
+        assert platform_event.event_metadata == {"method": "password"}
+        assert old_event is not None
+        assert old_event.human_task_id == "task-1"

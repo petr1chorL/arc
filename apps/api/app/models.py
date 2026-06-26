@@ -400,9 +400,24 @@ class AuditEventRecord(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
-    human_task_id: Mapped[str] = mapped_column(String(36), index=True)
-    event_type: Mapped[str] = mapped_column(String(64))
-    actor_id: Mapped[str] = mapped_column(String(80))
+    organization_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    human_task_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    actor_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    session_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    action: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    target_type: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    target_id: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    outcome: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    request_id: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    event_metadata: Mapped[dict | None] = mapped_column(
+        "metadata",
+        JSON,
+        nullable=True,
+        default=dict,
+    )
+    event_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    actor_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     reason: Mapped[str] = mapped_column(Text, default="")
     before_status: Mapped[str] = mapped_column(String(32), default="")
     after_status: Mapped[str] = mapped_column(String(32), default="")

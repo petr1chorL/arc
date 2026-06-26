@@ -44,6 +44,67 @@ DEFAULT_WORKSPACE_FALLBACK_TABLES = tuple(
     for table_name in WORKSPACE_TABLES
     if table_name != "audit_events"
 )
+AUDIT_EVENT_PLATFORM_COLUMNS = {
+    "organization_id": "VARCHAR(36)",
+    "actor_user_id": "VARCHAR(36)",
+    "session_id": "VARCHAR(36)",
+    "action": "VARCHAR(120)",
+    "target_type": "VARCHAR(80)",
+    "target_id": "VARCHAR(120)",
+    "outcome": "VARCHAR(32)",
+    "request_id": "VARCHAR(120)",
+    "ip_address": "VARCHAR(64)",
+    "metadata": "JSON",
+}
+AUDIT_EVENT_REBUILD_COLUMNS = (
+    "id",
+    "workspace_id",
+    "organization_id",
+    "human_task_id",
+    "actor_user_id",
+    "session_id",
+    "action",
+    "target_type",
+    "target_id",
+    "outcome",
+    "request_id",
+    "ip_address",
+    "metadata",
+    "event_type",
+    "actor_id",
+    "reason",
+    "before_status",
+    "after_status",
+    "payload",
+    "created_at",
+)
+AUDIT_EVENT_REBUILD_COLUMN_DEFINITIONS = {
+    "id": "VARCHAR(36) PRIMARY KEY",
+    "workspace_id": "VARCHAR(36)",
+    "organization_id": "VARCHAR(36)",
+    "human_task_id": "VARCHAR(36)",
+    "actor_user_id": "VARCHAR(36)",
+    "session_id": "VARCHAR(36)",
+    "action": "VARCHAR(120)",
+    "target_type": "VARCHAR(80)",
+    "target_id": "VARCHAR(120)",
+    "outcome": "VARCHAR(32)",
+    "request_id": "VARCHAR(120)",
+    "ip_address": "VARCHAR(64)",
+    "metadata": "JSON",
+    "event_type": "VARCHAR(64)",
+    "actor_id": "VARCHAR(80)",
+    "reason": "TEXT",
+    "before_status": "VARCHAR(32)",
+    "after_status": "VARCHAR(32)",
+    "payload": "JSON",
+    "created_at": "DATETIME",
+}
+AUDIT_EVENT_LEGACY_NULLABLE_COLUMNS = (
+    "human_task_id",
+    "event_type",
+    "actor_id",
+)
 
 
 def ensure_columns(
@@ -66,6 +127,83 @@ def ensure_columns(
                         f"ADD COLUMN {name} {definition}"
                     ),
                 )
+
+
+def _quote_audit_event_column(column_name: str) -> str:
+    return f'"{column_name}"'
+
+
+def _audit_events_need_nullable_rebuild(engine: Engine) -> bool:
+    inspector = inspect(engine)
+    if "audit_events" not in inspector.get_table_names():
+        return False
+    columns = {
+        column["name"]: column
+        for column in inspector.get_columns("audit_events")
+    }
+    return any(
+        columns.get(column_name, {}).get("nullable") is False
+        for column_name in AUDIT_EVENT_LEGACY_NULLABLE_COLUMNS
+    )
+
+
+def _rebuild_audit_events_for_platform_schema(engine: Engine) -> None:
+    inspector = inspect(engine)
+    if "audit_events" not in inspector.get_table_names():
+        return
+    existing_columns = {
+        column["name"]
+        for column in inspector.get_columns("audit_events")
+    }
+    column_definitions = ",\n                    ".join(
+        f"{_quote_audit_event_column(column_name)} "
+        f"{AUDIT_EVENT_REBUILD_COLUMN_DEFINITIONS[column_name]}"
+        for column_name in AUDIT_EVENT_REBUILD_COLUMNS
+    )
+    insert_columns = ", ".join(
+        _quote_audit_event_column(column_name)
+        for column_name in AUDIT_EVENT_REBUILD_COLUMNS
+    )
+    select_columns = ", ".join(
+        _quote_audit_event_column(column_name)
+        if column_name in existing_columns
+        else f"NULL AS {_quote_audit_event_column(column_name)}"
+        for column_name in AUDIT_EVENT_REBUILD_COLUMNS
+    )
+
+    with engine.begin() as connection:
+        connection.execute(text("DROP TABLE IF EXISTS audit_events_v07a_rebuild"))
+        connection.execute(
+            text(
+                f"""
+                CREATE TABLE audit_events_v07a_rebuild (
+                    {column_definitions}
+                )
+                """
+            ),
+        )
+        connection.execute(
+            text(
+                f"""
+                INSERT INTO audit_events_v07a_rebuild ({insert_columns})
+                SELECT {select_columns}
+                FROM audit_events
+                """
+            ),
+        )
+        connection.execute(text("DROP TABLE audit_events"))
+        connection.execute(
+            text(
+                "ALTER TABLE audit_events_v07a_rebuild "
+                "RENAME TO audit_events"
+            ),
+        )
+
+
+def ensure_audit_event_platform_schema(engine: Engine) -> None:
+    ensure_columns(engine, "audit_events", AUDIT_EVENT_PLATFORM_COLUMNS)
+    if _audit_events_need_nullable_rebuild(engine):
+        _rebuild_audit_events_for_platform_schema(engine)
 
 
 def ensure_default_workspace(
@@ -463,4 +601,5 @@ def ensure_current_schema(engine: Engine) -> None:
         "reviewers",
         {"user_id": "VARCHAR(36)"},
     )
+    ensure_audit_event_platform_schema(engine)
     backfill_v07a_workspace(engine)
