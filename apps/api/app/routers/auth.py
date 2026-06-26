@@ -125,14 +125,28 @@ def create_auth_router(
     ) -> None:
         now = service._now()
         client = request.client.host if request.client else "unknown"
-        key = (action, client, service.security.digest_token(token))
-        count, reset_at = invitation_rate_limits.get(key, (0, now + invitation_rate_limit_window))
-        if aware_utc(reset_at) <= now:
-            count = 0
-            reset_at = now + invitation_rate_limit_window
-        if count >= invitation_rate_limit_max:
-            raise HTTPException(status_code=429, detail="请求过于频繁，请稍后再试")
-        invitation_rate_limits[key] = (count + 1, reset_at)
+        token_digest = service.security.digest_token(token)
+        for key, (_, reset_at) in list(invitation_rate_limits.items()):
+            if aware_utc(reset_at) <= now:
+                del invitation_rate_limits[key]
+
+        keys = [
+            (action, "client", client),
+            (action, "token", f"{client}:{token_digest}"),
+        ]
+        for key in keys:
+            count, _ = invitation_rate_limits.get(
+                key,
+                (0, now + invitation_rate_limit_window),
+            )
+            if count >= invitation_rate_limit_max:
+                raise HTTPException(status_code=429, detail="请求过于频繁，请稍后再试")
+        for key in keys:
+            count, reset_at = invitation_rate_limits.get(
+                key,
+                (0, now + invitation_rate_limit_window),
+            )
+            invitation_rate_limits[key] = (count + 1, reset_at)
 
     def build_activation_url(request: Request, token: str) -> str:
         return str(request.base_url).rstrip("/") + f"/activate/{token}"
@@ -172,6 +186,8 @@ def create_auth_router(
         )
         if user is None or workspace is None or membership is None:
             raise HTTPException(status_code=409, detail="邀请已失效")
+        if user.status == "disabled":
+            raise HTTPException(status_code=409, detail="该用户已被停用")
         return invitation, user, workspace, membership
 
     def authenticated(

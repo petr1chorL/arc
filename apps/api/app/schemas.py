@@ -116,7 +116,7 @@ class InvitationLinkRead(BaseModel):
     email: str
     role: WorkspaceRole
     expires_at: datetime = Field(serialization_alias="expiresAt")
-    activation_url: str = Field(serialization_alias="activationUrl")
+    activation_url: str | None = Field(serialization_alias="activationUrl")
 
     model_config = ConfigDict(populate_by_name=True)
 

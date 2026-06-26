@@ -73,7 +73,7 @@ export interface InvitationLink {
   email: string
   role: WorkspaceRole
   expiresAt: string
-  activationUrl: string
+  activationUrl: string | null
 }
 
 export interface Agent {

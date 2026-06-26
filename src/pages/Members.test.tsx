@@ -64,6 +64,7 @@ describe('Members page', () => {
   })
 
   it('loads members, invites a user, and copies the one-time activation link', async () => {
+    const user = userEvent.setup()
     const clipboardWrite = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', {
       value: { writeText: clipboardWrite },
@@ -103,7 +104,6 @@ describe('Members page', () => {
       }
       return Promise.reject(new Error(`Unhandled request: ${String(url)}`))
     }))
-    const user = userEvent.setup()
 
     renderPage()
 
@@ -120,9 +120,16 @@ describe('Members page', () => {
 
     await user.click(screen.getByRole('button', { name: '复制激活链接' }))
     expect(await screen.findByText('激活链接已复制。')).toBeInTheDocument()
-    expect(fetch).toHaveBeenCalledWith(
+    const fetchMock = vi.mocked(fetch)
+    expect(fetchMock).toHaveBeenCalledWith(
       `/api/workspaces/${workspace.id}/invitations/invite-3/copy`,
       expect.objectContaining({ method: 'POST' }),
+    )
+    const copyCallIndex = fetchMock.mock.calls.findIndex(
+      ([input]) => input === `/api/workspaces/${workspace.id}/invitations/invite-3/copy`,
+    )
+    expect(clipboardWrite.mock.invocationCallOrder[0]).toBeLessThan(
+      fetchMock.mock.invocationCallOrder[copyCallIndex],
     )
 
     await user.selectOptions(screen.getByLabelText('builder@example.com 的角色'), 'operator')
@@ -216,5 +223,54 @@ describe('Members page', () => {
       const activeBadges = screen.getAllByText('active')
       expect(activeBadges.length).toBeGreaterThan(0)
     })
+  })
+
+  it('does not record copy audit when clipboard write fails', async () => {
+    const user = userEvent.setup()
+    const clipboardWrite = vi.fn().mockRejectedValue(new Error('clipboard denied'))
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: clipboardWrite },
+      configurable: true,
+    })
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
+      if (url === `/api/workspaces/${workspace.id}/members` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify(members), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/invitations`) {
+        return Promise.resolve(new Response(JSON.stringify({
+          invitationId: 'invite-3',
+          email: 'new.user@example.com',
+          role: 'operator',
+          expiresAt: '2026-06-29T09:00:00Z',
+          activationUrl: 'http://testserver/activate/token-1',
+        }), {
+          status: 201,
+          headers: { 'Content-Type': 'application/json' },
+        }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/invitations/invite-3/copy`) {
+        return Promise.resolve(new Response(null, { status: 204 }))
+      }
+      return Promise.reject(new Error(`Unhandled request: ${String(url)}`))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: '邀请成员' }))
+    await user.type(screen.getByLabelText('邮箱'), 'new.user@example.com')
+    await user.selectOptions(screen.getByLabelText('平台角色'), 'operator')
+    await user.click(screen.getByRole('button', { name: '发送邀请' }))
+    await user.click(await screen.findByRole('button', { name: '复制激活链接' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('clipboard denied')
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      `/api/workspaces/${workspace.id}/invitations/invite-3/copy`,
+      expect.anything(),
+    )
   })
 })

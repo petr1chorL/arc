@@ -165,6 +165,20 @@ def create_workspaces_router(
             last_login_at=user.last_login_at,
         )
 
+    def serialize_invitation_link(
+        request: Request,
+        invitation: InvitationRecord,
+        user: UserRecord,
+        raw_token: str | None,
+    ) -> InvitationLinkRead:
+        return InvitationLinkRead(
+            invitation_id=invitation.id,
+            email=user.email or "",
+            role=invitation.role,
+            expires_at=invitation.expires_at,
+            activation_url=build_activation_url(request, raw_token) if raw_token else None,
+        )
+
     @router.get("", response_model=list[WorkspaceRead])
     def list_workspaces(
         context_bundle: tuple[RequestContext, Session] = Depends(
@@ -360,8 +374,8 @@ def create_workspaces_router(
             )
             session.add(user)
             session.flush()
-        elif user.status == "active":
-            raise HTTPException(status_code=409, detail="该邮箱对应账号已激活")
+        elif user.status == "disabled":
+            raise HTTPException(status_code=409, detail="该用户已被停用")
 
         membership = session.scalar(
             select(WorkspaceMembershipRecord).where(
@@ -371,6 +385,46 @@ def create_workspaces_router(
         )
         if membership is not None and membership.status == "active":
             raise HTTPException(status_code=409, detail="该成员已在当前 Workspace 中")
+
+        if user.status == "active":
+            if membership is None:
+                membership = WorkspaceMembershipRecord(
+                    workspace_id=workspace_id,
+                    user_id=user.id,
+                    role=payload.role,
+                    status="active",
+                    invited_by=context.user.id,
+                    activated_at=now,
+                    created_at=now,
+                    updated_at=now,
+                )
+                session.add(membership)
+            else:
+                membership.role = payload.role
+                membership.status = "active"
+                membership.invited_by = context.user.id
+                membership.activated_at = membership.activated_at or now
+                membership.updated_at = now
+            session.flush()
+            record_success(
+                session,
+                context,
+                action="member.add",
+                target_type="membership",
+                target_id=membership.id,
+                request=request,
+                metadata={"userId": user.id, "role": payload.role},
+                workspace_id=workspace_id,
+            )
+            session.commit()
+            return InvitationLinkRead(
+                invitation_id="",
+                email=user.email or normalized,
+                role=membership.role,
+                expires_at=now,
+                activation_url=None,
+            )
+
         if membership is None:
             membership = WorkspaceMembershipRecord(
                 workspace_id=workspace_id,
@@ -416,6 +470,7 @@ def create_workspaces_router(
             invitation.revoked_at = None
             invitation.created_by = context.user.id
             invitation.created_at = now
+        session.flush()
         record_success(
             session,
             context,
@@ -428,13 +483,7 @@ def create_workspaces_router(
         )
         session.commit()
         session.refresh(invitation)
-        return InvitationLinkRead(
-            invitation_id=invitation.id,
-            email=user.email or normalized,
-            role=invitation.role,
-            expires_at=invitation.expires_at,
-            activation_url=build_activation_url(request, raw_token),
-        )
+        return serialize_invitation_link(request, invitation, user, raw_token)
 
     @router.post(
         "/{workspace_id}/invitations/{invitation_id}/copy",
@@ -512,6 +561,8 @@ def create_workspaces_router(
         user = session.get(UserRecord, invitation.user_id)
         if user is None:
             raise HTTPException(status_code=409, detail="邀请已失效")
+        if user.status == "disabled":
+            raise HTTPException(status_code=409, detail="该用户已被停用")
 
         raw_token = security.new_token()
         now = utc_now()

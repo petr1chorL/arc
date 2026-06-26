@@ -222,6 +222,11 @@ def test_invitation_create_list_preview_and_activate_flow(tmp_path):
                 select(AuditEventRecord).order_by(AuditEventRecord.created_at.asc()),
             ),
         )
+        create_event = next(
+            event for event in events if event.action == "member.invitation.create"
+        )
+        assert create_event.target_id == created["invitationId"]
+        assert create_event.workspace_id == workspace_id
         serialized = " ".join(str(event.event_metadata or {}) for event in events).lower()
         assert "activated password 42!" not in serialized
         assert token not in serialized
@@ -291,6 +296,7 @@ def test_expired_invitation_preview_and_activation_conflict(tmp_path):
 def test_invitation_origin_rate_limit_and_copy_audit(tmp_path):
     context = create_membership_context(tmp_path)
     client: TestClient = context["client"]
+    clock: MutableClock = context["clock"]
     session_factory = context["session_factory"]
     workspace_id = context["workspace_id"]
 
@@ -304,6 +310,13 @@ def test_invitation_origin_rate_limit_and_copy_audit(tmp_path):
     )
     assert cross_origin.status_code == 403
 
+    for index in range(20):
+        unknown = client.get(f"/api/invitations/unknown-token-{index}")
+        assert unknown.status_code == 409
+    limited_unknown = client.get("/api/invitations/another-unknown-token")
+    assert limited_unknown.status_code == 429
+
+    clock.advance(hours=2)
     for _ in range(20):
         assert client.get(f"/api/invitations/{token}").status_code == 200
     limited_preview = client.get(f"/api/invitations/{token}")
@@ -372,6 +385,76 @@ def test_member_role_change_and_enable_disable_guards(tmp_path):
         headers=csrf_headers(client),
     )
     assert downgrade_last_admin.status_code == 409
+
+
+def test_disabled_user_cannot_be_reinvited_or_reactivated(tmp_path):
+    context = create_membership_context(tmp_path)
+    client: TestClient = context["client"]
+    session_factory = context["session_factory"]
+    workspace_id = context["workspace_id"]
+
+    login(client, WORKSPACE_ADMIN_EMAIL)
+    created = invite_member(client, workspace_id, "blocked@example.com", "viewer")
+    token = extract_token(created["activationUrl"])
+
+    with session_factory() as session:
+        blocked_user = session.scalar(
+            select(UserRecord).where(UserRecord.normalized_email == "blocked@example.com"),
+        )
+        assert blocked_user is not None
+        blocked_user_id = blocked_user.id
+
+    login(client, "admin@example.com")
+    disabled = client.post(
+        f"/api/workspaces/{workspace_id}/members/{blocked_user_id}/user/disable",
+        headers=csrf_headers(client),
+    )
+    assert disabled.status_code == 200
+    assert disabled.json()["userStatus"] == "disabled"
+
+    blocked_activation = client.post(
+        f"/api/invitations/{token}/activate",
+        json={"displayName": "Blocked", "password": "Activated Password 42!"},
+    )
+    assert blocked_activation.status_code == 409
+
+    reinvite = client.post(
+        f"/api/workspaces/{workspace_id}/invitations",
+        json={"email": "blocked@example.com", "role": "viewer"},
+        headers=csrf_headers(client),
+    )
+    assert reinvite.status_code == 409
+
+
+def test_active_user_can_be_added_to_second_workspace_without_activation_link(tmp_path):
+    context = create_membership_context(tmp_path)
+    client: TestClient = context["client"]
+    workspace_id = context["workspace_id"]
+
+    login(client, "admin@example.com")
+    created_workspace = client.post(
+        "/api/workspaces",
+        json={"name": "第二工作区", "slug": "second-workspace"},
+        headers=csrf_headers(client),
+    )
+    assert created_workspace.status_code == 201
+    second_workspace_id = created_workspace.json()["id"]
+    assert second_workspace_id != workspace_id
+
+    added = client.post(
+        f"/api/workspaces/{second_workspace_id}/invitations",
+        json={"email": MEMBER_EMAIL, "role": "operator"},
+        headers=csrf_headers(client),
+    )
+    assert added.status_code == 201
+    assert added.json()["email"] == MEMBER_EMAIL
+    assert added.json()["activationUrl"] is None
+
+    listed = client.get(f"/api/workspaces/{second_workspace_id}/members")
+    assert listed.status_code == 200
+    member = next(item for item in listed.json() if item["email"] == MEMBER_EMAIL)
+    assert member["membershipStatus"] == "active"
+    assert member["role"] == "operator"
 
 
 def test_organization_admin_user_disable_enable_revokes_sessions_and_audits(tmp_path):

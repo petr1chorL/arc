@@ -76,8 +76,8 @@ export function Members() {
     setBusyKey('copy')
     setSubmitError('')
     try {
-      await recordInvitationLinkCopy(workspace.id, activationInvitationId)
       await navigator.clipboard.writeText(activationUrl)
+      await recordInvitationLinkCopy(workspace.id, activationInvitationId)
       setStatusMessage('激活链接已复制。')
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : '复制失败，请检查浏览器权限。')
@@ -97,9 +97,15 @@ export function Members() {
     setSubmitError('')
     try {
       const created = await inviteMember(workspace.id, { email: normalizedEmail, role: inviteRole })
-      setActivationUrl(created.activationUrl)
-      setActivationInvitationId(created.invitationId)
-      setStatusMessage('邀请已创建，激活链接仅显示这一次。')
+      if (created.activationUrl) {
+        setActivationUrl(created.activationUrl)
+        setActivationInvitationId(created.invitationId)
+        setStatusMessage('邀请已创建，激活链接仅显示这一次。')
+      } else {
+        setActivationUrl('')
+        setActivationInvitationId('')
+        setStatusMessage(`${created.email} 已加入当前 Workspace。`)
+      }
       setInviteEmail('')
       setInviteRole('viewer')
       setIsInviteOpen(false)
@@ -132,9 +138,15 @@ export function Members() {
     setSubmitError('')
     try {
       const resent = await resendInvitation(workspace.id, member.invitationId)
-      setActivationUrl(resent.activationUrl)
-      setActivationInvitationId(resent.invitationId)
-      setStatusMessage('邀请已重发，激活链接仅显示这一次。')
+      if (resent.activationUrl) {
+        setActivationUrl(resent.activationUrl)
+        setActivationInvitationId(resent.invitationId)
+        setStatusMessage('邀请已重发，激活链接仅显示这一次。')
+      } else {
+        setActivationUrl('')
+        setActivationInvitationId('')
+        setStatusMessage(`${resent.email} 已加入当前 Workspace。`)
+      }
       await loadMembers()
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : '邀请重发失败')
