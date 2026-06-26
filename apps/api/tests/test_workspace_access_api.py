@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.bootstrap import bootstrap_organization_admin
 from app.database import create_database
@@ -14,6 +14,8 @@ from app.models import (
     FeedbackCandidateRecord,
     HumanTaskRecord,
     OrganizationRecord,
+    ReviewGroupRecord,
+    ReviewerRecord,
     UserRecord,
     WorkflowRunRecord,
     WorkflowRecord,
@@ -504,6 +506,68 @@ def test_successful_asset_mutations_write_success_audit_events(workspace_context
             ),
         )
         assert any(event.outcome == "success" for event in events)
+
+
+def test_non_member_existing_workspace_returns_404_and_writes_denied_audit(workspace_context):
+    client: TestClient = workspace_context["client"]
+    session_factory = workspace_context["session_factory"]
+
+    login_client(client, email=workspace_context["users"]["builder"])
+    response = client.get(
+        workspace_url(workspace_context["workspaces"]["b"], "/agents"),
+        headers={"X-Request-ID": "req-non-member-workspace"},
+    )
+
+    assert response.status_code == 404
+
+    with session_factory() as session:
+        denied_event = session.scalars(
+            select(AuditEventRecord)
+            .where(AuditEventRecord.action == "workspace.access_denied")
+            .order_by(AuditEventRecord.created_at.desc()),
+        ).first()
+        assert denied_event is not None
+        assert denied_event.outcome == "denied"
+        assert denied_event.workspace_id == workspace_context["workspaces"]["b"]
+        assert denied_event.target_id == workspace_context["workspaces"]["b"]
+        assert denied_event.request_id == "req-non-member-workspace"
+
+
+def test_get_reviewers_does_not_write_directory_records(workspace_context):
+    client: TestClient = workspace_context["client"]
+    session_factory = workspace_context["session_factory"]
+    workspace_id = workspace_context["workspaces"]["a"]
+
+    with session_factory() as session:
+        before_reviewers = session.scalar(
+            select(func.count()).select_from(ReviewerRecord).where(
+                ReviewerRecord.workspace_id == workspace_id,
+            ),
+        )
+        before_groups = session.scalar(
+            select(func.count()).select_from(ReviewGroupRecord).where(
+                ReviewGroupRecord.workspace_id == workspace_id,
+            ),
+        )
+
+    login_client(client, email=workspace_context["users"]["viewer"])
+    response = client.get(workspace_url(workspace_id, "/reviewers"))
+    assert response.status_code == 200
+
+    with session_factory() as session:
+        after_reviewers = session.scalar(
+            select(func.count()).select_from(ReviewerRecord).where(
+                ReviewerRecord.workspace_id == workspace_id,
+            ),
+        )
+        after_groups = session.scalar(
+            select(func.count()).select_from(ReviewGroupRecord).where(
+                ReviewGroupRecord.workspace_id == workspace_id,
+            ),
+        )
+
+    assert after_reviewers == before_reviewers
+    assert after_groups == before_groups
 
 
 def test_cross_workspace_run_human_task_and_feedback_candidate_queries_return_404(workspace_context):

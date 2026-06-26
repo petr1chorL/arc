@@ -24,6 +24,7 @@ from app.models import (
     HumanTaskRecord,
     NodeRunRecord,
     ReviewerRecord,
+    WorkspaceRecord,
     WorkflowRecord,
     WorkflowRunRecord,
     WorkflowVersionRecord,
@@ -51,6 +52,7 @@ from app.schemas import (
     NodeRunRead,
     ReviewerRead,
     ReviewGroupRead,
+    ReviewDecision,
     RunCreate,
     RunRead,
     ValidationResult,
@@ -89,7 +91,7 @@ def create_app(
     )
     audit_service = AuditService()
     authorization_service = AuthorizationService(audit_service)
-    context_service = RequestContextService(authentication_service, settings)
+    context_service = RequestContextService(authentication_service, settings, audit_service)
     human_task_service = HumanTaskService(human_task_clock)
     execution_service = ExecutionService(
         model_gateway or OpenAICompatibleGateway(settings),
@@ -100,6 +102,14 @@ def create_app(
         execution_service,
         human_task_service,
     )
+    with session_factory() as session:
+        workspace_ids = list(
+            session.scalars(
+                select(WorkspaceRecord.id).where(WorkspaceRecord.status == "active"),
+            ),
+        )
+        for workspace_id in workspace_ids:
+            human_task_service.ensure_default_directory(session, workspace_id)
 
     def get_session() -> Iterator[Session]:
         yield from session_scope(session_factory)
@@ -819,7 +829,7 @@ def create_app(
     @router.post("/reviews/{review_id}/decision", response_model=HumanReviewRead)
     def decide_review(
         review_id: str,
-        payload: dict,
+        payload: ReviewDecision,
         request: Request,
         context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
     ) -> HumanReviewRecord:
@@ -835,13 +845,21 @@ def create_app(
         )
         review = find_review(context.workspace.id, review_id, session)
         run = find_run(context.workspace.id, review.run_id, session)
-        if payload["decision"] == "approve":
+        if payload.decision == "approve":
             review.status = "宸插畬鎴?"
             run.status = "宸插畬鎴?"
         else:
             review.status = "宸查┏鍥?"
             run.status = "澶辫触"
             run.error = "人工审核已驳回"
+        record_success(
+            session,
+            context,
+            action="review.decision",
+            target_type="review",
+            target_id=review_id,
+            request=request,
+        )
         session.commit()
         session.refresh(review)
         return review

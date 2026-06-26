@@ -125,9 +125,15 @@ class AuthorizationService:
 
 
 class RequestContextService:
-    def __init__(self, authentication_service: AuthenticationService, settings: Settings):
+    def __init__(
+        self,
+        authentication_service: AuthenticationService,
+        settings: Settings,
+        audit_service: AuditService,
+    ):
         self.authentication_service = authentication_service
         self.settings = settings
+        self.audit_service = audit_service
 
     def organization_context(
         self,
@@ -193,6 +199,22 @@ class RequestContextService:
                 ),
             )
             if membership is None:
+                self.audit_service.record(
+                    session,
+                    actor=AuditActor(
+                        organization_id=context.organization.id,
+                        workspace_id=workspace.id,
+                        actor_user_id=context.user.id,
+                        session_id=context.session.id,
+                    ),
+                    action="workspace.access_denied",
+                    target_type="workspace",
+                    target_id=workspace.id,
+                    outcome="denied",
+                    request=request,
+                    workspace_id=workspace.id,
+                )
+                session.commit()
                 raise HTTPException(status_code=404, detail="Workspace 不存在")
         return replace(context, workspace=workspace, membership=membership), session
 

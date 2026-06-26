@@ -1,8 +1,10 @@
 from dataclasses import dataclass
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from api_test_support import create_authenticated_client, csrf_headers, workspace_url
+from app.models import AuditEventRecord
 
 
 @dataclass
@@ -223,9 +225,89 @@ def test_human_review_decision_updates_review_and_run_status(tmp_path):
     response = client.post(
         workspace_url(workspace_id, f"/reviews/{review['id']}/decision"),
         json={"decision": "approve"},
-        headers=csrf_headers(client),
+        headers={**csrf_headers(client), "X-Request-ID": "req-review-approve"},
     )
 
     assert response.status_code == 200
     persisted = client.get(workspace_url(workspace_id, f"/runs/{run['id']}")).json()
     assert response.json()["status"] == persisted["status"]
+    with client.app.state.session_factory() as session:
+        event = session.scalars(
+            select(AuditEventRecord)
+            .where(
+                AuditEventRecord.action == "review.decision",
+                AuditEventRecord.target_id == review["id"],
+                AuditEventRecord.outcome == "success",
+            )
+            .order_by(AuditEventRecord.created_at.desc()),
+        ).first()
+        assert event is not None
+        assert event.workspace_id == workspace_id
+        assert event.request_id == "req-review-approve"
+
+
+def test_human_review_decision_reject_is_allowed_and_writes_success_audit(tmp_path):
+    gateway = FakeGateway([FakeModelResult("short")])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'execution-reject.db'}",
+        model_gateway=gateway,
+    )
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(client, workspace_id, agent, version)
+    client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Produce a short answer that requires review."},
+        headers=csrf_headers(client),
+    )
+    review = client.get(workspace_url(workspace_id, "/reviews")).json()[0]
+
+    response = client.post(
+        workspace_url(workspace_id, f"/reviews/{review['id']}/decision"),
+        json={"decision": "reject"},
+        headers={**csrf_headers(client), "X-Request-ID": "req-review-reject"},
+    )
+
+    assert response.status_code == 200
+    with client.app.state.session_factory() as session:
+        event = session.scalars(
+            select(AuditEventRecord)
+            .where(
+                AuditEventRecord.action == "review.decision",
+                AuditEventRecord.target_id == review["id"],
+                AuditEventRecord.outcome == "success",
+            )
+            .order_by(AuditEventRecord.created_at.desc()),
+        ).first()
+        assert event is not None
+        assert event.workspace_id == workspace_id
+        assert event.request_id == "req-review-reject"
+
+
+def test_human_review_decision_rejects_invalid_payload_without_changing_state(tmp_path):
+    gateway = FakeGateway([FakeModelResult("short")])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'execution-invalid-review.db'}",
+        model_gateway=gateway,
+    )
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(client, workspace_id, agent, version)
+    run = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Produce a short answer that requires review."},
+        headers=csrf_headers(client),
+    ).json()
+    review = client.get(workspace_url(workspace_id, "/reviews")).json()[0]
+    before_review_status = review["status"]
+    before_run_status = client.get(workspace_url(workspace_id, f"/runs/{run['id']}")).json()["status"]
+
+    response = client.post(
+        workspace_url(workspace_id, f"/reviews/{review['id']}/decision"),
+        json={"decision": "maybe"},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 422
+    after_review_status = client.get(workspace_url(workspace_id, "/reviews")).json()[0]["status"]
+    after_run_status = client.get(workspace_url(workspace_id, f"/runs/{run['id']}")).json()["status"]
+    assert after_review_status == before_review_status
+    assert after_run_status == before_run_status

@@ -125,7 +125,6 @@ class HumanTaskService:
         session.commit()
 
     def list_reviewers(self, session: Session, workspace_id: str) -> list[ReviewerRecord]:
-        self.ensure_default_directory(session, workspace_id)
         return list(session.scalars(
             select(ReviewerRecord)
             .where(ReviewerRecord.workspace_id == workspace_id)
@@ -133,7 +132,6 @@ class HumanTaskService:
         ))
 
     def list_groups(self, session: Session, workspace_id: str) -> list[dict]:
-        self.ensure_default_directory(session, workspace_id)
         groups = list(session.scalars(
             select(ReviewGroupRecord)
             .where(ReviewGroupRecord.workspace_id == workspace_id)
