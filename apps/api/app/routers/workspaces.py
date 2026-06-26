@@ -387,6 +387,16 @@ def create_workspaces_router(
             raise HTTPException(status_code=409, detail="该成员已在当前 Workspace 中")
 
         if user.status == "active":
+            invitation = session.scalar(
+                select(InvitationRecord).where(
+                    InvitationRecord.workspace_id == workspace_id,
+                    InvitationRecord.user_id == user.id,
+                    InvitationRecord.used_at.is_(None),
+                    InvitationRecord.revoked_at.is_(None),
+                ),
+            )
+            if invitation is not None:
+                invitation.revoked_at = now
             if membership is None:
                 membership = WorkspaceMembershipRecord(
                     workspace_id=workspace_id,
@@ -563,6 +573,8 @@ def create_workspaces_router(
             raise HTTPException(status_code=409, detail="邀请已失效")
         if user.status == "disabled":
             raise HTTPException(status_code=409, detail="该用户已被停用")
+        if user.status != "pending_email":
+            raise HTTPException(status_code=409, detail="邀请已失效")
 
         raw_token = security.new_token()
         now = utc_now()

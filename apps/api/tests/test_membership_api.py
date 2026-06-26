@@ -457,6 +457,56 @@ def test_active_user_can_be_added_to_second_workspace_without_activation_link(tm
     assert member["role"] == "operator"
 
 
+def test_active_user_stale_invitation_cannot_reset_password(tmp_path):
+    context = create_membership_context(tmp_path)
+    client: TestClient = context["client"]
+    workspace_id = context["workspace_id"]
+
+    login(client, "admin@example.com")
+    created_workspace = client.post(
+        "/api/workspaces",
+        json={"name": "第三工作区", "slug": "third-workspace"},
+        headers=csrf_headers(client),
+    )
+    assert created_workspace.status_code == 201
+    second_workspace_id = created_workspace.json()["id"]
+
+    first = invite_member(client, workspace_id, "multi.invite@example.com", "viewer")
+    second = invite_member(client, second_workspace_id, "multi.invite@example.com", "viewer")
+    first_token = extract_token(first["activationUrl"])
+    second_token = extract_token(second["activationUrl"])
+
+    activated = client.post(
+        f"/api/invitations/{first_token}/activate",
+        json={
+            "displayName": "Multi Invite",
+            "password": "Activated Password 42!",
+        },
+    )
+    assert activated.status_code == 204
+
+    stale_activation = client.post(
+        f"/api/invitations/{second_token}/activate",
+        json={
+            "displayName": "Multi Invite",
+            "password": "Replacement Password 42!",
+        },
+    )
+    assert stale_activation.status_code == 409
+    login(client, "multi.invite@example.com", "Activated Password 42!")
+
+    login(client, "admin@example.com")
+    added = client.post(
+        f"/api/workspaces/{second_workspace_id}/invitations",
+        json={"email": "multi.invite@example.com", "role": "operator"},
+        headers=csrf_headers(client),
+    )
+    assert added.status_code == 201
+    assert added.json()["activationUrl"] is None
+    stale_preview = client.get(f"/api/invitations/{second_token}")
+    assert stale_preview.status_code == 409
+
+
 def test_organization_admin_user_disable_enable_revokes_sessions_and_audits(tmp_path):
     context = create_membership_context(tmp_path)
     client: TestClient = context["client"]

@@ -188,6 +188,8 @@ def create_auth_router(
             raise HTTPException(status_code=409, detail="邀请已失效")
         if user.status == "disabled":
             raise HTTPException(status_code=409, detail="该用户已被停用")
+        if user.status != "pending_email":
+            raise HTTPException(status_code=409, detail="邀请已失效")
         return invitation, user, workspace, membership
 
     def authenticated(
