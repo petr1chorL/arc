@@ -1,6 +1,6 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.16B Tool / Skill 生命周期与影响面
+> 对应版本：V0.16C Agent Tool / Skill 资产绑定
 > 上一阶段：V0.8F 轻量告警 / 通知 Outbox
 > 更新时间：2026-06-28
 
@@ -25,6 +25,8 @@ Tool / Skill 已新增第一版 Workspace 级资产库后端：`tool_skill_asset
 Tool / Skill 资产库已新增第一版前端入口：`/w/:workspaceSlug/settings/asset-library`。页面可查看 Workspace 资产、创建 manual / HTTP / MCP 适配资产、校验参数 Schema 与适配配置 JSON、对 HTTP / MCP Tool 发起测试调用，并展示测试结果和最近调用日志。页面不展示、不提交 `apiKey` 字段；密钥和真实鉴权仍需后续由后端环境变量或密钥托管能力处理。
 
 Tool / Skill 资产已新增第一版生命周期治理：后端支持更新非密钥字段、停用资产和查询影响面；影响面展示依赖该资产的 Agent 草稿和已发布 AgentVersion 快照。停用后的 Tool / Skill 不能再被 Agent 草稿绑定，已发布 AgentVersion 快照不会被停用操作改写。资产库页面可在卡片内编辑、停用资产，并展示“草稿 Agent”和“已发布版本”影响面指标。
+
+Agent 详情页已新增 Tool / Skill 资产选择区，会读取当前 Workspace 的资产库并按类型展示 active / disabled 资产。active Tool / Skill 可以勾选并保存到 Agent 草稿的 `tools` / `skills`；disabled 资产可见但不可勾选。原有文本输入仍保留，用于兼容历史草稿和临时名称，后端继续负责最终资产存在性和启用状态校验。
 
 HTTP Tool 适配当前采用可注入 `HttpToolGateway`。自动化测试可使用 Fake Gateway；默认运行时使用 `HttpxToolGateway`，只有 `TOOL_HTTP_ALLOWED_HOSTS` 配置了目标 host 时才允许 GET / POST 外联，超时由 `TOOL_HTTP_TIMEOUT_SECONDS` 控制。MCP Tool 当前支持可注入 `McpToolGateway` 的测试调用骨架，默认不连接真实 MCP Server。Agent 直接测试运行和工作流 Agent 节点执行时，会调用已绑定的 HTTP Tool 并写入带 Agent、Run 和 NodeRun 上下文的调用日志。运行观测详情会把 Tool 调用日志派生成 `tool_skill_invocation` 执行事件，并关联到对应 NodeRun Span。
 
@@ -358,6 +360,7 @@ React Flow 节点/连线
 - Tool / Skill 资产包含类型、名称、描述、参数 Schema、适配类型、适配配置、状态和创建信息。
 - Agent 只能绑定已存在且启用的 Tool / Skill 资产。
 - Tool / Skill 资产库支持影响面查询，展示依赖该资产的 Agent 草稿和已发布 AgentVersion 快照。
+- Agent 详情页支持从 Workspace Tool / Skill 资产库勾选 active 资产，disabled 资产展示但不可绑定。
 - Agent 发布会重新校验资产可用性，禁用资产不会进入不可变版本快照。
 - Agent 发布快照包含非密钥运行配置；API 不保存或返回 `apiKey`。
 - 模型 Provider 连接测试只返回 `ready` 或 `missing_secret`，不会回显密钥值。
@@ -1041,6 +1044,14 @@ V0.16B 在 V0.16A 资产库入口之上，新增 Tool / Skill 生命周期治理
 Agent 草稿更新和发布仍会校验 Tool / Skill 必须是当前 Workspace 内启用资产。停用资产后，新的草稿绑定会被拒绝；已发布 AgentVersion 快照保持不可变，不会被停用操作改写。资产库页面已在每张资产卡片中提供编辑、保存、停用入口，并展示“草稿 Agent”和“已发布版本”影响面指标及最近依赖名称。
 
 V0.16B 验证证据：frontend focused 2 个文件 7 项测试通过；backend related 10 项测试通过；full frontend 31 个文件 126 项测试通过；full backend 测试通过；`npm run lint` 通过；`npm run build` 通过并保留既有 Vite chunk-size warning；`git diff --check` 通过，仅有 Windows LF/CRLF 提示。浏览器验收创建 `浏览器验收 Tool`，页面显示影响面 0/0，编辑为 `浏览器验收 Tool V2`，停用后显示 `tool · http · disabled`，页面无 `apiKey` 文本，console warning/error 为 0。
+
+## V0.16C Agent Tool / Skill 资产绑定补充
+
+V0.16C 在 V0.16B 资产生命周期治理之上，新增 Agent 详情页的资产绑定选择器。页面加载 Agent 详情、版本历史和模型 Provider 的同时，会读取 Workspace Tool / Skill 资产库，并在能力定义表单中分开展示“可用 Tool 资产”和“可用 Skill 资产”。active 资产可勾选或取消勾选，变更会同步到既有 `toolsText` / `skillsText` 草稿状态，保存时仍通过原有 Agent `PATCH` 接口提交名称数组。
+
+disabled Tool / Skill 资产在 Agent 详情页保持可见但 checkbox 禁用，用于提醒建设者该资产已经停用。原有 `Tools` / `Skills` 文本输入继续保留，以兼容历史草稿和临时名称；后端仍会在 Agent 保存和发布时做资产存在性与启用状态校验。本版没有改写 Agent 后端契约，也没有引入资产 ID 级引用。
+
+V0.16C 验证证据：AgentDetail focused 1 个文件 5 项测试通过；frontend related 3 个文件 12 项测试通过；full frontend 31 个文件 127 项测试通过；`npm run lint` 通过；`npm run build` 通过并保留既有 Vite chunk-size warning；`git diff --check` 通过，仅有 Windows LF/CRLF 提示。浏览器验收在 Agent `test` 详情页勾选 `V0.16C 浏览器 Tool` 和 `V0.16C 浏览器 Skill` 后保存成功，`浏览器验收 Tool V2` disabled checkbox 不可用，页面无 `apiKey` 文本，console warning/error 为 0。
 ## 18. 下一步代码改造
 
 建议按以下顺序改造当前代码：

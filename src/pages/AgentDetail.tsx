@@ -21,9 +21,10 @@ import {
   type UpdateAgentInput,
 } from '../api/agents'
 import { runAgent } from '../api/execution'
+import { listToolSkillAssets } from '../api/assetLibrary'
 import { listModelProviders } from '../api/modelProviders'
 import { StatusBadge } from '../components/StatusBadge'
-import type { Agent, AgentVersion, ExecutionRun, ModelProvider } from '../types'
+import type { Agent, AgentVersion, ExecutionRun, ModelProvider, ToolSkillAsset } from '../types'
 
 function joinValues(values: string[]) {
   return values.join(', ')
@@ -33,12 +34,21 @@ function splitValues(value: string) {
   return value.split(/[,，]/).map((item) => item.trim()).filter(Boolean)
 }
 
+function toggleValue(text: string, value: string, checked: boolean) {
+  const values = splitValues(text)
+  const nextValues = checked
+    ? Array.from(new Set([...values, value]))
+    : values.filter((item) => item !== value)
+  return joinValues(nextValues)
+}
+
 export function AgentDetail() {
   const { workspace, workspacePath } = useWorkspace()
   const { agentId = '' } = useParams()
   const [agent, setAgent] = useState<Agent | null>(null)
   const [versions, setVersions] = useState<AgentVersion[]>([])
   const [modelProviders, setModelProviders] = useState<ModelProvider[]>([])
+  const [toolSkillAssets, setToolSkillAssets] = useState<ToolSkillAsset[]>([])
   const [form, setForm] = useState<UpdateAgentInput | null>(null)
   const [toolsText, setToolsText] = useState('')
   const [skillsText, setSkillsText] = useState('')
@@ -52,14 +62,16 @@ export function AgentDetail() {
 
   const load = useCallback(async () => {
     try {
-      const [nextAgent, nextVersions] = await Promise.all([
+      const [nextAgent, nextVersions, providerAssets, workspaceAssets] = await Promise.all([
         getAgent(workspace.id, agentId),
         listAgentVersions(workspace.id, agentId),
+        listModelProviders(workspace.id).catch(() => []),
+        listToolSkillAssets(workspace.id).catch(() => []),
       ])
-      const providerAssets = await listModelProviders(workspace.id).catch(() => [])
       setAgent(nextAgent)
       setVersions(nextVersions)
       setModelProviders(Array.isArray(providerAssets) ? providerAssets : [])
+      setToolSkillAssets(Array.isArray(workspaceAssets) ? workspaceAssets : [])
       setForm({
         name: nextAgent.name,
         role: nextAgent.role,
@@ -107,6 +119,15 @@ export function AgentDetail() {
         model: selected.defaultModel,
       }
     })
+    setFeedback('')
+  }
+
+  function updateAssetBinding(assetType: 'tool' | 'skill', assetName: string, checked: boolean) {
+    if (assetType === 'tool') {
+      setToolsText((current) => toggleValue(current, assetName, checked))
+    } else {
+      setSkillsText((current) => toggleValue(current, assetName, checked))
+    }
     setFeedback('')
   }
 
@@ -201,6 +222,10 @@ export function AgentDetail() {
   }
 
   const disabled = agent.status === '已停用'
+  const toolAssets = toolSkillAssets.filter((asset) => asset.assetType === 'tool')
+  const skillAssets = toolSkillAssets.filter((asset) => asset.assetType === 'skill')
+  const selectedTools = splitValues(toolsText)
+  const selectedSkills = splitValues(skillsText)
 
   return (
     <div className="page-stack asset-detail-page">
@@ -271,7 +296,55 @@ export function AgentDetail() {
               <span><Sparkles size={14} />System Prompt</span>
               <textarea disabled={disabled} rows={10} value={form.systemPrompt} onChange={(event) => updateField('systemPrompt', event.target.value)} placeholder="定义 Agent 的职责、约束、输出格式和质量要求" />
             </label>
+            <div className="form-field full asset-picker">
+              <span>可用 Tool 资产</span>
+              <div className="asset-picker-list">
+                {toolAssets.length === 0 && <p>暂无 Tool 资产。</p>}
+                {toolAssets.map((asset) => {
+                  const assetDisabled = asset.status === 'disabled'
+                  return (
+                    <label className={`asset-picker-option ${assetDisabled ? 'disabled' : ''}`} key={asset.id}>
+                      <input
+                        aria-label={`绑定 Tool ${asset.name}`}
+                        checked={selectedTools.includes(asset.name)}
+                        disabled={disabled || assetDisabled}
+                        onChange={(event) => updateAssetBinding('tool', asset.name, event.target.checked)}
+                        type="checkbox"
+                      />
+                      <span>
+                        <strong>{asset.name}</strong>
+                        <small>{assetDisabled ? '已停用' : `${asset.adapterType} · active`}</small>
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
             <label className="form-field full"><span>Tools</span><input disabled={disabled} value={toolsText} onChange={(event) => setToolsText(event.target.value)} placeholder="Web Search, 飞书知识库" /></label>
+            <div className="form-field full asset-picker">
+              <span>可用 Skill 资产</span>
+              <div className="asset-picker-list">
+                {skillAssets.length === 0 && <p>暂无 Skill 资产。</p>}
+                {skillAssets.map((asset) => {
+                  const assetDisabled = asset.status === 'disabled'
+                  return (
+                    <label className={`asset-picker-option ${assetDisabled ? 'disabled' : ''}`} key={asset.id}>
+                      <input
+                        aria-label={`绑定 Skill ${asset.name}`}
+                        checked={selectedSkills.includes(asset.name)}
+                        disabled={disabled || assetDisabled}
+                        onChange={(event) => updateAssetBinding('skill', asset.name, event.target.checked)}
+                        type="checkbox"
+                      />
+                      <span>
+                        <strong>{asset.name}</strong>
+                        <small>{assetDisabled ? '已停用' : `${asset.adapterType} · active`}</small>
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
             <label className="form-field full"><span>Skills</span><input disabled={disabled} value={skillsText} onChange={(event) => setSkillsText(event.target.value)} placeholder="竞品分析, 引用核验" /></label>
           </div>
         </section>

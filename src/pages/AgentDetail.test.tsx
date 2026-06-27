@@ -201,6 +201,101 @@ describe('AgentDetail', () => {
     expect(await screen.findByText('草稿已保存')).toBeInTheDocument()
   })
 
+  it('binds Agent Tools and Skills from active Workspace assets', async () => {
+    const user = userEvent.setup()
+    const assets = [
+      {
+        id: 'tool-1',
+        assetType: 'tool' as const,
+        name: '飞书搜索',
+        description: 'Search Lark docs',
+        parameterSchema: { type: 'object' },
+        adapterType: 'http' as const,
+        adapterConfig: {},
+        status: 'active',
+        createdBy: 'admin',
+        createdAt: '2026-06-28T01:00:00Z',
+        updatedAt: '2026-06-28T01:00:00Z',
+      },
+      {
+        id: 'tool-2',
+        assetType: 'tool' as const,
+        name: '价格查询',
+        description: 'Disabled tool',
+        parameterSchema: { type: 'object' },
+        adapterType: 'http' as const,
+        adapterConfig: {},
+        status: 'disabled',
+        createdBy: 'admin',
+        createdAt: '2026-06-28T01:00:00Z',
+        updatedAt: '2026-06-28T01:00:00Z',
+      },
+      {
+        id: 'skill-1',
+        assetType: 'skill' as const,
+        name: '竞品分析',
+        description: 'Competitive analysis',
+        parameterSchema: { type: 'object' },
+        adapterType: 'manual' as const,
+        adapterConfig: {},
+        status: 'active',
+        createdBy: 'admin',
+        createdAt: '2026-06-28T01:00:00Z',
+        updatedAt: '2026-06-28T01:00:00Z',
+      },
+    ]
+    const savedAgent = {
+      ...agent,
+      tools: ['飞书搜索'],
+      skills: ['竞品分析'],
+    }
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/model-providers')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/asset-library')) {
+        return Promise.resolve(new Response(JSON.stringify(assets), { status: 200 }))
+      }
+      if (init?.method === 'PATCH') {
+        return Promise.resolve(new Response(JSON.stringify(savedAgent), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify(agent), { status: 200 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <WorkspaceProvider workspace={workspace}>
+        <MemoryRouter initialEntries={['/w/ai-capability-center/agents/agent-1']}>
+          <Routes>
+            <Route path="/w/ai-capability-center/agents/:agentId" element={<AgentDetail />} />
+          </Routes>
+        </MemoryRouter>
+      </WorkspaceProvider>,
+    )
+
+    expect(await screen.findByText('可用 Tool 资产')).toBeInTheDocument()
+    const activeTool = screen.getByRole('checkbox', { name: '绑定 Tool 飞书搜索' })
+    const disabledTool = screen.getByRole('checkbox', { name: '绑定 Tool 价格查询' })
+    const activeSkill = screen.getByRole('checkbox', { name: '绑定 Skill 竞品分析' })
+    expect(disabledTool).toBeDisabled()
+
+    await user.click(activeTool)
+    await user.click(activeSkill)
+    await user.click(screen.getByRole('button', { name: '保存草稿' }))
+
+    const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH')
+    const patchBody = JSON.parse(patchCall?.[1]?.body as string)
+    expect(patchBody).toEqual(expect.objectContaining({
+      tools: ['飞书搜索'],
+      skills: ['竞品分析'],
+    }))
+    expect(patchBody).not.toHaveProperty('apiKey')
+    expect(await screen.findByText('草稿已保存')).toBeInTheDocument()
+  })
+
   it('runs a published Agent and shows the persisted result', async () => {
     const user = userEvent.setup()
     const publishedAgent = { ...agent, status: '在线', version: 'v1.0.0' }
