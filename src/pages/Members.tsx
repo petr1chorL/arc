@@ -37,6 +37,27 @@ const highRiskCapabilityKeys = new Set([
   'reviewer.manage',
 ])
 
+interface RoleChangeImpactResult {
+  added: PermissionCapability[]
+  removed: PermissionCapability[]
+}
+
+type PendingConfirmation =
+  | {
+    kind: 'role'
+    member: WorkspaceMember
+    nextRole: WorkspaceRole
+    highRiskCapabilities: PermissionCapability[]
+  }
+  | {
+    kind: 'membership-disable'
+    member: WorkspaceMember
+  }
+  | {
+    kind: 'user-disable'
+    member: WorkspaceMember
+  }
+
 function broadcastReviewerQualificationsUpdated(workspaceId: string) {
   window.dispatchEvent(new CustomEvent(reviewerQualificationsUpdatedEvent, {
     detail: { workspaceId },
@@ -70,7 +91,7 @@ function roleChangeImpact(
   matrix: WorkspacePermissionMatrix,
   currentRole: WorkspaceRole,
   nextRole: WorkspaceRole,
-) {
+): RoleChangeImpactResult | null {
   if (currentRole === nextRole) {
     return null
   }
@@ -84,6 +105,13 @@ function roleChangeImpact(
       currentCapabilities.has(capability.key) && !nextCapabilities.has(capability.key)
     )),
   }
+}
+
+function highRiskCapabilitiesFromImpact(impact: RoleChangeImpactResult | null) {
+  if (!impact) return []
+  return [...impact.added, ...impact.removed].filter((capability) => (
+    highRiskCapabilityKeys.has(capability.key)
+  ))
 }
 
 function RoleCapabilityList({
@@ -142,6 +170,31 @@ function RoleChangeImpact({
   )
 }
 
+function confirmationCopy(confirmation: PendingConfirmation) {
+  if (confirmation.kind === 'role') {
+    return {
+      title: '确认高风险权限操作',
+      eyebrow: 'ROLE CHANGE',
+      body: `${confirmation.member.email} 的角色将变更为 ${confirmation.nextRole}。请确认这些高风险权限符合预期。`,
+      capabilities: confirmation.highRiskCapabilities,
+    }
+  }
+  if (confirmation.kind === 'membership-disable') {
+    return {
+      title: '确认停用成员',
+      eyebrow: 'MEMBERSHIP',
+      body: `停用后，${confirmation.member.email} 将不能以该 Membership 使用当前 Workspace。`,
+      capabilities: [],
+    }
+  }
+  return {
+    title: '确认停用 User',
+    eyebrow: 'USER ACCESS',
+    body: `停用 User 后，${confirmation.member.email} 将无法继续以该账号身份访问平台。`,
+    capabilities: [],
+  }
+}
+
 export function Members() {
   const { user } = useAuth()
   const { workspace } = useWorkspace()
@@ -161,6 +214,7 @@ export function Members() {
   const [activationUrl, setActivationUrl] = useState('')
   const [activationInvitationId, setActivationInvitationId] = useState('')
   const [busyKey, setBusyKey] = useState('')
+  const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null)
 
   const loadMembers = useCallback(async () => {
     setIsLoading(true)
@@ -240,8 +294,7 @@ export function Members() {
     }
   }
 
-  async function handleRoleSave(member: WorkspaceMember) {
-    const nextRole = draftRoles[member.userId] ?? member.role
+  async function executeRoleSave(member: WorkspaceMember, nextRole: WorkspaceRole) {
     setBusyKey(`role:${member.userId}`)
     setSubmitError('')
     try {
@@ -253,6 +306,22 @@ export function Members() {
     } finally {
       setBusyKey('')
     }
+  }
+
+  async function handleRoleSave(member: WorkspaceMember) {
+    const nextRole = draftRoles[member.userId] ?? member.role
+    const impact = permissionMatrix ? roleChangeImpact(permissionMatrix, member.role, nextRole) : null
+    const highRiskCapabilities = highRiskCapabilitiesFromImpact(impact)
+    if (highRiskCapabilities.length > 0) {
+      setPendingConfirmation({
+        kind: 'role',
+        member,
+        nextRole,
+        highRiskCapabilities,
+      })
+      return
+    }
+    await executeRoleSave(member, nextRole)
   }
 
   async function handleReviewerSave(member: WorkspaceMember) {
@@ -367,7 +436,7 @@ export function Members() {
     }
   }
 
-  async function handleMembershipToggle(member: WorkspaceMember) {
+  async function executeMembershipToggle(member: WorkspaceMember) {
     setBusyKey(`status:${member.userId}`)
     setSubmitError('')
     try {
@@ -383,7 +452,15 @@ export function Members() {
     }
   }
 
-  async function handleUserStatusToggle(member: WorkspaceMember) {
+  async function handleMembershipToggle(member: WorkspaceMember) {
+    if (member.membershipStatus === 'active') {
+      setPendingConfirmation({ kind: 'membership-disable', member })
+      return
+    }
+    await executeMembershipToggle(member)
+  }
+
+  async function executeUserStatusToggle(member: WorkspaceMember) {
     setBusyKey(`user:${member.userId}`)
     setSubmitError('')
     try {
@@ -397,6 +474,29 @@ export function Members() {
     } finally {
       setBusyKey('')
     }
+  }
+
+  async function handleUserStatusToggle(member: WorkspaceMember) {
+    if (member.userStatus === 'active') {
+      setPendingConfirmation({ kind: 'user-disable', member })
+      return
+    }
+    await executeUserStatusToggle(member)
+  }
+
+  async function handleConfirmedAction() {
+    if (!pendingConfirmation) return
+    const confirmation = pendingConfirmation
+    setPendingConfirmation(null)
+    if (confirmation.kind === 'role') {
+      await executeRoleSave(confirmation.member, confirmation.nextRole)
+      return
+    }
+    if (confirmation.kind === 'membership-disable') {
+      await executeMembershipToggle(confirmation.member)
+      return
+    }
+    await executeUserStatusToggle(confirmation.member)
   }
 
   if (isLoading) {
@@ -733,6 +833,48 @@ export function Members() {
           </section>
         </div>
       )}
+
+      {pendingConfirmation && (() => {
+        const copy = confirmationCopy(pendingConfirmation)
+        return (
+          <div className="dialog-backdrop">
+            <section
+              className="agent-dialog members-dialog confirmation-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="members-confirmation-title"
+            >
+              <header>
+                <div>
+                  <p className="eyebrow">{copy.eyebrow}</p>
+                  <h2 id="members-confirmation-title">{copy.title}</h2>
+                </div>
+              </header>
+              <div className="confirmation-dialog-body">
+                <p>{copy.body}</p>
+                {copy.capabilities.length > 0 && (
+                  <div className="confirmation-risk-list" aria-label="高风险权限清单">
+                    {copy.capabilities.map((capability) => (
+                      <span className="role-change-impact-chip high-risk" key={capability.key}>
+                        {capability.label}
+                        <em>高风险</em>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <footer>
+                <button className="button ghost" type="button" onClick={() => setPendingConfirmation(null)}>
+                  取消
+                </button>
+                <button className="button primary" type="button" onClick={() => void handleConfirmedAction()}>
+                  确认执行
+                </button>
+              </footer>
+            </section>
+          </div>
+        )
+      })()}
     </section>
   )
 }

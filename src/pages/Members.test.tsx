@@ -337,9 +337,60 @@ describe('Members page', () => {
     expect(within(downgradeImpact).getByText('编辑 Agent')).toBeInTheDocument()
   })
 
+  it('requires confirmation before saving a high-risk role change', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
+      if (url === `/api/workspaces/${workspace.id}/members` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify(members), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/permissions/matrix` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify(permissionMatrix), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/members/user-1` && init?.method === 'PATCH') {
+        return Promise.resolve(new Response(JSON.stringify({
+          ...members[0],
+          role: 'workspace_admin',
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }))
+      }
+      return Promise.reject(new Error(`Unhandled request: ${String(url)}`))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage()
+
+    await user.selectOptions(await screen.findByLabelText('builder@example.com 的角色'), 'workspace_admin')
+    await user.click(screen.getByRole('button', { name: '保存 builder@example.com 的角色' }))
+
+    const dialog = await screen.findByRole('dialog', { name: '确认高风险权限操作' })
+    expect(within(dialog).getByText('读取审计')).toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      `/api/workspaces/${workspace.id}/members/user-1`,
+      expect.objectContaining({ method: 'PATCH' }),
+    )
+
+    await user.click(within(dialog).getByRole('button', { name: '确认执行' }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/workspaces/${workspace.id}/members/user-1`,
+        expect.objectContaining({ method: 'PATCH' }),
+      )
+    })
+  })
+
   it('shows server conflict reasons for resend and updates membership state for disable and enable', async () => {
     let currentMembers = [...members]
-    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
       if (url === `/api/workspaces/${workspace.id}/members` && !init?.method) {
         return Promise.resolve(new Response(JSON.stringify(currentMembers), {
@@ -396,7 +447,8 @@ describe('Members page', () => {
         }))
       }
       return Promise.reject(new Error(`Unhandled request: ${String(url)}`))
-    }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
     const user = userEvent.setup()
 
     renderPage()
@@ -407,6 +459,12 @@ describe('Members page', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('邀请已撤销')
 
     await user.click(screen.getByRole('button', { name: '停用 builder@example.com' }))
+    const membershipDialog = await screen.findByRole('dialog', { name: '确认停用成员' })
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      `/api/workspaces/${workspace.id}/members/user-1/disable`,
+      expect.anything(),
+    )
+    await user.click(within(membershipDialog).getByRole('button', { name: '确认执行' }))
     await waitFor(() => {
       expect(screen.getByText('disabled')).toBeInTheDocument()
     })
@@ -418,6 +476,12 @@ describe('Members page', () => {
     })
 
     await user.click(screen.getByRole('button', { name: '停用 User builder@example.com' }))
+    const userDialog = await screen.findByRole('dialog', { name: '确认停用 User' })
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      `/api/workspaces/${workspace.id}/members/user-1/user/disable`,
+      expect.anything(),
+    )
+    await user.click(within(userDialog).getByRole('button', { name: '确认执行' }))
     await waitFor(() => {
       expect(screen.getByText('disabled')).toBeInTheDocument()
     })
