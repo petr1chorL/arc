@@ -17,12 +17,14 @@ import {
 import {
   createRegressionSample,
   createRegressionSampleSet,
+  createRegressionRun,
   createRubric,
   deactivateRubric,
   evaluateRubric,
   getEvaluationOverview,
   getRubrics,
   listEvaluationRecords,
+  listRegressionRuns,
   listRegressionSampleSets,
   listRubricVersions,
   publishRubric,
@@ -33,6 +35,7 @@ import { useWorkspace } from '../auth/workspaceContextState'
 import type {
   EvaluationRecord,
   EvaluationOverview,
+  RegressionRun,
   RegressionSampleSet,
   Rubric,
   RubricVersion,
@@ -129,21 +132,24 @@ export function Evaluations() {
   const [batchResults, setBatchResults] = useState<EvaluationRecord[]>([])
   const [batchError, setBatchError] = useState('')
   const [isBatchRunning, setIsBatchRunning] = useState(false)
+  const [regressionRuns, setRegressionRuns] = useState<RegressionRun[]>([])
 
   const loadAssets = useCallback(async () => {
     setIsLoading(true)
     setError('')
     try {
-      const [nextOverview, nextRubrics, nextRecords, nextSampleSets] = await Promise.all([
+      const [nextOverview, nextRubrics, nextRecords, nextSampleSets, nextRegressionRuns] = await Promise.all([
         getEvaluationOverview(workspace.id),
         getRubrics(workspace.id),
         listEvaluationRecords(workspace.id),
         listRegressionSampleSets(workspace.id),
+        listRegressionRuns(workspace.id).catch(() => []),
       ])
       setOverview(nextOverview)
       setRubrics(nextRubrics)
       setEvaluationRecords(nextRecords)
       setSampleSets(nextSampleSets)
+      setRegressionRuns(nextRegressionRuns)
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : '评估资产加载失败')
     } finally {
@@ -451,16 +457,21 @@ export function Evaluations() {
     setIsBatchRunning(true)
     setBatchError('')
     try {
-      const nextResults: EvaluationRecord[] = []
-      for (const sample of samples) {
-        const result = await evaluateRubric(workspace.id, rubric.id, {
-          artifactText: sample.input,
-          subjectType: selectedSampleSet ? 'regression_sample_set' : 'regression_sample',
-          subjectId: sample.id,
+      const run = await createRegressionRun(workspace.id, selectedSampleSet
+        ? { rubricId: rubric.id, sampleSetId: selectedSampleSet.id }
+        : {
+          rubricId: rubric.id,
+          samples: samples.map((sample) => ({
+            input: sample.input,
+            sampleId: sample.id,
+          })),
         })
-        nextResults.push(result)
-      }
+      const nextResults = run.records
       setBatchResults(nextResults)
+      setRegressionRuns((current) => [
+        run,
+        ...current.filter((existingRun) => existingRun.id !== run.id),
+      ])
       setEvaluationRecords((current) => [
         ...nextResults,
         ...current.filter((record) => !nextResults.some((result) => result.id === record.id)),
@@ -796,6 +807,7 @@ export function Evaluations() {
             {batchError && <p className="dialog-error" role="alert">{batchError}</p>}
             <button
               className="button primary"
+              data-testid="run-batch-regression"
               type="button"
               disabled={isBatchRunning || activeRubrics.length === 0}
               onClick={() => void runBatchRegression()}
@@ -837,6 +849,45 @@ export function Evaluations() {
             )}
           </div>
         </div>
+      </section>
+
+      <section className="panel regression-run-history">
+        <header>
+          <div>
+            <span className="eyebrow">REGRESSION RUNS</span>
+            <h2>Regression Run History</h2>
+          </div>
+          <span className="status-pill">{regressionRuns.length} runs</span>
+        </header>
+        {regressionRuns.length === 0 && (
+          <div className="table-state">暂无 Regression Run。运行一次批量回归后，这里会保留运行摘要和关联 Evaluation。</div>
+        )}
+        {regressionRuns.length > 0 && (
+          <div className="regression-run-list">
+            {regressionRuns.map((run) => (
+              <article className="regression-run-card" key={run.id}>
+                <div>
+                  <span className="mono">{run.id}</span>
+                  <h3>{run.sampleSetName || '手动样本'}</h3>
+                  <p>{run.rubricName} / {run.rubricVersion}</p>
+                </div>
+                <div className="regression-run-score">
+                  <strong>通过率 {run.passRate}%</strong>
+                  <span className={`status-pill ${run.failedSamples === 0 ? 'success' : 'danger'}`}>
+                    {run.status}
+                  </span>
+                </div>
+                <div className="regression-run-summary">
+                  <span>{run.totalSamples} samples</span>
+                  <span>{run.passedSamples} passed</span>
+                  <span>{run.failedSamples} failed</span>
+                  <span>{run.evaluationIds.length} evaluations</span>
+                </div>
+                <p>{new Date(run.createdAt).toLocaleString()}</p>
+              </article>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="panel">

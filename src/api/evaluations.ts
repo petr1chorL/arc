@@ -1,6 +1,7 @@
 import type {
   EvaluationRecord,
   EvaluationOverview,
+  RegressionRun,
   RegressionSample,
   RegressionSampleSet,
   Rubric,
@@ -32,6 +33,12 @@ export interface RegressionSampleInput {
   input: string
   expectedOutput: string
   tags: string[]
+}
+
+export interface RegressionRunInput {
+  rubricId: string
+  sampleSetId?: string | null
+  samples?: { input: string; sampleId?: string | null }[]
 }
 
 function workspacePath(workspaceId: string, path = '') {
@@ -72,6 +79,25 @@ export async function createRegressionSample(
 ): Promise<RegressionSample> {
   return readJson<RegressionSample>(
     await apiFetch(workspacePath(workspaceId, `/sample-sets/${sampleSetId}/samples`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
+  )
+}
+
+export async function listRegressionRuns(workspaceId: string): Promise<RegressionRun[]> {
+  return readJson<RegressionRun[]>(
+    await apiFetch(workspacePath(workspaceId, '/regression-runs')),
+  )
+}
+
+export async function createRegressionRun(
+  workspaceId: string,
+  input: RegressionRunInput,
+): Promise<RegressionRun> {
+  return readJson<RegressionRun>(
+    await apiFetch(workspacePath(workspaceId, '/regression-runs'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),

@@ -39,6 +39,7 @@ WORKSPACE_TABLES = (
     "golden_samples",
     "regression_sample_sets",
     "regression_samples",
+    "regression_runs",
     "rubrics",
     "rubric_versions",
     "evaluations",

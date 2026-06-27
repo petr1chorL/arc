@@ -414,6 +414,25 @@ export interface RegressionSampleSet {
   updatedAt: string
 }
 
+export interface RegressionRun {
+  id: string
+  sampleSetId: string | null
+  sampleSetName: string
+  rubricId: string
+  rubricName: string
+  rubricVersion: string
+  status: string
+  totalSamples: number
+  passedSamples: number
+  failedSamples: number
+  passRate: number
+  evaluationIds: string[]
+  records: EvaluationRecord[]
+  createdBy: string
+  createdAt: string
+  completedAt: string
+}
+
 export interface EvaluationOverviewTotals {
   feedbackCandidates: number
   pendingCandidates: number

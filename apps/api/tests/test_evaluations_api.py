@@ -51,6 +51,91 @@ def test_regression_sample_sets_can_be_created_and_listed(tmp_path):
     )
 
 
+def test_regression_run_persists_batch_summary_and_evaluations(tmp_path):
+    client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'arc-one.db'}")
+    rubric_body = {
+        "name": "Regression Run Rubric",
+        "artifact": "Launch plan",
+        "dimensions": [
+            {"name": "Evidence", "weight": 60},
+            {"name": "Actionability", "weight": 40},
+        ],
+        "gate": "Must include evidence and next actions",
+        "passScore": 70,
+    }
+    rubric = client.post(
+        workspace_url(workspace_id, "/evaluations/rubrics"),
+        json=rubric_body,
+        headers=csrf_headers(client),
+    ).json()
+    client.post(
+        workspace_url(workspace_id, f"/evaluations/rubrics/{rubric['id']}/publish"),
+        headers=csrf_headers(client),
+    )
+    sample_set = client.post(
+        workspace_url(workspace_id, "/evaluations/sample-sets"),
+        json={
+            "name": "Launch Regression Set",
+            "description": "Samples for release quality",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    first_sample = client.post(
+        workspace_url(workspace_id, f"/evaluations/sample-sets/{sample_set['id']}/samples"),
+        json={
+            "name": "Evidence rich sample",
+            "input": "This launch plan includes customer evidence, owner, risks, and next actions.",
+            "expectedOutput": "Should pass because it has evidence and actionability.",
+            "tags": ["pass"],
+        },
+        headers=csrf_headers(client),
+    ).json()
+    second_sample = client.post(
+        workspace_url(workspace_id, f"/evaluations/sample-sets/{sample_set['id']}/samples"),
+        json={
+            "name": "Thin sample",
+            "input": "Short draft.",
+            "expectedOutput": "Should fail because it lacks evidence.",
+            "tags": ["fail"],
+        },
+        headers=csrf_headers(client),
+    ).json()
+
+    created = client.post(
+        workspace_url(workspace_id, "/evaluations/regression-runs"),
+        json={
+            "rubricId": rubric["id"],
+            "sampleSetId": sample_set["id"],
+        },
+        headers=csrf_headers(client),
+    )
+
+    assert created.status_code == 201
+    run = created.json()
+    assert run["sampleSetId"] == sample_set["id"]
+    assert run["sampleSetName"] == "Launch Regression Set"
+    assert run["rubricId"] == rubric["id"]
+    assert run["rubricName"] == "Regression Run Rubric"
+    assert run["status"] == "completed"
+    assert run["totalSamples"] == 2
+    assert run["passedSamples"] == 1
+    assert run["failedSamples"] == 1
+    assert run["passRate"] == 50
+    assert len(run["evaluationIds"]) == 2
+    assert [record["subjectId"] for record in run["records"]] == [
+        first_sample["id"],
+        second_sample["id"],
+    ]
+    assert {record["subjectType"] for record in run["records"]} == {"regression_run_sample"}
+
+    listed = client.get(workspace_url(workspace_id, "/evaluations/regression-runs"))
+
+    assert listed.status_code == 200
+    assert listed.json()[0]["id"] == run["id"]
+    assert listed.json()[0]["totalSamples"] == 2
+    assert listed.json()[0]["evaluationIds"] == run["evaluationIds"]
+
+
 def test_evaluation_rubrics_are_workspace_assets_without_duplicate_seed(tmp_path):
     client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'arc-one.db'}")
 

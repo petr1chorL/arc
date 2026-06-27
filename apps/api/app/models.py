@@ -545,6 +545,27 @@ class RegressionSampleRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class RegressionRunRecord(Base):
+    __tablename__ = "regression_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    sample_set_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    sample_set_name: Mapped[str] = mapped_column(String(160), default="")
+    rubric_id: Mapped[str] = mapped_column(String(36), index=True)
+    rubric_name: Mapped[str] = mapped_column(String(160))
+    rubric_version: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(32), default="completed")
+    total_samples: Mapped[int] = mapped_column(Integer, default=0)
+    passed_samples: Mapped[int] = mapped_column(Integer, default=0)
+    failed_samples: Mapped[int] = mapped_column(Integer, default=0)
+    pass_rate: Mapped[int] = mapped_column(Integer, default=0)
+    evaluation_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    created_by: Mapped[str] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class RubricRecord(Base):
     __tablename__ = "rubrics"
     __table_args__ = (

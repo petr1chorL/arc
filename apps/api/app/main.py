@@ -28,6 +28,7 @@ from app.models import (
     HumanTaskRecord,
     NodeRunRecord,
     NotificationOutboxRecord,
+    RegressionRunRecord,
     RegressionSampleRecord,
     RegressionSampleSetRecord,
     ReviewerRecord,
@@ -81,6 +82,8 @@ from app.schemas import (
     ObservabilityRunSummaryRead,
     RegressionSampleCreate,
     RegressionSampleRead,
+    RegressionRunCreate,
+    RegressionRunRead,
     RegressionSampleSetCreate,
     RegressionSampleSetRead,
     ObservabilityTotalsRead,
@@ -1917,6 +1920,29 @@ def create_app(
             raise HTTPException(status_code=404, detail="sample set not found")
         return record
 
+    def regression_run_to_read(
+        run: RegressionRunRecord,
+        records: list[EvaluationRecord] | None = None,
+    ) -> dict:
+        return {
+            "id": run.id,
+            "sample_set_id": run.sample_set_id,
+            "sample_set_name": run.sample_set_name,
+            "rubric_id": run.rubric_id,
+            "rubric_name": run.rubric_name,
+            "rubric_version": run.rubric_version,
+            "status": run.status,
+            "total_samples": run.total_samples,
+            "passed_samples": run.passed_samples,
+            "failed_samples": run.failed_samples,
+            "pass_rate": run.pass_rate,
+            "evaluation_ids": run.evaluation_ids,
+            "records": records or [],
+            "created_by": run.created_by,
+            "created_at": run.created_at,
+            "completed_at": run.completed_at,
+        }
+
     @router.get(
         "/evaluations/sample-sets",
         response_model=list[RegressionSampleSetRead],
@@ -2064,6 +2090,158 @@ def create_app(
         session.commit()
         session.refresh(record)
         return regression_sample_to_read(record)
+
+    @router.get(
+        "/evaluations/regression-runs",
+        response_model=list[RegressionRunRead],
+    )
+    def list_regression_runs(
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> list[dict]:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "asset.read",
+            action="evaluation.regression_run.list",
+            target_type="workspace",
+            target_id=context.workspace.id,
+            request=request,
+        )
+        runs = list(session.scalars(
+            select(RegressionRunRecord)
+            .where(RegressionRunRecord.workspace_id == context.workspace.id)
+            .order_by(RegressionRunRecord.created_at.desc()),
+        ))
+        return [regression_run_to_read(run) for run in runs]
+
+    @router.post(
+        "/evaluations/regression-runs",
+        response_model=RegressionRunRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_regression_run(
+        payload: RegressionRunCreate,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> dict:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "evaluation.run",
+            action="evaluation.regression_run.create",
+            target_type="rubric",
+            target_id=payload.rubric_id,
+            request=request,
+        )
+        rubric = find_rubric(context.workspace.id, payload.rubric_id, session)
+        if rubric.status != "active":
+            raise HTTPException(status_code=409, detail="只有已启用评分量规可以运行回归")
+        rubric_version, snapshot = active_rubric_snapshot(
+            session,
+            context.workspace.id,
+            rubric,
+        )
+        sample_set_id: str | None = None
+        sample_set_name = ""
+        batch_samples: list[dict[str, str]] = []
+        if payload.sample_set_id is not None:
+            sample_set = find_regression_sample_set(
+                context.workspace.id,
+                payload.sample_set_id,
+                session,
+            )
+            if sample_set.status != "active":
+                raise HTTPException(status_code=409, detail="sample set is not active")
+            sample_set_id = sample_set.id
+            sample_set_name = sample_set.name
+            stored_samples = list(session.scalars(
+                select(RegressionSampleRecord)
+                .where(
+                    RegressionSampleRecord.workspace_id == context.workspace.id,
+                    RegressionSampleRecord.sample_set_id == sample_set.id,
+                    RegressionSampleRecord.status == "active",
+                )
+                .order_by(RegressionSampleRecord.created_at.asc()),
+            ))
+            batch_samples = [
+                {"id": sample.id, "input": sample.input_text}
+                for sample in stored_samples
+            ]
+        else:
+            batch_samples = [
+                {
+                    "id": sample.sample_id or f"manual-sample-{index}",
+                    "input": sample.input_text,
+                }
+                for index, sample in enumerate(payload.samples, start=1)
+            ]
+
+        if len(batch_samples) == 0:
+            raise HTTPException(status_code=422, detail="至少需要 1 条回归样本")
+
+        records: list[EvaluationRecord] = []
+        for sample in batch_samples:
+            dimension_scores, score, status_value, rationale = evaluate_with_rubric_snapshot(
+                snapshot,
+                sample["input"],
+            )
+            record = EvaluationRecord(
+                workspace_id=context.workspace.id,
+                rubric_id=rubric.id,
+                rubric_version=rubric_version,
+                rubric_snapshot=snapshot,
+                subject_type="regression_run_sample",
+                subject_id=sample["id"],
+                artifact_text=sample["input"],
+                dimension_scores=dimension_scores,
+                score=score,
+                status=status_value,
+                rationale=rationale,
+                created_by=context.user.id,
+            )
+            session.add(record)
+            records.append(record)
+        session.flush()
+        total_samples = len(records)
+        passed_samples = len([record for record in records if record.status == "passed"])
+        failed_samples = total_samples - passed_samples
+        pass_rate = round((passed_samples / total_samples) * 100)
+        now = utc_now()
+        run = RegressionRunRecord(
+            workspace_id=context.workspace.id,
+            sample_set_id=sample_set_id,
+            sample_set_name=sample_set_name,
+            rubric_id=rubric.id,
+            rubric_name=rubric.name,
+            rubric_version=rubric_version,
+            status="completed",
+            total_samples=total_samples,
+            passed_samples=passed_samples,
+            failed_samples=failed_samples,
+            pass_rate=pass_rate,
+            evaluation_ids=[record.id for record in records],
+            created_by=context.user.id,
+            created_at=now,
+            completed_at=now,
+        )
+        session.add(run)
+        session.flush()
+        record_success(
+            session,
+            context,
+            action="evaluation.regression_run.create",
+            target_type="regression_run",
+            target_id=run.id,
+            request=request,
+        )
+        session.commit()
+        session.refresh(run)
+        for record in records:
+            session.refresh(record)
+        return regression_run_to_read(run, records)
 
     def ensure_default_rubrics(session: Session, workspace_id: str) -> None:
         existing_count = session.scalar(

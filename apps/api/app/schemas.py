@@ -797,6 +797,64 @@ class RegressionSampleSetRead(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
+class RegressionRunSampleCreate(BaseModel):
+    input_text: str = Field(alias="input", min_length=1, max_length=20000)
+    sample_id: str | None = Field(default=None, alias="sampleId", max_length=120)
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    @field_validator("input_text")
+    @classmethod
+    def reject_blank_run_sample(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("sample input cannot be blank")
+        return normalized
+
+    @field_validator("sample_id")
+    @classmethod
+    def normalize_run_sample_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+
+class RegressionRunCreate(BaseModel):
+    rubric_id: str = Field(alias="rubricId", min_length=1, max_length=36)
+    sample_set_id: str | None = Field(default=None, alias="sampleSetId", max_length=36)
+    samples: list[RegressionRunSampleCreate] = Field(default_factory=list, max_length=200)
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    @model_validator(mode="after")
+    def require_samples_or_sample_set(self) -> "RegressionRunCreate":
+        if self.sample_set_id is None and len(self.samples) == 0:
+            raise ValueError("sampleSetId or samples is required")
+        return self
+
+
+class RegressionRunRead(BaseModel):
+    id: str
+    sample_set_id: str | None = Field(serialization_alias="sampleSetId")
+    sample_set_name: str = Field(serialization_alias="sampleSetName")
+    rubric_id: str = Field(serialization_alias="rubricId")
+    rubric_name: str = Field(serialization_alias="rubricName")
+    rubric_version: str = Field(serialization_alias="rubricVersion")
+    status: str
+    total_samples: int = Field(serialization_alias="totalSamples")
+    passed_samples: int = Field(serialization_alias="passedSamples")
+    failed_samples: int = Field(serialization_alias="failedSamples")
+    pass_rate: int = Field(serialization_alias="passRate")
+    evaluation_ids: list[str] = Field(serialization_alias="evaluationIds")
+    records: list["EvaluationRecordRead"] = Field(default_factory=list)
+    created_by: str = Field(serialization_alias="createdBy")
+    created_at: datetime = Field(serialization_alias="createdAt")
+    completed_at: datetime = Field(serialization_alias="completedAt")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class EvaluationOverviewTotalsRead(BaseModel):
     feedback_candidates: int = Field(serialization_alias="feedbackCandidates")
     pending_candidates: int = Field(serialization_alias="pendingCandidates")

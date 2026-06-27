@@ -322,6 +322,24 @@ describe('Evaluations page', () => {
         createdAt: '2026-06-27T00:01:00Z',
       },
     ]
+    const createdRun = {
+      id: 'manual-run',
+      sampleSetId: null,
+      sampleSetName: '手动样本',
+      rubricId: rubricAssets[0].id,
+      rubricName: rubricAssets[0].name,
+      rubricVersion: 'v1.0',
+      status: 'completed',
+      totalSamples: 2,
+      passedSamples: 1,
+      failedSamples: 1,
+      passRate: 50,
+      evaluationIds: batchResponses.map((record) => record.id),
+      records: batchResponses,
+      createdBy: 'user-1',
+      createdAt: '2026-06-27T00:00:00Z',
+      completedAt: '2026-06-27T00:00:00Z',
+    }
     const evaluatedBodies: unknown[] = []
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       if (input === `/api/workspaces/${workspace.id}/evaluations/overview`) {
@@ -334,11 +352,14 @@ describe('Evaluations page', () => {
         return response([])
       }
       if (
-        input === `/api/workspaces/${workspace.id}/evaluations/rubrics/${rubricAssets[0].id}/evaluate`
+        input === `/api/workspaces/${workspace.id}/evaluations/regression-runs`
         && init?.method === 'POST'
       ) {
         evaluatedBodies.push(JSON.parse(String(init.body)))
-        return response(batchResponses[evaluatedBodies.length - 1], 201)
+        return response(createdRun, 201)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/regression-runs`) {
+        return response([])
       }
       if (input === `/api/workspaces/${workspace.id}/evaluations/sample-sets`) {
         return response([])
@@ -351,23 +372,26 @@ describe('Evaluations page', () => {
 
     expect(await screen.findByText('批量回归')).toBeInTheDocument()
     await user.type(screen.getByLabelText('回归样本'), 'sample with evidence and next action\nthin sample')
-    await user.click(screen.getByRole('button', { name: '运行批量回归' }))
+    await user.click(screen.getByTestId('run-batch-regression'))
 
-    expect(await screen.findAllByText('通过率 50%')).toHaveLength(2)
+    expect((await screen.findAllByText('通过率 50%')).length).toBeGreaterThan(0)
     expect(screen.getByText('2 条样本')).toBeInTheDocument()
     expect(screen.getByText('1 条失败')).toBeInTheDocument()
     expect(screen.getByText('thin sample')).toBeInTheDocument()
     expect(screen.getAllByText('batch-fail')).toHaveLength(2)
     expect(evaluatedBodies).toEqual([
       {
-        artifactText: 'sample with evidence and next action',
-        subjectType: 'regression_sample',
-        subjectId: 'sample-1',
-      },
-      {
-        artifactText: 'thin sample',
-        subjectType: 'regression_sample',
-        subjectId: 'sample-2',
+        rubricId: rubricAssets[0].id,
+        samples: [
+          {
+            input: 'sample with evidence and next action',
+            sampleId: 'sample-1',
+          },
+          {
+            input: 'thin sample',
+            sampleId: 'sample-2',
+          },
+        ],
       },
     ])
   })
@@ -420,7 +444,7 @@ describe('Evaluations page', () => {
       rubricId: rubricAssets[0].id,
       rubricVersion: 'v1.0',
       rubricSnapshot: rubricAssets[0],
-      subjectType: 'regression_sample_set',
+      subjectType: 'regression_run_sample',
       subjectId: sample.id,
       artifactText: sample.input,
       dimensionScores: [{ name: 'Accuracy', weight: 100, score: index === 0 ? 88 : 42 }],
@@ -429,6 +453,24 @@ describe('Evaluations page', () => {
       rationale: 'deterministic rubric evaluation',
       createdAt: '2026-06-27T00:00:00Z',
     }))
+    const createdRun = {
+      id: 'golden-run',
+      sampleSetId: 'sample-set-1',
+      sampleSetName: 'Launch Golden Set',
+      rubricId: rubricAssets[0].id,
+      rubricName: rubricAssets[0].name,
+      rubricVersion: 'v1.0',
+      status: 'completed',
+      totalSamples: 2,
+      passedSamples: 1,
+      failedSamples: 1,
+      passRate: 50,
+      evaluationIds: batchResponses.map((record) => record.id),
+      records: batchResponses,
+      createdBy: 'user-1',
+      createdAt: '2026-06-27T00:00:00Z',
+      completedAt: '2026-06-27T00:00:00Z',
+    }
     const evaluatedBodies: unknown[] = []
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       if (input === `/api/workspaces/${workspace.id}/evaluations/overview`) {
@@ -444,13 +486,13 @@ describe('Evaluations page', () => {
         return response(sampleSets)
       }
       if (
-        input === `/api/workspaces/${workspace.id}/evaluations/rubrics/${rubricAssets[0].id}/evaluate`
+        input === `/api/workspaces/${workspace.id}/evaluations/regression-runs`
         && init?.method === 'POST'
       ) {
         evaluatedBodies.push(JSON.parse(String(init.body)))
-        return response(batchResponses[evaluatedBodies.length - 1], 201)
+        return response(createdRun, 201)
       }
-      if (input === `/api/workspaces/${workspace.id}/evaluations/sample-sets`) {
+      if (input === `/api/workspaces/${workspace.id}/evaluations/regression-runs`) {
         return response([])
       }
       return response({ detail: 'not found' }, 404)
@@ -462,19 +504,13 @@ describe('Evaluations page', () => {
     expect(await screen.findByText('Regression Sample Sets')).toBeInTheDocument()
     expect(screen.getAllByText('Launch Golden Set').length).toBeGreaterThan(0)
     await user.selectOptions(screen.getByLabelText('Golden Set'), 'sample-set-1')
-    await user.click(screen.getByRole('button', { name: '运行批量回归' }))
+    await user.click(screen.getByTestId('run-batch-regression'))
 
     expect(await screen.findByText('sample-b')).toBeInTheDocument()
     expect(evaluatedBodies).toEqual([
       {
-        artifactText: 'sample with evidence and next action',
-        subjectType: 'regression_sample_set',
-        subjectId: 'sample-a',
-      },
-      {
-        artifactText: 'thin sample',
-        subjectType: 'regression_sample_set',
-        subjectId: 'sample-b',
+        rubricId: rubricAssets[0].id,
+        sampleSetId: 'sample-set-1',
       },
     ])
   })
@@ -523,5 +559,138 @@ describe('Evaluations page', () => {
     expect(within(dialog).getByText('Accuracy')).toBeInTheDocument()
     expect(within(dialog).getByText('权重 100%')).toBeInTheDocument()
     expect(within(dialog).getByText('得分 91')).toBeInTheDocument()
+  })
+
+  it('runs a persisted batch regression and prepends the Regression Run history', async () => {
+    const user = userEvent.setup()
+    const sampleSets = [{
+      id: 'sample-set-1',
+      name: 'Launch Golden Set',
+      description: 'Reusable launch samples',
+      status: 'active',
+      sampleCount: 2,
+      activeSampleCount: 2,
+      createdBy: 'user-1',
+      createdAt: '2026-06-27T00:00:00Z',
+      updatedAt: '2026-06-27T00:00:00Z',
+      samples: [
+        {
+          id: 'sample-a',
+          sampleSetId: 'sample-set-1',
+          name: 'Evidence rich',
+          input: 'sample with evidence and next action',
+          expectedOutput: 'score should pass',
+          tags: ['launch'],
+          sourceType: 'manual',
+          sourceId: null,
+          status: 'active',
+          createdBy: 'user-1',
+          createdAt: '2026-06-27T00:00:00Z',
+          updatedAt: '2026-06-27T00:00:00Z',
+        },
+        {
+          id: 'sample-b',
+          sampleSetId: 'sample-set-1',
+          name: 'Thin sample',
+          input: 'thin sample',
+          expectedOutput: 'score should fail',
+          tags: ['risk'],
+          sourceType: 'manual',
+          sourceId: null,
+          status: 'active',
+          createdBy: 'user-1',
+          createdAt: '2026-06-27T00:00:00Z',
+          updatedAt: '2026-06-27T00:00:00Z',
+        },
+      ],
+    }]
+    const runRecords = sampleSets[0].samples.map((sample, index) => ({
+      id: index === 0 ? 'eval-pass' : 'eval-fail',
+      rubricId: rubricAssets[0].id,
+      rubricVersion: 'v1.0',
+      rubricSnapshot: rubricAssets[0],
+      subjectType: 'regression_run_sample',
+      subjectId: sample.id,
+      artifactText: sample.input,
+      dimensionScores: [{ name: 'Accuracy', weight: 100, score: index === 0 ? 88 : 42 }],
+      score: index === 0 ? 88 : 42,
+      status: index === 0 ? 'passed' : 'failed',
+      rationale: 'deterministic rubric evaluation',
+      createdAt: '2026-06-27T00:05:00Z',
+    }))
+    const existingRuns = [{
+      id: 'run-old',
+      sampleSetId: 'sample-set-old',
+      sampleSetName: 'Older Golden Set',
+      rubricId: rubricAssets[0].id,
+      rubricName: rubricAssets[0].name,
+      rubricVersion: 'v1.0',
+      status: 'completed',
+      totalSamples: 3,
+      passedSamples: 2,
+      failedSamples: 1,
+      passRate: 67,
+      evaluationIds: ['old-1', 'old-2', 'old-3'],
+      records: [],
+      createdBy: 'user-1',
+      createdAt: '2026-06-27T00:00:00Z',
+      completedAt: '2026-06-27T00:00:00Z',
+    }]
+    const createdRun = {
+      id: 'run-new',
+      sampleSetId: 'sample-set-1',
+      sampleSetName: 'Launch Golden Set',
+      rubricId: rubricAssets[0].id,
+      rubricName: rubricAssets[0].name,
+      rubricVersion: 'v1.0',
+      status: 'completed',
+      totalSamples: 2,
+      passedSamples: 1,
+      failedSamples: 1,
+      passRate: 50,
+      evaluationIds: ['eval-pass', 'eval-fail'],
+      records: runRecords,
+      createdBy: 'user-1',
+      createdAt: '2026-06-27T00:05:00Z',
+      completedAt: '2026-06-27T00:05:00Z',
+    }
+    const runBodies: unknown[] = []
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (input === `/api/workspaces/${workspace.id}/evaluations/overview`) {
+        return response(overview)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/rubrics`) {
+        return response(rubricAssets)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/records`) {
+        return response([])
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/sample-sets`) {
+        return response(sampleSets)
+      }
+      if (
+        input === `/api/workspaces/${workspace.id}/evaluations/regression-runs`
+        && init?.method === 'POST'
+      ) {
+        runBodies.push(JSON.parse(String(init.body)))
+        return response(createdRun, 201)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/regression-runs`) {
+        return response(existingRuns)
+      }
+      return response({ detail: 'not found' }, 404)
+    }))
+
+    renderPage()
+
+    expect(await screen.findByText('Regression Run History')).toBeInTheDocument()
+    expect(screen.getByText('run-old')).toBeInTheDocument()
+    await user.selectOptions(screen.getByLabelText('Golden Set'), 'sample-set-1')
+    await user.click(screen.getByTestId('run-batch-regression'))
+
+    expect(await screen.findByText('run-new')).toBeInTheDocument()
+    expect(screen.getAllByText('Launch Golden Set').length).toBeGreaterThan(0)
+    expect(screen.getAllByText((_, element) => element?.textContent === '通过率 50%').length).toBeGreaterThan(0)
+    expect(runBodies).toEqual([{ rubricId: rubricAssets[0].id, sampleSetId: 'sample-set-1' }])
   })
 })
