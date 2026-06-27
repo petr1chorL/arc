@@ -50,15 +50,17 @@ export async function getExecutionJob(workspaceId: string, jobId: string): Promi
   )
 }
 
-export async function requeueExecutionJob(workspaceId: string, jobId: string): Promise<ExecutionJob> {
+export async function requeueExecutionJob(workspaceId: string, jobId: string, reason = ''): Promise<ExecutionJob> {
   return readJson<ExecutionJob>(await apiFetch(workspacePath(workspaceId, `/execution-jobs/${jobId}/requeue`), {
-    method: 'POST',
+    ...jsonRequest,
+    body: JSON.stringify({ reason }),
   }))
 }
 
-export async function cancelExecutionJob(workspaceId: string, jobId: string): Promise<ExecutionJob> {
+export async function cancelExecutionJob(workspaceId: string, jobId: string, reason = ''): Promise<ExecutionJob> {
   return readJson<ExecutionJob>(await apiFetch(workspacePath(workspaceId, `/execution-jobs/${jobId}/cancel`), {
-    method: 'POST',
+    ...jsonRequest,
+    body: JSON.stringify({ reason }),
   }))
 }
 

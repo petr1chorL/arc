@@ -1,6 +1,6 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.13N 执行队列状态筛选
+> 对应版本：V0.13O 队列运营动作原因记录
 > 上一阶段：V0.8F 轻量告警 / 通知 Outbox
 > 更新时间：2026-06-27
 
@@ -547,6 +547,7 @@ POST /api/workspaces/{workspace_id}/evaluations/remediation-tasks/{task_id}/rete
 - 队列任务详情展示 Job ID、Run ID、Workflow 版本、尝试次数、Worker 锁、租约、下次尝试、终态时间、失败原因和关联审计事件。
 - 死信任务卡展示“重新入队”按钮，点击后调用 requeue 接口并刷新队列。
 - 可取消队列任务卡展示“取消任务”按钮，点击后调用 cancel 接口并刷新队列。
+- “重新入队”和“取消任务”在提交前要求填写操作原因；原因会作为 JSON body 传给后端并进入审计事件。
 
 后端 API：
 
@@ -941,6 +942,11 @@ TypeScript 编译检查
 - V0.13N 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 后端完整测试集通过；`npm test -- --run --reporter verbose` 27 个测试文件、103 项测试通过；`npm run lint` 通过；`npm run build` 通过；`git diff --check` 仅有 Windows 换行提示。
 - V0.13N 完成浏览器验收：观测页执行队列状态筛选控件唯一，选择“死信”后页面显示 `1 条任务`，死信任务可见、排队中任务隐藏；浏览器控制台新增 warning/error 为 0。
 - V0.13N 浏览器验收截图：`.scratch/v0.13n-execution-queue-status-filter.png`；验收结果：`.scratch/v0.13n-browser-result.json`。
+- V0.13O 完成队列运营动作原因 RED/GREEN 测试：首次因 requeue/cancel 前端 API 未提交 JSON reason body 失败，随后两个 API wrapper 支持传入 `{ reason }`；页面首次因点击“重新入队”不展示原因面板失败，随后会要求填写操作原因并在空原因时提示“请填写操作原因”。
+- V0.13O 完成 focused 回归：`npm test -- --run src/pages/Observability.test.tsx --reporter verbose` 1 个测试文件、8 项通过；`npm test -- --run src/api/execution.test.ts --reporter verbose` 1 个测试文件、6 项通过。
+- V0.13O 完成全量验证：`npm test -- --run --reporter verbose` 27 个测试文件、104 项通过；`npm run lint` 通过；`npm run build` 通过；`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 后端完整测试集通过；`git diff --check` 仅有 Windows 换行提示。
+- V0.13O 完成浏览器验收：死信任务点击“重新入队”后展示原因面板，空原因提示，填写 `V0.13O browser requeue reason` 后提交成功；死信筛选下任务数变为 `0 条任务`；浏览器控制台新增 warning/error 为 0。
+- V0.13O 浏览器验收截图：`.scratch/v0.13o-queue-action-reason.png`；验收结果：`.scratch/v0.13o-browser-result.json`。
 
 验证时没有发现浏览器控制台错误。
 

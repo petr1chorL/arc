@@ -4808,6 +4808,47 @@ kbd {
   text-align: right;
 }
 
+.execution-queue-action-panel {
+  display: grid;
+  gap: 14px;
+  margin: 0 16px 16px;
+  padding-bottom: 16px;
+  border-radius: 18px;
+  background: rgba(247, 250, 255, 0.78);
+  box-shadow: var(--shadow-in);
+  overflow: hidden;
+}
+
+.execution-queue-action-panel label {
+  display: grid;
+  gap: 7px;
+  padding: 0 16px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.execution-queue-action-panel textarea {
+  min-height: 84px;
+  resize: vertical;
+  border: 0;
+  border-radius: 14px;
+  padding: 12px 13px;
+  color: var(--ink);
+  background: rgba(238, 244, 252, 0.82);
+  box-shadow: var(--shadow-in);
+}
+
+.execution-queue-action-panel .table-state {
+  margin: 0 16px;
+}
+
+.execution-queue-action-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 16px;
+}
+
 .execution-job-detail-panel {
   margin: 0 16px 16px;
   border-radius: 18px;

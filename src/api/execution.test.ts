@@ -208,15 +208,18 @@ describe('Execution API', () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(job), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
-    await expect(requeueExecutionJob(workspaceId, 'job-1')).resolves.toEqual(job)
+    await expect(requeueExecutionJob(workspaceId, 'job-1', '人工确认模型恢复')).resolves.toEqual(job)
 
+    const requeueRequest = fetchMock.mock.calls[0]?.[1] as RequestInit
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/workspaces/workspace-1/execution-jobs/job-1/requeue',
       expect.objectContaining({
         method: 'POST',
         credentials: 'same-origin',
+        body: JSON.stringify({ reason: '人工确认模型恢复' }),
       }),
     )
+    expect((requeueRequest.headers as Headers).get('Content-Type')).toBe('application/json')
   })
 
   it('cancels an execution job', async () => {
@@ -246,14 +249,17 @@ describe('Execution API', () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(job), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
-    await expect(cancelExecutionJob(workspaceId, 'job-1')).resolves.toEqual(job)
+    await expect(cancelExecutionJob(workspaceId, 'job-1', '业务方取消本次运行')).resolves.toEqual(job)
 
+    const cancelRequest = fetchMock.mock.calls[0]?.[1] as RequestInit
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/workspaces/workspace-1/execution-jobs/job-1/cancel',
       expect.objectContaining({
         method: 'POST',
         credentials: 'same-origin',
+        body: JSON.stringify({ reason: '业务方取消本次运行' }),
       }),
     )
+    expect((cancelRequest.headers as Headers).get('Content-Type')).toBe('application/json')
   })
 })

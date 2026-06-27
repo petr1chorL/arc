@@ -450,6 +450,8 @@ describe('Observability', () => {
     expect(screen.getByText('详情页验证重投审计')).toBeInTheDocument()
     expect(screen.getByText('dead_letter → queued')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '重新入队' }))
+    await user.type(screen.getByLabelText('操作原因'), '详情页验证重新入队')
+    await user.click(screen.getByRole('button', { name: '确认重新入队' }))
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         '/api/workspaces/workspace-1/execution-jobs/job-dead-letter/requeue',
@@ -458,6 +460,8 @@ describe('Observability', () => {
     })
     const cancelButtons = screen.getAllByRole('button', { name: '取消任务' })
     await user.click(cancelButtons[cancelButtons.length - 1])
+    await user.type(screen.getByLabelText('操作原因'), '详情页验证取消任务')
+    await user.click(screen.getByRole('button', { name: '确认取消任务' }))
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         '/api/workspaces/workspace-1/execution-jobs/job-queued/cancel',
@@ -525,6 +529,61 @@ describe('Observability', () => {
     expect(await screen.findByText('1 条任务')).toBeInTheDocument()
     expect(screen.getByText('死信 · workflow_run')).toBeInTheDocument()
     expect(screen.queryByText('排队中 · workflow_run')).not.toBeInTheDocument()
+  })
+
+  it('records a queue operation reason before requeueing a dead-letter job', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = typeof input === 'string' ? input : input instanceof URL ? input.pathname + input.search : input.url
+      if (path === '/api/workspaces/workspace-1/observability/overview') {
+        return new Response(JSON.stringify(overview), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/observability/human-sla') {
+        return new Response(JSON.stringify(humanSla), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/observability/cost-usage') {
+        return new Response(JSON.stringify(costUsage), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/execution-jobs') {
+        return new Response(JSON.stringify(executionJobs), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/execution-jobs/job-dead-letter/requeue') {
+        expect(init?.body).toBe(JSON.stringify({ reason: '人工确认模型恢复，重新入队' }))
+        return new Response(JSON.stringify({
+          ...executionJobs[0],
+          status: 'queued',
+          attempts: 0,
+          error: '',
+          lockedBy: '',
+          lockedUntil: null,
+          deadLetteredAt: null,
+        }), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/observability/runs/run-failed') {
+        return new Response(JSON.stringify(detail), { status: 200 })
+      }
+      throw new Error(`Unexpected fetch: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage()
+
+    await screen.findByText('执行队列运营')
+    await user.click(screen.getByRole('button', { name: '重新入队' }))
+
+    expect(await screen.findByText('记录队列操作原因')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '确认重新入队' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('请填写操作原因')
+
+    await user.type(screen.getByLabelText('操作原因'), '人工确认模型恢复，重新入队')
+    await user.click(screen.getByRole('button', { name: '确认重新入队' }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/workspaces/workspace-1/execution-jobs/job-dead-letter/requeue',
+        expect.objectContaining({ method: 'POST' }),
+      )
+    })
   })
 
   it('loads another run detail when a recent run is selected', async () => {

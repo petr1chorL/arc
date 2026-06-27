@@ -73,6 +73,11 @@ function runTitle(run: ObservabilityRunSummary) {
   return run.workflowName
 }
 
+type QueueActionIntent = {
+  type: 'requeue' | 'cancel'
+  jobId: string
+}
+
 function riskMessage(risk: ObservabilityRisk, runs: ObservabilityRunSummary[]) {
   const relatedRun = runs.find((run) => run.id === risk.runId)
   const [status = '', node = '未知节点'] = risk.message.split(' · ')
@@ -116,6 +121,9 @@ export function Observability() {
   const [executionJobs, setExecutionJobs] = useState<ExecutionJob[]>([])
   const [executionJobDetail, setExecutionJobDetail] = useState<ExecutionJobDetail | null>(null)
   const [executionJobStatusFilter, setExecutionJobStatusFilter] = useState('all')
+  const [queueActionIntent, setQueueActionIntent] = useState<QueueActionIntent | null>(null)
+  const [queueActionReason, setQueueActionReason] = useState('')
+  const [queueActionValidationError, setQueueActionValidationError] = useState('')
   const [reviewerId, setReviewerId] = useState('')
   const [groupId, setGroupId] = useState('')
   const [isLoading, setIsLoading] = useState(true)
@@ -250,27 +258,31 @@ export function Observability() {
     }
   }, [executionJobStatusFilter, workspace.id])
 
-  const requeueJob = useCallback(async (jobId: string) => {
+  const requeueJob = useCallback(async (jobId: string, reason: string) => {
     setQueueActionJobId(jobId)
     setQueueActionError('')
     try {
-      await requeueExecutionJob(workspace.id, jobId)
+      await requeueExecutionJob(workspace.id, jobId, reason)
       await loadExecutionJobs()
+      return true
     } catch (actionError) {
       setQueueActionError(actionError instanceof Error ? actionError.message : '重新入队失败')
+      return false
     } finally {
       setQueueActionJobId('')
     }
   }, [loadExecutionJobs, workspace.id])
 
-  const cancelJob = useCallback(async (jobId: string) => {
+  const cancelJob = useCallback(async (jobId: string, reason: string) => {
     setQueueActionJobId(jobId)
     setQueueActionError('')
     try {
-      await cancelExecutionJob(workspace.id, jobId)
+      await cancelExecutionJob(workspace.id, jobId, reason)
       await loadExecutionJobs()
+      return true
     } catch (actionError) {
       setQueueActionError(actionError instanceof Error ? actionError.message : '取消任务失败')
+      return false
     } finally {
       setQueueActionJobId('')
     }
@@ -289,6 +301,33 @@ export function Observability() {
       setIsExecutionJobDetailLoading(false)
     }
   }, [workspace.id])
+
+  const beginQueueAction = useCallback((type: QueueActionIntent['type'], jobId: string) => {
+    setQueueActionIntent({ type, jobId })
+    setQueueActionReason('')
+    setQueueActionValidationError('')
+    setQueueActionError('')
+  }, [])
+
+  const dismissQueueAction = useCallback(() => {
+    setQueueActionIntent(null)
+    setQueueActionReason('')
+    setQueueActionValidationError('')
+  }, [])
+
+  const submitQueueAction = useCallback(async () => {
+    if (!queueActionIntent) return
+    const reason = queueActionReason.trim()
+    if (!reason) {
+      setQueueActionValidationError('请填写操作原因')
+      return
+    }
+    setQueueActionValidationError('')
+    const didSucceed = queueActionIntent.type === 'requeue'
+      ? await requeueJob(queueActionIntent.jobId, reason)
+      : await cancelJob(queueActionIntent.jobId, reason)
+    if (didSucceed) dismissQueueAction()
+  }, [cancelJob, dismissQueueAction, queueActionIntent, queueActionReason, requeueJob])
 
   useEffect(() => {
     void loadOverview()
@@ -417,13 +456,21 @@ export function Observability() {
           setExecutionJobDetail(null)
           setExecutionJobDetailError('')
           setDetailJobId('')
+          dismissQueueAction()
         }}
-        onRequeue={(jobId) => {
-          void requeueJob(jobId)
+        queueActionIntent={queueActionIntent}
+        queueActionReason={queueActionReason}
+        queueActionValidationError={queueActionValidationError}
+        onQueueActionReasonChange={(reason) => {
+          setQueueActionReason(reason)
+          if (reason.trim()) setQueueActionValidationError('')
         }}
-        onCancel={(jobId) => {
-          void cancelJob(jobId)
+        onQueueActionSubmit={() => {
+          void submitQueueAction()
         }}
+        onQueueActionDismiss={dismissQueueAction}
+        onRequeue={(jobId) => beginQueueAction('requeue', jobId)}
+        onCancel={(jobId) => beginQueueAction('cancel', jobId)}
         onOpenDetail={(jobId) => {
           void openExecutionJobDetail(jobId)
         }}
@@ -584,7 +631,13 @@ function ExecutionQueuePanel({
   detail,
   isDetailLoading,
   detailError,
+  queueActionIntent,
+  queueActionReason,
+  queueActionValidationError,
   onStatusFilterChange,
+  onQueueActionReasonChange,
+  onQueueActionSubmit,
+  onQueueActionDismiss,
   onRequeue,
   onCancel,
   onOpenDetail,
@@ -599,7 +652,13 @@ function ExecutionQueuePanel({
   detail: ExecutionJobDetail | null
   isDetailLoading: boolean
   detailError: string
+  queueActionIntent: QueueActionIntent | null
+  queueActionReason: string
+  queueActionValidationError: string
   onStatusFilterChange: (status: string) => void
+  onQueueActionReasonChange: (reason: string) => void
+  onQueueActionSubmit: () => void
+  onQueueActionDismiss: () => void
   onRequeue: (jobId: string) => void
   onCancel: (jobId: string) => void
   onOpenDetail: (jobId: string) => void
@@ -701,9 +760,75 @@ function ExecutionQueuePanel({
               error={detailError}
             />
           )}
+          {queueActionIntent && (
+            <QueueActionReasonPanel
+              intent={queueActionIntent}
+              reason={queueActionReason}
+              validationError={queueActionValidationError}
+              isSubmitting={actionJobId === queueActionIntent.jobId}
+              onReasonChange={onQueueActionReasonChange}
+              onSubmit={onQueueActionSubmit}
+              onDismiss={onQueueActionDismiss}
+            />
+          )}
         </>
       )}
     </section>
+  )
+}
+
+function QueueActionReasonPanel({
+  intent,
+  reason,
+  validationError,
+  isSubmitting,
+  onReasonChange,
+  onSubmit,
+  onDismiss,
+}: {
+  intent: QueueActionIntent
+  reason: string
+  validationError: string
+  isSubmitting: boolean
+  onReasonChange: (reason: string) => void
+  onSubmit: () => void
+  onDismiss: () => void
+}) {
+  const isRequeue = intent.type === 'requeue'
+  const submitLabel = isRequeue ? '确认重新入队' : '确认取消任务'
+  return (
+    <form
+      className="execution-queue-action-panel"
+      onSubmit={(event) => {
+        event.preventDefault()
+        onSubmit()
+      }}
+    >
+      <div className="panel-header">
+        <div>
+          <span className="section-kicker">OPERATION AUDIT</span>
+          <h3>记录队列操作原因</h3>
+        </div>
+        <StatusBadge status={isRequeue ? '重新入队' : '取消任务'} />
+      </div>
+      <label>
+        <span>操作原因</span>
+        <textarea
+          value={reason}
+          onChange={(event) => onReasonChange(event.target.value)}
+          placeholder={isRequeue ? '例如：人工确认模型恢复，重新入队' : '例如：业务方取消本次运行'}
+        />
+      </label>
+      {validationError && <div className="table-state error" role="alert">{validationError}</div>}
+      <div className="execution-queue-action-buttons">
+        <button className="button ghost compact" type="button" onClick={onDismiss}>
+          取消
+        </button>
+        <button className="button primary compact" type="submit" disabled={isSubmitting}>
+          {isSubmitting ? '处理中' : submitLabel}
+        </button>
+      </div>
+    </form>
   )
 }
 
