@@ -37,6 +37,7 @@ WORKSPACE_TABLES = (
     "notification_outbox",
     "feedback_candidates",
     "golden_samples",
+    "rubrics",
     "human_reviews",
 )
 DEFAULT_WORKSPACE_FALLBACK_TABLES = tuple(
@@ -693,6 +694,11 @@ def ensure_current_schema(engine: Engine) -> None:
         engine,
         "reviewers",
         {"user_id": "VARCHAR(36)"},
+    )
+    ensure_columns(
+        engine,
+        "rubrics",
+        {"sort_order": "INTEGER NOT NULL DEFAULT 0"},
     )
     ensure_audit_event_platform_schema(engine)
     backfill_v07a_workspace(engine)

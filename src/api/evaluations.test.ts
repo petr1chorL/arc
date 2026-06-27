@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { getEvaluationOverview } from './evaluations'
+import { getEvaluationOverview, getRubrics } from './evaluations'
 
 const workspaceId = 'workspace-1'
 
@@ -32,6 +32,29 @@ describe('Evaluations API', () => {
     expect(overview).toEqual(payload)
     expect(fetchMock).toHaveBeenCalledWith(
       `/api/workspaces/${workspaceId}/evaluations/overview`,
+      expect.objectContaining({ credentials: 'same-origin' }),
+    )
+  })
+
+  it('loads rubric assets for a workspace', async () => {
+    const payload = [{
+      id: 'rubric-api-1',
+      name: 'API Rubric',
+      artifact: 'Artifact',
+      dimensions: [{ name: 'Accuracy', weight: 60 }],
+      gate: 'Must pass',
+      passScore: 85,
+      version: 'v1.0',
+      status: 'active',
+    }]
+    const fetchMock = vi.fn().mockResolvedValue(await jsonResponse(payload))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const rubrics = await getRubrics(workspaceId)
+
+    expect(rubrics).toEqual(payload)
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/workspaces/${workspaceId}/evaluations/rubrics`,
       expect.objectContaining({ credentials: 'same-origin' }),
     )
   })

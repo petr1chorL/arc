@@ -142,6 +142,7 @@ export interface Rubric {
   gate: string
   passScore: number
   version: string
+  status?: string
 }
 
 export interface WorkflowRun {

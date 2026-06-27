@@ -751,3 +751,21 @@ class EvaluationOverviewRead(BaseModel):
     )
 
     model_config = ConfigDict(populate_by_name=True)
+
+
+class RubricDimensionRead(BaseModel):
+    name: str
+    weight: int
+
+
+class RubricRead(BaseModel):
+    id: str
+    name: str
+    artifact: str
+    dimensions: list[RubricDimensionRead]
+    gate: str
+    pass_score: int = Field(serialization_alias="passScore")
+    version: str
+    status: str
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)

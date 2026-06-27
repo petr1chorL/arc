@@ -29,6 +29,7 @@ from app.models import (
     NotificationOutboxRecord,
     ReviewerRecord,
     ReviewGroupRecord,
+    RubricRecord,
     WorkspaceRecord,
     WorkflowRecord,
     WorkflowRunRecord,
@@ -76,6 +77,7 @@ from app.schemas import (
     ReviewerRead,
     ReviewGroupRead,
     ReviewDecision,
+    RubricRead,
     RunCreate,
     RunRead,
     ValidationResult,
@@ -85,6 +87,56 @@ from app.schemas import (
     WorkflowUpdate,
 )
 from app.security import SecurityService
+
+
+DEFAULT_RUBRICS = (
+    {
+        "name": "竞品分析质量标准",
+        "artifact": "竞品分析矩阵",
+        "dimensions": [
+            {"name": "事实准确性", "weight": 25},
+            {"name": "信息完整性", "weight": 20},
+            {"name": "洞察价值", "weight": 25},
+            {"name": "业务相关性", "weight": 15},
+            {"name": "结构与复用", "weight": 10},
+            {"name": "风险控制", "weight": 5},
+        ],
+        "gate": "来源完整率 = 100%，竞品数量 >= 5",
+        "pass_score": 85,
+        "version": "v2.1",
+        "status": "active",
+    },
+    {
+        "name": "需求洞察质量标准",
+        "artifact": "用户需求对象",
+        "dimensions": [
+            {"name": "证据可信度", "weight": 30},
+            {"name": "需求聚类质量", "weight": 20},
+            {"name": "场景完整性", "weight": 20},
+            {"name": "机会可行动性", "weight": 20},
+            {"name": "可追溯性", "weight": 10},
+        ],
+        "gate": "每条结论至少关联 3 条原始证据",
+        "pass_score": 80,
+        "version": "v1.6",
+        "status": "active",
+    },
+    {
+        "name": "产品定义准入标准",
+        "artifact": "产品定义文档",
+        "dimensions": [
+            {"name": "战略一致性", "weight": 25},
+            {"name": "用户价值", "weight": 25},
+            {"name": "技术可行性", "weight": 20},
+            {"name": "商业潜力", "weight": 20},
+            {"name": "风险完备性", "weight": 10},
+        ],
+        "gate": "关键指标、目标用户、成本边界均不得为空",
+        "pass_score": 88,
+        "version": "v0.9",
+        "status": "active",
+    },
+)
 
 
 def create_app(
@@ -1707,6 +1759,50 @@ def create_app(
                 for candidate in recent_candidates
             ],
         }
+
+    def ensure_default_rubrics(session: Session, workspace_id: str) -> None:
+        existing_count = session.scalar(
+            select(func.count())
+            .select_from(RubricRecord)
+            .where(RubricRecord.workspace_id == workspace_id),
+        ) or 0
+        if existing_count > 0:
+            return
+        now = utc_now()
+        for sort_order, rubric in enumerate(DEFAULT_RUBRICS, start=1):
+            session.add(
+                RubricRecord(
+                    workspace_id=workspace_id,
+                    sort_order=sort_order,
+                    created_at=now,
+                    updated_at=now,
+                    **rubric,
+                ),
+            )
+        session.flush()
+        session.commit()
+
+    @router.get("/evaluations/rubrics", response_model=list[RubricRead])
+    def list_evaluation_rubrics(
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> list[RubricRecord]:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "asset.read",
+            action="evaluation.rubric.list",
+            target_type="workspace",
+            target_id=context.workspace.id,
+            request=request,
+        )
+        ensure_default_rubrics(session, context.workspace.id)
+        return list(session.scalars(
+            select(RubricRecord)
+            .where(RubricRecord.workspace_id == context.workspace.id)
+            .order_by(RubricRecord.sort_order.asc(), RubricRecord.created_at.asc()),
+        ))
 
     @router.get(
         "/feedback-candidates/{candidate_id}",

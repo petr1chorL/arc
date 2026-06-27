@@ -511,6 +511,26 @@ class GoldenSampleRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class RubricRecord(Base):
+    __tablename__ = "rubrics"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "name", "version", name="uq_rubric_workspace_name_version"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    artifact: Mapped[str] = mapped_column(String(160))
+    dimensions: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    gate: Mapped[str] = mapped_column(Text)
+    pass_score: Mapped[int] = mapped_column(Integer)
+    version: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(32), default="active")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class HumanReviewRecord(Base):
     __tablename__ = "human_reviews"
 
