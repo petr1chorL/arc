@@ -15,5 +15,27 @@ services:
       timeout: 5s
       retries: 10
 
+  api:
+    build:
+      context: ./apps/api
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-arc_one}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-arc_one}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+  execution-worker:
+    build:
+      context: ./apps/api
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-arc_one}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-arc_one}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["python", "-m", "app.worker", "--worker-id", "compose-worker", "--poll-interval", "2"]
+
 volumes:
   arc_one_postgres:

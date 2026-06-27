@@ -126,14 +126,26 @@ http://127.0.0.1:8000/docs
 
 默认数据库文件是 `apps/api/data/arc_one.db`。
 
-使用 PostgreSQL 时，先在 PowerShell 中设置 `POSTGRES_PASSWORD`，再启动：
+使用 PostgreSQL 时，先在 PowerShell 中设置 `POSTGRES_PASSWORD`。只启动数据库：
 
 ```powershell
 $env:POSTGRES_PASSWORD="<通过安全渠道提供的密码>"
 docker compose up -d postgres
 ```
 
-随后通过环境变量设置 `DATABASE_URL`。当前机器未安装 Docker，因此 Compose 配置尚未在本机运行验证。
+随后通过环境变量设置 `DATABASE_URL`。
+
+如果要用 Compose 同时启动 API 和异步执行 Worker：
+
+```powershell
+$env:POSTGRES_PASSWORD="<通过安全渠道提供的密码>"
+docker compose up --build api execution-worker
+```
+
+`api` 与 `execution-worker` 共用 `apps/api/Dockerfile`，并通过同一条
+`DATABASE_URL` 连接 Compose 内的 `postgres`。当前机器 Docker CLI 可用但
+Docker Desktop daemon 未运行，因此 Compose 配置解析已验证，容器构建和运行
+尚未在本机完成验证。
 
 ## 检查
 
