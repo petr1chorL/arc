@@ -68,6 +68,8 @@ const emptyForm: RubricInput = {
   dimensions: [{ name: '', weight: 100 }],
   gate: '',
   passScore: 85,
+  judgeType: 'deterministic',
+  judgeModel: '',
 }
 
 function toRubricInput(rubric: Rubric): RubricInput {
@@ -77,6 +79,8 @@ function toRubricInput(rubric: Rubric): RubricInput {
     dimensions: rubric.dimensions.map((dimension) => ({ ...dimension })),
     gate: rubric.gate,
     passScore: rubric.passScore,
+    judgeType: rubric.judgeType ?? 'deterministic',
+    judgeModel: rubric.judgeModel ?? '',
   }
 }
 
@@ -92,6 +96,7 @@ function validateRubric(input: RubricInput): string {
   }
   const totalWeight = input.dimensions.reduce((sum, dimension) => sum + dimension.weight, 0)
   if (totalWeight !== 100) return '维度权重合计必须等于 100'
+  if (input.judgeType === 'llm' && !input.judgeModel?.trim()) return 'LLM Judge 模型不能为空'
   return ''
 }
 
@@ -827,6 +832,8 @@ export function Evaluations() {
         name: form.name.trim(),
         artifact: form.artifact.trim(),
         gate: form.gate.trim(),
+        judgeType: form.judgeType ?? 'deterministic',
+        judgeModel: form.judgeType === 'llm' ? form.judgeModel?.trim() : '',
         dimensions: form.dimensions.map((dimension) => ({
           name: dimension.name.trim(),
           weight: dimension.weight,
@@ -2082,6 +2089,11 @@ export function Evaluations() {
                     <span className="mono">{rubric.id} / {rubric.version}</span>
                     <h3>{rubric.name}</h3>
                     <p>适用产出物：{rubric.artifact}</p>
+                    <p>
+                      评分器：{rubric.judgeType === 'llm'
+                        ? `LLM Judge / ${rubric.judgeModel || '未指定模型'}`
+                        : '确定性评分器'}
+                    </p>
                   </div>
                   <button
                     className="icon-button quiet"
@@ -2171,6 +2183,34 @@ export function Evaluations() {
                   onChange={(event) => setForm((current) => ({ ...current, passScore: Number(event.target.value) }))}
                 />
               </label>
+              <label className="dialog-field">
+                评分器类型
+                <select
+                  aria-label="评分器类型"
+                  value={form.judgeType ?? 'deterministic'}
+                  disabled={disabled}
+                  onChange={(event) => setForm((current) => ({
+                    ...current,
+                    judgeType: event.target.value as RubricInput['judgeType'],
+                    judgeModel: event.target.value === 'llm' ? current.judgeModel : '',
+                  }))}
+                >
+                  <option value="deterministic">确定性评分器</option>
+                  <option value="llm">LLM Judge</option>
+                </select>
+              </label>
+              {(form.judgeType ?? 'deterministic') === 'llm' && (
+                <label className="dialog-field">
+                  Judge 模型
+                  <input
+                    aria-label="Judge 模型"
+                    placeholder="deepseek-v4-pro"
+                    value={form.judgeModel ?? ''}
+                    disabled={disabled}
+                    onChange={(event) => setForm((current) => ({ ...current, judgeModel: event.target.value }))}
+                  />
+                </label>
+              )}
 
               <div className="rubric-dimension-editor">
                 <div className="rubric-dimension-header">
@@ -2310,7 +2350,11 @@ export function Evaluations() {
                 {versions.map((version) => (
                   <article key={version.id}>
                     <strong>{version.version}</strong>
-                    <span>{version.snapshot.name} / 通过分 {version.snapshot.passScore}</span>
+                    <span>
+                      {version.snapshot.name} / 通过分 {version.snapshot.passScore} / {version.snapshot.judgeType === 'llm'
+                        ? `LLM Judge ${version.snapshot.judgeModel || ''}`.trim()
+                        : '确定性评分器'}
+                    </span>
                   </article>
                 ))}
               </div>

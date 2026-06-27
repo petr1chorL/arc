@@ -381,6 +381,7 @@ React Flow 节点/连线
 - 自动流转阈值。
 - 新建 Rubric 草稿。
 - 编辑 Rubric 名称、适用产出物、维度、权重、硬性门禁和通过分数。
+- 在 Rubric 配置弹窗中选择确定性评分器或 LLM Judge，并填写 Judge 模型。
 - 发布不可变 Rubric 版本。
 - 查看已发布 Rubric 版本快照。
 - 停用 Rubric，停用后不允许继续编辑或发布。
@@ -869,7 +870,9 @@ TypeScript 编译检查
 - V0.12D 完成评估中心回归验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests/test_evaluations_api.py -q`，14 项通过。
 - V0.12D 完成 ModelJudgeGateway RED/GREEN 测试：首次因 `ModelJudgeGateway` 不存在失败，随后可通过 Fake ModelGateway 解析 JSON 评分结果。
 - V0.12D 完成 Judge 网关相关回归验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests/test_judge_gateway.py apps/api/tests/test_evaluations_api.py apps/api/tests/test_model_gateway.py -q`，16 项通过。
-- V0.12D 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 168 项通过；`npm test -- --run` 27 个测试文件、96 项测试通过；`npm run lint` 通过；`npm run build` 通过。
+- V0.12D 完成 Rubric Judge 前端配置 RED/GREEN 测试：首次因页面缺少“评分器类型”控件失败，随后创建 LLM Judge Rubric 时可提交 `judgeType=llm` 与 `judgeModel`。
+- V0.12D 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 168 项通过；`npm test -- --run` 27 个测试文件、97 项测试通过；`npm run lint` 通过；`npm run build` 通过。
+- V0.12D 完成浏览器验收：评估中心 Rubric 弹窗中“评分器类型”控件唯一；默认隐藏 Judge 模型；切换为 LLM Judge 后模型输入出现并可填写 `deepseek-v4-pro`；浏览器控制台新增 error/warn 为 0。
 
 验证时没有发现浏览器控制台错误。
 

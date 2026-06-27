@@ -166,6 +166,68 @@ describe('Evaluations page', () => {
     ))).toBeInTheDocument()
   })
 
+  it('configures LLM Judge fields when creating a rubric', async () => {
+    const user = userEvent.setup()
+    const createdRubric = {
+      id: 'rubric-llm',
+      name: 'LLM 评审量规',
+      artifact: '调研报告',
+      dimensions: [
+        { name: '证据质量', weight: 100 },
+      ],
+      gate: '必须说明证据来源',
+      passScore: 85,
+      judgeType: 'llm',
+      judgeModel: 'deepseek-v4-pro',
+      version: 'v0.1.0',
+      status: 'draft',
+    }
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (input === `/api/workspaces/${workspace.id}/evaluations/overview`) {
+        return response(overview)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/rubrics` && init?.method === 'POST') {
+        return response(createdRubric, 201)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/rubrics`) {
+        return response(rubricAssets)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/records`) {
+        return response([])
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/sample-sets`) {
+        return response([])
+      }
+      return response({ detail: 'not found' }, 404)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: '新建评分量规' }))
+    await user.type(screen.getByLabelText('名称'), createdRubric.name)
+    await user.type(screen.getByLabelText('适用产出物'), createdRubric.artifact)
+    await user.type(screen.getByLabelText('硬性门禁'), createdRubric.gate)
+    await user.clear(screen.getByLabelText('维度 1 名称'))
+    await user.type(screen.getByLabelText('维度 1 名称'), createdRubric.dimensions[0].name)
+    await user.selectOptions(screen.getByLabelText('评分器类型'), 'llm')
+    await user.type(screen.getByLabelText('Judge 模型'), createdRubric.judgeModel)
+    await user.click(screen.getByRole('button', { name: '保存评分量规' }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      `/api/workspaces/${workspace.id}/evaluations/rubrics`,
+      expect.objectContaining({ method: 'POST' }),
+    ))
+    const createInit = fetchMock.mock.calls.find(([url, init]) => (
+      url === `/api/workspaces/${workspace.id}/evaluations/rubrics`
+      && (init as RequestInit | undefined)?.method === 'POST'
+    ))?.[1] as RequestInit
+    expect(JSON.parse(String(createInit.body))).toMatchObject({
+      judgeType: 'llm',
+      judgeModel: 'deepseek-v4-pro',
+    })
+  })
+
   it('runs a rubric evaluation from the configuration dialog', async () => {
     const user = userEvent.setup()
     const evaluationRecord = {
