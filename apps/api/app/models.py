@@ -161,6 +161,7 @@ class AgentRecord(Base):
     role: Mapped[str] = mapped_column(String(240))
     owner: Mapped[str] = mapped_column(String(80))
     model: Mapped[str] = mapped_column(String(80))
+    model_provider_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     model_provider: Mapped[str] = mapped_column(String(80), default="openai-compatible")
     model_base_url: Mapped[str] = mapped_column(String(500), default="")
     temperature: Mapped[float] = mapped_column(Float, default=0.2)

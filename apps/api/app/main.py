@@ -337,6 +337,33 @@ def create_app(
                         detail=f"未授权或不可用的 {label}：{name}",
                     )
 
+    def resolve_model_provider(
+        session: Session,
+        *,
+        workspace_id: str,
+        provider_id: str,
+    ) -> ModelProviderRecord:
+        provider = session.scalar(
+            select(ModelProviderRecord).where(
+                ModelProviderRecord.id == provider_id,
+                ModelProviderRecord.workspace_id == workspace_id,
+            ),
+        )
+        if provider is None:
+            raise HTTPException(status_code=404, detail="模型 Provider 不存在")
+        if provider.status == "disabled":
+            raise HTTPException(status_code=422, detail="模型 Provider 已停用")
+        return provider
+
+    def apply_model_provider_binding(
+        updates: dict,
+        provider: ModelProviderRecord,
+    ) -> None:
+        updates["model_provider_id"] = provider.id
+        updates["model_provider"] = provider.provider_type
+        updates["model_base_url"] = provider.base_url
+        updates["model"] = provider.default_model
+
     def agent_snapshot(record: AgentRecord) -> dict:
         return AgentRead.model_validate(record).model_dump(by_alias=True, mode="json")
 
@@ -1016,9 +1043,20 @@ def create_app(
             request=request,
         )
         now = utc_now()
+        create_values = payload.model_dump()
+        provider_id = create_values.get("model_provider_id")
+        if provider_id:
+            apply_model_provider_binding(
+                create_values,
+                resolve_model_provider(
+                    session,
+                    workspace_id=context.workspace.id,
+                    provider_id=provider_id,
+                ),
+            )
         record = AgentRecord(
             workspace_id=context.workspace.id,
-            **payload.model_dump(),
+            **create_values,
             created_at=now,
             updated_at=now,
         )
@@ -1075,6 +1113,16 @@ def create_app(
         if record.status == "宸插仠鐢?":
             raise HTTPException(status_code=409, detail="宸插仠鐢?Agent 不允许编辑")
         updates = payload.model_dump(exclude_unset=True)
+        provider_id = updates.get("model_provider_id")
+        if provider_id:
+            apply_model_provider_binding(
+                updates,
+                resolve_model_provider(
+                    session,
+                    workspace_id=context.workspace.id,
+                    provider_id=provider_id,
+                ),
+            )
         ensure_agent_assets_available(
             session,
             workspace_id=context.workspace.id,

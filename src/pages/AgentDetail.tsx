@@ -21,8 +21,9 @@ import {
   type UpdateAgentInput,
 } from '../api/agents'
 import { runAgent } from '../api/execution'
+import { listModelProviders } from '../api/modelProviders'
 import { StatusBadge } from '../components/StatusBadge'
-import type { Agent, AgentVersion, ExecutionRun } from '../types'
+import type { Agent, AgentVersion, ExecutionRun, ModelProvider } from '../types'
 
 function joinValues(values: string[]) {
   return values.join(', ')
@@ -37,6 +38,7 @@ export function AgentDetail() {
   const { agentId = '' } = useParams()
   const [agent, setAgent] = useState<Agent | null>(null)
   const [versions, setVersions] = useState<AgentVersion[]>([])
+  const [modelProviders, setModelProviders] = useState<ModelProvider[]>([])
   const [form, setForm] = useState<UpdateAgentInput | null>(null)
   const [toolsText, setToolsText] = useState('')
   const [skillsText, setSkillsText] = useState('')
@@ -54,13 +56,16 @@ export function AgentDetail() {
         getAgent(workspace.id, agentId),
         listAgentVersions(workspace.id, agentId),
       ])
+      const providerAssets = await listModelProviders(workspace.id).catch(() => [])
       setAgent(nextAgent)
       setVersions(nextVersions)
+      setModelProviders(Array.isArray(providerAssets) ? providerAssets : [])
       setForm({
         name: nextAgent.name,
         role: nextAgent.role,
         owner: nextAgent.owner,
         model: nextAgent.model,
+        modelProviderId: nextAgent.modelProviderId,
         modelProvider: nextAgent.modelProvider,
         modelBaseUrl: nextAgent.modelBaseUrl,
         temperature: nextAgent.temperature,
@@ -84,6 +89,24 @@ export function AgentDetail() {
 
   function updateField(field: keyof UpdateAgentInput, value: string) {
     setForm((current) => current ? { ...current, [field]: value } : current)
+    setFeedback('')
+  }
+
+  function selectModelProvider(providerId: string) {
+    setForm((current) => {
+      if (!current) return current
+      const selected = modelProviders.find((provider) => provider.id === providerId)
+      if (!selected) {
+        return { ...current, modelProviderId: null }
+      }
+      return {
+        ...current,
+        modelProviderId: selected.id,
+        modelProvider: selected.providerType,
+        modelBaseUrl: selected.baseUrl,
+        model: selected.defaultModel,
+      }
+    })
     setFeedback('')
   }
 
@@ -226,7 +249,21 @@ export function AgentDetail() {
             <label className="form-field"><span>模型</span><input disabled={disabled} value={form.model} onChange={(event) => updateField('model', event.target.value)} /></label>
             <label className="form-field"><span>当前发布版本</span><input readOnly value={agent.version} /></label>
             <div className="form-section-heading"><span>RUNTIME</span><strong>运行配置</strong></div>
-            <label className="form-field"><span>模型 Provider</span><input disabled={disabled} value={form.modelProvider ?? ''} onChange={(event) => updateField('modelProvider', event.target.value)} /></label>
+            <label className="form-field">
+              <span>模型 Provider</span>
+              <select
+                disabled={disabled}
+                value={form.modelProviderId ?? ''}
+                onChange={(event) => selectModelProvider(event.target.value)}
+              >
+                <option value="">未绑定（手动配置）</option>
+                {modelProviders.map((provider) => (
+                  <option key={provider.id} value={provider.id}>
+                    {provider.name}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="form-field"><span>Base URL</span><input disabled={disabled} value={form.modelBaseUrl ?? ''} onChange={(event) => updateField('modelBaseUrl', event.target.value)} placeholder="https://api.deepseek.com" /></label>
             <label className="form-field"><span>温度</span><input disabled={disabled} inputMode="decimal" value={temperatureText} onChange={(event) => setTemperatureText(event.target.value)} /></label>
             <label className="form-field"><span>最大输出 Tokens</span><input disabled={disabled} inputMode="numeric" value={maxOutputTokensText} onChange={(event) => setMaxOutputTokensText(event.target.value)} /></label>

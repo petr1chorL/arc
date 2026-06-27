@@ -17,6 +17,7 @@ const agent = {
   role: '完成结构化研究',
   owner: '产品组',
   model: 'GPT-5',
+  modelProviderId: null,
   modelProvider: 'openai-compatible',
   modelBaseUrl: '',
   temperature: 0.2,
@@ -119,8 +120,6 @@ describe('AgentDetail', () => {
     )
 
     expect(await screen.findByText('运行配置')).toBeInTheDocument()
-    await user.clear(screen.getByLabelText('模型 Provider'))
-    await user.type(screen.getByLabelText('模型 Provider'), 'openai-compatible')
     await user.clear(screen.getByLabelText('Base URL'))
     await user.type(screen.getByLabelText('Base URL'), 'https://api.deepseek.com')
     await user.clear(screen.getByLabelText('温度'))
@@ -140,6 +139,66 @@ describe('AgentDetail', () => {
     }))
     expect(patchBody).not.toHaveProperty('apiKey')
     expect(await screen.findByRole('status')).toBeInTheDocument()
+  })
+
+  it('binds an Agent draft to a Workspace model Provider asset', async () => {
+    const user = userEvent.setup()
+    const providers = [{
+      id: 'provider-1',
+      name: 'DeepSeek 生产',
+      providerType: 'openai-compatible' as const,
+      baseUrl: 'https://api.deepseek.com',
+      defaultModel: 'deepseek-v4-pro',
+      secretRef: 'DEEPSEEK_API_KEY',
+      status: 'draft',
+      createdAt: '2026-06-28T01:00:00Z',
+      updatedAt: '2026-06-28T01:00:00Z',
+    }]
+    const savedAgent = {
+      ...agent,
+      modelProviderId: 'provider-1',
+      modelProvider: 'openai-compatible',
+      modelBaseUrl: 'https://api.deepseek.com',
+      model: 'deepseek-v4-pro',
+    }
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/model-providers')) {
+        return Promise.resolve(new Response(JSON.stringify(providers), { status: 200 }))
+      }
+      if (init?.method === 'PATCH') {
+        return Promise.resolve(new Response(JSON.stringify(savedAgent), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify(agent), { status: 200 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <WorkspaceProvider workspace={workspace}>
+        <MemoryRouter initialEntries={['/w/ai-capability-center/agents/agent-1']}>
+          <Routes>
+            <Route path="/w/ai-capability-center/agents/:agentId" element={<AgentDetail />} />
+          </Routes>
+        </MemoryRouter>
+      </WorkspaceProvider>,
+    )
+
+    const providerSelect = await screen.findByRole('combobox', { name: '模型 Provider' })
+    await user.selectOptions(providerSelect, 'provider-1')
+    await user.click(screen.getByRole('button', { name: '保存草稿' }))
+
+    const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH')
+    const patchBody = JSON.parse(patchCall?.[1]?.body as string)
+    expect(patchBody).toEqual(expect.objectContaining({
+      modelProviderId: 'provider-1',
+      modelProvider: 'openai-compatible',
+      modelBaseUrl: 'https://api.deepseek.com',
+      model: 'deepseek-v4-pro',
+    }))
+    expect(patchBody).not.toHaveProperty('apiKey')
+    expect(await screen.findByText('草稿已保存')).toBeInTheDocument()
   })
 
   it('runs a published Agent and shows the persisted result', async () => {

@@ -86,6 +86,7 @@ export interface Agent {
   role: string
   owner: string
   model: string
+  modelProviderId: string | null
   modelProvider: string
   modelBaseUrl: string
   temperature: number

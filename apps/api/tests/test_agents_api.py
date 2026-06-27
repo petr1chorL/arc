@@ -49,6 +49,7 @@ def test_create_agent_persists_and_lists_complete_contract(tmp_path):
         "version": "v0.1.0",
         "passRate": 0,
         "runs": 0,
+        "modelProviderId": None,
         "modelProvider": "openai-compatible",
         "modelBaseUrl": "",
         "temperature": 0.2,
@@ -110,6 +111,69 @@ def test_agent_runtime_configuration_is_saved_and_published_without_secrets(tmp_
     assert published["snapshot"]["modelBaseUrl"] == "https://api.deepseek.com"
     assert published["snapshot"]["temperature"] == 0.2
     assert published["snapshot"]["maxOutputTokens"] == 1200
+    assert "apiKey" not in published["snapshot"]
+
+
+def test_agent_can_bind_workspace_model_provider_asset(tmp_path):
+    database_url = f"sqlite:///{tmp_path / 'agents.db'}"
+    client, workspace_id = create_authenticated_client(database_url)
+    provider = client.post(
+        workspace_url(workspace_id, "/model-providers"),
+        json={
+            "name": "DeepSeek Production",
+            "providerType": "openai-compatible",
+            "baseUrl": "https://api.deepseek.com",
+            "defaultModel": "deepseek-v4-pro",
+            "secretRef": "DEEPSEEK_API_KEY",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    created = client.post(
+        workspace_url(workspace_id, "/agents"),
+        json={
+            "name": "Provider Bound Agent",
+            "role": "Run with a Provider asset.",
+            "owner": "Platform Team",
+            "model": "placeholder-model",
+        },
+        headers=csrf_headers(client),
+    ).json()
+
+    update_response = client.patch(
+        workspace_url(workspace_id, f"/agents/{created['id']}"),
+        json={
+            "modelProviderId": provider["id"],
+            "apiKey": "must-not-be-persisted",
+        },
+        headers=csrf_headers(client),
+    )
+
+    assert update_response.status_code == 200
+    updated = update_response.json()
+    assert updated["modelProviderId"] == provider["id"]
+    assert updated["modelProvider"] == "openai-compatible"
+    assert updated["modelBaseUrl"] == "https://api.deepseek.com"
+    assert updated["model"] == "deepseek-v4-pro"
+    assert "apiKey" not in updated
+
+    missing_response = client.patch(
+        workspace_url(workspace_id, f"/agents/{created['id']}"),
+        json={"modelProviderId": "missing-provider-id"},
+        headers=csrf_headers(client),
+    )
+
+    assert missing_response.status_code == 404
+    assert missing_response.json()["detail"] == "模型 Provider 不存在"
+
+    published = client.post(
+        workspace_url(workspace_id, f"/agents/{created['id']}/publish"),
+        headers=csrf_headers(client),
+    ).json()
+
+    assert published["snapshot"]["modelProviderId"] == provider["id"]
+    assert published["snapshot"]["modelProvider"] == "openai-compatible"
+    assert published["snapshot"]["modelBaseUrl"] == "https://api.deepseek.com"
+    assert published["snapshot"]["model"] == "deepseek-v4-pro"
     assert "apiKey" not in published["snapshot"]
 
 
