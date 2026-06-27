@@ -705,6 +705,9 @@ def ensure_current_schema(engine: Engine) -> None:
         "execution_jobs",
         {
             "max_attempts": "INTEGER NOT NULL DEFAULT 3",
+            "locked_by": "VARCHAR(120) NOT NULL DEFAULT ''",
+            "locked_until": "DATETIME",
+            "last_heartbeat_at": "DATETIME",
             "next_attempt_at": "DATETIME",
             "dead_lettered_at": "DATETIME",
         },

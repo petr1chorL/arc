@@ -1700,6 +1700,7 @@ def create_app(
     @router.post("/execution-jobs/next", response_model=RunRead)
     def process_next_execution_job(
         request: Request,
+        worker_id: str = Query("api-worker", alias="workerId", min_length=1, max_length=120),
         context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
     ) -> RunRead:
         context, session = context_bundle
@@ -1715,10 +1716,43 @@ def create_app(
         run = execution_service.process_next_execution_job(
             session=session,
             workspace_id=context.workspace.id,
+            worker_id=worker_id,
         )
         if run is None:
             raise HTTPException(status_code=404, detail="暂无待执行队列任务")
         return run_response(run, session)
+
+    @router.post("/execution-jobs/{job_id}/heartbeat")
+    def heartbeat_execution_job(
+        job_id: str,
+        request: Request,
+        worker_id: str = Query(..., alias="workerId", min_length=1, max_length=120),
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> dict[str, str]:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "run.execute",
+            action="execution_job.heartbeat",
+            target_type="execution_job",
+            target_id=job_id,
+            request=request,
+        )
+        job = execution_service.heartbeat_execution_job(
+            session=session,
+            workspace_id=context.workspace.id,
+            job_id=job_id,
+            worker_id=worker_id,
+        )
+        if job is None:
+            raise HTTPException(status_code=404, detail="队列任务不存在或租约不属于当前 worker")
+        return {
+            "id": job.id,
+            "status": job.status,
+            "lockedBy": job.locked_by,
+            "lockedUntil": job.locked_until.isoformat() if job.locked_until else "",
+        }
 
     @router.get("/runs", response_model=list[RunRead])
     def list_runs(

@@ -1,8 +1,8 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from time import perf_counter
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.agent_runtime import AgentRuntimeExecutor, AgentRuntimeRequest, quality_score
@@ -331,16 +331,27 @@ class ExecutionService:
         *,
         session: Session,
         workspace_id: str,
+        worker_id: str = "api-worker",
+        lease_seconds: int = 300,
     ) -> WorkflowRunRecord | None:
         now = utc_now()
         job = session.scalar(
             select(ExecutionJobRecord)
             .where(
                 ExecutionJobRecord.workspace_id == workspace_id,
-                ExecutionJobRecord.status == "queued",
                 or_(
-                    ExecutionJobRecord.next_attempt_at.is_(None),
-                    ExecutionJobRecord.next_attempt_at <= now,
+                    and_(
+                        ExecutionJobRecord.status == "queued",
+                        or_(
+                            ExecutionJobRecord.next_attempt_at.is_(None),
+                            ExecutionJobRecord.next_attempt_at <= now,
+                        ),
+                    ),
+                    and_(
+                        ExecutionJobRecord.status == "running",
+                        ExecutionJobRecord.locked_until.is_not(None),
+                        ExecutionJobRecord.locked_until < now,
+                    ),
                 ),
             )
             .order_by(ExecutionJobRecord.created_at.asc()),
@@ -362,6 +373,9 @@ class ExecutionService:
         job.status = "running"
         job.attempts += 1
         job.started_at = now
+        job.locked_by = worker_id
+        job.locked_until = now + timedelta(seconds=lease_seconds)
+        job.last_heartbeat_at = now
         job.next_attempt_at = None
         run.status = "运行中"
         run.error = ""
@@ -383,6 +397,7 @@ class ExecutionService:
             else:
                 job.status = "succeeded"
                 job.error = ""
+                job.locked_until = None
                 job.completed_at = utc_now()
             session.commit()
         except Exception:
@@ -394,6 +409,32 @@ class ExecutionService:
             session.commit()
         session.refresh(run)
         return run
+
+    def heartbeat_execution_job(
+        self,
+        *,
+        session: Session,
+        workspace_id: str,
+        job_id: str,
+        worker_id: str,
+        lease_seconds: int = 300,
+    ) -> ExecutionJobRecord | None:
+        job = session.scalar(
+            select(ExecutionJobRecord).where(
+                ExecutionJobRecord.id == job_id,
+                ExecutionJobRecord.workspace_id == workspace_id,
+                ExecutionJobRecord.status == "running",
+                ExecutionJobRecord.locked_by == worker_id,
+            ),
+        )
+        if job is None:
+            return None
+        now = utc_now()
+        job.last_heartbeat_at = now
+        job.locked_until = now + timedelta(seconds=lease_seconds)
+        session.commit()
+        session.refresh(job)
+        return job
 
     @staticmethod
     def _retry_or_dead_letter_job(
@@ -408,11 +449,13 @@ class ExecutionService:
             job.status = "dead_letter"
             job.completed_at = now
             job.dead_lettered_at = now
+            job.locked_until = None
             run.status = "失败"
             run.error = error
             run.completed_at = now
             return
         job.status = "queued"
+        job.locked_until = None
         job.next_attempt_at = now
         job.completed_at = None
         run.status = "排队中"

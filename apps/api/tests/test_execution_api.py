@@ -1,10 +1,11 @@
 from dataclasses import dataclass
+from datetime import timedelta
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from api_test_support import create_authenticated_client, csrf_headers, workspace_url
-from app.models import AuditEventRecord, ExecutionJobRecord
+from app.models import AuditEventRecord, ExecutionJobRecord, utc_now
 
 
 @dataclass
@@ -289,6 +290,88 @@ def test_async_execution_job_moves_to_dead_letter_after_max_attempts(tmp_path):
         assert job.status == "dead_letter"
         assert job.attempts == 3
         assert job.error == "Agent 执行失败，请稍后重试"
+
+
+def test_execution_job_lease_blocks_claim_until_expired(tmp_path):
+    gateway = FakeGateway([
+        FakeModelResult("The expired lease was recovered by another worker."),
+    ])
+    database_url = f"sqlite:///{tmp_path / 'async-lease.db'}"
+    client, workspace_id = create_authenticated_client(database_url, model_gateway=gateway)
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(client, workspace_id, agent, version)
+
+    client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Recover this leased workflow.", "asyncMode": True},
+        headers=csrf_headers(client),
+    )
+
+    with client.app.state.session_factory() as session:
+        job = session.scalar(select(ExecutionJobRecord))
+        assert job is not None
+        job.status = "running"
+        job.locked_by = "worker-a"
+        job.locked_until = utc_now() + timedelta(minutes=5)
+        job.attempts = 1
+        session.commit()
+
+    blocked_response = client.post(
+        workspace_url(workspace_id, "/execution-jobs/next?workerId=worker-b"),
+        headers=csrf_headers(client),
+    )
+
+    assert blocked_response.status_code == 404
+    assert gateway.calls == []
+
+    with client.app.state.session_factory() as session:
+        job = session.scalar(select(ExecutionJobRecord))
+        job.locked_until = utc_now() - timedelta(seconds=1)
+        session.commit()
+
+    recovered_response = client.post(
+        workspace_url(workspace_id, "/execution-jobs/next?workerId=worker-b"),
+        headers=csrf_headers(client),
+    )
+
+    assert recovered_response.status_code == 200
+    assert recovered_response.json()["status"] == "已完成"
+    with client.app.state.session_factory() as session:
+        job = session.scalar(select(ExecutionJobRecord))
+        assert job.status == "succeeded"
+        assert job.locked_by == "worker-b"
+        assert job.attempts == 2
+
+
+def test_execution_job_heartbeat_extends_active_lease(tmp_path):
+    database_url = f"sqlite:///{tmp_path / 'async-heartbeat.db'}"
+    client, workspace_id = create_authenticated_client(database_url)
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(client, workspace_id, agent, version)
+
+    client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Keep this workflow lease alive.", "asyncMode": True},
+        headers=csrf_headers(client),
+    )
+    with client.app.state.session_factory() as session:
+        job = session.scalar(select(ExecutionJobRecord))
+        job.status = "running"
+        job.locked_by = "worker-a"
+        job.locked_until = utc_now() + timedelta(seconds=1)
+        session.commit()
+        job_id = job.id
+
+    heartbeat_response = client.post(
+        workspace_url(workspace_id, f"/execution-jobs/{job_id}/heartbeat?workerId=worker-a"),
+        headers=csrf_headers(client),
+    )
+
+    assert heartbeat_response.status_code == 200
+    with client.app.state.session_factory() as session:
+        job = session.scalar(select(ExecutionJobRecord))
+        assert job.last_heartbeat_at is not None
+        assert job.locked_until > utc_now().replace(tzinfo=None) + timedelta(minutes=4)
 
 
 def test_low_quality_output_creates_human_review(tmp_path):
