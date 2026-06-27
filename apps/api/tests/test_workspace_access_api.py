@@ -591,6 +591,41 @@ def test_viewer_cannot_list_workspace_audit_events(workspace_context):
     assert response.status_code == 403
 
 
+def test_workspace_admin_can_read_permission_matrix(workspace_context):
+    client: TestClient = workspace_context["client"]
+    workspace_id = workspace_context["workspaces"]["a"]
+
+    login_client(client, email=workspace_context["users"]["workspace_admin"])
+    response = client.get(workspace_url(workspace_id, "/permissions/matrix"))
+
+    assert response.status_code == 200
+    matrix = response.json()
+    assert matrix["roles"] == ["viewer", "operator", "builder", "workspace_admin"]
+    capability_keys = {capability["key"] for capability in matrix["capabilities"]}
+    assert {"asset.read", "run.execute", "agent.write", "audit.read"}.issubset(capability_keys)
+    role_permissions = {
+        role["role"]: role["capabilities"]
+        for role in matrix["matrix"]
+    }
+    assert role_permissions["viewer"]["asset.read"] is True
+    assert role_permissions["viewer"]["run.execute"] is False
+    assert role_permissions["operator"]["run.execute"] is True
+    assert role_permissions["builder"]["agent.write"] is True
+    assert role_permissions["builder"]["audit.read"] is False
+    assert role_permissions["workspace_admin"]["audit.read"] is True
+    assert "Reviewer" in matrix["reviewerQualificationNote"]
+
+
+def test_viewer_cannot_read_permission_matrix(workspace_context):
+    client: TestClient = workspace_context["client"]
+    workspace_id = workspace_context["workspaces"]["a"]
+
+    login_client(client, email=workspace_context["users"]["viewer"])
+    response = client.get(workspace_url(workspace_id, "/permissions/matrix"))
+
+    assert response.status_code == 403
+
+
 def test_non_member_existing_workspace_returns_404_and_writes_denied_audit(workspace_context):
     client: TestClient = workspace_context["client"]
     session_factory = workspace_context["session_factory"]

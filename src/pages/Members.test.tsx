@@ -38,6 +38,55 @@ const members = [
   },
 ]
 
+const permissionMatrix = {
+  roles: ['viewer', 'operator', 'builder', 'workspace_admin'],
+  capabilities: [
+    { key: 'asset.read', label: '读取资产', requiredRole: 'viewer' },
+    { key: 'run.execute', label: '执行运行', requiredRole: 'operator' },
+    { key: 'agent.write', label: '编辑 Agent', requiredRole: 'builder' },
+    { key: 'audit.read', label: '读取审计', requiredRole: 'workspace_admin' },
+  ],
+  matrix: [
+    {
+      role: 'viewer',
+      capabilities: {
+        'asset.read': true,
+        'run.execute': false,
+        'agent.write': false,
+        'audit.read': false,
+      },
+    },
+    {
+      role: 'operator',
+      capabilities: {
+        'asset.read': true,
+        'run.execute': true,
+        'agent.write': false,
+        'audit.read': false,
+      },
+    },
+    {
+      role: 'builder',
+      capabilities: {
+        'asset.read': true,
+        'run.execute': true,
+        'agent.write': true,
+        'audit.read': false,
+      },
+    },
+    {
+      role: 'workspace_admin',
+      capabilities: {
+        'asset.read': true,
+        'run.execute': true,
+        'agent.write': true,
+        'audit.read': true,
+      },
+    },
+  ],
+  reviewerQualificationNote: 'Reviewer 是人工任务处理的业务资格，不等于平台角色。',
+}
+
 function renderPage(userId = 'user-1') {
   const authValue: AuthContextValue = {
     user: {
@@ -96,6 +145,12 @@ describe('Members page', () => {
           headers: { 'Content-Type': 'application/json' },
         }))
       }
+      if (url === `/api/workspaces/${workspace.id}/permissions/matrix` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify(permissionMatrix), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }))
+      }
       if (url === `/api/workspaces/${workspace.id}/invitations`) {
         return Promise.resolve(new Response(JSON.stringify({
           invitationId: 'invite-3',
@@ -145,6 +200,10 @@ describe('Members page', () => {
 
     expect(await screen.findByText('builder@example.com')).toBeInTheDocument()
     expect(screen.getByText('内容审核人 · 专家')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '平台角色权限矩阵' })).toBeInTheDocument()
+    expect(screen.getByText('Reviewer 是人工任务处理的业务资格，不等于平台角色。')).toBeInTheDocument()
+    expect(screen.getByText('读取审计')).toBeInTheDocument()
+    expect(screen.getAllByText('workspace_admin').length).toBeGreaterThan(0)
 
     await user.click(screen.getByRole('button', { name: '邀请成员' }))
     await user.type(screen.getByLabelText('邮箱'), 'new.user@example.com')
@@ -205,6 +264,12 @@ describe('Members page', () => {
           headers: { 'Content-Type': 'application/json' },
         }))
       }
+      if (url === `/api/workspaces/${workspace.id}/permissions/matrix` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify(permissionMatrix), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }))
+      }
       if (url === `/api/workspaces/${workspace.id}/members/user-2/reviewer` && init?.method === 'PUT') {
         return Promise.resolve(new Response(JSON.stringify({
           ...members[1],
@@ -242,6 +307,12 @@ describe('Members page', () => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
       if (url === `/api/workspaces/${workspace.id}/members` && !init?.method) {
         return Promise.resolve(new Response(JSON.stringify(currentMembers), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/permissions/matrix` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify(permissionMatrix), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         }))
@@ -333,6 +404,12 @@ describe('Members page', () => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
       if (url === `/api/workspaces/${workspace.id}/members` && !init?.method) {
         return Promise.resolve(new Response(JSON.stringify(members), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/permissions/matrix` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify(permissionMatrix), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         }))

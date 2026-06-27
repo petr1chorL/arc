@@ -126,6 +126,28 @@ class WorkspaceMemberRead(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class PermissionCapabilityRead(BaseModel):
+    key: str
+    label: str
+    required_role: WorkspaceRole = Field(alias="requiredRole")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class RolePermissionRead(BaseModel):
+    role: WorkspaceRole
+    capabilities: dict[str, bool]
+
+
+class WorkspacePermissionMatrixRead(BaseModel):
+    roles: list[WorkspaceRole]
+    capabilities: list[PermissionCapabilityRead]
+    matrix: list[RolePermissionRead]
+    reviewer_qualification_note: str = Field(alias="reviewerQualificationNote")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class InvitationLinkRead(BaseModel):
     invitation_id: str = Field(serialization_alias="invitationId")
     email: str

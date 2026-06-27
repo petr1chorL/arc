@@ -4,6 +4,7 @@ import {
   disableUser,
   enableMember,
   enableUser,
+  getWorkspacePermissionMatrix,
   inviteMember,
   listMembers,
   recordInvitationLinkCopy,
@@ -37,6 +38,14 @@ describe('Members API', () => {
         return Promise.resolve(new Response(JSON.stringify([
           { userId: 'user-1', email: 'builder@example.com', displayName: 'Builder' },
         ]), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      }
+      if (url === '/api/workspaces/workspace-1/permissions/matrix' && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify({
+          roles: ['viewer', 'operator', 'builder', 'workspace_admin'],
+          capabilities: [{ key: 'asset.read', label: '读取资产', requiredRole: 'viewer' }],
+          matrix: [{ role: 'viewer', capabilities: { 'asset.read': true } }],
+          reviewerQualificationNote: 'Reviewer 是单独业务资格',
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
       }
       if (url === '/api/workspaces/workspace-1/invitations' && init?.method === 'POST') {
         return Promise.resolve(new Response(JSON.stringify({
@@ -94,6 +103,10 @@ describe('Members API', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     await expect(listMembers('workspace-1')).resolves.toHaveLength(1)
+    await expect(getWorkspacePermissionMatrix('workspace-1')).resolves.toMatchObject({
+      roles: ['viewer', 'operator', 'builder', 'workspace_admin'],
+      reviewerQualificationNote: 'Reviewer 是单独业务资格',
+    })
     await expect(inviteMember('workspace-1', { email: 'new@example.com', role: 'viewer' })).resolves.toMatchObject({
       invitationId: 'invite-1',
     })

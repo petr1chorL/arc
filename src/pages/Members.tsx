@@ -5,6 +5,7 @@ import {
   disableUser,
   enableMember,
   enableUser,
+  getWorkspacePermissionMatrix,
   inviteMember,
   listMembers,
   recordInvitationLinkCopy,
@@ -16,7 +17,7 @@ import {
 } from '../api/members'
 import { useAuth } from '../auth/authContext'
 import { useWorkspace } from '../auth/workspaceContextState'
-import type { WorkspaceMember, WorkspaceRole } from '../types'
+import type { WorkspaceMember, WorkspacePermissionMatrix, WorkspaceRole } from '../types'
 
 const roleOptions: Array<{ value: WorkspaceRole; label: string }> = [
   { value: 'viewer', label: 'viewer' },
@@ -54,6 +55,7 @@ export function Members() {
   const { user } = useAuth()
   const { workspace } = useWorkspace()
   const [members, setMembers] = useState<WorkspaceMember[]>([])
+  const [permissionMatrix, setPermissionMatrix] = useState<WorkspacePermissionMatrix | null>(null)
   const [draftRoles, setDraftRoles] = useState<Record<string, WorkspaceRole>>({})
   const [draftReviewerRoles, setDraftReviewerRoles] = useState<Record<string, string>>({})
   const [draftReviewerExpertFlags, setDraftReviewerExpertFlags] = useState<Record<string, boolean>>({})
@@ -74,7 +76,9 @@ export function Members() {
     setSubmitError('')
     try {
       const nextMembers = await listMembers(workspace.id)
+      const nextPermissionMatrix = await getWorkspacePermissionMatrix(workspace.id)
       setMembers(nextMembers)
+      setPermissionMatrix(nextPermissionMatrix)
       setDraftRoles(Object.fromEntries(nextMembers.map((member) => [member.userId, member.role])))
       setDraftReviewerRoles(Object.fromEntries(
         nextMembers.map((member) => [member.userId, member.reviewer?.role ?? '']),
@@ -372,6 +376,56 @@ export function Members() {
               </button>
             </div>
           )}
+        </section>
+      )}
+
+      {permissionMatrix && (
+        <section className="panel permission-matrix-panel" aria-label="平台角色权限矩阵">
+          <div className="permission-matrix-header">
+            <div>
+              <span className="section-kicker">RBAC MATRIX</span>
+              <h3>平台角色权限矩阵</h3>
+              <p>{permissionMatrix.reviewerQualificationNote}</p>
+            </div>
+          </div>
+          <div className="permission-matrix-scroll">
+            <table className="permission-matrix-table">
+              <thead>
+                <tr>
+                  <th>能力</th>
+                  <th>最低角色</th>
+                  {permissionMatrix.roles.map((role) => (
+                    <th key={role}>{role}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {permissionMatrix.capabilities.map((capability) => (
+                  <tr key={capability.key}>
+                    <td>
+                      <strong>{capability.label}</strong>
+                      <span>{capability.key}</span>
+                    </td>
+                    <td><span className="status-chip neutral">{capability.requiredRole}</span></td>
+                    {permissionMatrix.roles.map((role) => {
+                      const roleRow = permissionMatrix.matrix.find((row) => row.role === role)
+                      const enabled = Boolean(roleRow?.capabilities[capability.key])
+                      return (
+                        <td key={`${capability.key}:${role}`}>
+                          <span
+                            className={`permission-dot ${enabled ? 'enabled' : ''}`}
+                            aria-label={`${role} ${enabled ? '具备' : '不具备'} ${capability.label}`}
+                          >
+                            {enabled ? '有' : '无'}
+                          </span>
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
 

@@ -5,7 +5,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.access import AuthorizationService, RequestContext, RequestContextService
+from app.access import (
+    AuthorizationService,
+    RequestContext,
+    RequestContextService,
+    build_permission_matrix,
+)
 from app.audit import AuditService
 from app.auth import AuthenticationService, normalize_email
 from app.config import Settings
@@ -27,6 +32,7 @@ from app.schemas import (
     WorkspaceAuditEventRead,
     WorkspaceCreate,
     WorkspaceMemberRead,
+    WorkspacePermissionMatrixRead,
     WorkspaceRead,
 )
 from app.security import SecurityService
@@ -340,6 +346,27 @@ def create_workspaces_router(
             )
             for record in records
         ]
+
+    @router.get(
+        "/{workspace_id}/permissions/matrix",
+        response_model=WorkspacePermissionMatrixRead,
+    )
+    def get_permission_matrix(
+        workspace_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> dict:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "member.manage",
+            action="permission_matrix.read",
+            target_type="workspace",
+            target_id=workspace_id,
+            request=request,
+        )
+        return build_permission_matrix()
 
     @router.get("/{workspace_id}/members", response_model=list[WorkspaceMemberRead])
     def list_members(

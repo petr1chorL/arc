@@ -72,6 +72,24 @@ export interface WorkspaceMember {
   lastLoginAt: string | null
 }
 
+export interface PermissionCapability {
+  key: string
+  label: string
+  requiredRole: WorkspaceRole
+}
+
+export interface RolePermissionMatrixRow {
+  role: WorkspaceRole
+  capabilities: Record<string, boolean>
+}
+
+export interface WorkspacePermissionMatrix {
+  roles: WorkspaceRole[]
+  capabilities: PermissionCapability[]
+  matrix: RolePermissionMatrixRow[]
+  reviewerQualificationNote: string
+}
+
 export interface InvitationLink {
   invitationId: string
   email: string

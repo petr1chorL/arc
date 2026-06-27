@@ -1,4 +1,9 @@
-import type { InvitationLink, WorkspaceMember, WorkspaceRole } from '../types'
+import type {
+  InvitationLink,
+  WorkspaceMember,
+  WorkspacePermissionMatrix,
+  WorkspaceRole,
+} from '../types'
 import { apiFetch, readJson } from './http'
 
 function workspacePath(workspaceId: string, path: string) {
@@ -7,6 +12,10 @@ function workspacePath(workspaceId: string, path: string) {
 
 export async function listMembers(workspaceId: string): Promise<WorkspaceMember[]> {
   return readJson<WorkspaceMember[]>(await apiFetch(workspacePath(workspaceId, '/members')))
+}
+
+export async function getWorkspacePermissionMatrix(workspaceId: string): Promise<WorkspacePermissionMatrix> {
+  return readJson<WorkspacePermissionMatrix>(await apiFetch(workspacePath(workspaceId, '/permissions/matrix')))
 }
 
 export async function inviteMember(

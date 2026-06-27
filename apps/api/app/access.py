@@ -43,6 +43,61 @@ CAPABILITY_MIN_ROLE = {
     "audit.export": "workspace_admin",
 }
 
+CAPABILITY_LABELS = {
+    "asset.read": "读取资产",
+    "run.read": "读取运行",
+    "run.execute": "执行运行",
+    "evaluation.run": "执行评估",
+    "agent.write": "编辑 Agent",
+    "agent.publish": "发布 Agent",
+    "rubric.write": "编辑 Rubric",
+    "rubric.publish": "发布 Rubric",
+    "workflow.write": "编辑工作流",
+    "workflow.publish": "发布工作流",
+    "asset.deactivate": "停用资产",
+    "member.manage": "管理成员",
+    "reviewer.manage": "管理 Reviewer 资格",
+    "workspace.manage": "管理 Workspace",
+    "audit.read": "读取审计",
+    "audit.export": "导出审计",
+}
+
+
+def build_permission_matrix() -> dict:
+    roles = [
+        role
+        for role, _level in sorted(ROLE_LEVEL.items(), key=lambda item: item[1])
+    ]
+    capabilities = [
+        {
+            "key": capability,
+            "label": CAPABILITY_LABELS.get(capability, capability),
+            "requiredRole": required_role,
+        }
+        for capability, required_role in sorted(
+            CAPABILITY_MIN_ROLE.items(),
+            key=lambda item: (ROLE_LEVEL[item[1]], item[0]),
+        )
+    ]
+    matrix = []
+    for role in roles:
+        matrix.append({
+            "role": role,
+            "capabilities": {
+                capability["key"]: ROLE_LEVEL[role] >= ROLE_LEVEL[capability["requiredRole"]]
+                for capability in capabilities
+            },
+        })
+    return {
+        "roles": roles,
+        "capabilities": capabilities,
+        "matrix": matrix,
+        "reviewerQualificationNote": (
+            "Reviewer 是人工任务处理的业务资格，不等于平台角色；"
+            "成员需要同时具备有效 Membership 和 Reviewer 资格才能处理对应人工任务。"
+        ),
+    }
+
 
 @dataclass(frozen=True)
 class RequestContext:
