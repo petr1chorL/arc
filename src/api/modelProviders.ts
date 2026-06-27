@@ -9,6 +9,8 @@ export interface CreateModelProviderInput {
   secretRef: string
 }
 
+export type UpdateModelProviderInput = Partial<CreateModelProviderInput>
+
 function workspacePath(workspaceId: string, path = '') {
   return `/api/workspaces/${workspaceId}/model-providers${path}`
 }
@@ -33,6 +35,27 @@ export async function testModelProviderConnection(
   providerId: string,
 ): Promise<ModelProviderConnectivity> {
   return readJson<ModelProviderConnectivity>(await apiFetch(workspacePath(workspaceId, `/${providerId}/test`), {
+    method: 'POST',
+  }))
+}
+
+export async function updateModelProvider(
+  workspaceId: string,
+  providerId: string,
+  input: UpdateModelProviderInput,
+): Promise<ModelProvider> {
+  return readJson<ModelProvider>(await apiFetch(workspacePath(workspaceId, `/${providerId}`), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  }))
+}
+
+export async function deactivateModelProvider(
+  workspaceId: string,
+  providerId: string,
+): Promise<ModelProvider> {
+  return readJson<ModelProvider>(await apiFetch(workspacePath(workspaceId, `/${providerId}/deactivate`), {
     method: 'POST',
   }))
 }

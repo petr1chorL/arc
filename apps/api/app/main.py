@@ -78,6 +78,7 @@ from app.schemas import (
     ModelProviderConnectivityRead,
     ModelProviderCreate,
     ModelProviderRead,
+    ModelProviderUpdate,
     NodeRunRead,
     ObservabilityAuditEventRead,
     ObservabilityAlertRead,
@@ -363,6 +364,22 @@ def create_app(
         updates["model_provider"] = provider.provider_type
         updates["model_base_url"] = provider.base_url
         updates["model"] = provider.default_model
+
+    def find_model_provider(
+        session: Session,
+        *,
+        workspace_id: str,
+        provider_id: str,
+    ) -> ModelProviderRecord:
+        provider = session.scalar(
+            select(ModelProviderRecord).where(
+                ModelProviderRecord.id == provider_id,
+                ModelProviderRecord.workspace_id == workspace_id,
+            ),
+        )
+        if provider is None:
+            raise HTTPException(status_code=404, detail="模型 Provider 不存在")
+        return provider
 
     def agent_snapshot(record: AgentRecord) -> dict:
         return AgentRead.model_validate(record).model_dump(by_alias=True, mode="json")
@@ -1490,6 +1507,89 @@ def create_app(
         session.commit()
         session.refresh(record)
         return record
+
+    @router.patch("/model-providers/{provider_id}", response_model=ModelProviderRead)
+    def update_model_provider(
+        provider_id: str,
+        payload: ModelProviderUpdate,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> ModelProviderRecord:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "agent.write",
+            action="model_provider.update",
+            target_type="model_provider",
+            target_id=provider_id,
+            request=request,
+        )
+        provider = find_model_provider(
+            session,
+            workspace_id=context.workspace.id,
+            provider_id=provider_id,
+        )
+        updates = payload.model_dump(exclude_unset=True)
+        if "name" in updates and updates["name"] != provider.name:
+            existing = session.scalar(
+                select(ModelProviderRecord).where(
+                    ModelProviderRecord.workspace_id == context.workspace.id,
+                    ModelProviderRecord.name == updates["name"],
+                    ModelProviderRecord.id != provider.id,
+                ),
+            )
+            if existing is not None:
+                raise HTTPException(status_code=409, detail="模型 Provider 名称已存在")
+        for field, value in updates.items():
+            setattr(provider, field, value)
+        provider.updated_at = utc_now()
+        record_success(
+            session,
+            context,
+            action="model_provider.update",
+            target_type="model_provider",
+            target_id=provider.id,
+            request=request,
+        )
+        session.commit()
+        session.refresh(provider)
+        return provider
+
+    @router.post("/model-providers/{provider_id}/deactivate", response_model=ModelProviderRead)
+    def deactivate_model_provider(
+        provider_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> ModelProviderRecord:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "agent.write",
+            action="model_provider.deactivate",
+            target_type="model_provider",
+            target_id=provider_id,
+            request=request,
+        )
+        provider = find_model_provider(
+            session,
+            workspace_id=context.workspace.id,
+            provider_id=provider_id,
+        )
+        provider.status = "disabled"
+        provider.updated_at = utc_now()
+        record_success(
+            session,
+            context,
+            action="model_provider.deactivate",
+            target_type="model_provider",
+            target_id=provider.id,
+            request=request,
+        )
+        session.commit()
+        session.refresh(provider)
+        return provider
 
     @router.post(
         "/model-providers/{provider_id}/test",

@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createModelProvider,
+  deactivateModelProvider,
   listModelProviders,
   testModelProviderConnection,
+  updateModelProvider,
 } from './modelProviders'
 
 const provider = {
@@ -72,6 +74,43 @@ describe('Model Provider API', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/workspaces/workspace-1/model-providers/provider-1/test',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'same-origin',
+      }),
+    )
+  })
+
+  it('updates and deactivates Provider assets without API keys', async () => {
+    const updated = {
+      ...provider,
+      name: 'DeepSeek 更新',
+      status: 'disabled',
+    }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ...updated, status: 'draft' }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(updated), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(updateModelProvider(workspaceId, provider.id, {
+      name: 'DeepSeek 更新',
+      baseUrl: provider.baseUrl,
+      defaultModel: provider.defaultModel,
+      secretRef: provider.secretRef,
+    })).resolves.toEqual({ ...updated, status: 'draft' })
+    await expect(deactivateModelProvider(workspaceId, provider.id)).resolves.toEqual(updated)
+
+    const [, updateInit] = fetchMock.mock.calls[0]
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/workspaces/workspace-1/model-providers/provider-1')
+    expect(updateInit).toMatchObject({
+      method: 'PATCH',
+      credentials: 'same-origin',
+    })
+    const updateBody = JSON.parse(String(updateInit?.body))
+    expect(updateBody.name).toBe('DeepSeek 更新')
+    expect(updateBody).not.toHaveProperty('apiKey')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/workspaces/workspace-1/model-providers/provider-1/deactivate',
       expect.objectContaining({
         method: 'POST',
         credentials: 'same-origin',

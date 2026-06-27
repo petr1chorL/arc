@@ -2,8 +2,10 @@ import { Check, KeyRound, PlugZap, Plus, ShieldOff } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import {
   createModelProvider,
+  deactivateModelProvider,
   listModelProviders,
   testModelProviderConnection,
+  updateModelProvider,
   type CreateModelProviderInput,
 } from '../api/modelProviders'
 import { useWorkspace } from '../auth/workspaceContextState'
@@ -24,6 +26,8 @@ export function ModelProviders() {
   const [feedback, setFeedback] = useState('')
   const [error, setError] = useState('')
   const [connectivityByProviderId, setConnectivityByProviderId] = useState<Record<string, ModelProviderConnectivity>>({})
+  const [editingProviderId, setEditingProviderId] = useState('')
+  const [editForm, setEditForm] = useState<CreateModelProviderInput>(initialForm)
   const [isBusy, setIsBusy] = useState(false)
 
   useEffect(() => {
@@ -71,6 +75,63 @@ export function ModelProviders() {
       setFeedback(result.status === 'ready' ? '连接测试通过' : '连接测试完成，请查看卡片提示')
     } catch (testError) {
       setError(testError instanceof Error ? testError.message : '连接测试失败')
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  function startEditing(provider: ModelProvider) {
+    setEditingProviderId(provider.id)
+    setEditForm({
+      name: provider.name,
+      providerType: provider.providerType,
+      baseUrl: provider.baseUrl,
+      defaultModel: provider.defaultModel,
+      secretRef: provider.secretRef,
+    })
+    setFeedback('')
+    setError('')
+  }
+
+  function updateEditField<TField extends keyof CreateModelProviderInput>(
+    field: TField,
+    value: CreateModelProviderInput[TField],
+  ) {
+    setEditForm((current) => ({ ...current, [field]: value }))
+    setFeedback('')
+    setError('')
+  }
+
+  async function saveProvider(provider: ModelProvider) {
+    setIsBusy(true)
+    setError('')
+    try {
+      const updated = await updateModelProvider(workspace.id, provider.id, {
+        ...editForm,
+        name: editForm.name.trim(),
+        baseUrl: editForm.baseUrl.trim(),
+        defaultModel: editForm.defaultModel.trim(),
+        secretRef: editForm.secretRef.trim(),
+      })
+      setProviders((current) => current.map((item) => item.id === updated.id ? updated : item))
+      setEditingProviderId('')
+      setFeedback('Provider 已更新')
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : 'Provider 更新失败')
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  async function deactivateProvider(provider: ModelProvider) {
+    setIsBusy(true)
+    setError('')
+    try {
+      const disabled = await deactivateModelProvider(workspace.id, provider.id)
+      setProviders((current) => current.map((item) => item.id === disabled.id ? disabled : item))
+      setFeedback('Provider 已停用')
+    } catch (deactivateError) {
+      setError(deactivateError instanceof Error ? deactivateError.message : 'Provider 停用失败')
     } finally {
       setIsBusy(false)
     }
@@ -133,22 +194,55 @@ export function ModelProviders() {
           {providers.length === 0 && <div className="table-state">暂无模型 Provider。</div>}
           {providers.map((provider) => {
             const connectivity = connectivityByProviderId[provider.id]
+            const isEditing = editingProviderId === provider.id
             return (
               <article className="provider-card" key={provider.id}>
-                <div>
-                  <strong>{provider.name}</strong>
-                  <span>{provider.providerType}</span>
-                </div>
-                <dl>
-                  <div><dt>Base URL</dt><dd>{provider.baseUrl}</dd></div>
-                  <div><dt>默认模型</dt><dd>{provider.defaultModel}</dd></div>
-                  <div><dt>Secret Ref</dt><dd>{provider.secretRef}</dd></div>
-                  <div><dt>状态</dt><dd>{provider.status}</dd></div>
-                </dl>
+                {isEditing ? (
+                  <div className="provider-edit-form">
+                    <label className="form-field"><span>编辑名称</span><input value={editForm.name} onChange={(event) => updateEditField('name', event.target.value)} /></label>
+                    <label className="form-field"><span>编辑 Base URL</span><input value={editForm.baseUrl} onChange={(event) => updateEditField('baseUrl', event.target.value)} /></label>
+                    <label className="form-field"><span>编辑默认模型</span><input value={editForm.defaultModel} onChange={(event) => updateEditField('defaultModel', event.target.value)} /></label>
+                    <label className="form-field"><span>编辑 Secret Ref</span><input value={editForm.secretRef} onChange={(event) => updateEditField('secretRef', event.target.value)} /></label>
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <strong>{provider.name}</strong>
+                      <span>{provider.providerType}</span>
+                    </div>
+                    <dl>
+                      <div><dt>Base URL</dt><dd>{provider.baseUrl}</dd></div>
+                      <div><dt>默认模型</dt><dd>{provider.defaultModel}</dd></div>
+                      <div><dt>Secret Ref</dt><dd>{provider.secretRef}</dd></div>
+                      <div><dt>状态</dt><dd>{provider.status}</dd></div>
+                    </dl>
+                  </>
+                )}
                 {connectivity && <p className="provider-connectivity">{connectivity.message}</p>}
-                <button className="button secondary compact" disabled={isBusy} onClick={() => void testConnection(provider)} aria-label={`测试连接 ${provider.name}`}>
-                  <PlugZap size={15} />测试连接
-                </button>
+                <div className="provider-card-actions">
+                  {isEditing ? (
+                    <>
+                      <button className="button primary compact" disabled={isBusy} onClick={() => void saveProvider(provider)} aria-label={`保存 ${provider.name}`}>
+                        <Check size={15} />保存
+                      </button>
+                      <button className="button secondary compact" disabled={isBusy} onClick={() => setEditingProviderId('')} aria-label={`取消编辑 ${provider.name}`}>
+                        取消
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button className="button secondary compact" disabled={isBusy} onClick={() => startEditing(provider)} aria-label={`编辑 ${provider.name}`}>
+                        编辑
+                      </button>
+                      <button className="button secondary compact" disabled={isBusy} onClick={() => void testConnection(provider)} aria-label={`测试连接 ${provider.name}`}>
+                        <PlugZap size={15} />测试连接
+                      </button>
+                      <button className="button danger compact" disabled={isBusy || provider.status === 'disabled'} onClick={() => void deactivateProvider(provider)} aria-label={`停用 ${provider.name}`}>
+                        停用
+                      </button>
+                    </>
+                  )}
+                </div>
               </article>
             )
           })}

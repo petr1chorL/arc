@@ -1,8 +1,8 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.14E Provider secretRef 参与运行时解析
+> 对应版本：V0.14F Provider 生命周期治理
 > 上一阶段：V0.8F 轻量告警 / 通知 Outbox
-> 更新时间：2026-06-27
+> 更新时间：2026-06-28
 
 ## 1. 当前版本是什么
 
@@ -18,7 +18,7 @@ Agent 执行已引入第一版 Runtime 合约：`app.agent_runtime` 负责统一
 
 Agent 草稿已新增第一版运行配置入口：后端持久化 `modelProvider`、`modelBaseUrl`、`temperature` 和 `maxOutputTokens`，Agent 详情页可编辑这些非密钥字段，保存草稿和发布版本时会进入不可变 Agent 快照。Agent 直接运行和工作流 Agent 节点执行时，会把已发布快照里的模型、Provider ID、Provider 类型、Base URL、温度和最大输出 Tokens 传入 Agent Runtime，并由 OpenAI-compatible ModelGateway 使用 Base URL、温度和最大输出 Tokens 覆盖默认请求参数。绑定 Provider 的 Agent 运行时还会按 `modelProviderId` 查询 Provider 资产，把 `secretRef` 标签传给 ModelGateway；ModelGateway 在外呼边界解析后端环境变量，并继续禁止 API Key 进入前端、数据库、运行响应或 Agent 快照。
 
-模型 Provider 已新增第一版 Workspace 级资产入口：`model_providers` 表保存 Provider 名称、类型、Base URL、默认模型、`secretRef` 和状态；前端“模型 Provider”页面可创建 Provider、查看列表并测试连接。Provider API 忽略误传的 `apiKey`，不保存、不返回、不在列表或连接测试中泄露密钥；连接测试当前只检查 `secretRef` 指向的后端环境变量是否存在。Agent 草稿可通过下拉框绑定当前 Workspace 的 Provider 资产，保存后会固化 `modelProviderId`，并同步 Provider 类型、Base URL 和默认模型；发布 Agent 版本时这些字段会进入不可变快照。当前 Runtime 已使用 Provider 的非密钥配置字段，并会在模型外呼边界按 Provider 的 `secretRef` 动态解析环境变量。
+模型 Provider 已新增 Workspace 级资产入口：`model_providers` 表保存 Provider 名称、类型、Base URL、默认模型、`secretRef` 和状态；前端“模型 Provider”页面可创建 Provider、查看列表、测试连接、编辑非密钥配置并停用 Provider。Provider API 忽略误传的 `apiKey`，不保存、不返回、不在列表、编辑或连接测试中泄露密钥；连接测试当前只检查 `secretRef` 指向的后端环境变量是否存在。Agent 草稿可通过下拉框绑定当前 Workspace 的启用 Provider 资产，保存后会固化 `modelProviderId`，并同步 Provider 类型、Base URL 和默认模型；已停用 Provider 不能再被新的 Agent 草稿绑定，后端会返回“模型 Provider 已停用”。发布 Agent 版本时这些字段会进入不可变快照。当前 Runtime 已使用 Provider 的非密钥配置字段，并会在模型外呼边界按 Provider 的 `secretRef` 动态解析环境变量。
 
 Tool / Skill 已新增第一版 Workspace 级资产库后端：`tool_skill_assets` 表保存 `tool` 与 `skill` 两类资产，支持创建、列表查询、参数 Schema、状态、适配类型、适配配置和 Workspace 隔离。Agent 更新和发布时会校验所绑定的 Tools / Skills 必须是当前 Workspace 内已启用资产。`tool_skill_asset_invocations` 表提供调用日志查询能力，并已支持 HTTP Tool 测试调用写入成功或失败日志。
 
@@ -369,7 +369,7 @@ React Flow 节点/连线
 未实现：
 
 - 模型参数。
-- Provider 编辑/停用后的版本化依赖冻结尚未实现。
+- Provider 历史版本快照、已发布 Agent 版本对 Provider 后续编辑/停用的依赖冻结策略尚未实现。
 - 真实 MCP Server client、session 管理和鉴权。
 - HTTP Tool 鉴权头、响应字段映射和更细粒度脱敏策略。
 - Agent 版本比较和回滚。
@@ -991,6 +991,11 @@ TypeScript 编译检查
 - V0.14E 完成 Provider secretRef 运行时解析 RED/GREEN 测试：网关首次因不支持 `model_secret_ref` 失败，随后可在没有全局 key 时通过 `secretRef` 指向的环境变量构造 Authorization；执行链路首次因 FakeGateway 调用缺少 `model_secret_ref` 失败，随后 Provider-bound Agent 运行会传递 `secretRef` 标签且响应不包含 `apiKey`。
 - V0.14E 完成 focused 回归：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests/test_model_gateway.py apps/api/tests/test_agent_runtime.py -q` 4 项通过；`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests/test_execution_api.py::test_agent_test_run_passes_published_runtime_config_to_gateway apps/api/tests/test_execution_api.py::test_agent_test_run_passes_bound_provider_secret_ref_label_to_gateway apps/api/tests/test_execution_api.py::test_agent_test_run_records_model_usage_and_output -q` 3 项通过。
 - V0.14E 完成后端全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 后端完整测试集 190 项通过；`git diff --check` 通过，仅有 Windows 换行提示。
+- V0.14F 完成 Provider 生命周期治理 RED/GREEN 测试：后端首次因 `PATCH /model-providers/{id}` 返回 404 失败，随后可更新 Provider、停用 Provider，并拒绝 Agent 绑定已停用 Provider，错误信息为“模型 Provider 已停用”；前端首次因 Provider 页面没有编辑入口失败，随后可在列表内编辑和停用 Provider。
+- V0.14F 完成 focused 回归：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests/test_model_providers_api.py apps/api/tests/test_agents_api.py -q` 7 项通过；`npx vitest run src/api/modelProviders.test.ts src/pages/ModelProviders.test.tsx src/pages/AgentDetail.test.tsx --reporter verbose` 3 个测试文件、9 项通过。
+- V0.14F 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 后端完整测试集 191 项通过；显式测试文件列表运行 `npx vitest run @($files) --reporter verbose` 29 个测试文件、113 项通过；`npm run lint` 通过；`npm run build` 通过，保留既有 Vite chunk size warning。
+- V0.14F 完成浏览器验收：模型 Provider 页面编辑 `DeepSeek V0.14F 已更新 1782585359122` 成功，停用后展示 `disabled` 且停用按钮不可再次点击；页面无 `API Key` 字段；浏览器控制台新增 warning/error 为 0。
+- V0.14F 浏览器验收截图：`.scratch/v0.14f-provider-lifecycle.png`；验收结果：`.scratch/v0.14f-browser-result.json`。
 
 验证时没有发现浏览器控制台错误。
 

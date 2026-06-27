@@ -343,6 +343,29 @@ class ModelProviderCreate(BaseModel):
         return normalized
 
 
+class ModelProviderUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    provider_type: Literal["openai-compatible", "anthropic-compatible"] | None = Field(
+        default=None,
+        alias="providerType",
+    )
+    base_url: str | None = Field(default=None, alias="baseUrl", min_length=1, max_length=500)
+    default_model: str | None = Field(default=None, alias="defaultModel", min_length=1, max_length=120)
+    secret_ref: str | None = Field(default=None, alias="secretRef", min_length=1, max_length=160)
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    @field_validator("name", "base_url", "default_model", "secret_ref")
+    @classmethod
+    def reject_blank_provider_values(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("字段不能为空")
+        return normalized
+
+
 class ModelProviderRead(BaseModel):
     id: str
     name: str

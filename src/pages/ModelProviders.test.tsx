@@ -77,4 +77,40 @@ describe('ModelProviders page', () => {
     await user.click(screen.getByRole('button', { name: '测试连接 DeepSeek 生产' }))
     expect(await screen.findByText('密钥引用 DEEPSEEK_API_KEY 未在后端环境变量中配置')).toBeInTheDocument()
   })
+
+  it('edits and deactivates a Provider asset from the list', async () => {
+    const user = userEvent.setup()
+    const updated = { ...provider, name: 'DeepSeek 更新', status: 'draft' }
+    const disabled = { ...updated, status: 'disabled' }
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
+      if (url === `/api/workspaces/${workspace.id}/model-providers` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([provider]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/model-providers/${provider.id}` && init?.method === 'PATCH') {
+        return Promise.resolve(new Response(JSON.stringify(updated), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/model-providers/${provider.id}/deactivate`) {
+        return Promise.resolve(new Response(JSON.stringify(disabled), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify({ detail: 'not found' }), { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage()
+
+    expect(await screen.findByText('DeepSeek 生产')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '编辑 DeepSeek 生产' }))
+    await user.clear(screen.getByLabelText('编辑名称'))
+    await user.type(screen.getByLabelText('编辑名称'), 'DeepSeek 更新')
+    await user.click(screen.getByRole('button', { name: '保存 DeepSeek 生产' }))
+
+    expect(await screen.findByText('DeepSeek 更新')).toBeInTheDocument()
+    const updateBody = JSON.parse(String(fetchMock.mock.calls[1][1]?.body))
+    expect(updateBody.name).toBe('DeepSeek 更新')
+    expect(updateBody).not.toHaveProperty('apiKey')
+
+    await user.click(screen.getByRole('button', { name: '停用 DeepSeek 更新' }))
+    expect(await screen.findByText('disabled')).toBeInTheDocument()
+  })
 })
