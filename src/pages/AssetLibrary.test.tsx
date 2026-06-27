@@ -42,6 +42,18 @@ const invocation = {
   createdAt: '2026-06-28T00:00:00Z',
 }
 
+const auditEvent = {
+  id: 'audit-1',
+  eventType: 'tool_skill_asset.update',
+  targetType: 'tool_skill_asset',
+  targetId: asset.id,
+  outcome: 'success',
+  reason: '更新价格查询契约',
+  actorId: 'admin',
+  createdAt: '2026-06-28T00:03:00Z',
+  metadata: { reason: '更新价格查询契约' },
+}
+
 function renderPage() {
   return render(
     <WorkspaceProvider workspace={workspace}>
@@ -64,6 +76,9 @@ describe('AssetLibrary page', () => {
       if (url === `/api/workspaces/${workspace.id}/asset-library/invocations`) {
         return Promise.resolve(new Response(JSON.stringify([invocation]), { status: 200 }))
       }
+      if (url === `/api/workspaces/${workspace.id}/asset-library/${asset.id}/audit-events`) {
+        return Promise.resolve(new Response(JSON.stringify([auditEvent]), { status: 200 }))
+      }
       return Promise.resolve(new Response(JSON.stringify({ detail: 'not found' }), { status: 404 }))
     }))
 
@@ -74,6 +89,9 @@ describe('AssetLibrary page', () => {
     expect(screen.getByText('http')).toBeInTheDocument()
     expect(screen.getByText('最近调用')).toBeInTheDocument()
     expect(screen.getByText('price=199')).toBeInTheDocument()
+    expect(screen.getByText('最近变更')).toBeInTheDocument()
+    expect(screen.getByText('tool_skill_asset.update')).toBeInTheDocument()
+    expect(screen.getByText(/更新价格查询契约/)).toBeInTheDocument()
     expect(screen.queryByText('apiKey')).not.toBeInTheDocument()
   })
 
@@ -105,6 +123,14 @@ describe('AssetLibrary page', () => {
     const user = userEvent.setup()
     const calls: Array<{ url: string; init?: RequestInit }> = []
     const createdAsset = { ...asset, id: 'asset-2', name: '库存查询' }
+    const createdAuditEvent = {
+      ...auditEvent,
+      id: 'audit-created',
+      eventType: 'tool_skill_asset.create',
+      targetId: createdAsset.id,
+      reason: 'created stock contract',
+      metadata: { assetName: createdAsset.name },
+    }
     const createdInvocation = {
       ...invocation,
       id: 'invocation-2',
@@ -123,6 +149,9 @@ describe('AssetLibrary page', () => {
       }
       if (url === `/api/workspaces/${workspace.id}/asset-library` && init?.method === 'POST') {
         return Promise.resolve(new Response(JSON.stringify(createdAsset), { status: 201 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/asset-library/${createdAsset.id}/audit-events`) {
+        return Promise.resolve(new Response(JSON.stringify([createdAuditEvent]), { status: 200 }))
       }
       if (url === `/api/workspaces/${workspace.id}/asset-library/${createdAsset.id}/test-invocations`) {
         return Promise.resolve(new Response(JSON.stringify(createdInvocation), { status: 200 }))
@@ -148,6 +177,8 @@ describe('AssetLibrary page', () => {
     await user.click(screen.getByRole('button', { name: '创建资产' }))
 
     expect(await screen.findByText('库存查询')).toBeInTheDocument()
+    expect(await screen.findByText('tool_skill_asset.create')).toBeInTheDocument()
+    expect(screen.getByText(/created stock contract/)).toBeInTheDocument()
     const createCall = calls.find((call) => call.url === `/api/workspaces/${workspace.id}/asset-library` && call.init?.method === 'POST')
     expect(createCall?.init?.body).not.toContain('apiKey')
 

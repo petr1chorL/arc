@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import {
   createToolSkillAsset,
   deactivateToolSkillAsset,
+  getToolSkillAssetAuditEvents,
   getToolSkillAssetImpact,
   listToolSkillAssets,
   listToolSkillInvocations,
@@ -142,5 +143,29 @@ describe('Asset Library API', () => {
     expect(calls[1].url).toBe('/api/workspaces/workspace-1/asset-library/asset-1/deactivate')
     expect(calls[1].init?.method).toBe('POST')
     expect(calls[2].url).toBe('/api/workspaces/workspace-1/asset-library/asset-1/impact')
+  })
+
+  test('loads Tool Skill asset audit events without API keys', async () => {
+    const auditEvents = [{
+      id: 'audit-1',
+      eventType: 'tool_skill_asset.update',
+      targetType: 'tool_skill_asset',
+      targetId: 'asset-1',
+      outcome: 'success',
+      reason: '更新价格查询契约',
+      actorId: 'admin',
+      createdAt: '2026-06-28T00:03:00Z',
+      metadata: { reason: '更新价格查询契约' },
+    }]
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(auditEvents), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(getToolSkillAssetAuditEvents('workspace-1', 'asset-1')).resolves.toEqual(auditEvents)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/workspaces/workspace-1/asset-library/asset-1/audit-events',
+      expect.objectContaining({ credentials: 'same-origin' }),
+    )
+    expect(JSON.stringify(auditEvents)).not.toContain('apiKey')
   })
 })

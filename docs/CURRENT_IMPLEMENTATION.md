@@ -1090,3 +1090,11 @@ V0.17A 新增 `GET /api/workspaces/{workspaceId}/asset-library/{assetId}/audit-e
 平台审计事件包括 `tool_skill_asset.create`、`tool_skill_asset.update`、`tool_skill_asset.deactivate`、`tool_skill_asset.test_invoke` 等资产生命周期操作。运行时调用记录会映射为 `tool_skill_asset.invocation`，metadata 包含 `assetId`、`assetName`、`agentId`、`agentVersion`、`runId`、`nodeRunId`、输入摘要、输出摘要与耗时。
 
 本版不新增前端审计面板，也不提供一键回滚。验收文档见 `docs/ACCEPTANCE_V0.17A.md`。
+
+## V0.17B Tool / Skill 资产审计面板
+
+V0.17B 将 V0.17A 的审计流接入前端资产库。`src/api/assetLibrary.ts` 新增 `getToolSkillAssetAuditEvents`，`src/types.ts` 新增 `ToolSkillAssetAuditEvent`，`src/pages/AssetLibrary.tsx` 在资产加载后并行读取每个资产的审计事件，并在资产卡片内展示「最近变更」。
+
+资产卡片最多展示最近 3 条事件，包含 `eventType`、`outcome` 和原因/输出摘要/资产名等脱敏说明。创建、编辑、停用资产成功后会重新拉取该资产审计事件，避免用户操作完成后仍看不到最新变更。页面不展示 `apiKey`，审计接口失败时保持降级，不伪造成功事件。
+
+验收文档见 `docs/ACCEPTANCE_V0.17B.md`。

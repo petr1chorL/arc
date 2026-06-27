@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   createToolSkillAsset,
   deactivateToolSkillAsset,
+  getToolSkillAssetAuditEvents,
   getToolSkillAssetImpact,
   listToolSkillAssets,
   listToolSkillInvocations,
@@ -13,6 +14,7 @@ import { useWorkspace } from '../auth/workspaceContextState'
 import type {
   ToolSkillAdapterType,
   ToolSkillAsset,
+  ToolSkillAssetAuditEvent,
   ToolSkillAssetCreateInput,
   ToolSkillAssetImpact,
   ToolSkillAssetUpdateInput,
@@ -51,11 +53,21 @@ function parseJsonObject(value: string, label: string): Record<string, unknown> 
   }
 }
 
+function auditEventDetail(event: ToolSkillAssetAuditEvent) {
+  if (event.reason) return event.reason
+  const outputSummary = event.metadata.outputSummary
+  if (typeof outputSummary === 'string' && outputSummary) return outputSummary
+  const assetName = event.metadata.assetName
+  if (typeof assetName === 'string' && assetName) return assetName
+  return '已记录'
+}
+
 export function AssetLibrary() {
   const { workspace } = useWorkspace()
   const [assets, setAssets] = useState<ToolSkillAsset[]>([])
   const [invocations, setInvocations] = useState<ToolSkillInvocation[]>([])
   const [impactByAssetId, setImpactByAssetId] = useState<Record<string, ToolSkillAssetImpact>>({})
+  const [auditEventsByAssetId, setAuditEventsByAssetId] = useState<Record<string, ToolSkillAssetAuditEvent[]>>({})
   const [testResults, setTestResults] = useState<Record<string, ToolSkillInvocation>>({})
   const [testParameterJsonByAssetId, setTestParameterJsonByAssetId] = useState<Record<string, string>>({})
   const [editingAssetId, setEditingAssetId] = useState('')
@@ -80,6 +92,21 @@ export function AssetLibrary() {
     }))
   }, [workspace.id])
 
+  const loadAssetAuditEvents = useCallback(async (targetAssets: ToolSkillAsset[]) => {
+    const entries = await Promise.all(targetAssets.map(async (asset) => {
+      try {
+        const events = await getToolSkillAssetAuditEvents(workspace.id, asset.id)
+        return [asset.id, events] as [string, ToolSkillAssetAuditEvent[]]
+      } catch {
+        return null
+      }
+    }))
+    setAuditEventsByAssetId((current) => ({
+      ...current,
+      ...Object.fromEntries(entries.filter((entry): entry is [string, ToolSkillAssetAuditEvent[]] => entry !== null)),
+    }))
+  }, [workspace.id])
+
   useEffect(() => {
     void Promise.all([
       listToolSkillAssets(workspace.id),
@@ -88,10 +115,13 @@ export function AssetLibrary() {
       .then(([loadedAssets, loadedInvocations]) => {
         setAssets(loadedAssets)
         setInvocations(loadedInvocations)
-        return loadAssetImpacts(loadedAssets)
+        return Promise.all([
+          loadAssetImpacts(loadedAssets),
+          loadAssetAuditEvents(loadedAssets),
+        ])
       })
       .catch((loadError) => setError(loadError instanceof Error ? loadError.message : '资产库加载失败'))
-  }, [loadAssetImpacts, workspace.id])
+  }, [loadAssetAuditEvents, loadAssetImpacts, workspace.id])
 
   function updateForm<TField extends keyof typeof initialForm>(field: TField, value: (typeof initialForm)[TField]) {
     setForm((current) => ({ ...current, [field]: value }))
@@ -124,6 +154,7 @@ export function AssetLibrary() {
           publishedVersions: [],
         },
       }))
+      await loadAssetAuditEvents([created])
       setForm(initialForm)
       setFeedback('资产已创建')
     } catch (createError) {
@@ -199,6 +230,7 @@ export function AssetLibrary() {
           [updated.id]: { ...previousImpact, assetName: updated.name, assetType: updated.assetType },
         } : current
       })
+      await loadAssetAuditEvents([updated])
       setEditingAssetId('')
       setEditForm(null)
       setFeedback('资产已更新')
@@ -215,6 +247,7 @@ export function AssetLibrary() {
     try {
       const disabled = await deactivateToolSkillAsset(workspace.id, asset.id)
       setAssets((current) => current.map((item) => item.id === disabled.id ? disabled : item))
+      await loadAssetAuditEvents([disabled])
       setFeedback('资产已停用')
     } catch (deactivateError) {
       setError(deactivateError instanceof Error ? deactivateError.message : '资产停用失败')
@@ -317,6 +350,7 @@ export function AssetLibrary() {
               const canTest = asset.assetType === 'tool' && (asset.adapterType === 'http' || asset.adapterType === 'mcp')
               const result = testResults[asset.id]
               const impact = impactByAssetId[asset.id]
+              const auditEvents = auditEventsByAssetId[asset.id] ?? []
               const isEditing = editingAssetId === asset.id && editForm
               return (
                 <article className="asset-library-card" key={asset.id}>
@@ -434,6 +468,19 @@ export function AssetLibrary() {
                           ))}
                         </ul>
                       )}
+                    </div>
+                  )}
+                  {auditEvents.length > 0 && (
+                    <div className="provider-audit asset-audit">
+                      <strong>最近变更</strong>
+                      <ul>
+                        {auditEvents.slice(0, 3).map((event) => (
+                          <li key={event.id}>
+                            <span>{event.eventType}</span>
+                            <small>{event.outcome} · {auditEventDetail(event)}</small>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   )}
                   {canTest && (

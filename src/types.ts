@@ -196,6 +196,18 @@ export interface ToolSkillAssetImpact {
   publishedVersions: ToolSkillAssetVersionImpact[]
 }
 
+export interface ToolSkillAssetAuditEvent {
+  id: string
+  eventType: string
+  targetType: string
+  targetId: string
+  outcome: string
+  reason: string
+  actorId: string | null
+  createdAt: string
+  metadata: Record<string, unknown>
+}
+
 export interface ModelProvider {
   id: string
   name: string

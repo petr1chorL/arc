@@ -1,5 +1,6 @@
 import type {
   ToolSkillAsset,
+  ToolSkillAssetAuditEvent,
   ToolSkillAssetCreateInput,
   ToolSkillAssetImpact,
   ToolSkillAssetUpdateInput,
@@ -65,6 +66,13 @@ export async function getToolSkillAssetImpact(
   assetId: string,
 ): Promise<ToolSkillAssetImpact> {
   return readJson<ToolSkillAssetImpact>(await apiFetch(workspacePath(workspaceId, `/${assetId}/impact`)))
+}
+
+export async function getToolSkillAssetAuditEvents(
+  workspaceId: string,
+  assetId: string,
+): Promise<ToolSkillAssetAuditEvent[]> {
+  return readJson<ToolSkillAssetAuditEvent[]>(await apiFetch(workspacePath(workspaceId, `/${assetId}/audit-events`)))
 }
 
 export async function listToolSkillInvocations(
