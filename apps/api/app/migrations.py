@@ -49,6 +49,7 @@ WORKSPACE_TABLES = (
     "human_reviews",
     "tool_skill_assets",
     "tool_skill_asset_invocations",
+    "model_providers",
 )
 DEFAULT_WORKSPACE_FALLBACK_TABLES = tuple(
     table_name

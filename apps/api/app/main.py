@@ -1,3 +1,4 @@
+import os
 from collections.abc import Callable, Iterator
 from datetime import datetime
 
@@ -28,6 +29,7 @@ from app.models import (
     GoldenSampleRecord,
     HumanReviewRecord,
     HumanTaskRecord,
+    ModelProviderRecord,
     NodeRunRecord,
     NotificationOutboxRecord,
     RegressionRunRecord,
@@ -73,6 +75,9 @@ from app.schemas import (
     HumanTaskDetailRead,
     HumanTaskRead,
     HumanTaskTransfer,
+    ModelProviderConnectivityRead,
+    ModelProviderCreate,
+    ModelProviderRead,
     NodeRunRead,
     ObservabilityAuditEventRead,
     ObservabilityAlertRead,
@@ -1362,6 +1367,121 @@ def create_app(
         session.commit()
         session.refresh(record)
         return record
+
+    @router.get("/model-providers", response_model=list[ModelProviderRead])
+    def list_model_providers(
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> list[ModelProviderRecord]:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "asset.read",
+            action="model_provider.list",
+            target_type="workspace",
+            target_id=context.workspace.id,
+            request=request,
+        )
+        return list(session.scalars(
+            select(ModelProviderRecord)
+            .where(ModelProviderRecord.workspace_id == context.workspace.id)
+            .order_by(ModelProviderRecord.created_at.desc()),
+        ))
+
+    @router.post(
+        "/model-providers",
+        response_model=ModelProviderRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_model_provider(
+        payload: ModelProviderCreate,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> ModelProviderRecord:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "agent.write",
+            action="model_provider.create",
+            target_type="model_provider",
+            target_id=None,
+            request=request,
+        )
+        existing = session.scalar(
+            select(ModelProviderRecord).where(
+                ModelProviderRecord.workspace_id == context.workspace.id,
+                ModelProviderRecord.name == payload.name,
+            ),
+        )
+        if existing is not None:
+            raise HTTPException(status_code=409, detail="模型 Provider 名称已存在")
+        now = utc_now()
+        record = ModelProviderRecord(
+            workspace_id=context.workspace.id,
+            name=payload.name,
+            provider_type=payload.provider_type,
+            base_url=payload.base_url,
+            default_model=payload.default_model,
+            secret_ref=payload.secret_ref,
+            created_by=context.user.id,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(record)
+        session.flush()
+        record_success(
+            session,
+            context,
+            action="model_provider.create",
+            target_type="model_provider",
+            target_id=record.id,
+            request=request,
+        )
+        session.commit()
+        session.refresh(record)
+        return record
+
+    @router.post(
+        "/model-providers/{provider_id}/test",
+        response_model=ModelProviderConnectivityRead,
+    )
+    def test_model_provider(
+        provider_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> ModelProviderConnectivityRead:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "agent.write",
+            action="model_provider.test",
+            target_type="model_provider",
+            target_id=provider_id,
+            request=request,
+        )
+        provider = session.scalar(
+            select(ModelProviderRecord).where(
+                ModelProviderRecord.id == provider_id,
+                ModelProviderRecord.workspace_id == context.workspace.id,
+            ),
+        )
+        if provider is None:
+            raise HTTPException(status_code=404, detail="模型 Provider 不存在")
+        secret_value = os.environ.get(provider.secret_ref)
+        if not secret_value:
+            return ModelProviderConnectivityRead(
+                provider_id=provider.id,
+                status="missing_secret",
+                message=f"密钥引用 {provider.secret_ref} 未在后端环境变量中配置",
+            )
+        return ModelProviderConnectivityRead(
+            provider_id=provider.id,
+            status="ready",
+            message="模型 Provider 配置完整，密钥引用已在后端环境变量中解析",
+        )
 
     @router.post(
         "/asset-library/{asset_id}/test-invocations",

@@ -12,6 +12,7 @@ import { Dashboard } from './pages/Dashboard'
 import { Evaluations } from './pages/Evaluations'
 import { Login } from './pages/Login'
 import { Members } from './pages/Members'
+import { ModelProviders } from './pages/ModelProviders'
 import { Observability } from './pages/Observability'
 import { Reviews } from './pages/Reviews'
 import { Runs } from './pages/Runs'
@@ -83,6 +84,7 @@ function App() {
                 <Route path="observability" element={<Observability />} />
                 <Route path="reviews" element={<Reviews />} />
                 <Route path="settings/members" element={<Members />} />
+                <Route path="settings/model-providers" element={<ModelProviders />} />
                 <Route path="settings/audit" element={<SettingsStub title="审计日志" />} />
               </Route>
             </Route>

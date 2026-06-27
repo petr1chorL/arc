@@ -7,6 +7,7 @@ import {
   CircleHelp,
   ClipboardCheck,
   Gauge,
+  KeyRound,
   Network,
   Search,
   Settings,
@@ -40,6 +41,7 @@ const titles: Record<string, { title: string; eyebrow: string }> = {
   '/observability': { title: '运行观测', eyebrow: 'OBSERVABILITY' },
   '/reviews': { title: '人工审核', eyebrow: 'HUMAN IN THE LOOP' },
   '/settings/members': { title: '成员与权限', eyebrow: 'ACCESS CONTROL' },
+  '/settings/model-providers': { title: '模型 Provider', eyebrow: 'MODEL ACCESS' },
   '/settings/audit': { title: '审计日志', eyebrow: 'AUDIT TRAIL' },
 }
 
@@ -103,6 +105,17 @@ export function Layout() {
               </NavLink>
             )
           })}
+          <CapabilityGuard capability="member.manage">
+            <NavLink
+              to={workspacePath('settings/model-providers')}
+              title="模型 Provider"
+              aria-label="模型 Provider"
+              className={({ isActive }) => (isActive ? 'nav-item active' : 'nav-item')}
+            >
+              <KeyRound size={18} strokeWidth={1.8} />
+              <span>模型 Provider</span>
+            </NavLink>
+          </CapabilityGuard>
           <CapabilityGuard capability="member.manage">
             <NavLink
               to={workspacePath('settings/members')}

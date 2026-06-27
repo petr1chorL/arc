@@ -232,6 +232,29 @@ class ToolSkillAssetInvocationRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class ModelProviderRecord(Base):
+    __tablename__ = "model_providers"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "name",
+            name="uq_model_provider_workspace_name",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str] = mapped_column(String(36), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    provider_type: Mapped[str] = mapped_column(String(80), default="openai-compatible")
+    base_url: Mapped[str] = mapped_column(String(500))
+    default_model: Mapped[str] = mapped_column(String(120))
+    secret_ref: Mapped[str] = mapped_column(String(160))
+    status: Mapped[str] = mapped_column(String(32), default="draft")
+    created_by: Mapped[str] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class WorkflowRecord(Base):
     __tablename__ = "workflows"
 

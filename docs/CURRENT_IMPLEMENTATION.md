@@ -1,6 +1,6 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.14A Agent 运行配置入口
+> 对应版本：V0.14B 模型 Provider 资产入口
 > 上一阶段：V0.8F 轻量告警 / 通知 Outbox
 > 更新时间：2026-06-27
 
@@ -17,6 +17,8 @@ Agent 资产页和工作流设计器已经接入 SQLAlchemy。Agent 支持草稿
 Agent 执行已引入第一版 Runtime 合约：`app.agent_runtime` 负责统一 Agent 输入、输出、脱敏错误、Token、成本、评分、尝试次数、耗时和工具调用占位。Agent 直接测试运行与工作流 Agent 节点都通过 `ExecutionService.execute_agent` 调用该 Runtime，再映射到 `NodeRunRecord`。
 
 Agent 草稿已新增第一版运行配置入口：后端持久化 `modelProvider`、`modelBaseUrl`、`temperature` 和 `maxOutputTokens`，Agent 详情页可编辑这些非密钥字段，保存草稿和发布版本时会进入不可变 Agent 快照。API 不接收、不返回、不发布 `apiKey`；密钥仍只允许通过后端环境变量管理。当前运行时尚未按 Agent 级运行配置覆盖 ModelGateway，请勿把该能力描述为已完成 Provider 动态路由。
+
+模型 Provider 已新增第一版 Workspace 级资产入口：`model_providers` 表保存 Provider 名称、类型、Base URL、默认模型、`secretRef` 和状态；前端“模型 Provider”页面可创建 Provider、查看列表并测试连接。Provider API 忽略误传的 `apiKey`，不保存、不返回、不在列表或连接测试中泄露密钥；连接测试当前只检查 `secretRef` 指向的后端环境变量是否存在。Agent 草稿尚未通过下拉框绑定 Provider 资产，ModelGateway 也尚未按 Provider 资产进行动态路由。
 
 Tool / Skill 已新增第一版 Workspace 级资产库后端：`tool_skill_assets` 表保存 `tool` 与 `skill` 两类资产，支持创建、列表查询、参数 Schema、状态、适配类型、适配配置和 Workspace 隔离。Agent 更新和发布时会校验所绑定的 Tools / Skills 必须是当前 Workspace 内已启用资产。`tool_skill_asset_invocations` 表提供调用日志查询能力，并已支持 HTTP Tool 测试调用写入成功或失败日志。
 
@@ -338,6 +340,7 @@ React Flow 节点/连线
 - 编辑名称、职责、负责人、模型和 System Prompt。
 - 配置 Tools 与 Skills。
 - 配置 Agent 级运行参数：模型 Provider、Base URL、温度和最大输出 Tokens。
+- 创建 Workspace 级模型 Provider 资产，使用 `secretRef` 引用后端环境变量中的密钥。
 - 发布不可变 AgentVersion。
 - 查看版本历史。
 - 停用 Agent，并阻止继续编辑或发布。
@@ -350,6 +353,7 @@ React Flow 节点/连线
 - Agent 只能绑定已存在且启用的 Tool / Skill 资产。
 - Agent 发布会重新校验资产可用性，禁用资产不会进入不可变版本快照。
 - Agent 发布快照包含非密钥运行配置；API 不保存或返回 `apiKey`。
+- 模型 Provider 连接测试只返回 `ready` 或 `missing_secret`，不会回显密钥值。
 - Tool / Skill 调用日志支持 Workspace 级查询，并可按资产、Agent 和状态过滤。
 - HTTP Tool 支持后端测试调用，成功与失败都会写入调用日志。
 - 测试调用失败时返回脱敏错误，不暴露 provider 原始异常。
@@ -364,6 +368,7 @@ React Flow 节点/连线
 
 - 模型参数。
 - Agent 级运行配置尚未实际覆盖 ModelGateway 调用参数。
+- Agent 草稿尚未绑定 Provider 资产，Provider 资产尚未参与真实模型调用路由。
 - 真实 MCP Server client、session 管理和鉴权。
 - HTTP Tool 鉴权头、响应字段映射和更细粒度脱敏策略。
 - Agent 版本比较和回滚。
@@ -969,6 +974,11 @@ TypeScript 编译检查
 - V0.14A 完成全量验证：显式测试文件列表运行 `npx vitest run @($files) --reporter verbose` 27 个测试文件、107 项通过；`npm run lint` 通过；`npm run build` 通过，保留既有 Vite chunk size warning；`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 后端完整测试集通过。
 - V0.14A 完成浏览器验收：Agent 详情页显示“运行配置”，保存 `openai-compatible`、`https://api.deepseek.com`、`0.4` 和 `1600` 后刷新仍可读回；浏览器控制台新增 warning/error 为 0。
 - V0.14A 浏览器验收截图：`.scratch/v0.14a-agent-runtime-config.png`；验收结果：`.scratch/v0.14a-browser-result.json`。
+- V0.14B 完成模型 Provider 资产入口 RED/GREEN 测试：后端首次因 `POST /model-providers` 404 失败，随后可创建、列表查询和测试连接，响应不包含 `apiKey`；前端首次因 `modelProviders.ts` 和 `ModelProviders.tsx` 不存在失败，随后页面可创建 Provider、展示 `Secret Ref` 并测试连接。
+- V0.14B 完成 focused 回归：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests/test_model_providers_api.py apps/api/tests/test_v07a_migrations.py -q` 8 项通过；`npx vitest run src/api/modelProviders.test.ts src/pages/ModelProviders.test.tsx --reporter verbose` 2 个测试文件、3 项通过。
+- V0.14B 完成全量验证：显式测试文件列表运行 `npx vitest run @($files) --reporter verbose` 29 个测试文件、110 项通过；`npm run lint` 通过；`npm run build` 通过，保留既有 Vite chunk size warning；`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 后端完整测试集通过。
+- V0.14B 完成浏览器验收：模型 Provider 页面创建 `DeepSeek V0.14B 验收 1782582819415`，页面没有 `API Key` 输入字段，点击“测试连接”后展示 `密钥引用 DEEPSEEK_API_KEY 未在后端环境变量中配置`；浏览器控制台新增 warning/error 为 0。
+- V0.14B 浏览器验收截图：`.scratch/v0.14b-model-providers.png`；验收结果：`.scratch/v0.14b-browser-result.json`。
 
 验证时没有发现浏览器控制台错误。
 

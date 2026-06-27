@@ -319,6 +319,50 @@ class ToolSkillAssetInvocationRead(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
+class ModelProviderCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    provider_type: Literal["openai-compatible", "anthropic-compatible"] = Field(
+        default="openai-compatible",
+        alias="providerType",
+    )
+    base_url: str = Field(alias="baseUrl", min_length=1, max_length=500)
+    default_model: str = Field(alias="defaultModel", min_length=1, max_length=120)
+    secret_ref: str = Field(alias="secretRef", min_length=1, max_length=160)
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    @field_validator("name", "base_url", "default_model", "secret_ref")
+    @classmethod
+    def reject_blank_provider_values(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("字段不能为空")
+        return normalized
+
+
+class ModelProviderRead(BaseModel):
+    id: str
+    name: str
+    provider_type: str = Field(serialization_alias="providerType")
+    base_url: str = Field(serialization_alias="baseUrl")
+    default_model: str = Field(serialization_alias="defaultModel")
+    secret_ref: str = Field(serialization_alias="secretRef")
+    status: str
+    created_by: str = Field(serialization_alias="createdBy")
+    created_at: datetime = Field(serialization_alias="createdAt")
+    updated_at: datetime = Field(serialization_alias="updatedAt")
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class ModelProviderConnectivityRead(BaseModel):
+    provider_id: str = Field(serialization_alias="providerId")
+    status: Literal["ready", "missing_secret"]
+    message: str
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class VersionRead(BaseModel):
     id: str
     version: str

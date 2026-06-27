@@ -1,6 +1,7 @@
 export type AgentStatus = '在线' | '调试中' | '已停用'
 export type RunStatus = '运行中' | '已完成' | '需介入' | '失败'
 export type ReviewStatus = '待处理' | '处理中' | '已完成' | '已驳回'
+export type ModelProviderType = 'openai-compatible' | 'anthropic-compatible'
 export type WorkspaceRole = 'viewer' | 'operator' | 'builder' | 'workspace_admin'
 export type WorkspaceCapability =
   | 'asset.read'
@@ -108,6 +109,25 @@ export interface AssetVersion<TSnapshot = Record<string, unknown>> {
 }
 
 export type AgentVersion = AssetVersion<Agent>
+
+export interface ModelProvider {
+  id: string
+  name: string
+  providerType: ModelProviderType
+  baseUrl: string
+  defaultModel: string
+  secretRef: string
+  status: string
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ModelProviderConnectivity {
+  providerId: string
+  status: 'ready' | 'missing_secret'
+  message: string
+}
 
 export interface WorkflowNodeContract {
   id: string
