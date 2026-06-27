@@ -4,6 +4,7 @@ import {
   listExecutionJobs,
   listReviews,
   listRuns,
+  requeueExecutionJob,
   runAgent,
   runWorkflow,
 } from './execution'
@@ -127,6 +128,43 @@ describe('Execution API', () => {
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/workspaces/workspace-1/execution-jobs?status=dead_letter',
       expect.objectContaining({ credentials: 'same-origin' }),
+    )
+  })
+
+  it('requeues a dead-letter execution job', async () => {
+    const job = {
+      id: 'job-1',
+      workspaceId: workspaceId,
+      runId: 'run-1',
+      workflowId: 'workflow-1',
+      workflowVersion: 'v1.0.0',
+      jobType: 'workflow_run',
+      status: 'queued',
+      input: '执行流程',
+      attempts: 0,
+      maxAttempts: 3,
+      error: '',
+      createdBy: 'user-1',
+      lockedBy: '',
+      lockedUntil: null,
+      lastHeartbeatAt: null,
+      nextAttemptAt: '2026-06-27T08:05:00Z',
+      createdAt: '2026-06-27T08:00:00Z',
+      startedAt: '2026-06-27T08:00:00Z',
+      completedAt: null,
+      deadLetteredAt: null,
+    }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(job), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(requeueExecutionJob(workspaceId, 'job-1')).resolves.toEqual(job)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/workspaces/workspace-1/execution-jobs/job-1/requeue',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'same-origin',
+      }),
     )
   })
 })

@@ -1784,6 +1784,31 @@ def create_app(
             "lockedUntil": job.locked_until.isoformat() if job.locked_until else "",
         }
 
+    @router.post("/execution-jobs/{job_id}/requeue", response_model=ExecutionJobRead)
+    def requeue_execution_job(
+        job_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> ExecutionJobRead:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "run.execute",
+            action="execution_job.requeue",
+            target_type="execution_job",
+            target_id=job_id,
+            request=request,
+        )
+        job = execution_service.requeue_execution_job(
+            session=session,
+            workspace_id=context.workspace.id,
+            job_id=job_id,
+        )
+        if job is None:
+            raise HTTPException(status_code=404, detail="死信队列任务不存在")
+        return ExecutionJobRead.model_validate(job)
+
     @router.get("/runs", response_model=list[RunRead])
     def list_runs(
         request: Request,

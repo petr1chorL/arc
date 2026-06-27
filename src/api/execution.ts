@@ -44,6 +44,12 @@ export async function listExecutionJobs(workspaceId: string, status?: string): P
   )
 }
 
+export async function requeueExecutionJob(workspaceId: string, jobId: string): Promise<ExecutionJob> {
+  return readJson<ExecutionJob>(await apiFetch(workspacePath(workspaceId, `/execution-jobs/${jobId}/requeue`), {
+    method: 'POST',
+  }))
+}
+
 export async function getRun(workspaceId: string, runId: string): Promise<ExecutionRun> {
   return readJson<ExecutionRun>(await apiFetch(workspacePath(workspaceId, `/runs/${runId}`)))
 }

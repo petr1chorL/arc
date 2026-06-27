@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from api_test_support import create_authenticated_client, csrf_headers, workspace_url
-from app.models import AuditEventRecord, ExecutionJobRecord, utc_now
+from app.models import AuditEventRecord, ExecutionJobRecord, WorkflowRunRecord, utc_now
 
 
 @dataclass
@@ -420,6 +420,52 @@ def test_execution_jobs_list_supports_status_filter_and_operational_fields(tmp_p
     assert jobs[0]["lastHeartbeatAt"]
     assert jobs[0]["deadLetteredAt"]
     assert jobs[0]["error"] == "Agent 执行失败，请稍后重试"
+
+
+def test_dead_letter_execution_job_can_be_requeued(tmp_path):
+    database_url = f"sqlite:///{tmp_path / 'async-requeue.db'}"
+    client, workspace_id = create_authenticated_client(database_url)
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(client, workspace_id, agent, version)
+
+    run_response = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Requeue this dead letter workflow.", "asyncMode": True},
+        headers=csrf_headers(client),
+    )
+    run_id = run_response.json()["id"]
+    with client.app.state.session_factory() as session:
+        job = session.scalar(select(ExecutionJobRecord))
+        job.status = "dead_letter"
+        job.attempts = 3
+        job.error = "Agent 执行失败，请稍后重试"
+        job.locked_by = "worker-a"
+        job.locked_until = utc_now() + timedelta(minutes=5)
+        job.last_heartbeat_at = utc_now()
+        job.dead_lettered_at = utc_now()
+        run = session.get(WorkflowRunRecord, run_id)
+        run.status = "失败"
+        run.error = job.error
+        session.commit()
+        job_id = job.id
+
+    requeue_response = client.post(
+        workspace_url(workspace_id, f"/execution-jobs/{job_id}/requeue"),
+        headers=csrf_headers(client),
+    )
+
+    assert requeue_response.status_code == 200
+    requeued = requeue_response.json()
+    assert requeued["status"] == "queued"
+    assert requeued["attempts"] == 0
+    assert requeued["error"] == ""
+    assert requeued["lockedBy"] == ""
+    assert requeued["lockedUntil"] is None
+    assert requeued["deadLetteredAt"] is None
+    with client.app.state.session_factory() as session:
+        run = session.get(WorkflowRunRecord, run_id)
+        assert run.status == "排队中"
+        assert run.current_node == "等待重投"
 
 
 def test_low_quality_output_creates_human_review(tmp_path):

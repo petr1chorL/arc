@@ -15,7 +15,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { listExecutionJobs } from '../api/execution'
+import { listExecutionJobs, requeueExecutionJob } from '../api/execution'
 import {
   getCostUsageOverview,
   getHumanSlaOverview,
@@ -111,11 +111,13 @@ export function Observability() {
   const [isHumanSlaLoading, setIsHumanSlaLoading] = useState(true)
   const [isCostUsageLoading, setIsCostUsageLoading] = useState(true)
   const [isExecutionJobsLoading, setIsExecutionJobsLoading] = useState(true)
+  const [queueActionJobId, setQueueActionJobId] = useState('')
   const [error, setError] = useState('')
   const [detailError, setDetailError] = useState('')
   const [humanSlaError, setHumanSlaError] = useState('')
   const [costUsageError, setCostUsageError] = useState('')
   const [executionJobsError, setExecutionJobsError] = useState('')
+  const [queueActionError, setQueueActionError] = useState('')
   const statusFilter = searchParams.get('status') || '全部'
   const workflowFilter = searchParams.get('workflow') || ''
   const riskFilter = searchParams.get('risk') || 'all'
@@ -232,6 +234,19 @@ export function Observability() {
     }
   }, [workspace.id])
 
+  const requeueJob = useCallback(async (jobId: string) => {
+    setQueueActionJobId(jobId)
+    setQueueActionError('')
+    try {
+      await requeueExecutionJob(workspace.id, jobId)
+      await loadExecutionJobs()
+    } catch (actionError) {
+      setQueueActionError(actionError instanceof Error ? actionError.message : '重新入队失败')
+    } finally {
+      setQueueActionJobId('')
+    }
+  }, [loadExecutionJobs, workspace.id])
+
   useEffect(() => {
     void loadOverview()
   }, [loadOverview])
@@ -347,6 +362,11 @@ export function Observability() {
         jobs={executionJobs}
         isLoading={isExecutionJobsLoading}
         error={executionJobsError}
+        actionError={queueActionError}
+        actionJobId={queueActionJobId}
+        onRequeue={(jobId) => {
+          void requeueJob(jobId)
+        }}
       />
 
       <HumanSlaPanel
@@ -497,10 +517,16 @@ function ExecutionQueuePanel({
   jobs,
   isLoading,
   error,
+  actionError,
+  actionJobId,
+  onRequeue,
 }: {
   jobs: ExecutionJob[]
   isLoading: boolean
   error: string
+  actionError: string
+  actionJobId: string
+  onRequeue: (jobId: string) => void
 }) {
   const counts = jobs.reduce<Record<string, number>>((nextCounts, job) => {
     nextCounts[job.status] = (nextCounts[job.status] ?? 0) + 1
@@ -520,6 +546,7 @@ function ExecutionQueuePanel({
 
       {isLoading && <div className="table-state">正在加载执行队列...</div>}
       {error && <div className="table-state error" role="alert">{error}</div>}
+      {actionError && <div className="table-state error" role="alert">{actionError}</div>}
       {!isLoading && !error && (
         <>
           <div className="execution-queue-metrics">
@@ -543,6 +570,16 @@ function ExecutionQueuePanel({
                       <StatusBadge status={executionJobStatusLabel(job.status)} />
                       <span>{job.attempts}/{job.maxAttempts} 次</span>
                       <small>{job.lockedBy || '未锁定'} · {formatTime(job.lockedUntil)}</small>
+                      {job.status === 'dead_letter' && (
+                        <button
+                          className="button ghost compact"
+                          type="button"
+                          disabled={actionJobId === job.id}
+                          onClick={() => onRequeue(job.id)}
+                        >
+                          {actionJobId === job.id ? '处理中' : '重新入队'}
+                        </button>
+                      )}
                     </aside>
                   </article>
                 ))}

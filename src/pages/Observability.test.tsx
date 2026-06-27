@@ -348,6 +348,7 @@ describe('Observability', () => {
   })
 
   it('renders risk-first operations metrics and the selected run detail', async () => {
+    const user = userEvent.setup()
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const path = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
       if (path === '/api/workspaces/workspace-1/observability/overview') {
@@ -361,6 +362,17 @@ describe('Observability', () => {
       }
       if (path === '/api/workspaces/workspace-1/execution-jobs') {
         return new Response(JSON.stringify(executionJobs), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/execution-jobs/job-dead-letter/requeue') {
+        return new Response(JSON.stringify({
+          ...executionJobs[0],
+          status: 'queued',
+          attempts: 0,
+          error: '',
+          lockedBy: '',
+          lockedUntil: null,
+          deadLetteredAt: null,
+        }), { status: 200 })
       }
       if (path === '/api/workspaces/workspace-1/observability/runs/run-failed') {
         return new Response(JSON.stringify(detail), { status: 200 })
@@ -397,6 +409,13 @@ describe('Observability', () => {
     expect(screen.getByText('死信 · workflow_run')).toBeInTheDocument()
     expect(screen.getByText('Agent 执行失败，请稍后重试')).toBeInTheDocument()
     expect(screen.getByText('worker-a · 2026/6/26 16:05:00')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '重新入队' }))
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/workspaces/workspace-1/execution-jobs/job-dead-letter/requeue',
+        expect.objectContaining({ method: 'POST' }),
+      )
+    })
     expect(screen.getByText('节点执行链路')).toBeInTheDocument()
     expect(screen.getByText('Trace ID')).toBeInTheDocument()
     expect(screen.getByText('trace-run-failed')).toBeInTheDocument()
