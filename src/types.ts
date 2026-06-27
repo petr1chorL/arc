@@ -386,6 +386,34 @@ export interface GoldenSample {
   createdAt: string
 }
 
+export interface RegressionSample {
+  id: string
+  sampleSetId: string
+  name: string
+  input: string
+  expectedOutput: string
+  tags: string[]
+  sourceType: string
+  sourceId: string | null
+  status: string
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface RegressionSampleSet {
+  id: string
+  name: string
+  description: string
+  status: string
+  sampleCount: number
+  activeSampleCount: number
+  samples: RegressionSample[]
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}
+
 export interface EvaluationOverviewTotals {
   feedbackCandidates: number
   pendingCandidates: number

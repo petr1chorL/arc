@@ -718,6 +718,85 @@ class GoldenSampleRead(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
+class RegressionSampleCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    input_text: str = Field(alias="input", min_length=1, max_length=20000)
+    expected_output: str = Field(alias="expectedOutput", min_length=1, max_length=20000)
+    tags: list[str] = Field(default_factory=list, max_length=20)
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    @field_validator("name", "input_text", "expected_output")
+    @classmethod
+    def reject_blank_sample_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("field cannot be blank")
+        return normalized
+
+    @field_validator("tags")
+    @classmethod
+    def normalize_tags(cls, value: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for tag in value:
+            cleaned = tag.strip()
+            if cleaned and cleaned not in normalized:
+                normalized.append(cleaned[:40])
+        return normalized
+
+
+class RegressionSampleRead(BaseModel):
+    id: str
+    sample_set_id: str = Field(serialization_alias="sampleSetId")
+    name: str
+    input_text: str = Field(serialization_alias="input")
+    expected_output: str = Field(serialization_alias="expectedOutput")
+    tags: list[str]
+    source_type: str = Field(serialization_alias="sourceType")
+    source_id: str | None = Field(serialization_alias="sourceId")
+    status: str
+    created_by: str = Field(serialization_alias="createdBy")
+    created_at: datetime = Field(serialization_alias="createdAt")
+    updated_at: datetime = Field(serialization_alias="updatedAt")
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class RegressionSampleSetCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    description: str = Field(default="", max_length=4000)
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    @field_validator("name")
+    @classmethod
+    def reject_blank_set_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("name cannot be blank")
+        return normalized
+
+    @field_validator("description")
+    @classmethod
+    def normalize_description(cls, value: str) -> str:
+        return value.strip()
+
+
+class RegressionSampleSetRead(BaseModel):
+    id: str
+    name: str
+    description: str
+    status: str
+    sample_count: int = Field(serialization_alias="sampleCount")
+    active_sample_count: int = Field(serialization_alias="activeSampleCount")
+    samples: list[RegressionSampleRead]
+    created_by: str = Field(serialization_alias="createdBy")
+    created_at: datetime = Field(serialization_alias="createdAt")
+    updated_at: datetime = Field(serialization_alias="updatedAt")
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
 class EvaluationOverviewTotalsRead(BaseModel):
     feedback_candidates: int = Field(serialization_alias="feedbackCandidates")
     pending_candidates: int = Field(serialization_alias="pendingCandidates")

@@ -15,19 +15,28 @@ import {
   X,
 } from 'lucide-react'
 import {
+  createRegressionSample,
+  createRegressionSampleSet,
   createRubric,
   deactivateRubric,
   evaluateRubric,
   getEvaluationOverview,
   getRubrics,
   listEvaluationRecords,
+  listRegressionSampleSets,
   listRubricVersions,
   publishRubric,
   updateRubric,
   type RubricInput,
 } from '../api/evaluations'
 import { useWorkspace } from '../auth/workspaceContextState'
-import type { EvaluationRecord, EvaluationOverview, Rubric, RubricVersion } from '../types'
+import type {
+  EvaluationRecord,
+  EvaluationOverview,
+  RegressionSampleSet,
+  Rubric,
+  RubricVersion,
+} from '../types'
 
 const emptyOverview: EvaluationOverview = {
   totals: {
@@ -102,6 +111,19 @@ export function Evaluations() {
   const [recordStatusFilter, setRecordStatusFilter] = useState('all')
   const [recordRubricFilter, setRecordRubricFilter] = useState('all')
   const [selectedEvaluationRecord, setSelectedEvaluationRecord] = useState<EvaluationRecord | null>(null)
+  const [sampleSets, setSampleSets] = useState<RegressionSampleSet[]>([])
+  const [selectedSampleSetId, setSelectedSampleSetId] = useState('manual')
+  const [sampleSetForm, setSampleSetForm] = useState({ name: '', description: '' })
+  const [sampleForm, setSampleForm] = useState({
+    sampleSetId: '',
+    name: '',
+    input: '',
+    expectedOutput: '',
+    tags: '',
+  })
+  const [sampleSetError, setSampleSetError] = useState('')
+  const [sampleSetFeedback, setSampleSetFeedback] = useState('')
+  const [isSampleSetBusy, setIsSampleSetBusy] = useState(false)
   const [batchRubricId, setBatchRubricId] = useState('')
   const [batchSamples, setBatchSamples] = useState('')
   const [batchResults, setBatchResults] = useState<EvaluationRecord[]>([])
@@ -112,14 +134,16 @@ export function Evaluations() {
     setIsLoading(true)
     setError('')
     try {
-      const [nextOverview, nextRubrics, nextRecords] = await Promise.all([
+      const [nextOverview, nextRubrics, nextRecords, nextSampleSets] = await Promise.all([
         getEvaluationOverview(workspace.id),
         getRubrics(workspace.id),
         listEvaluationRecords(workspace.id),
+        listRegressionSampleSets(workspace.id),
       ])
       setOverview(nextOverview)
       setRubrics(nextRubrics)
       setEvaluationRecords(nextRecords)
+      setSampleSets(nextSampleSets)
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : '评估资产加载失败')
     } finally {
@@ -155,6 +179,16 @@ export function Evaluations() {
   const activeRubrics = useMemo(
     () => rubrics.filter((rubric) => rubric.status === 'active'),
     [rubrics],
+  )
+
+  const selectedSampleSet = useMemo(
+    () => sampleSets.find((sampleSet) => sampleSet.id === selectedSampleSetId) ?? null,
+    [sampleSets, selectedSampleSetId],
+  )
+
+  const activeSelectedSamples = useMemo(
+    () => selectedSampleSet?.samples.filter((sample) => sample.status === 'active') ?? [],
+    [selectedSampleSet],
   )
 
   useEffect(() => {
@@ -322,15 +356,95 @@ export function Evaluations() {
     }
   }
 
+  async function saveRegressionSampleSet() {
+    if (!sampleSetForm.name.trim()) {
+      setSampleSetError('样本集名称不能为空')
+      return
+    }
+    setIsSampleSetBusy(true)
+    setSampleSetError('')
+    setSampleSetFeedback('')
+    try {
+      const created = await createRegressionSampleSet(workspace.id, {
+        name: sampleSetForm.name.trim(),
+        description: sampleSetForm.description.trim(),
+      })
+      setSampleSets((current) => [created, ...current])
+      setSampleSetForm({ name: '', description: '' })
+      setSampleForm((current) => ({ ...current, sampleSetId: created.id }))
+      setSelectedSampleSetId(created.id)
+      setSampleSetFeedback('样本集已创建')
+    } catch (saveError) {
+      setSampleSetError(saveError instanceof Error ? saveError.message : '样本集创建失败')
+    } finally {
+      setIsSampleSetBusy(false)
+    }
+  }
+
+  async function saveRegressionSample() {
+    const targetSetId = sampleForm.sampleSetId || sampleSets[0]?.id || ''
+    if (!targetSetId) {
+      setSampleSetError('请先创建样本集')
+      return
+    }
+    if (!sampleForm.name.trim() || !sampleForm.input.trim() || !sampleForm.expectedOutput.trim()) {
+      setSampleSetError('样本名称、输入和期望输出不能为空')
+      return
+    }
+    setIsSampleSetBusy(true)
+    setSampleSetError('')
+    setSampleSetFeedback('')
+    try {
+      const created = await createRegressionSample(workspace.id, targetSetId, {
+        name: sampleForm.name.trim(),
+        input: sampleForm.input.trim(),
+        expectedOutput: sampleForm.expectedOutput.trim(),
+        tags: sampleForm.tags.split(',')
+          .map((tag) => tag.trim())
+          .filter(Boolean),
+      })
+      setSampleSets((current) => current.map((sampleSet) => {
+        if (sampleSet.id !== targetSetId) return sampleSet
+        return {
+          ...sampleSet,
+          sampleCount: sampleSet.sampleCount + 1,
+          activeSampleCount: sampleSet.activeSampleCount + (created.status === 'active' ? 1 : 0),
+          samples: [...sampleSet.samples, created],
+          updatedAt: created.updatedAt,
+        }
+      }))
+      setSampleForm({
+        sampleSetId: targetSetId,
+        name: '',
+        input: '',
+        expectedOutput: '',
+        tags: '',
+      })
+      setSampleSetFeedback('样本已加入 Golden Set')
+    } catch (saveError) {
+      setSampleSetError(saveError instanceof Error ? saveError.message : '样本保存失败')
+    } finally {
+      setIsSampleSetBusy(false)
+    }
+  }
+
   async function runBatchRegression() {
     const rubric = activeRubrics.find((candidate) => candidate.id === batchRubricId)
-    const samples = parseBatchSamples(batchSamples)
+    const samples = selectedSampleSet
+      ? activeSelectedSamples.map((sample) => ({
+        id: sample.id,
+        input: sample.input,
+      }))
+      : parseBatchSamples(batchSamples).map((sample, index) => ({
+        id: `sample-${index + 1}`,
+        input: sample,
+      }))
     if (!rubric) {
       setBatchError('请选择可用 Rubric')
       return
     }
     if (samples.length === 0) {
-      setBatchError('至少输入 1 条回归样本')
+      setBatchError(selectedSampleSet ? '当前样本集没有可运行样本' : '至少输入 1 条回归样本')
       return
     }
 
@@ -338,11 +452,11 @@ export function Evaluations() {
     setBatchError('')
     try {
       const nextResults: EvaluationRecord[] = []
-      for (const [index, sample] of samples.entries()) {
+      for (const sample of samples) {
         const result = await evaluateRubric(workspace.id, rubric.id, {
-          artifactText: sample,
-          subjectType: 'regression_sample',
-          subjectId: `sample-${index + 1}`,
+          artifactText: sample.input,
+          subjectType: selectedSampleSet ? 'regression_sample_set' : 'regression_sample',
+          subjectId: sample.id,
         })
         nextResults.push(result)
       }
@@ -488,6 +602,139 @@ export function Evaluations() {
         )}
       </section>
 
+      <section className="panel regression-sample-sets">
+        <header>
+          <div>
+            <span className="eyebrow">GOLDEN SET</span>
+            <h2>Regression Sample Sets</h2>
+          </div>
+          <span className="status-pill">{sampleSets.length} 个样本集</span>
+        </header>
+        <div className="sample-set-layout">
+          <div className="sample-set-list">
+            {sampleSets.length === 0 && (
+              <div className="table-state">暂无回归样本集。先创建一个 Golden Set，再把高价值样本加入进去。</div>
+            )}
+            {sampleSets.map((sampleSet) => (
+              <article className="sample-set-card" key={sampleSet.id}>
+                <div>
+                  <span className="mono">{sampleSet.id}</span>
+                  <h3>{sampleSet.name}</h3>
+                  <p>{sampleSet.description || '未填写说明'}</p>
+                </div>
+                <div className="sample-set-meta">
+                  <span className="status-pill success">{sampleSet.status}</span>
+                  <strong>{sampleSet.activeSampleCount} / {sampleSet.sampleCount}</strong>
+                </div>
+                {sampleSet.samples.length > 0 && (
+                  <div className="sample-chip-list">
+                    {sampleSet.samples.slice(0, 4).map((sample) => (
+                      <span key={sample.id}>{sample.name}</span>
+                    ))}
+                  </div>
+                )}
+              </article>
+            ))}
+          </div>
+          <div className="sample-set-editor">
+            <div className="sample-set-form">
+              <label className="dialog-field">
+                样本集名称
+                <input
+                  aria-label="样本集名称"
+                  value={sampleSetForm.name}
+                  disabled={isSampleSetBusy}
+                  onChange={(event) => setSampleSetForm((current) => ({ ...current, name: event.target.value }))}
+                />
+              </label>
+              <label className="dialog-field">
+                样本集说明
+                <textarea
+                  aria-label="样本集说明"
+                  rows={2}
+                  value={sampleSetForm.description}
+                  disabled={isSampleSetBusy}
+                  onChange={(event) => setSampleSetForm((current) => ({ ...current, description: event.target.value }))}
+                />
+              </label>
+              <button
+                className="button secondary"
+                type="button"
+                disabled={isSampleSetBusy}
+                onClick={() => void saveRegressionSampleSet()}
+              >
+                <Plus size={14} />创建样本集
+              </button>
+            </div>
+            <div className="sample-set-form">
+              <label className="dialog-field">
+                加入到
+                <select
+                  aria-label="加入到样本集"
+                  value={sampleForm.sampleSetId || sampleSets[0]?.id || ''}
+                  disabled={sampleSets.length === 0 || isSampleSetBusy}
+                  onChange={(event) => setSampleForm((current) => ({ ...current, sampleSetId: event.target.value }))}
+                >
+                  {sampleSets.length === 0 && <option value="">暂无样本集</option>}
+                  {sampleSets.map((sampleSet) => (
+                    <option key={sampleSet.id} value={sampleSet.id}>{sampleSet.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="dialog-field">
+                样本名称
+                <input
+                  aria-label="样本名称"
+                  value={sampleForm.name}
+                  disabled={isSampleSetBusy}
+                  onChange={(event) => setSampleForm((current) => ({ ...current, name: event.target.value }))}
+                />
+              </label>
+              <label className="dialog-field">
+                样本输入
+                <textarea
+                  aria-label="样本输入"
+                  rows={3}
+                  value={sampleForm.input}
+                  disabled={isSampleSetBusy}
+                  onChange={(event) => setSampleForm((current) => ({ ...current, input: event.target.value }))}
+                />
+              </label>
+              <label className="dialog-field">
+                期望输出
+                <textarea
+                  aria-label="期望输出"
+                  rows={3}
+                  value={sampleForm.expectedOutput}
+                  disabled={isSampleSetBusy}
+                  onChange={(event) => setSampleForm((current) => ({ ...current, expectedOutput: event.target.value }))}
+                />
+              </label>
+              <label className="dialog-field">
+                标签
+                <input
+                  aria-label="样本标签"
+                  placeholder="evidence, launch"
+                  value={sampleForm.tags}
+                  disabled={isSampleSetBusy}
+                  onChange={(event) => setSampleForm((current) => ({ ...current, tags: event.target.value }))}
+                />
+              </label>
+              {sampleSetError && <p className="dialog-error" role="alert">{sampleSetError}</p>}
+              {sampleSetFeedback && !sampleSetError && <p className="inline-feedback" role="status">{sampleSetFeedback}</p>}
+              <button
+                className="button primary"
+                type="button"
+                disabled={isSampleSetBusy || sampleSets.length === 0}
+                onClick={() => void saveRegressionSample()}
+              >
+                <Save size={14} />加入样本
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section className="panel batch-regression">
         <header>
           <div>
@@ -517,15 +764,34 @@ export function Evaluations() {
               </select>
             </label>
             <label className="dialog-field">
+              Golden Set
+              <select
+                aria-label="Golden Set"
+                value={selectedSampleSetId}
+                disabled={isBatchRunning}
+                onChange={(event) => setSelectedSampleSetId(event.target.value)}
+              >
+                <option value="manual">手动输入样本</option>
+                {sampleSets.map((sampleSet) => (
+                  <option key={sampleSet.id} value={sampleSet.id}>
+                    {sampleSet.name} / {sampleSet.activeSampleCount} 条
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="dialog-field">
               回归样本
               <textarea
                 aria-label="回归样本"
                 rows={5}
                 placeholder="每行一条样本。运行后会逐条生成 Evaluation Record。"
                 value={batchSamples}
-                disabled={isBatchRunning}
+                disabled={isBatchRunning || selectedSampleSetId !== 'manual'}
                 onChange={(event) => setBatchSamples(event.target.value)}
               />
+              {selectedSampleSet && (
+                <small>将运行 {selectedSampleSet.name} 中的 {activeSelectedSamples.length} 条 active 样本。</small>
+              )}
             </label>
             {batchError && <p className="dialog-error" role="alert">{batchError}</p>}
             <button
@@ -555,6 +821,7 @@ export function Evaluations() {
                       <div>
                         <span className="mono">{result.id}</span>
                         <h3>样本 #{index + 1}</h3>
+                        {result.subjectId && <span className="mono">{result.subjectId}</span>}
                         <p>{result.artifactText}</p>
                       </div>
                       <div className="evaluation-record-score">

@@ -1,6 +1,56 @@
 from api_test_support import create_authenticated_client, csrf_headers, workspace_url
 
 
+def test_regression_sample_sets_can_be_created_and_listed(tmp_path):
+    client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'arc-one.db'}")
+
+    created = client.post(
+        workspace_url(workspace_id, "/evaluations/sample-sets"),
+        json={
+            "name": "Launch Readiness Golden Set",
+            "description": "High-risk product launch examples",
+        },
+        headers=csrf_headers(client),
+    )
+
+    assert created.status_code == 201
+    sample_set = created.json()
+    assert sample_set["name"] == "Launch Readiness Golden Set"
+    assert sample_set["description"] == "High-risk product launch examples"
+    assert sample_set["status"] == "active"
+    assert sample_set["sampleCount"] == 0
+    assert sample_set["activeSampleCount"] == 0
+    assert sample_set["samples"] == []
+
+    sample = client.post(
+        workspace_url(workspace_id, f"/evaluations/sample-sets/{sample_set['id']}/samples"),
+        json={
+            "name": "Evidence-rich launch plan",
+            "input": "Customer interviews show outdoor usage needs waterproofing and long battery life.",
+            "expectedOutput": "Must include scenario, evidence, constraints, and next experiment.",
+            "tags": ["evidence", "launch"],
+        },
+        headers=csrf_headers(client),
+    )
+
+    assert sample.status_code == 201
+    created_sample = sample.json()
+    assert created_sample["sampleSetId"] == sample_set["id"]
+    assert created_sample["status"] == "active"
+    assert created_sample["tags"] == ["evidence", "launch"]
+
+    listed = client.get(workspace_url(workspace_id, "/evaluations/sample-sets"))
+
+    assert listed.status_code == 200
+    listed_set = listed.json()[0]
+    assert listed_set["id"] == sample_set["id"]
+    assert listed_set["sampleCount"] == 1
+    assert listed_set["activeSampleCount"] == 1
+    assert listed_set["samples"][0]["input"] == (
+        "Customer interviews show outdoor usage needs waterproofing and long battery life."
+    )
+
+
 def test_evaluation_rubrics_are_workspace_assets_without_duplicate_seed(tmp_path):
     client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'arc-one.db'}")
 

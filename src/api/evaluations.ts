@@ -1,4 +1,11 @@
-import type { EvaluationRecord, EvaluationOverview, Rubric, RubricVersion } from '../types'
+import type {
+  EvaluationRecord,
+  EvaluationOverview,
+  RegressionSample,
+  RegressionSampleSet,
+  Rubric,
+  RubricVersion,
+} from '../types'
 import { apiFetch, readJson } from './http'
 
 export interface RubricInput {
@@ -15,6 +22,18 @@ export interface RubricEvaluationInput {
   subjectId?: string | null
 }
 
+export interface RegressionSampleSetInput {
+  name: string
+  description: string
+}
+
+export interface RegressionSampleInput {
+  name: string
+  input: string
+  expectedOutput: string
+  tags: string[]
+}
+
 function workspacePath(workspaceId: string, path = '') {
   return `/api/workspaces/${workspaceId}/evaluations${path}`
 }
@@ -25,6 +44,39 @@ export async function getEvaluationOverview(workspaceId: string): Promise<Evalua
 
 export async function getRubrics(workspaceId: string): Promise<Rubric[]> {
   return readJson<Rubric[]>(await apiFetch(workspacePath(workspaceId, '/rubrics')))
+}
+
+export async function listRegressionSampleSets(workspaceId: string): Promise<RegressionSampleSet[]> {
+  return readJson<RegressionSampleSet[]>(
+    await apiFetch(workspacePath(workspaceId, '/sample-sets')),
+  )
+}
+
+export async function createRegressionSampleSet(
+  workspaceId: string,
+  input: RegressionSampleSetInput,
+): Promise<RegressionSampleSet> {
+  return readJson<RegressionSampleSet>(
+    await apiFetch(workspacePath(workspaceId, '/sample-sets'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
+  )
+}
+
+export async function createRegressionSample(
+  workspaceId: string,
+  sampleSetId: string,
+  input: RegressionSampleInput,
+): Promise<RegressionSample> {
+  return readJson<RegressionSample>(
+    await apiFetch(workspacePath(workspaceId, `/sample-sets/${sampleSetId}/samples`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
+  )
 }
 
 export async function createRubric(workspaceId: string, input: RubricInput): Promise<Rubric> {

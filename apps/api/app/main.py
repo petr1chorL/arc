@@ -28,6 +28,8 @@ from app.models import (
     HumanTaskRecord,
     NodeRunRecord,
     NotificationOutboxRecord,
+    RegressionSampleRecord,
+    RegressionSampleSetRecord,
     ReviewerRecord,
     ReviewGroupRecord,
     RubricRecord,
@@ -77,6 +79,10 @@ from app.schemas import (
     ObservabilityRiskRead,
     ObservabilityRunDetailRead,
     ObservabilityRunSummaryRead,
+    RegressionSampleCreate,
+    RegressionSampleRead,
+    RegressionSampleSetCreate,
+    RegressionSampleSetRead,
     ObservabilityTotalsRead,
     ReviewerRead,
     ReviewGroupRead,
@@ -1860,6 +1866,204 @@ def create_app(
                 for candidate in recent_candidates
             ],
         }
+
+    def regression_sample_to_read(sample: RegressionSampleRecord) -> dict:
+        return {
+            "id": sample.id,
+            "sample_set_id": sample.sample_set_id,
+            "name": sample.name,
+            "input_text": sample.input_text,
+            "expected_output": sample.expected_output,
+            "tags": sample.tags,
+            "source_type": sample.source_type,
+            "source_id": sample.source_id,
+            "status": sample.status,
+            "created_by": sample.created_by,
+            "created_at": sample.created_at,
+            "updated_at": sample.updated_at,
+        }
+
+    def regression_sample_set_to_read(
+        sample_set: RegressionSampleSetRecord,
+        samples: list[RegressionSampleRecord],
+    ) -> dict:
+        return {
+            "id": sample_set.id,
+            "name": sample_set.name,
+            "description": sample_set.description,
+            "status": sample_set.status,
+            "sample_count": len(samples),
+            "active_sample_count": len([
+                sample for sample in samples if sample.status == "active"
+            ]),
+            "samples": [regression_sample_to_read(sample) for sample in samples],
+            "created_by": sample_set.created_by,
+            "created_at": sample_set.created_at,
+            "updated_at": sample_set.updated_at,
+        }
+
+    def find_regression_sample_set(
+        workspace_id: str,
+        sample_set_id: str,
+        session: Session,
+    ) -> RegressionSampleSetRecord:
+        record = session.scalar(
+            select(RegressionSampleSetRecord).where(
+                RegressionSampleSetRecord.id == sample_set_id,
+                RegressionSampleSetRecord.workspace_id == workspace_id,
+            ),
+        )
+        if record is None:
+            raise HTTPException(status_code=404, detail="sample set not found")
+        return record
+
+    @router.get(
+        "/evaluations/sample-sets",
+        response_model=list[RegressionSampleSetRead],
+    )
+    def list_regression_sample_sets(
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> list[dict]:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "asset.read",
+            action="evaluation.sample_set.list",
+            target_type="workspace",
+            target_id=context.workspace.id,
+            request=request,
+        )
+        sample_sets = list(session.scalars(
+            select(RegressionSampleSetRecord)
+            .where(RegressionSampleSetRecord.workspace_id == context.workspace.id)
+            .order_by(RegressionSampleSetRecord.created_at.desc()),
+        ))
+        samples = list(session.scalars(
+            select(RegressionSampleRecord)
+            .where(RegressionSampleRecord.workspace_id == context.workspace.id)
+            .order_by(RegressionSampleRecord.created_at.asc()),
+        ))
+        samples_by_set: dict[str, list[RegressionSampleRecord]] = {
+            sample_set.id: [] for sample_set in sample_sets
+        }
+        for sample in samples:
+            samples_by_set.setdefault(sample.sample_set_id, []).append(sample)
+        return [
+            regression_sample_set_to_read(sample_set, samples_by_set.get(sample_set.id, []))
+            for sample_set in sample_sets
+        ]
+
+    @router.post(
+        "/evaluations/sample-sets",
+        response_model=RegressionSampleSetRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_regression_sample_set(
+        payload: RegressionSampleSetCreate,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> dict:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "rubric.write",
+            action="evaluation.sample_set.create",
+            target_type="evaluation_sample_set",
+            target_id=None,
+            request=request,
+        )
+        duplicate = session.scalar(
+            select(RegressionSampleSetRecord).where(
+                RegressionSampleSetRecord.workspace_id == context.workspace.id,
+                RegressionSampleSetRecord.name == payload.name,
+            ),
+        )
+        if duplicate is not None:
+            raise HTTPException(status_code=409, detail="sample set name already exists")
+        now = utc_now()
+        record = RegressionSampleSetRecord(
+            workspace_id=context.workspace.id,
+            name=payload.name,
+            description=payload.description,
+            status="active",
+            created_by=context.user.id,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(record)
+        session.flush()
+        record_success(
+            session,
+            context,
+            action="evaluation.sample_set.create",
+            target_type="evaluation_sample_set",
+            target_id=record.id,
+            request=request,
+        )
+        session.commit()
+        session.refresh(record)
+        return regression_sample_set_to_read(record, [])
+
+    @router.post(
+        "/evaluations/sample-sets/{sample_set_id}/samples",
+        response_model=RegressionSampleRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_regression_sample(
+        sample_set_id: str,
+        payload: RegressionSampleCreate,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> dict:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "rubric.write",
+            action="evaluation.sample.create",
+            target_type="evaluation_sample_set",
+            target_id=sample_set_id,
+            request=request,
+        )
+        sample_set = find_regression_sample_set(
+            context.workspace.id,
+            sample_set_id,
+            session,
+        )
+        if sample_set.status != "active":
+            raise HTTPException(status_code=409, detail="sample set is not active")
+        now = utc_now()
+        record = RegressionSampleRecord(
+            workspace_id=context.workspace.id,
+            sample_set_id=sample_set.id,
+            name=payload.name,
+            input_text=payload.input_text,
+            expected_output=payload.expected_output,
+            tags=payload.tags,
+            source_type="manual",
+            source_id=None,
+            status="active",
+            created_by=context.user.id,
+            created_at=now,
+            updated_at=now,
+        )
+        sample_set.updated_at = now
+        session.add(record)
+        session.flush()
+        record_success(
+            session,
+            context,
+            action="evaluation.sample.create",
+            target_type="evaluation_sample",
+            target_id=record.id,
+            request=request,
+        )
+        session.commit()
+        session.refresh(record)
+        return regression_sample_to_read(record)
 
     def ensure_default_rubrics(session: Session, workspace_id: str) -> None:
         existing_count = session.scalar(

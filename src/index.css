@@ -1845,6 +1845,98 @@ kbd {
   font-size: 9px;
 }
 
+.regression-sample-sets {
+  padding: 22px;
+  border: 0;
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  box-shadow: var(--shadow-raised-sm);
+}
+
+.regression-sample-sets > header,
+.sample-set-layout,
+.sample-set-card,
+.sample-set-meta,
+.sample-chip-list {
+  display: flex;
+  gap: 14px;
+}
+
+.regression-sample-sets > header,
+.sample-set-card,
+.sample-set-meta {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sample-set-layout {
+  align-items: stretch;
+  margin-top: 16px;
+}
+
+.sample-set-list,
+.sample-set-editor,
+.sample-set-form {
+  display: grid;
+  gap: 12px;
+}
+
+.sample-set-list {
+  flex: 1;
+  min-width: 0;
+}
+
+.sample-set-editor {
+  width: min(390px, 42%);
+}
+
+.sample-set-card,
+.sample-set-form {
+  padding: 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.24);
+  box-shadow: var(--shadow-inset);
+}
+
+.sample-set-card h3 {
+  margin: 5px 0 4px;
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.sample-set-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.sample-set-meta {
+  flex-shrink: 0;
+}
+
+.sample-set-meta strong {
+  color: var(--ink);
+  font-size: 18px;
+}
+
+.sample-chip-list {
+  flex-wrap: wrap;
+  grid-column: 1 / -1;
+}
+
+.sample-chip-list span {
+  border-radius: 999px;
+  padding: 5px 8px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.34);
+  font-size: 9px;
+}
+
+.sample-set-form .button {
+  justify-self: start;
+}
+
 .batch-regression {
   padding: 22px;
   border: 0;
@@ -4257,6 +4349,9 @@ kbd {
 @media (max-width: 760px) {
   .evaluation-records > header,
   .evaluation-record-card,
+  .regression-sample-sets > header,
+  .sample-set-layout,
+  .sample-set-card,
   .batch-regression > header,
   .batch-regression-layout,
   .batch-regression-result {
@@ -4264,6 +4359,7 @@ kbd {
     flex-direction: column;
   }
 
+  .sample-set-editor,
   .batch-regression-form {
     width: auto;
   }

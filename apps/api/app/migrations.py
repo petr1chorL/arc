@@ -37,6 +37,8 @@ WORKSPACE_TABLES = (
     "notification_outbox",
     "feedback_candidates",
     "golden_samples",
+    "regression_sample_sets",
+    "regression_samples",
     "rubrics",
     "rubric_versions",
     "evaluations",

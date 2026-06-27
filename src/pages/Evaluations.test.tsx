@@ -78,6 +78,12 @@ describe('Evaluations page', () => {
       if (input === `/api/workspaces/${workspace.id}/evaluations/records`) {
         return response([])
       }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/sample-sets`) {
+        return response([])
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/sample-sets`) {
+        return response([])
+      }
       return response({ detail: 'not found' }, 404)
     }))
 
@@ -118,6 +124,9 @@ describe('Evaluations page', () => {
         return response(rubricAssets)
       }
       if (input === `/api/workspaces/${workspace.id}/evaluations/records`) {
+        return response([])
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/sample-sets`) {
         return response([])
       }
       return response({ detail: 'not found' }, 404)
@@ -195,6 +204,9 @@ describe('Evaluations page', () => {
       ) {
         return response(evaluationRecord, 201)
       }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/sample-sets`) {
+        return response([])
+      }
       return response({ detail: 'not found' }, 404)
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -257,6 +269,9 @@ describe('Evaluations page', () => {
       }
       if (input === `/api/workspaces/${workspace.id}/evaluations/records`) {
         return response(records)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/sample-sets`) {
+        return response([])
       }
       return response({ detail: 'not found' }, 404)
     }))
@@ -325,6 +340,9 @@ describe('Evaluations page', () => {
         evaluatedBodies.push(JSON.parse(String(init.body)))
         return response(batchResponses[evaluatedBodies.length - 1], 201)
       }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/sample-sets`) {
+        return response([])
+      }
       return response({ detail: 'not found' }, 404)
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -354,6 +372,113 @@ describe('Evaluations page', () => {
     ])
   })
 
+  it('runs batch regression from a saved Golden Set', async () => {
+    const user = userEvent.setup()
+    const sampleSets = [{
+      id: 'sample-set-1',
+      name: 'Launch Golden Set',
+      description: 'Reusable launch samples',
+      status: 'active',
+      sampleCount: 2,
+      activeSampleCount: 2,
+      createdBy: 'user-1',
+      createdAt: '2026-06-27T00:00:00Z',
+      updatedAt: '2026-06-27T00:00:00Z',
+      samples: [
+        {
+          id: 'sample-a',
+          sampleSetId: 'sample-set-1',
+          name: 'Evidence rich',
+          input: 'sample with evidence and next action',
+          expectedOutput: 'score should pass',
+          tags: ['launch'],
+          sourceType: 'manual',
+          sourceId: null,
+          status: 'active',
+          createdBy: 'user-1',
+          createdAt: '2026-06-27T00:00:00Z',
+          updatedAt: '2026-06-27T00:00:00Z',
+        },
+        {
+          id: 'sample-b',
+          sampleSetId: 'sample-set-1',
+          name: 'Thin sample',
+          input: 'thin sample',
+          expectedOutput: 'score should fail',
+          tags: ['risk'],
+          sourceType: 'manual',
+          sourceId: null,
+          status: 'active',
+          createdBy: 'user-1',
+          createdAt: '2026-06-27T00:00:00Z',
+          updatedAt: '2026-06-27T00:00:00Z',
+        },
+      ],
+    }]
+    const batchResponses = sampleSets[0].samples.map((sample, index) => ({
+      id: `golden-batch-${index + 1}`,
+      rubricId: rubricAssets[0].id,
+      rubricVersion: 'v1.0',
+      rubricSnapshot: rubricAssets[0],
+      subjectType: 'regression_sample_set',
+      subjectId: sample.id,
+      artifactText: sample.input,
+      dimensionScores: [{ name: 'Accuracy', weight: 100, score: index === 0 ? 88 : 42 }],
+      score: index === 0 ? 88 : 42,
+      status: index === 0 ? 'passed' : 'failed',
+      rationale: 'deterministic rubric evaluation',
+      createdAt: '2026-06-27T00:00:00Z',
+    }))
+    const evaluatedBodies: unknown[] = []
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (input === `/api/workspaces/${workspace.id}/evaluations/overview`) {
+        return response(overview)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/rubrics`) {
+        return response(rubricAssets)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/records`) {
+        return response([])
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/sample-sets`) {
+        return response(sampleSets)
+      }
+      if (
+        input === `/api/workspaces/${workspace.id}/evaluations/rubrics/${rubricAssets[0].id}/evaluate`
+        && init?.method === 'POST'
+      ) {
+        evaluatedBodies.push(JSON.parse(String(init.body)))
+        return response(batchResponses[evaluatedBodies.length - 1], 201)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/sample-sets`) {
+        return response([])
+      }
+      return response({ detail: 'not found' }, 404)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage()
+
+    expect(await screen.findByText('Regression Sample Sets')).toBeInTheDocument()
+    expect(screen.getAllByText('Launch Golden Set').length).toBeGreaterThan(0)
+    await user.selectOptions(screen.getByLabelText('Golden Set'), 'sample-set-1')
+    await user.click(screen.getByRole('button', { name: '运行批量回归' }))
+
+    expect(await screen.findByText('sample-b')).toBeInTheDocument()
+    expect(evaluatedBodies).toEqual([
+      {
+        artifactText: 'sample with evidence and next action',
+        subjectType: 'regression_sample_set',
+        subjectId: 'sample-a',
+      },
+      {
+        artifactText: 'thin sample',
+        subjectType: 'regression_sample_set',
+        subjectId: 'sample-b',
+      },
+    ])
+  })
+
   it('opens an evaluation record detail dialog with artifact text and rubric snapshot', async () => {
     const user = userEvent.setup()
     const records = [{
@@ -379,6 +504,9 @@ describe('Evaluations page', () => {
       }
       if (input === `/api/workspaces/${workspace.id}/evaluations/records`) {
         return response(records)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/sample-sets`) {
+        return response([])
       }
       return response({ detail: 'not found' }, 404)
     }))
