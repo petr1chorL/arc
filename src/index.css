@@ -2055,6 +2055,31 @@ kbd {
   margin-top: 16px;
 }
 
+.regression-run-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.regression-run-filters label {
+  display: grid;
+  gap: 6px;
+  min-width: 180px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.regression-run-filters select {
+  min-height: 36px;
+  border: 0;
+  border-radius: 12px;
+  padding: 0 12px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.34);
+  box-shadow: var(--shadow-inset);
+}
+
 .regression-run-card {
   align-items: stretch;
   padding: 16px;
@@ -2102,6 +2127,55 @@ kbd {
   background: rgba(255, 255, 255, 0.34);
   font-size: 10px;
   white-space: nowrap;
+}
+
+.regression-run-actions {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+  min-width: 132px;
+}
+
+.regression-run-actions .button {
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 10px;
+}
+
+.regression-run-detail-dialog {
+  width: min(840px, calc(100vw - 32px));
+  max-height: min(86vh, 820px);
+  overflow: auto;
+}
+
+.regression-run-record-list {
+  display: grid;
+  gap: 10px;
+}
+
+.regression-run-record-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.28);
+  box-shadow: var(--shadow-inset);
+}
+
+.regression-run-record-card h4 {
+  margin: 5px 0 3px;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.regression-run-record-card p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
 .evaluation-detail-dialog {

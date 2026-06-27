@@ -21,6 +21,7 @@ import {
   createRubric,
   deactivateRubric,
   evaluateRubric,
+  getRegressionRun,
   getEvaluationOverview,
   getRubrics,
   listEvaluationRecords,
@@ -133,6 +134,11 @@ export function Evaluations() {
   const [batchError, setBatchError] = useState('')
   const [isBatchRunning, setIsBatchRunning] = useState(false)
   const [regressionRuns, setRegressionRuns] = useState<RegressionRun[]>([])
+  const [regressionRunRubricFilter, setRegressionRunRubricFilter] = useState('all')
+  const [regressionRunStatusFilter, setRegressionRunStatusFilter] = useState('all')
+  const [selectedRegressionRun, setSelectedRegressionRun] = useState<RegressionRun | null>(null)
+  const [regressionRunError, setRegressionRunError] = useState('')
+  const [isRegressionRunLoading, setIsRegressionRunLoading] = useState(false)
 
   const loadAssets = useCallback(async () => {
     setIsLoading(true)
@@ -191,6 +197,24 @@ export function Evaluations() {
     () => sampleSets.find((sampleSet) => sampleSet.id === selectedSampleSetId) ?? null,
     [sampleSets, selectedSampleSetId],
   )
+
+  const regressionRunRubricOptions = useMemo(() => {
+    const options = new Map<string, string>()
+    for (const run of regressionRuns) {
+      options.set(run.rubricId, run.rubricName)
+    }
+    return Array.from(options, ([id, name]) => ({ id, name }))
+  }, [regressionRuns])
+
+  const regressionRunStatusOptions = useMemo(
+    () => Array.from(new Set(regressionRuns.map((run) => run.status))),
+    [regressionRuns],
+  )
+
+  const filteredRegressionRuns = useMemo(() => regressionRuns.filter((run) => (
+    (regressionRunRubricFilter === 'all' || run.rubricId === regressionRunRubricFilter)
+    && (regressionRunStatusFilter === 'all' || run.status === regressionRunStatusFilter)
+  )), [regressionRunRubricFilter, regressionRunStatusFilter, regressionRuns])
 
   const activeSelectedSamples = useMemo(
     () => selectedSampleSet?.samples.filter((sample) => sample.status === 'active') ?? [],
@@ -480,6 +504,19 @@ export function Evaluations() {
       setBatchError(batchRunError instanceof Error ? batchRunError.message : '批量回归运行失败')
     } finally {
       setIsBatchRunning(false)
+    }
+  }
+
+  async function openRegressionRunDetail(run: RegressionRun) {
+    setIsRegressionRunLoading(true)
+    setRegressionRunError('')
+    try {
+      const detail = await getRegressionRun(workspace.id, run.id)
+      setSelectedRegressionRun(detail)
+    } catch (detailError) {
+      setRegressionRunError(detailError instanceof Error ? detailError.message : 'Regression Run 详情加载失败')
+    } finally {
+      setIsRegressionRunLoading(false)
     }
   }
 
@@ -857,14 +894,48 @@ export function Evaluations() {
             <span className="eyebrow">REGRESSION RUNS</span>
             <h2>Regression Run History</h2>
           </div>
-          <span className="status-pill">{regressionRuns.length} runs</span>
+          <span className="status-pill">{filteredRegressionRuns.length} / {regressionRuns.length} runs</span>
         </header>
+        {regressionRuns.length > 0 && (
+          <div className="regression-run-filters">
+            <label>
+              Run Rubric 筛选
+              <select
+                aria-label="Run Rubric 筛选"
+                value={regressionRunRubricFilter}
+                onChange={(event) => setRegressionRunRubricFilter(event.target.value)}
+              >
+                <option value="all">全部 Rubric</option>
+                {regressionRunRubricOptions.map((rubric) => (
+                  <option key={rubric.id} value={rubric.id}>{rubric.name}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Run 状态筛选
+              <select
+                aria-label="Run 状态筛选"
+                value={regressionRunStatusFilter}
+                onChange={(event) => setRegressionRunStatusFilter(event.target.value)}
+              >
+                <option value="all">全部状态</option>
+                {regressionRunStatusOptions.map((statusOption) => (
+                  <option key={statusOption} value={statusOption}>{statusOption}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
+        {regressionRunError && <div className="inline-feedback error" role="alert">{regressionRunError}</div>}
         {regressionRuns.length === 0 && (
           <div className="table-state">暂无 Regression Run。运行一次批量回归后，这里会保留运行摘要和关联 Evaluation。</div>
         )}
+        {regressionRuns.length > 0 && filteredRegressionRuns.length === 0 && (
+          <div className="table-state">当前筛选条件下暂无 Regression Run。</div>
+        )}
         {regressionRuns.length > 0 && (
           <div className="regression-run-list">
-            {regressionRuns.map((run) => (
+            {filteredRegressionRuns.map((run) => (
               <article className="regression-run-card" key={run.id}>
                 <div>
                   <span className="mono">{run.id}</span>
@@ -883,7 +954,17 @@ export function Evaluations() {
                   <span>{run.failedSamples} failed</span>
                   <span>{run.evaluationIds.length} evaluations</span>
                 </div>
-                <p>{new Date(run.createdAt).toLocaleString()}</p>
+                <div className="regression-run-actions">
+                  <p>{new Date(run.createdAt).toLocaleString()}</p>
+                  <button
+                    className="button secondary"
+                    type="button"
+                    disabled={isRegressionRunLoading}
+                    onClick={() => void openRegressionRunDetail(run)}
+                  >
+                    <FileText size={14} />查看 Run 详情
+                  </button>
+                </div>
               </article>
             ))}
           </div>
@@ -1236,6 +1317,94 @@ export function Evaluations() {
               <span className="eyebrow">RATIONALE</span>
               <h3>评分说明</h3>
               <p>{selectedEvaluationRecord.rationale}</p>
+            </section>
+          </section>
+        </div>
+      )}
+
+      {selectedRegressionRun && (
+        <div className="dialog-backdrop">
+          <section
+            className="agent-dialog regression-run-detail-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="regression-run-detail-title"
+          >
+            <header>
+              <div>
+                <p className="eyebrow">REGRESSION RUN DETAIL</p>
+                <h2 id="regression-run-detail-title">Regression Run Detail</h2>
+              </div>
+              <button
+                className="icon-button quiet"
+                type="button"
+                title="关闭"
+                onClick={() => setSelectedRegressionRun(null)}
+              >
+                <X size={18} />
+              </button>
+            </header>
+
+            <div className="evaluation-detail-summary">
+              <div>
+                <span>Run ID</span>
+                <strong className="mono">{selectedRegressionRun.id}</strong>
+              </div>
+              <div>
+                <span>通过率</span>
+                <strong>{selectedRegressionRun.passRate}%</strong>
+              </div>
+              <div>
+                <span>样本</span>
+                <strong>{selectedRegressionRun.totalSamples}</strong>
+              </div>
+              <div>
+                <span>状态</span>
+                <strong>{selectedRegressionRun.status}</strong>
+              </div>
+            </div>
+
+            <section className="evaluation-detail-section">
+              <span className="eyebrow">RUN CONTEXT</span>
+              <h3>运行上下文</h3>
+              <div className="evaluation-detail-facts">
+                <span>样本集</span>
+                <strong>{selectedRegressionRun.sampleSetName || '手动样本'}</strong>
+                <span>Rubric</span>
+                <strong>{selectedRegressionRun.rubricName} / {selectedRegressionRun.rubricVersion}</strong>
+                <span>通过 / 失败</span>
+                <strong>{selectedRegressionRun.passedSamples} / {selectedRegressionRun.failedSamples}</strong>
+                <span>完成时间</span>
+                <strong>{selectedRegressionRun.completedAt}</strong>
+              </div>
+            </section>
+
+            <section className="evaluation-detail-section">
+              <span className="eyebrow">SAMPLE EVALUATIONS</span>
+              <h3>样本级评估</h3>
+              {selectedRegressionRun.records.length === 0 && (
+                <div className="table-state">该 Run 暂无可展示的 Evaluation 记录。</div>
+              )}
+              {selectedRegressionRun.records.length > 0 && (
+                <div className="regression-run-record-list">
+                  {selectedRegressionRun.records.map((record) => (
+                    <article className="regression-run-record-card" key={record.id}>
+                      <div>
+                        <span className="mono">{record.id}</span>
+                        <h4>{record.subjectId ?? record.subjectType}</h4>
+                        <p>{record.artifactText}</p>
+                      </div>
+                      <div className="evaluation-record-score">
+                        <strong>{record.score}</strong>
+                        <span className={`status-pill ${record.status === 'passed' ? 'success' : 'danger'}`}>
+                          {record.status}
+                        </span>
+                      </div>
+                      <p>{record.rationale}</p>
+                    </article>
+                  ))}
+                </div>
+              )}
             </section>
           </section>
         </div>

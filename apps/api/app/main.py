@@ -2116,6 +2116,49 @@ def create_app(
         ))
         return [regression_run_to_read(run) for run in runs]
 
+    @router.get(
+        "/evaluations/regression-runs/{run_id}",
+        response_model=RegressionRunRead,
+    )
+    def get_regression_run(
+        run_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> dict:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "asset.read",
+            action="evaluation.regression_run.detail",
+            target_type="regression_run",
+            target_id=run_id,
+            request=request,
+        )
+        run = session.scalar(
+            select(RegressionRunRecord).where(
+                RegressionRunRecord.workspace_id == context.workspace.id,
+                RegressionRunRecord.id == run_id,
+            ),
+        )
+        if run is None:
+            raise HTTPException(status_code=404, detail="regression run not found")
+        if not run.evaluation_ids:
+            return regression_run_to_read(run, [])
+        records = list(session.scalars(
+            select(EvaluationRecord).where(
+                EvaluationRecord.workspace_id == context.workspace.id,
+                EvaluationRecord.id.in_(run.evaluation_ids),
+            ),
+        ))
+        records_by_id = {record.id: record for record in records}
+        ordered_records = [
+            records_by_id[evaluation_id]
+            for evaluation_id in run.evaluation_ids
+            if evaluation_id in records_by_id
+        ]
+        return regression_run_to_read(run, ordered_records)
+
     @router.post(
         "/evaluations/regression-runs",
         response_model=RegressionRunRead,
@@ -2145,7 +2188,7 @@ def create_app(
             rubric,
         )
         sample_set_id: str | None = None
-        sample_set_name = ""
+        sample_set_name = "手动样本"
         batch_samples: list[dict[str, str]] = []
         if payload.sample_set_id is not None:
             sample_set = find_regression_sample_set(

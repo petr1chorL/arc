@@ -92,6 +92,15 @@ export async function listRegressionRuns(workspaceId: string): Promise<Regressio
   )
 }
 
+export async function getRegressionRun(
+  workspaceId: string,
+  runId: string,
+): Promise<RegressionRun> {
+  return readJson<RegressionRun>(
+    await apiFetch(workspacePath(workspaceId, `/regression-runs/${runId}`)),
+  )
+}
+
 export async function createRegressionRun(
   workspaceId: string,
   input: RegressionRunInput,

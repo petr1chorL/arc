@@ -693,4 +693,125 @@ describe('Evaluations page', () => {
     expect(screen.getAllByText((_, element) => element?.textContent === '通过率 50%').length).toBeGreaterThan(0)
     expect(runBodies).toEqual([{ rubricId: rubricAssets[0].id, sampleSetId: 'sample-set-1' }])
   })
+
+  it('filters Regression Run history and opens a detail dialog', async () => {
+    const user = userEvent.setup()
+    const otherRubric = {
+      ...rubricAssets[0],
+      id: 'rubric-other',
+      name: 'Other Rubric',
+    }
+    const runs = [
+      {
+        id: 'run-keep',
+        sampleSetId: 'sample-set-1',
+        sampleSetName: 'Launch Golden Set',
+        rubricId: rubricAssets[0].id,
+        rubricName: rubricAssets[0].name,
+        rubricVersion: 'v1.0',
+        status: 'completed',
+        totalSamples: 2,
+        passedSamples: 1,
+        failedSamples: 1,
+        passRate: 50,
+        evaluationIds: ['eval-pass', 'eval-fail'],
+        records: [],
+        createdBy: 'user-1',
+        createdAt: '2026-06-27T00:05:00Z',
+        completedAt: '2026-06-27T00:05:00Z',
+      },
+      {
+        id: 'run-hidden',
+        sampleSetId: null,
+        sampleSetName: '手动样本',
+        rubricId: otherRubric.id,
+        rubricName: otherRubric.name,
+        rubricVersion: 'v1.0',
+        status: 'failed',
+        totalSamples: 1,
+        passedSamples: 0,
+        failedSamples: 1,
+        passRate: 0,
+        evaluationIds: ['eval-hidden'],
+        records: [],
+        createdBy: 'user-1',
+        createdAt: '2026-06-27T00:00:00Z',
+        completedAt: '2026-06-27T00:00:00Z',
+      },
+    ]
+    const detailRun = {
+      ...runs[0],
+      records: [
+        {
+          id: 'eval-pass',
+          rubricId: rubricAssets[0].id,
+          rubricVersion: 'v1.0',
+          rubricSnapshot: rubricAssets[0],
+          subjectType: 'regression_run_sample',
+          subjectId: 'sample-a',
+          artifactText: 'sample with evidence and next action',
+          dimensionScores: [{ name: 'Accuracy', weight: 100, score: 88 }],
+          score: 88,
+          status: 'passed',
+          rationale: 'deterministic rubric evaluation',
+          createdAt: '2026-06-27T00:05:00Z',
+        },
+        {
+          id: 'eval-fail',
+          rubricId: rubricAssets[0].id,
+          rubricVersion: 'v1.0',
+          rubricSnapshot: rubricAssets[0],
+          subjectType: 'regression_run_sample',
+          subjectId: 'sample-b',
+          artifactText: 'thin sample',
+          dimensionScores: [{ name: 'Accuracy', weight: 100, score: 42 }],
+          score: 42,
+          status: 'failed',
+          rationale: 'missing evidence',
+          createdAt: '2026-06-27T00:06:00Z',
+        },
+      ],
+    }
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      if (input === `/api/workspaces/${workspace.id}/evaluations/overview`) {
+        return response(overview)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/rubrics`) {
+        return response([rubricAssets[0], otherRubric])
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/records`) {
+        return response([])
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/sample-sets`) {
+        return response([])
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/regression-runs/run-keep`) {
+        return response(detailRun)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/regression-runs`) {
+        return response(runs)
+      }
+      return response({ detail: 'not found' }, 404)
+    }))
+
+    renderPage()
+
+    expect(await screen.findByText('Regression Run History')).toBeInTheDocument()
+    expect(screen.getByText('run-keep')).toBeInTheDocument()
+    expect(screen.getByText('run-hidden')).toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText('Run Rubric 筛选'), rubricAssets[0].id)
+    expect(screen.getByText('run-keep')).toBeInTheDocument()
+    expect(screen.queryByText('run-hidden')).not.toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText('Run 状态筛选'), 'completed')
+    await user.click(screen.getByRole('button', { name: '查看 Run 详情' }))
+
+    const dialog = await screen.findByRole('dialog', { name: 'Regression Run Detail' })
+    expect(within(dialog).getByText('run-keep')).toBeInTheDocument()
+    expect(within(dialog).getByText('eval-pass')).toBeInTheDocument()
+    expect(within(dialog).getByText('eval-fail')).toBeInTheDocument()
+    expect(within(dialog).getByText('thin sample')).toBeInTheDocument()
+    expect(within(dialog).getByText('missing evidence')).toBeInTheDocument()
+  })
 })

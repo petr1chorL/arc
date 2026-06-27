@@ -1,6 +1,6 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.10A Regression Run 历史
+> 对应版本：V0.10B Regression Run 详情与筛选
 > 上一阶段：V0.8F 轻量告警 / 通知 Outbox
 > 更新时间：2026-06-27
 
@@ -359,6 +359,8 @@ React Flow 节点/连线
 - 批量回归的每条样本都会形成独立 Evaluation 记录，并即时合并进评估历史。
 - 每次批量回归会沉淀 Regression Run 历史，包含 Rubric、Golden Set、样本统计、通过率和关联 Evaluation IDs。
 - `Regression Run History` 会展示最近运行，刷新页面后从后端重新读取。
+- `Regression Run History` 支持按 Rubric 和 Run 状态筛选。
+- 支持点击 Run 打开详情弹窗，展示 Run 上下文、样本级 Evaluation 记录、输入、分数、状态和评分说明。
 - 当前评分器为确定性评分器，用于验证评估链路；真实 LLM-as-a-Judge 尚未接入。
 
 后端 API：
@@ -377,6 +379,7 @@ POST /api/workspaces/{workspace_id}/evaluations/rubrics/{rubric_id}/deactivate
 POST /api/workspaces/{workspace_id}/evaluations/rubrics/{rubric_id}/evaluate
 GET /api/workspaces/{workspace_id}/evaluations/records
 GET /api/workspaces/{workspace_id}/evaluations/regression-runs
+GET /api/workspaces/{workspace_id}/evaluations/regression-runs/{run_id}
 POST /api/workspaces/{workspace_id}/evaluations/regression-runs
 ```
 
@@ -680,7 +683,7 @@ TypeScript 编译检查
 已经完成：
 
 - `apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q`：后端全量测试通过。
-- `npm test -- --run`：27 个前端测试文件、90 项测试通过。
+- `npm test -- --run`：27 个前端测试文件、91 项测试通过。
 - `npm run lint`：Oxlint 通过。
 - `npm run build`：TypeScript 编译与 Vite 生产构建通过。
 - Human 节点发布前校验覆盖分配方式、会签人数和 SLA 参数。
@@ -721,6 +724,9 @@ TypeScript 编译检查
 - V0.10A 完成 Regression Run 自动化测试：后端可用 Golden Set 或手动样本创建 Regression Run，前端批量回归改为调用持久化 Run 接口并展示最近运行历史。
 - V0.10A 完成浏览器验收：临时账号在评估中心输入两条手动样本运行 Regression Run 成功，刷新后 `Regression Run History` 仍展示该 Run；浏览器控制台无 error/warn。
 - V0.10A 浏览器验收截图：`.scratch/v0.10a-regression-run-history.png`。
+- V0.10B 完成 Regression Run 详情自动化测试：后端可按 Run ID 返回详情与关联 Evaluation 记录，前端历史区支持 Rubric/状态筛选并可打开详情弹窗。
+- V0.10B 完成浏览器验收：临时账号在评估中心按 Rubric 和状态筛选 Regression Run，打开详情弹窗后可见 Run 上下文与样本级 Evaluation 明细；浏览器日志无 error/warn。
+- V0.10B 浏览器验收截图：`.scratch/v0.10b-regression-run-detail.png`。
 
 验证时没有发现浏览器控制台错误。
 

@@ -136,6 +136,68 @@ def test_regression_run_persists_batch_summary_and_evaluations(tmp_path):
     assert listed.json()[0]["evaluationIds"] == run["evaluationIds"]
 
 
+def test_regression_run_detail_returns_associated_evaluations(tmp_path):
+    client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'arc-one.db'}")
+    rubric = client.post(
+        workspace_url(workspace_id, "/evaluations/rubrics"),
+        json={
+            "name": "Run Detail Rubric",
+            "artifact": "Launch plan",
+            "dimensions": [{"name": "Evidence", "weight": 100}],
+            "gate": "Must include evidence",
+            "passScore": 70,
+        },
+        headers=csrf_headers(client),
+    ).json()
+    client.post(
+        workspace_url(workspace_id, f"/evaluations/rubrics/{rubric['id']}/publish"),
+        headers=csrf_headers(client),
+    )
+    created_run = client.post(
+        workspace_url(workspace_id, "/evaluations/regression-runs"),
+        json={
+            "rubricId": rubric["id"],
+            "samples": [
+                {
+                    "sampleId": "manual-pass",
+                    "input": "Evidence-backed plan with owner, risk, and next action.",
+                },
+                {
+                    "sampleId": "manual-fail",
+                    "input": "Thin draft.",
+                },
+            ],
+        },
+        headers=csrf_headers(client),
+    ).json()
+
+    detail = client.get(
+        workspace_url(workspace_id, f"/evaluations/regression-runs/{created_run['id']}"),
+    )
+
+    assert detail.status_code == 200
+    run = detail.json()
+    assert run["id"] == created_run["id"]
+    assert run["rubricId"] == rubric["id"]
+    assert run["sampleSetId"] is None
+    assert run["sampleSetName"] == "手动样本"
+    assert run["totalSamples"] == 2
+    assert run["evaluationIds"] == created_run["evaluationIds"]
+    assert [record["id"] for record in run["records"]] == created_run["evaluationIds"]
+    assert [record["subjectId"] for record in run["records"]] == ["manual-pass", "manual-fail"]
+    assert run["records"][0]["artifactText"] == (
+        "Evidence-backed plan with owner, risk, and next action."
+    )
+
+
+def test_regression_run_detail_returns_404_for_unknown_run(tmp_path):
+    client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'arc-one.db'}")
+
+    detail = client.get(workspace_url(workspace_id, "/evaluations/regression-runs/missing-run"))
+
+    assert detail.status_code == 404
+
+
 def test_evaluation_rubrics_are_workspace_assets_without_duplicate_seed(tmp_path):
     client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'arc-one.db'}")
 
