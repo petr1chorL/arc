@@ -1,6 +1,6 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.12B Tool / Skill 资产库后端切片
+> 对应版本：V0.12C HTTP Tool 测试调用第一切片
 > 上一阶段：V0.8F 轻量告警 / 通知 Outbox
 > 更新时间：2026-06-27
 
@@ -16,7 +16,9 @@ Agent 资产页和工作流设计器已经接入 SQLAlchemy。Agent 支持草稿
 
 Agent 执行已引入第一版 Runtime 合约：`app.agent_runtime` 负责统一 Agent 输入、输出、脱敏错误、Token、成本、评分、尝试次数、耗时和工具调用占位。Agent 直接测试运行与工作流 Agent 节点都通过 `ExecutionService.execute_agent` 调用该 Runtime，再映射到 `NodeRunRecord`。
 
-Tool / Skill 已新增第一版 Workspace 级资产库后端：`tool_skill_assets` 表保存 `tool` 与 `skill` 两类资产，支持创建、列表查询、参数 Schema、状态和 Workspace 隔离。Agent 更新和发布时会校验所绑定的 Tools / Skills 必须是当前 Workspace 内已启用资产。`tool_skill_asset_invocations` 表提供调用日志骨架和查询 API，真实外部工具调用将在 V0.12C 接入。
+Tool / Skill 已新增第一版 Workspace 级资产库后端：`tool_skill_assets` 表保存 `tool` 与 `skill` 两类资产，支持创建、列表查询、参数 Schema、状态、适配类型、适配配置和 Workspace 隔离。Agent 更新和发布时会校验所绑定的 Tools / Skills 必须是当前 Workspace 内已启用资产。`tool_skill_asset_invocations` 表提供调用日志查询能力，并已支持 HTTP Tool 测试调用写入成功或失败日志。
+
+HTTP Tool 适配当前采用可注入 `HttpToolGateway`。自动化测试使用 Fake Gateway；默认运行时使用禁用网关，不会在未配置时主动访问外部网络。真实 HTTP allowlist、MCP、Agent Runtime 自动工具调用和 Trace 写入仍在 V0.12C 后续切片。
 
 当前已使用 DeepSeek OpenAI-compatible API 完成真实成功调用验证：Base URL 为 `https://api.deepseek.com`，模型为 `deepseek-v4-pro`。真实 API Key 仅保存在被 Git 忽略的本地 `apps/api/.env` 中。模型单价环境变量尚未配置，因此运行中心的成本暂显示为 `$0.000000`，Token 统计不受影响。
 
@@ -337,16 +339,20 @@ React Flow 节点/连线
 - Agent Runtime 已统一直接测试运行和工作流 Agent 节点的执行协议。
 - Runtime Result 包含输出、错误、模型、Token、成本、评分、尝试次数、耗时和 `tool_calls` 占位。
 - Tool / Skill 资产库后端支持创建和列表查询 Workspace 级工具资产。
-- Tool / Skill 资产包含类型、名称、描述、参数 Schema、状态和创建信息。
+- Tool / Skill 资产包含类型、名称、描述、参数 Schema、适配类型、适配配置、状态和创建信息。
 - Agent 只能绑定已存在且启用的 Tool / Skill 资产。
 - Agent 发布会重新校验资产可用性，禁用资产不会进入不可变版本快照。
 - Tool / Skill 调用日志支持 Workspace 级查询，并可按资产、Agent 和状态过滤。
+- HTTP Tool 支持后端测试调用，成功与失败都会写入调用日志。
+- 测试调用失败时返回脱敏错误，不暴露 provider 原始异常。
 
 未实现：
 
 - 模型参数。
-- Runtime 工具调用真实执行；当前 `tool_calls` 为空列表占位。
-- 真实工具调用成功/失败日志写入；当前仅有日志骨架和查询能力。
+- Agent Runtime 节点执行中的自动工具调用；当前 `tool_calls` 为空列表占位。
+- 真实外部 HTTP allowlist、鉴权、超时和响应映射。
+- MCP 工具适配。
+- Tool 调用结果进入节点产出物和 Trace。
 - Agent 版本比较和回滚。
 - 聚合后的真实运行统计。
 
@@ -841,6 +847,9 @@ TypeScript 编译检查
 - V0.12B 完成 Agent 资产授权 RED/GREEN 测试：首次因任意字符串工具可保存、禁用资产仍可发布失败，随后 Agent 只能绑定已启用资产且发布时会重新校验。
 - V0.12B 完成 Tool / Skill 调用日志骨架 RED/GREEN 测试：首次因调用日志模型不存在失败，随后日志查询、过滤和 Workspace 隔离测试通过。
 - V0.12B 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q`、`npm run lint`、`npm run build` 均通过。
+- V0.12C 完成 HTTP Tool 测试调用 RED/GREEN 测试：首次因 `app.tool_runtime` 不存在失败，随后成功调用日志、失败脱敏日志和非 HTTP Tool 422 三项测试通过。
+- V0.12C 完成相关回归验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests/test_tool_runtime_api.py apps/api/tests/test_tool_skill_assets_api.py apps/api/tests/test_tool_skill_invocation_logs_api.py apps/api/tests/test_agent_lifecycle_api.py -q`，13 项通过。
+- V0.12C 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 161 项通过；`npm test -- --run` 27 个测试文件、96 项测试通过；`npm run lint` 通过；`npm run build` 通过。
 
 验证时没有发现浏览器控制台错误。
 

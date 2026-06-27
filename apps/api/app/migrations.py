@@ -46,6 +46,8 @@ WORKSPACE_TABLES = (
     "rubric_versions",
     "evaluations",
     "human_reviews",
+    "tool_skill_assets",
+    "tool_skill_asset_invocations",
 )
 DEFAULT_WORKSPACE_FALLBACK_TABLES = tuple(
     table_name
@@ -714,6 +716,14 @@ def ensure_current_schema(engine: Engine) -> None:
             "owner": "VARCHAR(120)",
             "due_date": "DATETIME",
             "retest_run_id": "VARCHAR(36)",
+        },
+    )
+    ensure_columns(
+        engine,
+        "tool_skill_assets",
+        {
+            "adapter_type": "VARCHAR(20) NOT NULL DEFAULT 'manual'",
+            "adapter_config": "JSON NOT NULL DEFAULT '{}'",
         },
     )
     ensure_audit_event_platform_schema(engine)

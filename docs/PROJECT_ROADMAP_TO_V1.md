@@ -57,10 +57,11 @@
 9. V0.12B：Tool / Skill 资产库。
    - 独立管理工具、权限、参数 Schema 和调用日志。
    - 验收：Agent 只能调用已授权工具。
-   - 当前状态：资产库、Agent 绑定校验和调用日志骨架已完成；真实调用写入待 V0.12C。
+   - 当前状态：已完成。
 10. V0.12C：MCP / HTTP 工具适配。
    - 接入 MCP Server 或企业 HTTP API。
    - 验收：工具调用结果进入节点产出物和 Trace。
+   - 当前状态：HTTP Tool 测试调用第一切片已完成；真实 HTTP allowlist、MCP、Agent Runtime 自动调用和 Trace 写入待继续。
 11. V0.12D：LLM-as-a-Judge。
    - Rubric 可选择确定性评分器或 LLM Judge。
    - 验收：评分结果带理由、模型、版本和可复现输入。
@@ -123,4 +124,4 @@
 
 ## 当前推荐下一步
 
-下一步进入 V0.12C：MCP / HTTP 工具适配。原因是资产库、Agent 绑定校验和调用日志查询骨架已经具备，接下来要让 Runtime 真正执行受控工具并写入调用日志与 Trace。
+下一步继续 V0.12C：把 HTTP Tool 测试调用扩展到 Agent Runtime 节点执行，随后补真实 HTTP allowlist / MCP 适配和 Trace 写入。完成这些后再进入 V0.12D：LLM-as-a-Judge。

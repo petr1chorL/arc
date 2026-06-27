@@ -221,6 +221,7 @@ class AgentRead(BaseModel):
 
 
 ToolSkillAssetType = Literal["tool", "skill"]
+ToolSkillAdapterType = Literal["manual", "http", "mcp"]
 
 
 class ToolSkillAssetCreate(BaseModel):
@@ -228,6 +229,8 @@ class ToolSkillAssetCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=2000)
     parameter_schema: dict = Field(default_factory=dict, alias="parameterSchema")
+    adapter_type: ToolSkillAdapterType = Field(default="manual", alias="adapterType")
+    adapter_config: dict = Field(default_factory=dict, alias="adapterConfig")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -246,12 +249,20 @@ class ToolSkillAssetRead(BaseModel):
     name: str
     description: str
     parameter_schema: dict = Field(serialization_alias="parameterSchema")
+    adapter_type: ToolSkillAdapterType = Field(serialization_alias="adapterType")
+    adapter_config: dict = Field(serialization_alias="adapterConfig")
     status: str
     created_by: str = Field(serialization_alias="createdBy")
     created_at: datetime = Field(serialization_alias="createdAt")
     updated_at: datetime = Field(serialization_alias="updatedAt")
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class ToolSkillTestInvocationCreate(BaseModel):
+    parameters: dict = Field(default_factory=dict)
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class ToolSkillAssetInvocationRead(BaseModel):

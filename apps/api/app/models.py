@@ -200,6 +200,8 @@ class ToolSkillAssetRecord(Base):
     name: Mapped[str] = mapped_column(String(120))
     description: Mapped[str] = mapped_column(Text, default="")
     parameter_schema: Mapped[dict] = mapped_column(JSON, default=dict)
+    adapter_type: Mapped[str] = mapped_column(String(20), default="manual")
+    adapter_config: Mapped[dict] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String(20), default="active")
     created_by: Mapped[str] = mapped_column(String(36))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

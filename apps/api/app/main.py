@@ -45,6 +45,7 @@ from app.models import (
     WorkflowVersionRecord,
     utc_now,
 )
+from app.tool_runtime import DisabledHttpToolGateway, HttpToolGateway, ToolRuntimeExecutor
 from app.routers.auth import (
     SessionAuthenticationError,
     build_session_auth_error_handler,
@@ -108,6 +109,7 @@ from app.schemas import (
     ToolSkillAssetCreate,
     ToolSkillAssetInvocationRead,
     ToolSkillAssetRead,
+    ToolSkillTestInvocationCreate,
     ValidationResult,
     VersionRead,
     WorkflowCreate,
@@ -172,6 +174,7 @@ def create_app(
     model_gateway: ModelGateway | None = None,
     human_task_clock: Callable[[], datetime] = utc_now,
     auth_clock: Callable[[], datetime] = utc_now,
+    tool_gateway: HttpToolGateway | None = None,
 ) -> FastAPI:
     settings = Settings()
     resolved_database_url = database_url or settings.database_url
@@ -201,6 +204,7 @@ def create_app(
         settings,
         human_task_service,
     )
+    tool_runtime = ToolRuntimeExecutor(tool_gateway or DisabledHttpToolGateway())
     workflow_resume_service = WorkflowResumeService(
         execution_service,
         human_task_service,
@@ -1262,6 +1266,8 @@ def create_app(
             name=payload.name,
             description=payload.description,
             parameter_schema=payload.parameter_schema,
+            adapter_type=payload.adapter_type,
+            adapter_config=payload.adapter_config,
             created_by=context.user.id,
             created_at=now,
             updated_at=now,
@@ -1274,6 +1280,72 @@ def create_app(
             action="tool_skill_asset.create",
             target_type="tool_skill_asset",
             target_id=record.id,
+            request=request,
+        )
+        session.commit()
+        session.refresh(record)
+        return record
+
+    @router.post(
+        "/asset-library/{asset_id}/test-invocations",
+        response_model=ToolSkillAssetInvocationRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def test_invoke_tool_skill_asset(
+        asset_id: str,
+        payload: ToolSkillTestInvocationCreate,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> ToolSkillAssetInvocationRecord:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "agent.write",
+            action="tool_skill_asset.test_invoke",
+            target_type="tool_skill_asset",
+            target_id=asset_id,
+            request=request,
+        )
+        asset = session.scalar(
+            select(ToolSkillAssetRecord).where(
+                ToolSkillAssetRecord.id == asset_id,
+                ToolSkillAssetRecord.workspace_id == context.workspace.id,
+            ),
+        )
+        if asset is None:
+            raise HTTPException(status_code=404, detail="资产不存在")
+        if asset.asset_type != "tool" or asset.adapter_type != "http":
+            raise HTTPException(status_code=422, detail="仅 HTTP Tool 支持测试调用")
+
+        runtime_result = tool_runtime.execute_http(
+            config=asset.adapter_config,
+            parameters=payload.parameters,
+        )
+        record = ToolSkillAssetInvocationRecord(
+            workspace_id=context.workspace.id,
+            asset_id=asset.id,
+            asset_type=asset.asset_type,
+            asset_name=asset.name,
+            agent_id=None,
+            agent_version="",
+            run_id=None,
+            node_run_id=None,
+            status=runtime_result.status,
+            input_summary=runtime_result.input_summary,
+            output_summary=runtime_result.output_summary,
+            error=runtime_result.error,
+            duration_ms=runtime_result.duration_ms,
+            created_at=utc_now(),
+        )
+        session.add(record)
+        session.flush()
+        record_success(
+            session,
+            context,
+            action="tool_skill_asset.test_invoke",
+            target_type="tool_skill_asset",
+            target_id=asset.id,
             request=request,
         )
         session.commit()
