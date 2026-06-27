@@ -1172,6 +1172,7 @@ describe('Evaluations page', () => {
   })
 
   it('shows failed sample clusters for the latest Regression Run', async () => {
+    const user = userEvent.setup()
     const records = [
       {
         id: 'eval-evidence-a',
@@ -1242,6 +1243,20 @@ describe('Evaluations page', () => {
         createdAt: '2026-06-27T00:23:00Z',
       },
     ]
+    const remediationTasks: Array<{
+      id: string
+      sourceRunId: string
+      clusterKey: string
+      title: string
+      priority: string
+      sampleIds: string[]
+      action: string
+      status: string
+      createdBy: string
+      updatedBy: string
+      createdAt: string
+      updatedAt: string
+    }> = []
     const runs = [
       {
         id: 'run-latest-patterns',
@@ -1280,7 +1295,7 @@ describe('Evaluations page', () => {
         completedAt: '2026-06-27T00:10:00Z',
       },
     ]
-    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       if (input === `/api/workspaces/${workspace.id}/evaluations/overview`) {
         return response(overview)
       }
@@ -1302,6 +1317,39 @@ describe('Evaluations page', () => {
           records,
         })
       }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/remediation-tasks`) {
+        if (init?.method === 'POST') {
+          const payload = JSON.parse(String(init.body)) as {
+            sourceRunId: string
+            clusterKey: string
+            title: string
+            priority: string
+            sampleIds: string[]
+            action: string
+          }
+          const created = {
+            id: 'remediation-task-1',
+            ...payload,
+            status: 'open',
+            createdBy: 'user-1',
+            updatedBy: 'user-1',
+            createdAt: '2026-06-27T00:30:00Z',
+            updatedAt: '2026-06-27T00:30:00Z',
+          }
+          remediationTasks.splice(0, remediationTasks.length, created)
+          return response(created, 201)
+        }
+        return response(remediationTasks)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/remediation-tasks/remediation-task-1`) {
+        const payload = JSON.parse(String(init?.body)) as { status: string }
+        remediationTasks[0] = {
+          ...remediationTasks[0],
+          status: payload.status,
+          updatedAt: '2026-06-27T00:31:00Z',
+        }
+        return response(remediationTasks[0])
+      }
       return response({ detail: 'not found' }, 404)
     }))
 
@@ -1321,5 +1369,17 @@ describe('Evaluations page', () => {
     expect(within(queue).getByText('修复 Evidence 偏低')).toBeInTheDocument()
     expect(within(queue).getByText('复测 2 条代表样本')).toBeInTheDocument()
     expect(within(queue).getByText('sample-evidence-a')).toBeInTheDocument()
+
+    await user.click(within(queue).getAllByRole('button', { name: '创建任务' })[0])
+
+    const taskList = await screen.findByRole('region', { name: 'Remediation Tasks' })
+    expect(within(taskList).getByText('修复 Evidence 偏低')).toBeInTheDocument()
+    expect(within(taskList).getByText('open')).toBeInTheDocument()
+
+    await user.click(within(taskList).getByRole('button', { name: '标记处理中' }))
+    expect(await within(taskList).findByText('in_progress')).toBeInTheDocument()
+
+    await user.click(within(taskList).getByRole('button', { name: '标记完成' }))
+    expect(await within(taskList).findByText('done')).toBeInTheDocument()
   })
 })

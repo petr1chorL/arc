@@ -1,7 +1,7 @@
 from collections.abc import Callable, Iterator
 from datetime import datetime
 
-from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Query, Request, status
+from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Query, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
@@ -31,6 +31,7 @@ from app.models import (
     RegressionRunRecord,
     RegressionSampleRecord,
     RegressionSampleSetRecord,
+    RemediationTaskRecord,
     ReviewerRecord,
     ReviewGroupRecord,
     RubricRecord,
@@ -86,6 +87,9 @@ from app.schemas import (
     RegressionRunRead,
     RegressionSampleSetCreate,
     RegressionSampleSetRead,
+    RemediationTaskCreate,
+    RemediationTaskRead,
+    RemediationTaskUpdate,
     ObservabilityTotalsRead,
     ReviewerRead,
     ReviewGroupRead,
@@ -1943,6 +1947,22 @@ def create_app(
             "completed_at": run.completed_at,
         }
 
+    def remediation_task_to_read(task: RemediationTaskRecord) -> dict:
+        return {
+            "id": task.id,
+            "source_run_id": task.source_run_id,
+            "cluster_key": task.cluster_key,
+            "title": task.title,
+            "priority": task.priority,
+            "sample_ids": task.sample_ids,
+            "action": task.action,
+            "status": task.status,
+            "created_by": task.created_by,
+            "updated_by": task.updated_by,
+            "created_at": task.created_at,
+            "updated_at": task.updated_at,
+        }
+
     @router.get(
         "/evaluations/sample-sets",
         response_model=list[RegressionSampleSetRead],
@@ -2090,6 +2110,134 @@ def create_app(
         session.commit()
         session.refresh(record)
         return regression_sample_to_read(record)
+
+    @router.get(
+        "/evaluations/remediation-tasks",
+        response_model=list[RemediationTaskRead],
+    )
+    def list_remediation_tasks(
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> list[dict]:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "asset.read",
+            action="evaluation.remediation_task.list",
+            target_type="workspace",
+            target_id=context.workspace.id,
+            request=request,
+        )
+        tasks = list(session.scalars(
+            select(RemediationTaskRecord)
+            .where(RemediationTaskRecord.workspace_id == context.workspace.id)
+            .order_by(RemediationTaskRecord.created_at.desc()),
+        ))
+        return [remediation_task_to_read(task) for task in tasks]
+
+    @router.post(
+        "/evaluations/remediation-tasks",
+        response_model=RemediationTaskRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_remediation_task(
+        payload: RemediationTaskCreate,
+        request: Request,
+        response: Response,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> dict:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "evaluation.run",
+            action="evaluation.remediation_task.create",
+            target_type="regression_run",
+            target_id=payload.source_run_id,
+            request=request,
+        )
+        existing = session.scalar(
+            select(RemediationTaskRecord).where(
+                RemediationTaskRecord.workspace_id == context.workspace.id,
+                RemediationTaskRecord.source_run_id == payload.source_run_id,
+                RemediationTaskRecord.cluster_key == payload.cluster_key,
+            ),
+        )
+        if existing is not None:
+            response.status_code = status.HTTP_200_OK
+            return remediation_task_to_read(existing)
+        now = utc_now()
+        task = RemediationTaskRecord(
+            workspace_id=context.workspace.id,
+            source_run_id=payload.source_run_id,
+            cluster_key=payload.cluster_key,
+            title=payload.title,
+            priority=payload.priority,
+            sample_ids=payload.sample_ids,
+            action=payload.action,
+            status="open",
+            created_by=context.user.id,
+            updated_by=context.user.id,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(task)
+        session.flush()
+        record_success(
+            session,
+            context,
+            action="evaluation.remediation_task.create",
+            target_type="remediation_task",
+            target_id=task.id,
+            request=request,
+        )
+        session.commit()
+        session.refresh(task)
+        return remediation_task_to_read(task)
+
+    @router.patch(
+        "/evaluations/remediation-tasks/{task_id}",
+        response_model=RemediationTaskRead,
+    )
+    def update_remediation_task(
+        task_id: str,
+        payload: RemediationTaskUpdate,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> dict:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "evaluation.run",
+            action="evaluation.remediation_task.update",
+            target_type="remediation_task",
+            target_id=task_id,
+            request=request,
+        )
+        task = session.scalar(
+            select(RemediationTaskRecord).where(
+                RemediationTaskRecord.workspace_id == context.workspace.id,
+                RemediationTaskRecord.id == task_id,
+            ),
+        )
+        if task is None:
+            raise HTTPException(status_code=404, detail="remediation task not found")
+        task.status = payload.status
+        task.updated_by = context.user.id
+        task.updated_at = utc_now()
+        record_success(
+            session,
+            context,
+            action="evaluation.remediation_task.update",
+            target_type="remediation_task",
+            target_id=task.id,
+            request=request,
+        )
+        session.commit()
+        session.refresh(task)
+        return remediation_task_to_read(task)
 
     @router.get(
         "/evaluations/regression-runs",

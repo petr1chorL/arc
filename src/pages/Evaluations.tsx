@@ -17,6 +17,7 @@ import {
 import {
   createRegressionSample,
   createRegressionSampleSet,
+  createRemediationTask,
   createRegressionRun,
   createRubric,
   deactivateRubric,
@@ -25,17 +26,21 @@ import {
   getEvaluationOverview,
   getRubrics,
   listEvaluationRecords,
+  listRemediationTasks,
   listRegressionRuns,
   listRegressionSampleSets,
   listRubricVersions,
   publishRubric,
+  updateRemediationTask,
   updateRubric,
+  type RemediationTaskInput,
   type RubricInput,
 } from '../api/evaluations'
 import { useWorkspace } from '../auth/workspaceContextState'
 import type {
   EvaluationRecord,
   EvaluationOverview,
+  RemediationTask,
   RegressionRun,
   RegressionSampleSet,
   Rubric,
@@ -161,6 +166,8 @@ interface FailurePatternSummary {
 
 interface RemediationQueueItem {
   id: string
+  sourceRunId: string
+  clusterKey: string
   priority: 'P0' | 'P1' | 'P2'
   title: string
   sampleCount: number
@@ -279,7 +286,7 @@ function findLatestRegressionRun(runs: RegressionRun[]): RegressionRun | null {
 function buildFailurePatternSummary(latestRun: RegressionRun | null): FailurePatternSummary | null {
   if (!latestRun) return null
 
-  const failedRecords = latestRun.records.filter((record) => record.status === 'failed')
+  const failedRecords = (latestRun.records ?? []).filter((record) => record.status === 'failed')
   if (failedRecords.length === 0) return null
 
   const clusters = new Map<string, {
@@ -339,7 +346,9 @@ function buildRemediationQueue(summary: FailurePatternSummary | null): Remediati
 
   return summary.clusters
     .map((cluster) => ({
-      id: cluster.key,
+      id: `${summary.runId}:${cluster.key}`,
+      sourceRunId: summary.runId,
+      clusterKey: cluster.key,
       priority: getRemediationPriority(cluster),
       title: `修复 ${cluster.title}`,
       sampleCount: cluster.count,
@@ -440,23 +449,35 @@ export function Evaluations() {
   const [regressionRunComparisonError, setRegressionRunComparisonError] = useState('')
   const [isRegressionRunComparisonLoading, setIsRegressionRunComparisonLoading] = useState(false)
   const [failurePatternRunDetail, setFailurePatternRunDetail] = useState<RegressionRun | null>(null)
+  const [remediationTasks, setRemediationTasks] = useState<RemediationTask[]>([])
+  const [remediationTaskError, setRemediationTaskError] = useState('')
+  const [remediationTaskBusyId, setRemediationTaskBusyId] = useState('')
 
   const loadAssets = useCallback(async () => {
     setIsLoading(true)
     setError('')
     try {
-      const [nextOverview, nextRubrics, nextRecords, nextSampleSets, nextRegressionRuns] = await Promise.all([
+      const [
+        nextOverview,
+        nextRubrics,
+        nextRecords,
+        nextSampleSets,
+        nextRegressionRuns,
+        nextRemediationTasks,
+      ] = await Promise.all([
         getEvaluationOverview(workspace.id),
         getRubrics(workspace.id),
         listEvaluationRecords(workspace.id),
         listRegressionSampleSets(workspace.id),
         listRegressionRuns(workspace.id).catch(() => []),
+        listRemediationTasks(workspace.id).catch(() => []),
       ])
       setOverview(nextOverview)
       setRubrics(nextRubrics)
       setEvaluationRecords(nextRecords)
       setSampleSets(nextSampleSets)
       setRegressionRuns(nextRegressionRuns)
+      setRemediationTasks(nextRemediationTasks)
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : '评估资产加载失败')
     } finally {
@@ -539,7 +560,7 @@ export function Evaluations() {
     if (
       !latestFilteredRegressionRun
       || latestFilteredRegressionRun.failedSamples === 0
-      || latestFilteredRegressionRun.records.length > 0
+      || (latestFilteredRegressionRun.records?.length ?? 0) > 0
     ) {
       return undefined
     }
@@ -574,6 +595,14 @@ export function Evaluations() {
     () => buildRemediationQueue(failurePatternSummary),
     [failurePatternSummary],
   )
+
+  const remediationTaskByQueueKey = useMemo(() => {
+    const lookup = new Map<string, RemediationTask>()
+    for (const task of remediationTasks) {
+      lookup.set(`${task.sourceRunId}:${task.clusterKey}`, task)
+    }
+    return lookup
+  }, [remediationTasks])
 
   const activeSelectedSamples = useMemo(
     () => selectedSampleSet?.samples.filter((sample) => sample.status === 'active') ?? [],
@@ -898,6 +927,45 @@ export function Evaluations() {
       )
     } finally {
       setIsRegressionRunComparisonLoading(false)
+    }
+  }
+
+  function upsertRemediationTask(task: RemediationTask) {
+    setRemediationTasks((current) => [
+      task,
+      ...current.filter((existingTask) => existingTask.id !== task.id),
+    ])
+  }
+
+  async function createTaskFromQueueItem(item: RemediationQueueItem) {
+    const input: RemediationTaskInput = {
+      sourceRunId: item.sourceRunId,
+      clusterKey: item.clusterKey,
+      title: item.title,
+      priority: item.priority,
+      sampleIds: item.sampleIds,
+      action: item.action,
+    }
+    setRemediationTaskBusyId(item.id)
+    setRemediationTaskError('')
+    try {
+      upsertRemediationTask(await createRemediationTask(workspace.id, input))
+    } catch (taskError) {
+      setRemediationTaskError(taskError instanceof Error ? taskError.message : '修复任务创建失败')
+    } finally {
+      setRemediationTaskBusyId('')
+    }
+  }
+
+  async function updateTaskStatus(task: RemediationTask, nextStatus: RemediationTask['status']) {
+    setRemediationTaskBusyId(task.id)
+    setRemediationTaskError('')
+    try {
+      upsertRemediationTask(await updateRemediationTask(workspace.id, task.id, nextStatus))
+    } catch (taskError) {
+      setRemediationTaskError(taskError instanceof Error ? taskError.message : '修复任务更新失败')
+    } finally {
+      setRemediationTaskBusyId('')
     }
   }
 
@@ -1384,25 +1452,89 @@ export function Evaluations() {
                   </div>
                   <span className="status-pill">{remediationQueue.length} 个修复项</span>
                 </header>
+                {remediationTaskError && (
+                  <div className="inline-feedback error" role="alert">{remediationTaskError}</div>
+                )}
                 <div className="remediation-item-list">
-                  {remediationQueue.map((item) => (
-                    <article className="remediation-item-card" key={item.id}>
-                      <div className="remediation-item-heading">
-                        <span className={`remediation-priority ${item.priority.toLowerCase()}`}>
-                          {item.priority}
-                        </span>
-                        <div>
-                          <h5>{item.title}</h5>
-                          <p>{item.sampleCount} samples · 最低分 {item.weakestScore}</p>
+                  {remediationQueue.map((item) => {
+                    const existingTask = remediationTaskByQueueKey.get(item.id)
+                    const isBusy = remediationTaskBusyId === item.id
+                    return (
+                      <article className="remediation-item-card" key={item.id}>
+                        <div className="remediation-item-heading">
+                          <span className={`remediation-priority ${item.priority.toLowerCase()}`}>
+                            {item.priority}
+                          </span>
+                          <div>
+                            <h5>{item.title}</h5>
+                            <p>{item.sampleCount} samples · 最低分 {item.weakestScore}</p>
+                          </div>
                         </div>
+                        <p>{item.action}</p>
+                        <div className="remediation-samples">
+                          {item.sampleIds.map((sampleId) => (
+                            <span className="mono" key={sampleId}>{sampleId}</span>
+                          ))}
+                        </div>
+                        <div className="remediation-item-footer">
+                          <span className="remediation-retest">{item.retestLabel}</span>
+                          <button
+                            className="button secondary small"
+                            type="button"
+                            disabled={Boolean(existingTask) || isBusy}
+                            onClick={() => void createTaskFromQueueItem(item)}
+                          >
+                            {existingTask ? '已创建任务' : '创建任务'}
+                          </button>
+                        </div>
+                      </article>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+            {remediationTasks.length > 0 && (
+              <div className="remediation-task-board" role="region" aria-label="Remediation Tasks">
+                <header>
+                  <div>
+                    <span className="eyebrow">REMEDIATION TASKS</span>
+                    <h4>Remediation Tasks</h4>
+                  </div>
+                  <span className="status-pill">{remediationTasks.length} 个任务</span>
+                </header>
+                <div className="remediation-task-list">
+                  {remediationTasks.map((task) => (
+                    <article className="remediation-task-card" key={task.id}>
+                      <div>
+                        <span className={`remediation-priority ${task.priority.toLowerCase()}`}>
+                          {task.priority}
+                        </span>
+                        <strong>{task.title}</strong>
                       </div>
-                      <p>{item.action}</p>
-                      <div className="remediation-samples">
-                        {item.sampleIds.map((sampleId) => (
-                          <span className="mono" key={sampleId}>{sampleId}</span>
-                        ))}
+                      <p>{task.action}</p>
+                      <div className="remediation-task-meta">
+                        <span>{task.status}</span>
+                        <span>{task.sampleIds.length} samples</span>
+                        <span className="mono">{task.clusterKey}</span>
                       </div>
-                      <span className="remediation-retest">{item.retestLabel}</span>
+                      <div className="remediation-task-actions">
+                        <button
+                          className="button secondary small"
+                          type="button"
+                          disabled={task.status !== 'open' || remediationTaskBusyId === task.id}
+                          onClick={() => void updateTaskStatus(task, 'in_progress')}
+                        >
+                          标记处理中
+                        </button>
+                        <button
+                          className="button secondary small"
+                          type="button"
+                          disabled={task.status === 'done' || remediationTaskBusyId === task.id}
+                          onClick={() => void updateTaskStatus(task, 'done')}
+                        >
+                          标记完成
+                        </button>
+                      </div>
                     </article>
                   ))}
                 </div>

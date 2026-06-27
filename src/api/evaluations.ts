@@ -1,6 +1,7 @@
 import type {
   EvaluationRecord,
   EvaluationOverview,
+  RemediationTask,
   RegressionRun,
   RegressionSample,
   RegressionSampleSet,
@@ -39,6 +40,15 @@ export interface RegressionRunInput {
   rubricId: string
   sampleSetId?: string | null
   samples?: { input: string; sampleId?: string | null }[]
+}
+
+export interface RemediationTaskInput {
+  sourceRunId: string
+  clusterKey: string
+  title: string
+  priority: RemediationTask['priority']
+  sampleIds: string[]
+  action: string
 }
 
 function workspacePath(workspaceId: string, path = '') {
@@ -110,6 +120,39 @@ export async function createRegressionRun(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
+    }),
+  )
+}
+
+export async function listRemediationTasks(workspaceId: string): Promise<RemediationTask[]> {
+  return readJson<RemediationTask[]>(
+    await apiFetch(workspacePath(workspaceId, '/remediation-tasks')),
+  )
+}
+
+export async function createRemediationTask(
+  workspaceId: string,
+  input: RemediationTaskInput,
+): Promise<RemediationTask> {
+  return readJson<RemediationTask>(
+    await apiFetch(workspacePath(workspaceId, '/remediation-tasks'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
+  )
+}
+
+export async function updateRemediationTask(
+  workspaceId: string,
+  taskId: string,
+  nextStatus: RemediationTask['status'],
+): Promise<RemediationTask> {
+  return readJson<RemediationTask>(
+    await apiFetch(workspacePath(workspaceId, `/remediation-tasks/${taskId}`), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: nextStatus }),
     }),
   )
 }

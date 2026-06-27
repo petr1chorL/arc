@@ -566,6 +566,32 @@ class RegressionRunRecord(Base):
     completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class RemediationTaskRecord(Base):
+    __tablename__ = "remediation_tasks"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "source_run_id",
+            "cluster_key",
+            name="uq_remediation_task_workspace_run_cluster",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    source_run_id: Mapped[str] = mapped_column(String(36), index=True)
+    cluster_key: Mapped[str] = mapped_column(String(120))
+    title: Mapped[str] = mapped_column(String(200))
+    priority: Mapped[str] = mapped_column(String(8))
+    sample_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    action: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), default="open")
+    created_by: Mapped[str] = mapped_column(String(36))
+    updated_by: Mapped[str] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class RubricRecord(Base):
     __tablename__ = "rubrics"
     __table_args__ = (

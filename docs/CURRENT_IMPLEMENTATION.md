@@ -1,6 +1,6 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.10G 失败原因修复队列
+> 对应版本：V0.10H 失败修复任务
 > 上一阶段：V0.8F 轻量告警 / 通知 Outbox
 > 更新时间：2026-06-27
 
@@ -371,7 +371,11 @@ React Flow 节点/连线
 - `Regression Run Trend` 内展示 `Failure Pattern Summary`，基于当前筛选后的最新 Run 失败记录按最低评分维度聚类。
 - 失败原因摘要展示最新失败样本数、原因组、样本数、平均分、最低分、代表样本 ID 和处理建议。
 - `Failure Pattern Summary` 下方展示 `Failure Remediation Queue`，把失败原因组转成按优先级排序的修复项。
-- 修复队列展示优先级、修复标题、样本数、最低分、建议动作、代表样本 ID 和复测提示；当前仅为前端确定性队列，不持久化为任务。
+- 修复队列展示优先级、修复标题、样本数、最低分、建议动作、代表样本 ID 和复测提示。
+- 支持从 `Failure Remediation Queue` 创建 Workspace 级失败修复任务。
+- 相同 Workspace 下同一 `sourceRunId + clusterKey` 重复创建时返回已有任务，避免重复待办。
+- 页面展示 `Remediation Tasks`，可查看任务标题、优先级、当前状态、样本数和原因组。
+- 页面支持将失败修复任务从 `open` 标记为 `in_progress`，再标记为 `done`。
 - 当前评分器为确定性评分器，用于验证评估链路；真实 LLM-as-a-Judge 尚未接入。
 
 后端 API：
@@ -392,6 +396,9 @@ GET /api/workspaces/{workspace_id}/evaluations/records
 GET /api/workspaces/{workspace_id}/evaluations/regression-runs
 GET /api/workspaces/{workspace_id}/evaluations/regression-runs/{run_id}
 POST /api/workspaces/{workspace_id}/evaluations/regression-runs
+GET /api/workspaces/{workspace_id}/evaluations/remediation-tasks
+POST /api/workspaces/{workspace_id}/evaluations/remediation-tasks
+PATCH /api/workspaces/{workspace_id}/evaluations/remediation-tasks/{task_id}
 ```
 
 未实现：
@@ -400,6 +407,7 @@ POST /api/workspaces/{workspace_id}/evaluations/regression-runs
 - Golden Set 样本导入、导出、版本对比和停用。
 - 定时调度、后台队列、Run 取消、Run 重试和异步回归任务。
 - 评价一致性校准。
+- 修复任务的负责人、截止时间、评论、通知和自动复测。
 
 ## 9. 运行中心
 
@@ -753,6 +761,9 @@ TypeScript 编译检查
 - V0.10G 完成失败原因修复队列自动化测试：失败原因组会生成 `Failure Remediation Queue`，展示优先级、修复标题、复测提示和代表样本 ID。
 - V0.10G 完成真实浏览器验收：本地验收会话登录后创建 Regression Sample Set、运行 Regression Run，并在评估中心看到 `Failure Remediation Queue` 与 1 个修复项。
 - V0.10G 浏览器验收截图：`.scratch/v0.10g-failure-remediation-queue.png`；验收结果：`.scratch/v0.10g-browser-result.json`。
+- V0.10H 完成失败修复任务 focused 自动化测试：后端支持创建、去重读取和状态更新；前端可从修复队列创建任务，并将任务标记为处理中和已完成。
+- V0.10H 完成真实浏览器验收：本地登录会话在评估中心从 `Failure Remediation Queue` 创建 1 个任务，状态从 `open` 流转到 `in_progress`，再到 `done`；本次验证开始后的新增 console warning/error 为 0。
+- V0.10H 浏览器验收截图：`.scratch/v0.10h-remediation-tasks.png`；验收结果：`.scratch/v0.10h-browser-result.json`。
 
 验证时没有发现浏览器控制台错误。
 
@@ -772,3 +783,7 @@ TypeScript 编译检查
 完整版本路线和开源工具说明见：
 
 [项目建设蓝图](PROJECT_MASTER_PLAN.md)
+
+从当前版本到 V1.0 的逐步落地清单见：
+
+[V1.0 落地路线图](PROJECT_ROADMAP_TO_V1.md)

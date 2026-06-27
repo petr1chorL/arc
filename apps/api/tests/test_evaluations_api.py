@@ -232,6 +232,66 @@ def test_evaluation_rubrics_are_workspace_assets_without_duplicate_seed(tmp_path
     }
 
 
+def test_remediation_tasks_can_be_created_listed_and_updated(tmp_path):
+    client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'arc-one.db'}")
+    payload = {
+        "sourceRunId": "run-remediation-1",
+        "clusterKey": "Evidence",
+        "title": "修复 Evidence 偏低",
+        "priority": "P1",
+        "sampleIds": ["sample-a", "sample-b"],
+        "action": "优先补齐 Evidence 相关证据与判定依据",
+    }
+
+    created = client.post(
+        workspace_url(workspace_id, "/evaluations/remediation-tasks"),
+        json=payload,
+        headers=csrf_headers(client),
+    )
+
+    assert created.status_code == 201
+    task = created.json()
+    assert task["sourceRunId"] == "run-remediation-1"
+    assert task["clusterKey"] == "Evidence"
+    assert task["title"] == "修复 Evidence 偏低"
+    assert task["priority"] == "P1"
+    assert task["sampleIds"] == ["sample-a", "sample-b"]
+    assert task["action"] == "优先补齐 Evidence 相关证据与判定依据"
+    assert task["status"] == "open"
+
+    duplicate = client.post(
+        workspace_url(workspace_id, "/evaluations/remediation-tasks"),
+        json=payload,
+        headers=csrf_headers(client),
+    )
+
+    assert duplicate.status_code == 200
+    assert duplicate.json()["id"] == task["id"]
+
+    listed = client.get(workspace_url(workspace_id, "/evaluations/remediation-tasks"))
+
+    assert listed.status_code == 200
+    assert [item["id"] for item in listed.json()] == [task["id"]]
+
+    in_progress = client.patch(
+        workspace_url(workspace_id, f"/evaluations/remediation-tasks/{task['id']}"),
+        json={"status": "in_progress"},
+        headers=csrf_headers(client),
+    )
+
+    assert in_progress.status_code == 200
+    assert in_progress.json()["status"] == "in_progress"
+
+    done = client.patch(
+        workspace_url(workspace_id, f"/evaluations/remediation-tasks/{task['id']}"),
+        json={"status": "done"},
+        headers=csrf_headers(client),
+    )
+
+    assert done.status_code == 200
+    assert done.json()["status"] == "done"
+
+
 def test_rubric_draft_can_be_edited_published_and_deactivated(tmp_path):
     client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'arc-one.db'}")
     body = {

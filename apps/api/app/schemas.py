@@ -855,6 +855,60 @@ class RegressionRunRead(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class RemediationTaskCreate(BaseModel):
+    source_run_id: str = Field(alias="sourceRunId", min_length=1, max_length=36)
+    cluster_key: str = Field(alias="clusterKey", min_length=1, max_length=120)
+    title: str = Field(min_length=1, max_length=200)
+    priority: str = Field(pattern="^P[0-2]$")
+    sample_ids: list[str] = Field(alias="sampleIds", min_length=1, max_length=20)
+    action: str = Field(min_length=1, max_length=4000)
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    @field_validator("source_run_id", "cluster_key", "title", "action")
+    @classmethod
+    def reject_blank_remediation_fields(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("field cannot be blank")
+        return normalized
+
+    @field_validator("sample_ids")
+    @classmethod
+    def normalize_sample_ids(cls, value: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for sample_id in value:
+            cleaned = sample_id.strip()
+            if cleaned and cleaned not in normalized:
+                normalized.append(cleaned[:120])
+        if not normalized:
+            raise ValueError("sampleIds cannot be blank")
+        return normalized
+
+
+class RemediationTaskUpdate(BaseModel):
+    status: str = Field(pattern="^(open|in_progress|done)$")
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class RemediationTaskRead(BaseModel):
+    id: str
+    source_run_id: str = Field(serialization_alias="sourceRunId")
+    cluster_key: str = Field(serialization_alias="clusterKey")
+    title: str
+    priority: str
+    sample_ids: list[str] = Field(serialization_alias="sampleIds")
+    action: str
+    status: str
+    created_by: str = Field(serialization_alias="createdBy")
+    updated_by: str = Field(serialization_alias="updatedBy")
+    created_at: datetime = Field(serialization_alias="createdAt")
+    updated_at: datetime = Field(serialization_alias="updatedAt")
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
 class EvaluationOverviewTotalsRead(BaseModel):
     feedback_candidates: int = Field(serialization_alias="feedbackCandidates")
     pending_candidates: int = Field(serialization_alias="pendingCandidates")

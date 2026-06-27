@@ -433,6 +433,23 @@ export interface RegressionRun {
   completedAt: string
 }
 
+export type RemediationTaskStatus = 'open' | 'in_progress' | 'done'
+
+export interface RemediationTask {
+  id: string
+  sourceRunId: string
+  clusterKey: string
+  title: string
+  priority: 'P0' | 'P1' | 'P2'
+  sampleIds: string[]
+  action: string
+  status: RemediationTaskStatus
+  createdBy: string
+  updatedBy: string
+  createdAt: string
+  updatedAt: string
+}
+
 export interface EvaluationOverviewTotals {
   feedbackCandidates: number
   pendingCandidates: number
