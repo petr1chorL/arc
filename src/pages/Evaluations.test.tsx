@@ -1393,6 +1393,7 @@ describe('Evaluations page', () => {
       if (input === `/api/workspaces/${workspace.id}/evaluations/remediation-tasks/remediation-task-1/retest`) {
         remediationTasks[0] = {
           ...remediationTasks[0],
+          status: 'in_progress',
           retestRunId: 'run-retest-1',
           retestRun: {
             id: 'run-retest-1',
@@ -1412,6 +1413,29 @@ describe('Evaluations page', () => {
             createdAt: '2026-06-27T00:32:00Z',
             completedAt: '2026-06-27T00:32:00Z',
           },
+          activities: [
+            ...(remediationTasks[0].activities ?? []),
+            {
+              id: 'activity-retest-failed',
+              taskId: 'remediation-task-1',
+              kind: 'retest_failed',
+              body: '复测未通过：1 条样本失败，任务已回流',
+              attachmentRefs: [],
+              actorUserId: 'user-1',
+              actorDisplayName: 'Organization Admin',
+              createdAt: '2026-06-27T00:32:00Z',
+            },
+            {
+              id: 'activity-retest-status',
+              taskId: 'remediation-task-1',
+              kind: 'status_change',
+              body: '状态变更：done -> in_progress',
+              attachmentRefs: [],
+              actorUserId: 'user-1',
+              actorDisplayName: 'Organization Admin',
+              createdAt: '2026-06-27T00:32:01Z',
+            },
+          ],
           updatedAt: '2026-06-27T00:32:00Z',
         }
         return response(remediationTasks[0], 201)
@@ -1471,16 +1495,20 @@ describe('Evaluations page', () => {
 
     await user.click(within(taskList).getByRole('button', { name: '发起复测' }))
     expect(await within(taskList).findByText('Retest Run')).toBeInTheDocument()
+    expect(within(taskList).getByText('复测失败已回流')).toBeInTheDocument()
+    expect(within(taskList).getByText('in_progress')).toBeInTheDocument()
     expect(within(taskList).getByText('run-retest-1')).toBeInTheDocument()
     expect(within(taskList).getByText('通过率 0%')).toBeInTheDocument()
     expect(within(taskList).getByText('失败 1')).toBeInTheDocument()
+    expect(within(taskList).getByText('复测未通过：1 条样本失败，任务已回流')).toBeInTheDocument()
+    expect(within(taskList).getByText('状态变更：done -> in_progress')).toBeInTheDocument()
 
     const loopBoard = await screen.findByRole('region', { name: 'Evaluation Loop Board' })
     expect(within(loopBoard).getByText('失败原因组 2')).toBeInTheDocument()
     expect(within(loopBoard).getByText('修复任务 1')).toBeInTheDocument()
-    expect(within(loopBoard).getByText('未关闭风险 0')).toBeInTheDocument()
+    expect(within(loopBoard).getByText('未关闭风险 1')).toBeInTheDocument()
     expect(within(loopBoard).getByText('已复测 1')).toBeInTheDocument()
     expect(within(loopBoard).getByText('最近复测通过率 0%')).toBeInTheDocument()
-    expect(within(loopBoard).getByText('继续补强复测失败样本')).toBeInTheDocument()
+    expect(within(loopBoard).getByText('优先关闭未完成修复任务')).toBeInTheDocument()
   })
 })

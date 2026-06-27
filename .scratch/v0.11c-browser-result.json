@@ -1,0 +1,31 @@
+{
+  "checkedAt": "2026-06-27T09:19:17.118Z",
+  "logWindowStartedAt": "2026-06-27T09:19:16.386Z",
+  "url": "http://127.0.0.1:4173/w/ai-capability-center/evaluations",
+  "assertions": {
+    "boardHasOpenRisk": true,
+    "boardRecommendation": true,
+    "boardText": "EVALUATION LOOPEvaluation Loop Board闭环状态失败原因组 1修复任务 1未关闭风险 1已复测 1最近复测通过率 0%优先关闭未完成修复任务",
+    "hasInProgress": true,
+    "hasLoopback": true,
+    "hasRetestFailedActivity": true,
+    "hasRetestRun": true,
+    "hasStatusChange": true,
+    "taskText": "REMEDIATION TASKSRemediation Tasks1 个任务负责人筛选全部负责人优先级筛选全部优先级P0P1P2逾期筛选全部状态只看逾期未逾期P0修复 事实准确性 偏低优先补齐 事实准确性 相关证据与判定依据in_progress3 samples事实准确性负责人 未分配截止 未设置未逾期标记处理中标记完成处理时间线评论Codex V0.10A ??2026-06-27浏览器验收：已补充处理说明附件 lark://doc/browser-evidence处理记录Codex V0.10A ??2026-06-27复测未通过：3 条样本失败，任务已回流处理记录Codex V0.10A ??2026-06-27状态变更：done -> in_progress评论内容附件引用提交评论Retest Runa0369392-4d99-4f08-bada-6a936251f104通过率 0%失败 3复测失败已回流"
+  },
+  "newConsoleWarningsOrErrors": [],
+  "allConsoleWarningsOrErrorsSeenInTab": [
+    {
+      "level": "error",
+      "message": "TypeError: Cannot read properties of undefined (reading 'filter')\n    at buildFailurePatternSummary (http://127.0.0.1:4173/src/pages/Evaluations.tsx?t=1782541188532:143:42)\n    at http://127.0.0.1:4173/src/pages/Evaluations.tsx?t=1782541188532:320:46\n    at updateMemo (http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=bec220dc:4948:16)\n    at Object.useMemo (http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=bec220dc:13274:13)\n    at exports.useMemo (http://127.0.0.1:4173/node_modules/.vite/deps/react.js?v=bec220dc:736:31)\n    at Evaluations (http://127.0.0.1:4173/src/pages/Evaluations.tsx?t=1782541188532:320:32)\n    at Object.react_stack_bottom_frame (http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=bec220dc:12866:12)\n    at renderWithHooks (http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=bec220dc:4213:19)\n    at updateFunctionComponent (http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=bec220dc:5569:16)\n    at beginWork (http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=bec220dc:6140:20)",
+      "timestamp": "2026-06-27T07:44:25.327Z",
+      "url": "http://127.0.0.1:4173/src/pages/Evaluations.tsx?t=1782541188532"
+    },
+    {
+      "level": "warn",
+      "message": "%s\n\n%s\n An error occurred in the <Evaluations> component. Consider adding an error boundary to your tree to customize error handling behavior.\nVisit https://react.dev/link/error-boundaries to learn more about error boundaries.",
+      "timestamp": "2026-06-27T07:44:25.327Z",
+      "url": "http://127.0.0.1:4173/@vite/client"
+    }
+  ]
+}

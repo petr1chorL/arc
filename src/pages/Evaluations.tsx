@@ -1827,11 +1827,14 @@ export function Evaluations() {
                         </div>
                       </div>
                       {task.retestRun && (
-                        <div className="remediation-retest-result">
+                        <div className={`remediation-retest-result ${task.retestRun.failedSamples > 0 && task.status !== 'done' ? 'danger' : ''}`}>
                           <span>Retest Run</span>
                           <strong className="mono">{task.retestRun.id}</strong>
                           <em>通过率 {task.retestRun.passRate}%</em>
                           <em>失败 {task.retestRun.failedSamples}</em>
+                          {task.retestRun.failedSamples > 0 && task.status !== 'done' && (
+                            <em className="loopback">复测失败已回流</em>
+                          )}
                         </div>
                       )}
                     </article>

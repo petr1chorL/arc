@@ -408,7 +408,7 @@ def test_remediation_task_activities_record_comments_and_status_changes(tmp_path
     assert listed_task["activities"][1]["kind"] == "status_change"
 
 
-def test_completed_remediation_task_can_start_retest_run(tmp_path):
+def test_failed_remediation_retest_reopens_task_and_can_be_retested_again(tmp_path):
     client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'arc-one.db'}")
     rubric = client.post(
         workspace_url(workspace_id, "/evaluations/rubrics"),
@@ -475,7 +475,7 @@ def test_completed_remediation_task_can_start_retest_run(tmp_path):
 
     assert retested.status_code == 201
     task = retested.json()
-    assert task["status"] == "done"
+    assert task["status"] == "in_progress"
     assert task["retestRunId"]
     assert task["retestRun"]["id"] == task["retestRunId"]
     assert task["retestRun"]["rubricId"] == rubric["id"]
@@ -483,16 +483,47 @@ def test_completed_remediation_task_can_start_retest_run(tmp_path):
     assert task["retestRun"]["failedSamples"] == 1
     assert task["retestRun"]["records"][0]["subjectId"] == "sample-fail"
     assert task["retestRun"]["records"][0]["artifactText"] == "Thin draft."
+    assert [activity["kind"] for activity in task["activities"]][-2:] == [
+        "retest_failed",
+        "status_change",
+    ]
+    assert task["activities"][-2]["body"] == "复测未通过：1 条样本失败，任务已回流"
+    assert task["activities"][-1]["body"] == "状态变更：done -> in_progress"
+
+    listed_tasks = client.get(workspace_url(workspace_id, "/evaluations/remediation-tasks"))
+    assert listed_tasks.status_code == 200
+    listed_task = listed_tasks.json()[0]
+    assert listed_task["status"] == "in_progress"
+    assert listed_task["retestRunId"] == task["retestRunId"]
+    assert listed_task["retestRun"]["failedSamples"] == 1
+    assert listed_task["activities"][-2]["kind"] == "retest_failed"
 
     repeated = client.post(
         workspace_url(workspace_id, f"/evaluations/remediation-tasks/{created['id']}/retest"),
         headers=csrf_headers(client),
     )
 
-    assert repeated.status_code == 200
-    assert repeated.json()["retestRunId"] == task["retestRunId"]
+    assert repeated.status_code == 409
+
+    completed_again = client.patch(
+        workspace_url(workspace_id, f"/evaluations/remediation-tasks/{created['id']}"),
+        json={"status": "done"},
+        headers=csrf_headers(client),
+    )
+
+    assert completed_again.status_code == 200
+    assert completed_again.json()["status"] == "done"
+    assert completed_again.json()["retestRunId"] is None
+
+    retested_again = client.post(
+        workspace_url(workspace_id, f"/evaluations/remediation-tasks/{created['id']}/retest"),
+        headers=csrf_headers(client),
+    )
+
+    assert retested_again.status_code == 201
+    assert retested_again.json()["retestRunId"] != task["retestRunId"]
     listed = client.get(workspace_url(workspace_id, "/evaluations/regression-runs"))
-    assert len([run for run in listed.json() if run["sampleSetName"] == "修复复测"]) == 1
+    assert len([run for run in listed.json() if run["sampleSetName"] == "修复复测"]) == 2
 
 
 def test_rubric_draft_can_be_edited_published_and_deactivated(tmp_path):

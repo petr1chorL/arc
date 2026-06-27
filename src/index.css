@@ -2589,13 +2589,17 @@ kbd {
 
 .remediation-retest-result {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
   align-items: center;
   gap: 8px;
   padding: 10px;
   border-radius: 12px;
   background: rgba(218, 242, 233, 0.5);
   box-shadow: var(--shadow-inset);
+}
+
+.remediation-retest-result.danger {
+  background: rgba(255, 232, 225, 0.58);
 }
 
 .remediation-retest-result span {
@@ -2618,6 +2622,11 @@ kbd {
   font-size: 10px;
   font-style: normal;
   font-weight: 800;
+}
+
+.remediation-retest-result em.loopback {
+  color: #9a4d3b;
+  background: rgba(255, 255, 255, 0.58);
 }
 
 .evaluation-loop-board {

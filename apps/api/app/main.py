@@ -2321,7 +2321,11 @@ def create_app(
             [task.id for task in tasks],
         )
         return [
-            remediation_task_to_read(task, activities=activities_by_task_id.get(task.id, []))
+            remediation_task_to_read(
+                task,
+                retest_run=get_retest_run_read(session, context.workspace.id, task),
+                activities=activities_by_task_id.get(task.id, []),
+            )
             for task in tasks
         ]
 
@@ -2468,6 +2472,8 @@ def create_app(
             raise HTTPException(status_code=404, detail="remediation task not found")
         previous_status = task.status
         task.status = payload.status
+        if previous_status != "done" and payload.status == "done" and task.retest_run_id:
+            task.retest_run_id = None
         task.updated_by = context.user.id
         task.updated_at = utc_now()
         if previous_status != payload.status:
@@ -2525,7 +2531,12 @@ def create_app(
         existing_retest = get_retest_run_read(session, context.workspace.id, task)
         if existing_retest is not None:
             response.status_code = status.HTTP_200_OK
-            return remediation_task_to_read(task, existing_retest)
+            activities = list_remediation_task_activities(session, context.workspace.id, [task.id])
+            return remediation_task_to_read(
+                task,
+                existing_retest,
+                activities=activities.get(task.id, []),
+            )
         source_run = session.scalar(
             select(RegressionRunRecord).where(
                 RegressionRunRecord.workspace_id == context.workspace.id,
@@ -2576,6 +2587,32 @@ def create_app(
             batch_samples=batch_samples,
         )
         task.retest_run_id = retest_run.id
+        if retest_run.failed_samples > 0:
+            previous_status = task.status
+            task.status = "in_progress"
+            create_remediation_task_activity(
+                session=session,
+                context=context,
+                task_id=task.id,
+                kind="retest_failed",
+                body=f"复测未通过：{retest_run.failed_samples} 条样本失败，任务已回流",
+            )
+            if previous_status != task.status:
+                create_remediation_task_activity(
+                    session=session,
+                    context=context,
+                    task_id=task.id,
+                    kind="status_change",
+                    body=f"状态变更：{previous_status} -> {task.status}",
+                )
+        else:
+            create_remediation_task_activity(
+                session=session,
+                context=context,
+                task_id=task.id,
+                kind="retest_passed",
+                body="复测通过：0 条样本失败",
+            )
         task.updated_by = context.user.id
         task.updated_at = utc_now()
         record_success(
@@ -2591,7 +2628,12 @@ def create_app(
         session.refresh(retest_run)
         for record in records:
             session.refresh(record)
-        return remediation_task_to_read(task, regression_run_to_read(retest_run, records))
+        activities = list_remediation_task_activities(session, context.workspace.id, [task.id])
+        return remediation_task_to_read(
+            task,
+            regression_run_to_read(retest_run, records),
+            activities=activities.get(task.id, []),
+        )
 
     @router.get(
         "/evaluations/regression-runs",
