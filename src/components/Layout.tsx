@@ -12,6 +12,7 @@ import {
   Search,
   Settings,
   ShieldAlert,
+  Wrench,
   UsersRound,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -40,6 +41,7 @@ const titles: Record<string, { title: string; eyebrow: string }> = {
   '/runs': { title: '运行中心', eyebrow: 'RUNTIME' },
   '/observability': { title: '运行观测', eyebrow: 'OBSERVABILITY' },
   '/reviews': { title: '人工审核', eyebrow: 'HUMAN IN THE LOOP' },
+  '/settings/asset-library': { title: 'Tool / Skill 资产库', eyebrow: 'TOOL REGISTRY' },
   '/settings/members': { title: '成员与权限', eyebrow: 'ACCESS CONTROL' },
   '/settings/model-providers': { title: '模型 Provider', eyebrow: 'MODEL ACCESS' },
   '/settings/audit': { title: '审计日志', eyebrow: 'AUDIT TRAIL' },
@@ -114,6 +116,17 @@ export function Layout() {
             >
               <KeyRound size={18} strokeWidth={1.8} />
               <span>模型 Provider</span>
+            </NavLink>
+          </CapabilityGuard>
+          <CapabilityGuard capability="agent.write">
+            <NavLink
+              to={workspacePath('settings/asset-library')}
+              title="Tool / Skill"
+              aria-label="Tool / Skill"
+              className={({ isActive }) => (isActive ? 'nav-item active' : 'nav-item')}
+            >
+              <Wrench size={18} strokeWidth={1.8} />
+              <span>Tool / Skill</span>
             </NavLink>
           </CapabilityGuard>
           <CapabilityGuard capability="member.manage">

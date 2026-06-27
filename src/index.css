@@ -3727,6 +3727,117 @@ kbd {
   gap: 10px;
 }
 
+.asset-library-intro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.asset-library-intro p:last-child {
+  max-width: 720px;
+  margin: 8px 0 0;
+  color: var(--muted);
+}
+
+.asset-library-form-panel .button {
+  margin: 18px 20px 20px;
+}
+
+.asset-library-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(300px, 0.8fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.asset-library-list {
+  display: grid;
+  gap: 14px;
+  padding: 20px;
+}
+
+.asset-library-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 8px;
+  background: var(--canvas);
+  box-shadow: var(--shadow-inset);
+}
+
+.asset-library-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.asset-library-card-head span,
+.asset-library-card p {
+  color: var(--muted);
+}
+
+.asset-library-card p {
+  margin: 0;
+}
+
+.asset-test-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  padding: 12px;
+  border-radius: 8px;
+  background: rgba(235, 240, 248, 0.72);
+  box-shadow: inset 2px 2px 5px rgba(141, 156, 184, 0.18), inset -2px -2px 5px rgba(255, 255, 255, 0.74);
+}
+
+.asset-test-result {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  color: var(--muted);
+}
+
+.asset-test-result span {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(94, 124, 182, 0.12);
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.asset-test-result p,
+.asset-test-result small {
+  margin: 0;
+}
+
+.asset-invocation-list ul {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 18px;
+  list-style: none;
+}
+
+.asset-invocation-list li {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--canvas);
+  box-shadow: var(--shadow-inset);
+}
+
+.asset-invocation-list span,
+.asset-invocation-list p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
 .form-field textarea {
   width: 100%;
   padding: 10px 11px;

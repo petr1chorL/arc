@@ -111,6 +111,53 @@ export interface AssetVersion<TSnapshot = Record<string, unknown>> {
 
 export type AgentVersion = AssetVersion<Agent>
 
+export type ToolSkillAssetType = 'tool' | 'skill'
+export type ToolSkillAdapterType = 'manual' | 'http' | 'mcp'
+
+export interface ToolSkillAsset {
+  id: string
+  assetType: ToolSkillAssetType
+  name: string
+  description: string
+  parameterSchema: Record<string, unknown>
+  adapterType: ToolSkillAdapterType
+  adapterConfig: Record<string, unknown>
+  status: string
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ToolSkillAssetCreateInput {
+  assetType: ToolSkillAssetType
+  name: string
+  description: string
+  parameterSchema: Record<string, unknown>
+  adapterType: ToolSkillAdapterType
+  adapterConfig: Record<string, unknown>
+}
+
+export interface ToolSkillTestInvocationInput {
+  parameters: Record<string, unknown>
+}
+
+export interface ToolSkillInvocation {
+  id: string
+  assetId: string
+  assetType: ToolSkillAssetType
+  assetName: string
+  agentId: string | null
+  agentVersion: string
+  runId: string | null
+  nodeRunId: string | null
+  status: string
+  inputSummary: string
+  outputSummary: string
+  error: string
+  durationMs: number
+  createdAt: string
+}
+
 export interface ModelProvider {
   id: string
   name: string

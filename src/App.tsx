@@ -8,6 +8,7 @@ import { Layout } from './components/Layout'
 import { Agents } from './pages/Agents'
 import { AgentDetail } from './pages/AgentDetail'
 import { ActivateInvitation } from './pages/ActivateInvitation'
+import { AssetLibrary } from './pages/AssetLibrary'
 import { Dashboard } from './pages/Dashboard'
 import { Evaluations } from './pages/Evaluations'
 import { Login } from './pages/Login'
@@ -83,6 +84,7 @@ function App() {
                 <Route path="runs" element={<Runs />} />
                 <Route path="observability" element={<Observability />} />
                 <Route path="reviews" element={<Reviews />} />
+                <Route path="settings/asset-library" element={<AssetLibrary />} />
                 <Route path="settings/members" element={<Members />} />
                 <Route path="settings/model-providers" element={<ModelProviders />} />
                 <Route path="settings/audit" element={<SettingsStub title="审计日志" />} />
