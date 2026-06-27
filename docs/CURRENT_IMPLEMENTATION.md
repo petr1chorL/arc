@@ -1,6 +1,6 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.10D Regression Run 趋势视图
+> 对应版本：V0.10E Regression Run 质量洞察摘要
 > 上一阶段：V0.8F 轻量告警 / 通知 Outbox
 > 更新时间：2026-06-27
 
@@ -366,6 +366,8 @@ React Flow 节点/连线
 - `Regression Run History` 会基于当前筛选后的最近 Run 展示趋势视图。
 - 趋势视图展示最新通过率、较上次变化、平均通过率、最佳通过率和最近最多 8 次 Run 的通过率柱状趋势。
 - 通过率低于 70% 的趋势点会标记为风险，便于快速发现回归质量下滑。
+- `Regression Run Trend` 内展示 `Regression Run Insight` 洞察卡，基于当前筛选后的趋势给出质量状态、关键事实和下一步建议。
+- 洞察卡会展示质量下滑、质量风险、轻微回落、质量改善或质量稳定，并同步展示最新通过率、较上次变化和风险 Run 数。
 - 当前评分器为确定性评分器，用于验证评估链路；真实 LLM-as-a-Judge 尚未接入。
 
 后端 API：
@@ -688,7 +690,7 @@ TypeScript 编译检查
 已经完成：
 
 - `apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q`：后端全量测试通过。
-- `npm test -- --run`：27 个前端测试文件、93 项测试通过。
+- `npm test -- --run`：27 个前端测试文件、94 项测试通过。
 - `npm run lint`：Oxlint 通过。
 - `npm run build`：TypeScript 编译与 Vite 生产构建通过。
 - Human 节点发布前校验覆盖分配方式、会签人数和 SLA 参数。
@@ -738,6 +740,9 @@ TypeScript 编译检查
 - V0.10D 完成 Regression Run 趋势自动化测试：前端会根据最近多次 Run 计算最新通过率、较上次变化、平均通过率、最佳通过率和风险趋势点。
 - V0.10D 完成浏览器验收：本地验收会话打开评估中心后，趋势区展示 4 个指标、4 根趋势柱和风险标记；浏览器日志无 error/warn。
 - V0.10D 浏览器验收截图：`.scratch/v0.10d-regression-run-trend.png`。
+- V0.10E 完成 Regression Run 洞察自动化测试：最新 Run 低于风险线且较上次下降时，页面展示质量下滑、最新通过率、较上次变化、风险 Run 数和处理建议。
+- V0.10E 完成浏览器验收：本地验收会话打开评估中心后，洞察卡展示质量状态、3 个事实项和建议；浏览器日志无 error/warn。
+- V0.10E 浏览器验收截图：`.scratch/v0.10e-regression-run-insight.png`。
 
 验证时没有发现浏览器控制台错误。
 

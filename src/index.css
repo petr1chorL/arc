@@ -2128,6 +2128,74 @@ kbd {
   font-size: 16px;
 }
 
+.regression-run-insight {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(260px, 0.95fr);
+  gap: 14px;
+  align-items: center;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.34);
+  box-shadow: var(--shadow-raised-sm);
+}
+
+.regression-run-insight.danger {
+  border-left: 4px solid rgba(231, 128, 98, 0.74);
+}
+
+.regression-run-insight.warning {
+  border-left: 4px solid rgba(224, 157, 86, 0.74);
+}
+
+.regression-run-insight.success {
+  border-left: 4px solid rgba(84, 157, 126, 0.72);
+}
+
+.regression-run-insight h4 {
+  margin: 4px 0 6px;
+  color: var(--ink);
+  font-size: 18px;
+}
+
+.regression-run-insight p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.insight-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.insight-facts span {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.3);
+  box-shadow: var(--shadow-inset);
+}
+
+.insight-facts small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.insight-facts strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.regression-run-insight .insight-recommendation {
+  grid-column: 1 / -1;
+  color: var(--ink);
+  font-weight: 700;
+}
+
 .trend-metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

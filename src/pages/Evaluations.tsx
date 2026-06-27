@@ -133,6 +133,16 @@ interface RegressionRunTrend {
   points: RegressionRunTrendPoint[]
 }
 
+interface RegressionRunInsight {
+  title: string
+  summary: string
+  recommendation: string
+  tone: 'danger' | 'warning' | 'success'
+  latestPassRate: number
+  previousDelta: number
+  riskRunCount: number
+}
+
 function formatDelta(value: number) {
   return value > 0 ? `+${value}` : `${value}`
 }
@@ -173,6 +183,61 @@ function buildRegressionRunTrend(runs: RegressionRun[]): RegressionRunTrend | nu
     bestPassRate,
     runCount: points.length,
     points,
+  }
+}
+
+function buildRegressionRunInsight(trend: RegressionRunTrend): RegressionRunInsight {
+  const latestPoint = trend.points[trend.points.length - 1]
+  const riskRunCount = trend.points.filter((point) => point.isRisk).length
+  const latestIsRisk = latestPoint.isRisk
+  const isDeclining = trend.previousDelta < 0
+
+  if (latestIsRisk && isDeclining) {
+    return {
+      title: '质量下滑',
+      summary: `最新 Run 通过率低于风险线，且较上次下降 ${Math.abs(trend.previousDelta)} 点。`,
+      recommendation: '建议：优先查看最新失败样本',
+      tone: 'danger',
+      latestPassRate: trend.latestPassRate,
+      previousDelta: trend.previousDelta,
+      riskRunCount,
+    }
+  }
+
+  if (latestIsRisk) {
+    return {
+      title: '质量风险',
+      summary: '最新 Run 仍低于 70% 风险线，需要先处理失败样本再扩大使用。',
+      recommendation: '建议：先修复风险 Run 中的失败样本',
+      tone: 'danger',
+      latestPassRate: trend.latestPassRate,
+      previousDelta: trend.previousDelta,
+      riskRunCount,
+    }
+  }
+
+  if (isDeclining) {
+    return {
+      title: '轻微回落',
+      summary: `最新 Run 仍在风险线以上，但较上次下降 ${Math.abs(trend.previousDelta)} 点。`,
+      recommendation: '建议：对比最近两次 Run，确认下降是否来自样本变化',
+      tone: 'warning',
+      latestPassRate: trend.latestPassRate,
+      previousDelta: trend.previousDelta,
+      riskRunCount,
+    }
+  }
+
+  return {
+    title: trend.previousDelta > 0 ? '质量改善' : '质量稳定',
+    summary: trend.previousDelta > 0
+      ? `最新 Run 较上次提升 ${trend.previousDelta} 点，当前趋势可继续观察。`
+      : '最新 Run 与上次持平，当前趋势相对稳定。',
+    recommendation: '建议：保留当前 Rubric 与样本集，继续积累回归记录',
+    tone: 'success',
+    latestPassRate: trend.latestPassRate,
+    previousDelta: trend.previousDelta,
+    riskRunCount,
   }
 }
 
@@ -340,6 +405,11 @@ export function Evaluations() {
   const regressionRunTrend = useMemo(
     () => buildRegressionRunTrend(filteredRegressionRuns),
     [filteredRegressionRuns],
+  )
+
+  const regressionRunInsight = useMemo(
+    () => (regressionRunTrend ? buildRegressionRunInsight(regressionRunTrend) : null),
+    [regressionRunTrend],
   )
 
   const activeSelectedSamples = useMemo(
@@ -1083,6 +1153,34 @@ export function Evaluations() {
               </div>
               <span className="status-pill">{regressionRunTrend.runCount} runs</span>
             </header>
+            {regressionRunInsight && (
+              <div
+                className={`regression-run-insight ${regressionRunInsight.tone}`}
+                role="region"
+                aria-label="Regression Run Insight"
+              >
+                <div>
+                  <span className="eyebrow">QUALITY INSIGHT</span>
+                  <h4>{regressionRunInsight.title}</h4>
+                  <p>{regressionRunInsight.summary}</p>
+                </div>
+                <div className="insight-facts">
+                  <span>
+                    <small>最新通过率</small>
+                    <strong>最新通过率 {regressionRunInsight.latestPassRate}%</strong>
+                  </span>
+                  <span>
+                    <small>较上次</small>
+                    <strong>较上次 {formatDelta(regressionRunInsight.previousDelta)}</strong>
+                  </span>
+                  <span>
+                    <small>风险 Run</small>
+                    <strong>风险 Run {regressionRunInsight.riskRunCount} 个</strong>
+                  </span>
+                </div>
+                <p className="insight-recommendation">{regressionRunInsight.recommendation}</p>
+              </div>
+            )}
             <div className="trend-metrics">
               <div>
                 <span>最新通过率</span>

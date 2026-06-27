@@ -1073,13 +1073,101 @@ describe('Evaluations page', () => {
     renderPage()
 
     const trend = await screen.findByRole('region', { name: 'Regression Run Trend' })
-    expect(within(trend).getByText('最新通过率 80%')).toBeInTheDocument()
-    expect(within(trend).getByText('较上次 +20')).toBeInTheDocument()
-    expect(within(trend).getByText('平均通过率 60%')).toBeInTheDocument()
-    expect(within(trend).getByText('最佳通过率 80%')).toBeInTheDocument()
+    const metrics = trend.querySelector('.trend-metrics')
+    expect(metrics).not.toBeNull()
+    expect(within(metrics as HTMLElement).getByText('最新通过率 80%')).toBeInTheDocument()
+    expect(within(metrics as HTMLElement).getByText('较上次 +20')).toBeInTheDocument()
+    expect(within(metrics as HTMLElement).getByText('平均通过率 60%')).toBeInTheDocument()
+    expect(within(metrics as HTMLElement).getByText('最佳通过率 80%')).toBeInTheDocument()
     expect(within(trend).getByText('3 runs')).toBeInTheDocument()
     expect(within(trend).getByLabelText('Regression Run run-oldest pass rate 40%')).toBeInTheDocument()
     expect(within(trend).getByLabelText('Regression Run run-middle pass rate 60%')).toBeInTheDocument()
     expect(within(trend).getByLabelText('Regression Run run-latest pass rate 80%')).toBeInTheDocument()
+  })
+
+  it('shows Regression Run insight for declining risky runs', async () => {
+    const runs = [
+      {
+        id: 'run-latest-risk',
+        sampleSetId: 'sample-set-1',
+        sampleSetName: 'Launch Golden Set',
+        rubricId: rubricAssets[0].id,
+        rubricName: rubricAssets[0].name,
+        rubricVersion: 'v1.2',
+        status: 'completed',
+        totalSamples: 10,
+        passedSamples: 6,
+        failedSamples: 4,
+        passRate: 60,
+        evaluationIds: ['eval-latest-risk'],
+        records: [],
+        createdBy: 'user-1',
+        createdAt: '2026-06-27T00:20:00Z',
+        completedAt: '2026-06-27T00:20:00Z',
+      },
+      {
+        id: 'run-previous-healthy',
+        sampleSetId: 'sample-set-1',
+        sampleSetName: 'Launch Golden Set',
+        rubricId: rubricAssets[0].id,
+        rubricName: rubricAssets[0].name,
+        rubricVersion: 'v1.1',
+        status: 'completed',
+        totalSamples: 20,
+        passedSamples: 17,
+        failedSamples: 3,
+        passRate: 85,
+        evaluationIds: ['eval-previous-healthy'],
+        records: [],
+        createdBy: 'user-1',
+        createdAt: '2026-06-27T00:10:00Z',
+        completedAt: '2026-06-27T00:10:00Z',
+      },
+      {
+        id: 'run-oldest-healthy',
+        sampleSetId: 'sample-set-1',
+        sampleSetName: 'Launch Golden Set',
+        rubricId: rubricAssets[0].id,
+        rubricName: rubricAssets[0].name,
+        rubricVersion: 'v1.0',
+        status: 'completed',
+        totalSamples: 10,
+        passedSamples: 9,
+        failedSamples: 1,
+        passRate: 90,
+        evaluationIds: ['eval-oldest-healthy'],
+        records: [],
+        createdBy: 'user-1',
+        createdAt: '2026-06-27T00:00:00Z',
+        completedAt: '2026-06-27T00:00:00Z',
+      },
+    ]
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      if (input === `/api/workspaces/${workspace.id}/evaluations/overview`) {
+        return response(overview)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/rubrics`) {
+        return response(rubricAssets)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/records`) {
+        return response([])
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/sample-sets`) {
+        return response([])
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/regression-runs`) {
+        return response(runs)
+      }
+      return response({ detail: 'not found' }, 404)
+    }))
+
+    renderPage()
+
+    const insight = await screen.findByRole('region', { name: 'Regression Run Insight' })
+    expect(within(insight).getByText('质量下滑')).toBeInTheDocument()
+    expect(within(insight).getByText('最新通过率 60%')).toBeInTheDocument()
+    expect(within(insight).getByText('较上次 -25')).toBeInTheDocument()
+    expect(within(insight).getByText('风险 Run 1 个')).toBeInTheDocument()
+    expect(within(insight).getByText('建议：优先查看最新失败样本')).toBeInTheDocument()
   })
 })
