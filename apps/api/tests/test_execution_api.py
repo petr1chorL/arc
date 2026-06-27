@@ -184,6 +184,47 @@ def test_agent_test_run_passes_published_runtime_config_to_gateway(tmp_path):
     assert gateway.calls[0]["max_output_tokens"] == 1600
 
 
+def test_agent_test_run_passes_bound_provider_secret_ref_label_to_gateway(tmp_path):
+    gateway = FakeGateway([FakeModelResult("This is a provider secret ref runtime response.")])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'execution.db'}",
+        model_gateway=gateway,
+    )
+    provider = client.post(
+        workspace_url(workspace_id, "/model-providers"),
+        json={
+            "name": "DeepSeek Runtime",
+            "providerType": "openai-compatible",
+            "baseUrl": "https://api.deepseek.com",
+            "defaultModel": "deepseek-v4-pro",
+            "secretRef": "DEEPSEEK_RUNTIME_KEY",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    agent, _ = create_published_agent(client, workspace_id)
+    client.patch(
+        workspace_url(workspace_id, f"/agents/{agent['id']}"),
+        json={"modelProviderId": provider["id"]},
+        headers=csrf_headers(client),
+    )
+    version = client.post(
+        workspace_url(workspace_id, f"/agents/{agent['id']}/publish"),
+        headers=csrf_headers(client),
+    ).json()
+
+    response = client.post(
+        workspace_url(workspace_id, f"/agents/{agent['id']}/test-runs"),
+        json={"input": "Summarize the customer issue.", "version": version["version"]},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 201
+    assert gateway.calls[0]["model_provider_id"] == provider["id"]
+    assert gateway.calls[0]["model_secret_ref"] == "DEEPSEEK_RUNTIME_KEY"
+    assert "apiKey" not in gateway.calls[0]
+    assert "DEEPSEEK_RUNTIME_KEY" not in response.text
+
+
 def test_workflow_run_retries_and_persists_node_timeline(tmp_path):
     gateway = FakeGateway([
         RuntimeError("temporary provider failure"),

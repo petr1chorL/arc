@@ -70,6 +70,7 @@ def test_agent_runtime_returns_structured_success_result():
         "model_provider_id": None,
         "model_provider": "openai-compatible",
         "model_base_url": "",
+        "model_secret_ref": "",
         "temperature": 0.2,
         "max_output_tokens": 2000,
     }]

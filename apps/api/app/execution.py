@@ -17,6 +17,7 @@ from app.models import (
     ExecutionJobRecord,
     HumanTaskRecord,
     HumanReviewRecord,
+    ModelProviderRecord,
     NodeRunRecord,
     ResumeRequestRecord,
     ReviewDecisionRecord,
@@ -113,6 +114,17 @@ class ExecutionService:
             input_text=input_text,
         )
         runtime_input = self._input_with_tool_summaries(input_text, tool_call_summaries)
+        model_provider_id = snapshot.get("modelProviderId")
+        model_secret_ref = ""
+        if model_provider_id:
+            provider = session.scalar(
+                select(ModelProviderRecord).where(
+                    ModelProviderRecord.id == model_provider_id,
+                    ModelProviderRecord.workspace_id == run.workspace_id,
+                ),
+            )
+            if provider is not None:
+                model_secret_ref = provider.secret_ref
         result = self.agent_runtime.execute(
             AgentRuntimeRequest(
                 workspace_id=run.workspace_id,
@@ -124,9 +136,10 @@ class ExecutionService:
                 input_text=runtime_input,
                 system_prompt=effective_prompt,
                 model=snapshot.get("model", ""),
-                model_provider_id=snapshot.get("modelProviderId"),
+                model_provider_id=model_provider_id,
                 model_provider=snapshot.get("modelProvider", "openai-compatible"),
                 model_base_url=snapshot.get("modelBaseUrl", ""),
+                model_secret_ref=model_secret_ref,
                 temperature=snapshot.get("temperature", 0.2),
                 max_output_tokens=snapshot.get("maxOutputTokens", 2000),
                 tools=snapshot.get("tools", []),

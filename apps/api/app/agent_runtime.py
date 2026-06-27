@@ -28,6 +28,7 @@ class AgentRuntimeRequest:
     model_provider_id: str | None = None
     model_provider: str = "openai-compatible"
     model_base_url: str = ""
+    model_secret_ref: str = ""
     temperature: float = 0.2
     max_output_tokens: int = 2000
     tools: list[str] = field(default_factory=list)
@@ -78,6 +79,7 @@ class AgentRuntimeExecutor:
                     model_provider_id=request.model_provider_id,
                     model_provider=request.model_provider,
                     model_base_url=request.model_base_url,
+                    model_secret_ref=request.model_secret_ref,
                     temperature=request.temperature,
                     max_output_tokens=request.max_output_tokens,
                 )

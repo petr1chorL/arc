@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import os
 from typing import Protocol
 
 import httpx
@@ -28,6 +29,7 @@ class ModelGateway(Protocol):
         model_provider_id: str | None = None,
         model_provider: str = "openai-compatible",
         model_base_url: str = "",
+        model_secret_ref: str = "",
         temperature: float = 0.2,
         max_output_tokens: int = 2000,
     ) -> ModelResult:
@@ -47,11 +49,14 @@ class OpenAICompatibleGateway:
         model_provider_id: str | None = None,
         model_provider: str = "openai-compatible",
         model_base_url: str = "",
+        model_secret_ref: str = "",
         temperature: float = 0.2,
         max_output_tokens: int = 2000,
     ) -> ModelResult:
         effective_base_url = model_base_url.strip() or self.settings.model_base_url
-        if not self.settings.model_api_key or not effective_base_url:
+        effective_api_key = os.environ.get(model_secret_ref.strip(), "") if model_secret_ref.strip() else ""
+        effective_api_key = effective_api_key or self.settings.model_api_key
+        if not effective_api_key or not effective_base_url:
             raise ModelGatewayError("模型服务未配置")
         resolved_model = self.settings.model_default_model or model
         if not resolved_model:
@@ -61,7 +66,7 @@ class OpenAICompatibleGateway:
             response = httpx.post(
                 endpoint,
                 headers={
-                    "Authorization": f"Bearer {self.settings.model_api_key}",
+                    "Authorization": f"Bearer {effective_api_key}",
                     "Content-Type": "application/json",
                 },
                 json={
