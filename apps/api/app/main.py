@@ -77,8 +77,12 @@ from app.schemas import (
     HumanTaskTransfer,
     ModelProviderConnectivityRead,
     ModelProviderCreate,
+    ModelProviderDraftAgentImpactRead,
+    ModelProviderImpactRead,
+    ModelProviderImpactTotalsRead,
     ModelProviderRead,
     ModelProviderUpdate,
+    ModelProviderVersionImpactRead,
     NodeRunRead,
     ObservabilityAuditEventRead,
     ObservabilityAlertRead,
@@ -1615,6 +1619,72 @@ def create_app(
         session.commit()
         session.refresh(provider)
         return provider
+
+    @router.get("/model-providers/{provider_id}/impact", response_model=ModelProviderImpactRead)
+    def get_model_provider_impact(
+        provider_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> ModelProviderImpactRead:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "asset.read",
+            action="model_provider.impact",
+            target_type="model_provider",
+            target_id=provider_id,
+            request=request,
+        )
+        provider = find_model_provider(
+            session,
+            workspace_id=context.workspace.id,
+            provider_id=provider_id,
+        )
+        draft_agents = list(session.scalars(
+            select(AgentRecord)
+            .where(
+                AgentRecord.workspace_id == context.workspace.id,
+                AgentRecord.model_provider_id == provider.id,
+            )
+            .order_by(AgentRecord.updated_at.desc()),
+        ))
+        version_records = list(session.scalars(
+            select(AgentVersionRecord)
+            .where(AgentVersionRecord.workspace_id == context.workspace.id)
+            .order_by(AgentVersionRecord.created_at.desc()),
+        ))
+        published_versions = [
+            version
+            for version in version_records
+            if version.snapshot.get("modelProviderId") == provider.id
+        ]
+        return ModelProviderImpactRead(
+            provider_id=provider.id,
+            totals=ModelProviderImpactTotalsRead(
+                draft_agents=len(draft_agents),
+                published_versions=len(published_versions),
+            ),
+            draft_agents=[
+                ModelProviderDraftAgentImpactRead(
+                    agent_id=agent.id,
+                    agent_name=agent.name,
+                    status=agent.status,
+                    version=agent.version,
+                )
+                for agent in draft_agents
+            ],
+            published_versions=[
+                ModelProviderVersionImpactRead(
+                    agent_id=str(version.snapshot.get("id", version.agent_id)),
+                    agent_name=str(version.snapshot.get("name", "")),
+                    version_id=version.id,
+                    version=version.version,
+                    model_secret_ref=str(version.snapshot.get("modelSecretRef", "")),
+                )
+                for version in published_versions
+            ],
+        )
 
     @router.post(
         "/model-providers/{provider_id}/test",

@@ -1,6 +1,6 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.15A Provider 快照冻结
+> 对应版本：V0.15B Provider 影响面视图
 > 上一阶段：V0.8F 轻量告警 / 通知 Outbox
 > 更新时间：2026-06-28
 
@@ -18,7 +18,7 @@ Agent 执行已引入第一版 Runtime 合约：`app.agent_runtime` 负责统一
 
 Agent 草稿已新增第一版运行配置入口：后端持久化 `modelProvider`、`modelBaseUrl`、`temperature` 和 `maxOutputTokens`，Agent 详情页可编辑这些非密钥字段，保存草稿和发布版本时会进入不可变 Agent 快照。Agent 直接运行和工作流 Agent 节点执行时，会把已发布快照里的模型、Provider ID、Provider 类型、Base URL、温度和最大输出 Tokens 传入 Agent Runtime，并由 OpenAI-compatible ModelGateway 使用 Base URL、温度和最大输出 Tokens 覆盖默认请求参数。绑定 Provider 的 Agent 运行时还会按 `modelProviderId` 查询 Provider 资产，把 `secretRef` 标签传给 ModelGateway；ModelGateway 在外呼边界解析后端环境变量，并继续禁止 API Key 进入前端、数据库、运行响应或 Agent 快照。
 
-模型 Provider 已新增 Workspace 级资产入口：`model_providers` 表保存 Provider 名称、类型、Base URL、默认模型、`secretRef` 和状态；前端“模型 Provider”页面可创建 Provider、查看列表、测试连接、编辑非密钥配置并停用 Provider。Provider API 忽略误传的 `apiKey`，不保存、不返回、不在列表、编辑或连接测试中泄露密钥；连接测试当前只检查 `secretRef` 指向的后端环境变量是否存在。Agent 草稿可通过下拉框绑定当前 Workspace 的启用 Provider 资产，保存后会固化 `modelProviderId`，并同步 Provider 类型、Base URL 和默认模型；已停用 Provider 不能再被新的 Agent 草稿绑定，后端会返回“模型 Provider 已停用”。发布 Agent 版本时会重新校验绑定 Provider 仍处于启用状态，并把 Provider 类型、Base URL、默认模型和非密钥 `modelSecretRef` 标签写入不可变快照。当前 Runtime 已使用 Provider 的非密钥配置字段，并会优先按已发布 Agent 快照中的 `modelSecretRef` 解析后端环境变量；旧快照缺少该字段时才回退查询当前 Provider 资产。
+模型 Provider 已新增 Workspace 级资产入口：`model_providers` 表保存 Provider 名称、类型、Base URL、默认模型、`secretRef` 和状态；前端“模型 Provider”页面可创建 Provider、查看列表、测试连接、编辑非密钥配置并停用 Provider。Provider API 忽略误传的 `apiKey`，不保存、不返回、不在列表、编辑、连接测试或影响面视图中泄露密钥；连接测试当前只检查 `secretRef` 指向的后端环境变量是否存在。Agent 草稿可通过下拉框绑定当前 Workspace 的启用 Provider 资产，保存后会固化 `modelProviderId`，并同步 Provider 类型、Base URL 和默认模型；已停用 Provider 不能再被新的 Agent 草稿绑定，后端会返回“模型 Provider 已停用”。发布 Agent 版本时会重新校验绑定 Provider 仍处于启用状态，并把 Provider 类型、Base URL、默认模型和非密钥 `modelSecretRef` 标签写入不可变快照。当前 Runtime 已使用 Provider 的非密钥配置字段，并会优先按已发布 Agent 快照中的 `modelSecretRef` 解析后端环境变量；旧快照缺少该字段时才回退查询当前 Provider 资产。模型 Provider 页面还会读取 Provider 影响面，展示当前依赖该 Provider 的 Agent 草稿数量、已发布版本数量和最近依赖项名称。
 
 Tool / Skill 已新增第一版 Workspace 级资产库后端：`tool_skill_assets` 表保存 `tool` 与 `skill` 两类资产，支持创建、列表查询、参数 Schema、状态、适配类型、适配配置和 Workspace 隔离。Agent 更新和发布时会校验所绑定的 Tools / Skills 必须是当前 Workspace 内已启用资产。`tool_skill_asset_invocations` 表提供调用日志查询能力，并已支持 HTTP Tool 测试调用写入成功或失败日志。
 
@@ -999,6 +999,10 @@ TypeScript 编译检查
 - V0.15A 完成 Provider 快照冻结 RED/GREEN 测试：发布快照测试和运行快照测试首次因缺少 `modelSecretRef` 失败；发布禁用 Provider 测试首次因返回 `201` 而不是 `422` 失败。随后 Agent 发布版本会写入 `modelSecretRef`，运行时优先使用快照值，绑定 Provider 已停用时发布失败。
 - V0.15A 完成 focused 回归：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests/test_agents_api.py::test_agent_can_bind_workspace_model_provider_asset apps/api/tests/test_agents_api.py::test_agent_publish_rejects_disabled_bound_model_provider apps/api/tests/test_execution_api.py::test_agent_test_run_uses_published_provider_secret_ref_snapshot -q` 3 项通过；`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests/test_agents_api.py apps/api/tests/test_execution_api.py apps/api/tests/test_model_providers_api.py -q` 28 项通过。
 - V0.15A 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 后端完整测试集通过；`npm run lint` 通过；`npm run build` 通过，保留既有 Vite chunk size warning。
+- V0.15B 完成 Provider 影响面视图 RED/GREEN 测试：后端首次因 `GET /model-providers/{id}/impact` 返回 404 失败，随后接口返回 `draftAgents`、`publishedVersions` 和 `totals`；前端首次因缺少 `getModelProviderImpact` 和页面未显示“草稿 Agent 1”失败，随后 Provider 卡片展示草稿 Agent 数、已发布版本数和依赖项名称。
+- V0.15B 完成 focused 回归：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests/test_model_providers_api.py::test_model_provider_impact_lists_bound_drafts_and_published_versions -q` 1 项通过；`npx vitest run src/api/modelProviders.test.ts src/pages/ModelProviders.test.tsx --reporter verbose` 2 个测试文件、7 项通过。
+- V0.15B 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests/test_model_providers_api.py apps/api/tests/test_agents_api.py apps/api/tests/test_execution_api.py -q` 29 项通过；显式测试文件列表运行 `npx vitest run @($files) --reporter verbose` 29 个测试文件、115 项通过；`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 后端完整测试集通过；`npm run lint` 通过；`npm run build` 通过，保留既有 Vite chunk size warning。
+- V0.15B 完成浏览器验收：模型 Provider 页面展示“草稿 Agent”和“已发布版本”影响面指标，页面无 `apiKey` 文本；浏览器控制台新增 warning/error 为 0。截图：`.scratch/v0.15b-provider-impact.png`；验收结果：`.scratch/v0.15b-browser-result.json`。
 
 验证时没有发现浏览器控制台错误。
 

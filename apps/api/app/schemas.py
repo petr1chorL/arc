@@ -389,6 +389,41 @@ class ModelProviderConnectivityRead(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class ModelProviderDraftAgentImpactRead(BaseModel):
+    agent_id: str = Field(serialization_alias="agentId")
+    agent_name: str = Field(serialization_alias="agentName")
+    status: str
+    version: str
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ModelProviderVersionImpactRead(BaseModel):
+    agent_id: str = Field(serialization_alias="agentId")
+    agent_name: str = Field(serialization_alias="agentName")
+    version_id: str = Field(serialization_alias="versionId")
+    version: str
+    model_secret_ref: str = Field(serialization_alias="modelSecretRef")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ModelProviderImpactTotalsRead(BaseModel):
+    draft_agents: int = Field(serialization_alias="draftAgents")
+    published_versions: int = Field(serialization_alias="publishedVersions")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ModelProviderImpactRead(BaseModel):
+    provider_id: str = Field(serialization_alias="providerId")
+    totals: ModelProviderImpactTotalsRead
+    draft_agents: list[ModelProviderDraftAgentImpactRead] = Field(serialization_alias="draftAgents")
+    published_versions: list[ModelProviderVersionImpactRead] = Field(serialization_alias="publishedVersions")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class VersionRead(BaseModel):
     id: str
     version: str

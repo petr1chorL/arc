@@ -130,6 +130,31 @@ export interface ModelProviderConnectivity {
   message: string
 }
 
+export interface ModelProviderDraftAgentImpact {
+  agentId: string
+  agentName: string
+  status: string
+  version: string
+}
+
+export interface ModelProviderVersionImpact {
+  agentId: string
+  agentName: string
+  versionId: string
+  version: string
+  modelSecretRef: string
+}
+
+export interface ModelProviderImpact {
+  providerId: string
+  totals: {
+    draftAgents: number
+    publishedVersions: number
+  }
+  draftAgents: ModelProviderDraftAgentImpact[]
+  publishedVersions: ModelProviderVersionImpact[]
+}
+
 export interface WorkflowNodeContract {
   id: string
   type: string

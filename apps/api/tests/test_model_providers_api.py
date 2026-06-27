@@ -112,3 +112,71 @@ def test_model_provider_can_be_updated_deactivated_and_rejected_for_agent_bindin
 
     assert bind_response.status_code == 422
     assert bind_response.json()["detail"] == "模型 Provider 已停用"
+
+
+def test_model_provider_impact_lists_bound_drafts_and_published_versions(tmp_path):
+    database_url = f"sqlite:///{tmp_path / 'model-provider-impact.db'}"
+    client, workspace_id = create_authenticated_client(database_url)
+    provider = client.post(
+        workspace_url(workspace_id, "/model-providers"),
+        json={
+            "name": "DeepSeek Impact",
+            "providerType": "openai-compatible",
+            "baseUrl": "https://api.deepseek.com",
+            "defaultModel": "deepseek-v4-pro",
+            "secretRef": "DEEPSEEK_IMPACT_KEY",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    draft_agent = client.post(
+        workspace_url(workspace_id, "/agents"),
+        json={
+            "name": "草稿依赖 Agent",
+            "role": "Still bound to the Provider draft.",
+            "owner": "Platform Team",
+            "model": "placeholder-model",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    client.patch(
+        workspace_url(workspace_id, f"/agents/{draft_agent['id']}"),
+        json={"modelProviderId": provider["id"]},
+        headers=csrf_headers(client),
+    )
+    versioned_agent = client.post(
+        workspace_url(workspace_id, "/agents"),
+        json={
+            "name": "版本依赖 Agent",
+            "role": "Published with the Provider snapshot.",
+            "owner": "Platform Team",
+            "model": "placeholder-model",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    client.patch(
+        workspace_url(workspace_id, f"/agents/{versioned_agent['id']}"),
+        json={"modelProviderId": provider["id"]},
+        headers=csrf_headers(client),
+    )
+    published = client.post(
+        workspace_url(workspace_id, f"/agents/{versioned_agent['id']}/publish"),
+        headers=csrf_headers(client),
+    ).json()
+
+    response = client.get(workspace_url(workspace_id, f"/model-providers/{provider['id']}/impact"))
+
+    assert response.status_code == 200
+    impact = response.json()
+    assert impact["providerId"] == provider["id"]
+    assert impact["totals"] == {"draftAgents": 2, "publishedVersions": 1}
+    assert {item["agentName"] for item in impact["draftAgents"]} == {"草稿依赖 Agent", "版本依赖 Agent"}
+    assert impact["publishedVersions"] == [
+        {
+            "agentId": versioned_agent["id"],
+            "agentName": "版本依赖 Agent",
+            "versionId": published["id"],
+            "version": published["version"],
+            "modelSecretRef": "DEEPSEEK_IMPACT_KEY",
+        },
+    ]
+    assert "apiKey" not in response.text

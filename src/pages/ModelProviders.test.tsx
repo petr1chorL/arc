@@ -106,11 +106,53 @@ describe('ModelProviders page', () => {
     await user.click(screen.getByRole('button', { name: '保存 DeepSeek 生产' }))
 
     expect(await screen.findByText('DeepSeek 更新')).toBeInTheDocument()
-    const updateBody = JSON.parse(String(fetchMock.mock.calls[1][1]?.body))
+    const updateCall = fetchMock.mock.calls.find(([input, init]) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
+      return url === `/api/workspaces/${workspace.id}/model-providers/${provider.id}` && init?.method === 'PATCH'
+    })
+    const updateBody = JSON.parse(String(updateCall?.[1]?.body))
     expect(updateBody.name).toBe('DeepSeek 更新')
     expect(updateBody).not.toHaveProperty('apiKey')
 
     await user.click(screen.getByRole('button', { name: '停用 DeepSeek 更新' }))
     expect(await screen.findByText('disabled')).toBeInTheDocument()
+  })
+
+  it('shows Provider impact for draft Agents and published versions', async () => {
+    const impact = {
+      providerId: provider.id,
+      totals: { draftAgents: 1, publishedVersions: 1 },
+      draftAgents: [
+        { agentId: 'agent-1', agentName: '草稿依赖 Agent', status: '调试中', version: 'draft' },
+      ],
+      publishedVersions: [
+        {
+          agentId: 'agent-2',
+          agentName: '版本依赖 Agent',
+          versionId: 'version-1',
+          version: 'v1.0.0',
+          modelSecretRef: 'DEEPSEEK_API_KEY',
+        },
+      ],
+    }
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
+      if (url === `/api/workspaces/${workspace.id}/model-providers` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([provider]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/model-providers/${provider.id}/impact`) {
+        return Promise.resolve(new Response(JSON.stringify(impact), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify({ detail: 'not found' }), { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage()
+
+    expect(await screen.findByText('草稿 Agent 1')).toBeInTheDocument()
+    expect(screen.getByText('已发布版本 1')).toBeInTheDocument()
+    expect(screen.getByText('草稿依赖 Agent')).toBeInTheDocument()
+    expect(screen.getByText('版本依赖 Agent v1.0.0')).toBeInTheDocument()
+    expect(screen.queryByText('apiKey')).not.toBeInTheDocument()
   })
 })

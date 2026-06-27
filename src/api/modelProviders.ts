@@ -1,4 +1,4 @@
-import type { ModelProvider, ModelProviderConnectivity, ModelProviderType } from '../types'
+import type { ModelProvider, ModelProviderConnectivity, ModelProviderImpact, ModelProviderType } from '../types'
 import { apiFetch, readJson } from './http'
 
 export interface CreateModelProviderInput {
@@ -37,6 +37,13 @@ export async function testModelProviderConnection(
   return readJson<ModelProviderConnectivity>(await apiFetch(workspacePath(workspaceId, `/${providerId}/test`), {
     method: 'POST',
   }))
+}
+
+export async function getModelProviderImpact(
+  workspaceId: string,
+  providerId: string,
+): Promise<ModelProviderImpact> {
+  return readJson<ModelProviderImpact>(await apiFetch(workspacePath(workspaceId, `/${providerId}/impact`)))
 }
 
 export async function updateModelProvider(

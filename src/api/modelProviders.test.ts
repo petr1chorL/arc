@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createModelProvider,
   deactivateModelProvider,
+  getModelProviderImpact,
   listModelProviders,
   testModelProviderConnection,
   updateModelProvider,
@@ -116,5 +117,36 @@ describe('Model Provider API', () => {
         credentials: 'same-origin',
       }),
     )
+  })
+
+  it('loads Provider impact without API keys', async () => {
+    const impact = {
+      providerId: provider.id,
+      totals: { draftAgents: 1, publishedVersions: 1 },
+      draftAgents: [
+        { agentId: 'agent-1', agentName: '草稿依赖 Agent', status: '调试中', version: 'draft' },
+      ],
+      publishedVersions: [
+        {
+          agentId: 'agent-2',
+          agentName: '版本依赖 Agent',
+          versionId: 'version-1',
+          version: 'v1.0.0',
+          modelSecretRef: 'DEEPSEEK_API_KEY',
+        },
+      ],
+    }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(impact), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(getModelProviderImpact(workspaceId, provider.id)).resolves.toEqual(impact)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/workspaces/workspace-1/model-providers/provider-1/impact',
+      expect.objectContaining({
+        credentials: 'same-origin',
+      }),
+    )
+    expect(JSON.stringify(impact)).not.toContain('apiKey')
   })
 })

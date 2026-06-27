@@ -3,13 +3,14 @@ import { useEffect, useState } from 'react'
 import {
   createModelProvider,
   deactivateModelProvider,
+  getModelProviderImpact,
   listModelProviders,
   testModelProviderConnection,
   updateModelProvider,
   type CreateModelProviderInput,
 } from '../api/modelProviders'
 import { useWorkspace } from '../auth/workspaceContextState'
-import type { ModelProvider, ModelProviderConnectivity, ModelProviderType } from '../types'
+import type { ModelProvider, ModelProviderConnectivity, ModelProviderImpact, ModelProviderType } from '../types'
 
 const initialForm: CreateModelProviderInput = {
   name: '',
@@ -26,13 +27,30 @@ export function ModelProviders() {
   const [feedback, setFeedback] = useState('')
   const [error, setError] = useState('')
   const [connectivityByProviderId, setConnectivityByProviderId] = useState<Record<string, ModelProviderConnectivity>>({})
+  const [impactByProviderId, setImpactByProviderId] = useState<Record<string, ModelProviderImpact>>({})
   const [editingProviderId, setEditingProviderId] = useState('')
   const [editForm, setEditForm] = useState<CreateModelProviderInput>(initialForm)
   const [isBusy, setIsBusy] = useState(false)
 
   useEffect(() => {
     void listModelProviders(workspace.id)
-      .then(setProviders)
+      .then((loadedProviders) => {
+        setProviders(loadedProviders)
+        return Promise.all(loadedProviders.map(async (provider) => {
+          try {
+            return await getModelProviderImpact(workspace.id, provider.id)
+          } catch {
+            return undefined
+          }
+        }))
+      })
+      .then((impacts) => {
+        setImpactByProviderId(Object.fromEntries(
+          impacts
+            .filter((impact): impact is ModelProviderImpact => Boolean(impact))
+            .map((impact) => [impact.providerId, impact]),
+        ))
+      })
       .catch((loadError) => setError(loadError instanceof Error ? loadError.message : '模型 Provider 加载失败'))
   }, [workspace.id])
 
@@ -194,6 +212,7 @@ export function ModelProviders() {
           {providers.length === 0 && <div className="table-state">暂无模型 Provider。</div>}
           {providers.map((provider) => {
             const connectivity = connectivityByProviderId[provider.id]
+            const impact = impactByProviderId[provider.id]
             const isEditing = editingProviderId === provider.id
             return (
               <article className="provider-card" key={provider.id}>
@@ -219,6 +238,26 @@ export function ModelProviders() {
                   </>
                 )}
                 {connectivity && <p className="provider-connectivity">{connectivity.message}</p>}
+                {impact && (
+                  <div className="provider-impact">
+                    <div className="provider-impact-metrics">
+                      <span>草稿 Agent {impact.totals.draftAgents}</span>
+                      <span>已发布版本 {impact.totals.publishedVersions}</span>
+                    </div>
+                    {(impact.draftAgents.length > 0 || impact.publishedVersions.length > 0) ? (
+                      <ul>
+                        {impact.draftAgents.slice(0, 3).map((agent) => (
+                          <li key={`draft-${agent.agentId}`}>{agent.agentName}</li>
+                        ))}
+                        {impact.publishedVersions.slice(0, 3).map((version) => (
+                          <li key={`version-${version.versionId}`}>{version.agentName} {version.version}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p>暂无 Agent 依赖</p>
+                    )}
+                  </div>
+                )}
                 <div className="provider-card-actions">
                   {isEditing ? (
                     <>
