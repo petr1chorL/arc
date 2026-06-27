@@ -37,6 +37,9 @@ import type {
   ObservabilityRisk,
   ObservabilityRunDetail,
   ObservabilityExecutionEvent,
+  ObservabilityNodeRun,
+  ObservabilityHumanTask,
+  ObservabilityAuditEvent,
   ObservabilityRunSummary,
 } from '../types'
 
@@ -118,6 +121,61 @@ function riskMessage(risk: ObservabilityRisk, runs: ObservabilityRunSummary[]) {
   const relatedRun = runs.find((run) => run.id === risk.runId)
   const [status = '', node = '未知节点'] = risk.message.split(' · ')
   return `${displayStatus(relatedRun?.status ?? status)} · ${relatedRun?.currentNode || node}`
+}
+
+interface TraceLinkSpan {
+  node: ObservabilityNodeRun | null
+  spanId: string
+  parentSpanId: string | null
+  events: ObservabilityExecutionEvent[]
+  humanTasks: ObservabilityHumanTask[]
+  auditEvents: ObservabilityAuditEvent[]
+}
+
+function buildTraceLinkMap(detail: ObservabilityRunDetail): TraceLinkSpan[] {
+  const eventsBySpan = new Map<string, ObservabilityExecutionEvent[]>()
+  const humanTaskSpanById = new Map<string, string>()
+
+  for (const event of detail.executionEvents ?? []) {
+    const spanId = event.spanId ?? 'root'
+    eventsBySpan.set(spanId, [...(eventsBySpan.get(spanId) ?? []), event])
+    if (event.sourceType === 'human_task' && event.spanId) {
+      humanTaskSpanById.set(event.sourceId, event.spanId)
+    }
+  }
+
+  const humanTasksBySpan = new Map<string, ObservabilityHumanTask[]>()
+  for (const task of detail.humanTasks) {
+    const spanId = humanTaskSpanById.get(task.id)
+    if (spanId) {
+      humanTasksBySpan.set(spanId, [...(humanTasksBySpan.get(spanId) ?? []), task])
+    }
+  }
+
+  const auditEventsBySpan = new Map<string, ObservabilityAuditEvent[]>()
+  for (const event of detail.auditEvents) {
+    const spanId = event.spanId ?? 'root'
+    auditEventsBySpan.set(spanId, [...(auditEventsBySpan.get(spanId) ?? []), event])
+  }
+
+  return [
+    {
+      node: null,
+      spanId: 'root',
+      parentSpanId: null,
+      events: eventsBySpan.get('root') ?? [],
+      humanTasks: [],
+      auditEvents: auditEventsBySpan.get('root') ?? [],
+    },
+    ...detail.nodes.map((node) => ({
+      node,
+      spanId: node.spanId,
+      parentSpanId: node.parentSpanId,
+      events: eventsBySpan.get(node.spanId) ?? [],
+      humanTasks: humanTasksBySpan.get(node.spanId) ?? [],
+      auditEvents: auditEventsBySpan.get(node.spanId) ?? [],
+    })),
+  ]
 }
 
 const runStatusOptions = ['全部', '失败', '需介入', '恢复失败', '已完成']
@@ -1239,6 +1297,8 @@ function RunTroubleshooting({ detail }: { detail: ObservabilityRunDetail }) {
         <div><span>结果</span><p>{resultText}</p></div>
       </section>
 
+      <TraceLinkMap detail={detail} />
+
       <ExecutionEventStream events={detail.executionEvents ?? []} />
 
       <section className="observability-section">
@@ -1288,6 +1348,43 @@ function RunTroubleshooting({ detail }: { detail: ObservabilityRunDetail }) {
           ))}
       </section>
     </>
+  )
+}
+
+function TraceLinkMap({ detail }: { detail: ObservabilityRunDetail }) {
+  const spans = buildTraceLinkMap(detail)
+
+  return (
+    <section className="observability-section trace-link-map" aria-label="Trace 链路索引">
+      <h4>Trace 链路索引</h4>
+      <div className="trace-link-list">
+        {spans.map((span) => (
+          <article className={`trace-link-card ${span.node ? '' : 'root'}`} key={span.spanId}>
+            <div className="trace-link-card-main">
+              {span.node ? (
+                <>
+                  <strong>Span {span.spanId}</strong>
+                  <span>{span.node.nodeName} · {span.node.nodeType}</span>
+                  <em>父 Span {span.parentSpanId ?? 'root'}</em>
+                </>
+              ) : (
+                <>
+                  <strong>root 运行级事件</strong>
+                  <span>{detail.traceId}</span>
+                  <em>Trace root</em>
+                </>
+              )}
+            </div>
+            {span.node && <StatusBadge status={span.node.status} />}
+            <div className="trace-link-evidence">
+              <span>事件 {span.events.length}</span>
+              <span>人工任务 {span.humanTasks.length}</span>
+              <span>审计事件 {span.auditEvents.length}</span>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
   )
 }
 
