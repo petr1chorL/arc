@@ -1,6 +1,6 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.13M 队列任务详情面板
+> 对应版本：V0.13N 执行队列状态筛选
 > 上一阶段：V0.8F 轻量告警 / 通知 Outbox
 > 更新时间：2026-06-27
 
@@ -541,6 +541,7 @@ POST /api/workspaces/{workspace_id}/evaluations/remediation-tasks/{task_id}/rete
 - 支持按工作流和模型聚合 Token 与成本。
 - 模型单价未配置时明确提示“成本单价未配置”，不把 `$0.0000` 伪装成真实成本。
 - 执行队列运营区块展示 `execution_jobs` 的排队中、运行中、已完成和死信数量。
+- 执行队列运营区块支持按全部队列、排队中、运行中、已完成、死信和已取消筛选；非全部状态会请求 `GET /execution-jobs?status=...`。
 - 队列任务卡展示状态、Run/Workflow 摘要、尝试次数、最大尝试次数、锁持有者、租约到期和错误原因。
 - 队列任务卡支持“查看详情”，点击后调用 `GET /execution-jobs/{jobId}` 并在当前观测页展开任务详情。
 - 队列任务详情展示 Job ID、Run ID、Workflow 版本、尝试次数、Worker 锁、租约、下次尝试、终态时间、失败原因和关联审计事件。
@@ -935,6 +936,11 @@ TypeScript 编译检查
 - V0.13M 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 后端完整测试集通过，当前 collect 为 184 项；`npm test -- --run` 27 个测试文件、102 项测试通过；`npm run lint` 通过；`npm run build` 通过；`git diff --check` 仅有 Windows 换行提示。
 - V0.13M 完成浏览器验收：观测页执行队列卡片显示“查看详情”，点击后详情面板展示 Job ID、失败原因、审计原因和 `dead_letter → queued` 状态流转；浏览器控制台新增 warning/error 为 0。
 - V0.13M 浏览器验收截图：`.scratch/v0.13m-execution-job-detail-panel.png`；验收结果：`.scratch/v0.13m-browser-result.json`。
+- V0.13N 完成执行队列状态筛选 RED/GREEN 测试：首次因观测页队列卡片没有“队列状态筛选”控件失败，随后选择“死信”会请求 `/execution-jobs?status=dead_letter`，任务数从 2 更新为 1，排队中任务从列表隐藏。
+- V0.13N 完成 focused 回归：`npm test -- --run src/pages/Observability.test.tsx src/api/execution.test.ts --reporter verbose` 2 个测试文件、13 项通过。
+- V0.13N 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 后端完整测试集通过；`npm test -- --run --reporter verbose` 27 个测试文件、103 项测试通过；`npm run lint` 通过；`npm run build` 通过；`git diff --check` 仅有 Windows 换行提示。
+- V0.13N 完成浏览器验收：观测页执行队列状态筛选控件唯一，选择“死信”后页面显示 `1 条任务`，死信任务可见、排队中任务隐藏；浏览器控制台新增 warning/error 为 0。
+- V0.13N 浏览器验收截图：`.scratch/v0.13n-execution-queue-status-filter.png`；验收结果：`.scratch/v0.13n-browser-result.json`。
 
 验证时没有发现浏览器控制台错误。
 

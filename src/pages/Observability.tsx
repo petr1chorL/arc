@@ -96,6 +96,14 @@ const failureOptions = [
   { label: '未知异常', value: 'unknown' },
   { label: '无异常', value: 'normal' },
 ]
+const executionJobStatusOptions = [
+  { label: '全部队列', value: 'all' },
+  { label: '排队中', value: 'queued' },
+  { label: '运行中', value: 'running' },
+  { label: '已完成', value: 'succeeded' },
+  { label: '死信', value: 'dead_letter' },
+  { label: '已取消', value: 'canceled' },
+]
 
 export function Observability() {
   const { workspace, workspacePath } = useWorkspace()
@@ -107,6 +115,7 @@ export function Observability() {
   const [costUsage, setCostUsage] = useState<CostUsageOverview | null>(null)
   const [executionJobs, setExecutionJobs] = useState<ExecutionJob[]>([])
   const [executionJobDetail, setExecutionJobDetail] = useState<ExecutionJobDetail | null>(null)
+  const [executionJobStatusFilter, setExecutionJobStatusFilter] = useState('all')
   const [reviewerId, setReviewerId] = useState('')
   const [groupId, setGroupId] = useState('')
   const [isLoading, setIsLoading] = useState(true)
@@ -231,14 +240,15 @@ export function Observability() {
     setIsExecutionJobsLoading(true)
     setExecutionJobsError('')
     try {
-      setExecutionJobs(await listExecutionJobs(workspace.id))
+      const status = executionJobStatusFilter === 'all' ? undefined : executionJobStatusFilter
+      setExecutionJobs(await listExecutionJobs(workspace.id, status))
     } catch (loadError) {
       setExecutionJobs([])
       setExecutionJobsError(loadError instanceof Error ? loadError.message : '队列任务加载失败')
     } finally {
       setIsExecutionJobsLoading(false)
     }
-  }, [workspace.id])
+  }, [executionJobStatusFilter, workspace.id])
 
   const requeueJob = useCallback(async (jobId: string) => {
     setQueueActionJobId(jobId)
@@ -398,9 +408,16 @@ export function Observability() {
         actionError={queueActionError}
         actionJobId={queueActionJobId}
         detailJobId={detailJobId}
+        statusFilter={executionJobStatusFilter}
         detail={executionJobDetail}
         isDetailLoading={isExecutionJobDetailLoading}
         detailError={executionJobDetailError}
+        onStatusFilterChange={(nextStatus) => {
+          setExecutionJobStatusFilter(nextStatus)
+          setExecutionJobDetail(null)
+          setExecutionJobDetailError('')
+          setDetailJobId('')
+        }}
         onRequeue={(jobId) => {
           void requeueJob(jobId)
         }}
@@ -563,9 +580,11 @@ function ExecutionQueuePanel({
   actionError,
   actionJobId,
   detailJobId,
+  statusFilter,
   detail,
   isDetailLoading,
   detailError,
+  onStatusFilterChange,
   onRequeue,
   onCancel,
   onOpenDetail,
@@ -576,9 +595,11 @@ function ExecutionQueuePanel({
   actionError: string
   actionJobId: string
   detailJobId: string
+  statusFilter: string
   detail: ExecutionJobDetail | null
   isDetailLoading: boolean
   detailError: string
+  onStatusFilterChange: (status: string) => void
   onRequeue: (jobId: string) => void
   onCancel: (jobId: string) => void
   onOpenDetail: (jobId: string) => void
@@ -596,7 +617,21 @@ function ExecutionQueuePanel({
           <span className="section-kicker">EXECUTION QUEUE</span>
           <h3>执行队列运营</h3>
         </div>
-        <small>{jobs.length} 条任务</small>
+        <div className="execution-queue-toolbar">
+          <label>
+            <span>状态</span>
+            <select
+              aria-label="队列状态筛选"
+              value={statusFilter}
+              onChange={(event) => onStatusFilterChange(event.target.value)}
+            >
+              {executionJobStatusOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <small>{jobs.length} 条任务</small>
+        </div>
       </div>
 
       {isLoading && <div className="table-state">正在加载执行队列...</div>}

@@ -483,6 +483,50 @@ describe('Observability', () => {
     expect(screen.getAllByText('Trace trace-run-failed').length).toBeGreaterThanOrEqual(1)
   })
 
+  it('filters execution queue jobs by selected status', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = typeof input === 'string' ? input : input instanceof URL ? input.pathname + input.search : input.url
+      if (path === '/api/workspaces/workspace-1/observability/overview') {
+        return new Response(JSON.stringify(overview), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/observability/human-sla') {
+        return new Response(JSON.stringify(humanSla), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/observability/cost-usage') {
+        return new Response(JSON.stringify(costUsage), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/execution-jobs') {
+        return new Response(JSON.stringify(executionJobs), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/execution-jobs?status=dead_letter') {
+        return new Response(JSON.stringify([executionJobs[0]]), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/observability/runs/run-failed') {
+        return new Response(JSON.stringify(detail), { status: 200 })
+      }
+      throw new Error(`Unexpected fetch: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage()
+
+    expect(await screen.findByText('执行队列运营')).toBeInTheDocument()
+    expect(screen.getByText('2 条任务')).toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText('队列状态筛选'), 'dead_letter')
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/workspaces/workspace-1/execution-jobs?status=dead_letter',
+        expect.objectContaining({ credentials: 'same-origin' }),
+      )
+    })
+    expect(await screen.findByText('1 条任务')).toBeInTheDocument()
+    expect(screen.getByText('死信 · workflow_run')).toBeInTheDocument()
+    expect(screen.queryByText('排队中 · workflow_run')).not.toBeInTheDocument()
+  })
+
   it('loads another run detail when a recent run is selected', async () => {
     const user = userEvent.setup()
     const waitingDetail = {
