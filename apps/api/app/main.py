@@ -602,6 +602,7 @@ def create_app(
         nodes: list[NodeRunRecord],
         human_tasks: list[HumanTaskRecord],
         audit_events: list[AuditEventRecord],
+        tool_invocations: list[ToolSkillAssetInvocationRecord],
     ) -> list[ObservabilityExecutionEventRead]:
         trace_id = run.trace_id or f"trace-{run.id}"
         events: list[ObservabilityExecutionEventRead] = [
@@ -647,6 +648,23 @@ def create_app(
                 summary=f"{node.node_type} 节点 {node.node_name}：{node.status}",
             ))
 
+        for invocation in tool_invocations:
+            events.append(ObservabilityExecutionEventRead(
+                id=f"tool-invocation-{invocation.id}",
+                type=f"tool_invocation_{invocation.status}",
+                title=invocation.asset_name,
+                status=invocation.status,
+                trace_id=trace_id,
+                span_id=node_span_by_id.get(invocation.node_run_id),
+                source_type="tool_skill_invocation",
+                source_id=invocation.id,
+                occurred_at=invocation.created_at,
+                summary=(
+                    f"工具 {invocation.asset_name}：{invocation.status} · "
+                    f"{invocation.output_summary or invocation.error}"
+                ),
+            ))
+
         for task in human_tasks:
             events.append(ObservabilityExecutionEventRead(
                 id=f"human-task-{task.id}",
@@ -679,11 +697,12 @@ def create_app(
         source_order = {
             "workflow_run": 0,
             "node_run": 1,
-            "human_task": 2,
-            "audit_event": 3,
-            "remediation_task": 4,
-            "remediation_activity": 5,
-            "regression_run": 6,
+            "tool_skill_invocation": 2,
+            "human_task": 3,
+            "audit_event": 4,
+            "remediation_task": 5,
+            "remediation_activity": 6,
+            "regression_run": 7,
         }
         return sorted(
             events,
@@ -1874,6 +1893,14 @@ def create_app(
                 )
                 .order_by(AuditEventRecord.created_at.asc()),
             )) if task_ids else []
+            tool_invocations = list(session.scalars(
+                select(ToolSkillAssetInvocationRecord)
+                .where(
+                    ToolSkillAssetInvocationRecord.workspace_id == context.workspace.id,
+                    ToolSkillAssetInvocationRecord.run_id == run.id,
+                )
+                .order_by(ToolSkillAssetInvocationRecord.created_at.asc()),
+            ))
             ensure_observability_trace_context(
                 session,
                 run,
@@ -1881,7 +1908,13 @@ def create_app(
                 human_tasks,
                 audit_events,
             )
-            events.extend(observability_execution_events(run, nodes, human_tasks, audit_events))
+            events.extend(observability_execution_events(
+                run,
+                nodes,
+                human_tasks,
+                audit_events,
+                tool_invocations,
+            ))
 
         if not run_id:
             remediation_tasks = list(session.scalars(
@@ -1958,6 +1991,14 @@ def create_app(
             )
             .order_by(AuditEventRecord.created_at.asc()),
         )) if task_ids else []
+        tool_invocations = list(session.scalars(
+            select(ToolSkillAssetInvocationRecord)
+            .where(
+                ToolSkillAssetInvocationRecord.workspace_id == context.workspace.id,
+                ToolSkillAssetInvocationRecord.run_id == run.id,
+            )
+            .order_by(ToolSkillAssetInvocationRecord.created_at.asc()),
+        ))
         ensure_observability_trace_context(
             session,
             run,
@@ -1982,6 +2023,7 @@ def create_app(
                 nodes,
                 human_tasks,
                 audit_events,
+                tool_invocations,
             ),
         )
 

@@ -14,6 +14,7 @@ from app.models import (
     RemediationTaskRecord,
     ReviewerRecord,
     ReviewGroupRecord,
+    ToolSkillAssetInvocationRecord,
     WorkspaceRecord,
     WorkflowRunRecord,
 )
@@ -474,6 +475,61 @@ def test_observability_run_detail_includes_trace_context(tmp_path):
         assert stored_run is not None
         assert stored_run.trace_id == body["traceId"]
         assert stored_nodes[1].parent_span_id == stored_nodes[0].span_id
+
+
+def test_observability_run_detail_includes_tool_invocation_events(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'observability-tool-invocation.db'}",
+    )
+    run = create_run(
+        client,
+        workspace_id,
+        name="工具调用流程",
+        status="已完成",
+        current_node="流程完成",
+        duration_ms=1200,
+        started_offset_minutes=-10,
+    )
+    with client.app.state.session_factory() as session:
+        node_run = session.scalar(
+            select(NodeRunRecord).where(
+                NodeRunRecord.workspace_id == workspace_id,
+                NodeRunRecord.run_id == run.id,
+                NodeRunRecord.node_type == "agent",
+            ),
+        )
+        assert node_run is not None
+        session.add(ToolSkillAssetInvocationRecord(
+            workspace_id=workspace_id,
+            asset_id="tool-price",
+            asset_type="tool",
+            asset_name="价格查询",
+            agent_id="agent-price",
+            agent_version="v1.0.0",
+            run_id=run.id,
+            node_run_id=node_run.id,
+            status="succeeded",
+            input_summary='{"input": "Lookup SKU A001"}',
+            output_summary="price=199",
+            duration_ms=12,
+            created_at=node_run.started_at + timedelta(milliseconds=10),
+        ))
+        session.commit()
+
+    response = client.get(workspace_url(workspace_id, f"/observability/runs/{run.id}"))
+
+    assert response.status_code == 200
+    body = response.json()
+    event = next(
+        item for item in body["executionEvents"]
+        if item["sourceType"] == "tool_skill_invocation"
+    )
+    assert event["type"] == "tool_invocation_succeeded"
+    assert event["title"] == "价格查询"
+    assert event["status"] == "succeeded"
+    assert event["traceId"] == body["traceId"]
+    assert event["spanId"] == body["nodes"][0]["spanId"]
+    assert event["summary"] == "工具 价格查询：succeeded · price=199"
 
 
 def test_observability_run_detail_is_workspace_scoped(tmp_path):

@@ -613,6 +613,7 @@ export interface ObservabilityExecutionEvent {
     | 'node_run'
     | 'human_task'
     | 'audit_event'
+    | 'tool_skill_invocation'
     | 'remediation_task'
     | 'remediation_activity'
     | 'regression_run'
