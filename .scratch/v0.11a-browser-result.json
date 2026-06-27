@@ -1,0 +1,13 @@
+{
+  "hasDueDateText": true,
+  "hasOverdueFilter": true,
+  "hasOverdueText": true,
+  "hasOwnerFilter": true,
+  "hasOwnerText": true,
+  "hasPriorityFilter": true,
+  "hasTaskBoard": true,
+  "text": "REMEDIATION TASKSRemediation Tasks1 个任务负责人筛选全部负责人优先级筛选全部优先级P0P1P2逾期筛选全部状态只看逾期未逾期P0修复 事实准确性 偏低优先补齐 事实准确性 相关证据与判定依据done3 samples事实准确性负责人 未分配截止 未设置未逾期标记处理中标记完成",
+  "url": "http://127.0.0.1:4173/w/ai-capability-center/evaluations",
+  "warningErrorCount": 2,
+  "newWarningErrorCount": 0
+}

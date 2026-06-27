@@ -862,6 +862,8 @@ class RemediationTaskCreate(BaseModel):
     priority: str = Field(pattern="^P[0-2]$")
     sample_ids: list[str] = Field(alias="sampleIds", min_length=1, max_length=20)
     action: str = Field(min_length=1, max_length=4000)
+    owner: str | None = Field(default=None, max_length=120)
+    due_date: datetime | None = Field(default=None, alias="dueDate")
 
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
@@ -872,6 +874,14 @@ class RemediationTaskCreate(BaseModel):
         if not normalized:
             raise ValueError("field cannot be blank")
         return normalized
+
+    @field_validator("owner")
+    @classmethod
+    def normalize_owner(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
 
     @field_validator("sample_ids")
     @classmethod
@@ -901,6 +911,9 @@ class RemediationTaskRead(BaseModel):
     sample_ids: list[str] = Field(serialization_alias="sampleIds")
     action: str
     status: str
+    owner: str | None = None
+    due_date: datetime | None = Field(default=None, serialization_alias="dueDate")
+    is_overdue: bool = Field(serialization_alias="isOverdue")
     retest_run_id: str | None = Field(default=None, serialization_alias="retestRunId")
     retest_run: RegressionRunRead | None = Field(default=None, serialization_alias="retestRun")
     created_by: str = Field(serialization_alias="createdBy")

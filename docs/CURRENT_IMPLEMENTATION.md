@@ -1,6 +1,6 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.10J 评估闭环看板
+> 对应版本：V0.11A 修复任务负责人、截止时间和优先级筛选
 > 上一阶段：V0.8F 轻量告警 / 通知 Outbox
 > 更新时间：2026-06-27
 
@@ -391,6 +391,10 @@ React Flow 节点/连线
 - `done` 状态的修复任务支持发起复测，后端会用来源 Run 的同一 Rubric 和任务代表样本创建新的 Regression Run。
 - 复测 Run ID 会写回 Remediation Task；重复复测返回已有 Run，不重复创建。
 - 任务卡展示复测 Run ID、通过率和失败样本数。
+- Remediation Task 支持负责人、截止时间和逾期状态。
+- 新创建的修复任务由前端带默认负责人和 7 天后截止时间，后端以当前用户作为负责人兜底。
+- `GET /remediation-tasks` 支持按 `owner`、`priority` 和 `overdue` 查询参数筛选。
+- `Remediation Tasks` 区域展示负责人筛选、优先级筛选和逾期筛选。
 - 页面展示 `Evaluation Loop Board`，从失败原因组、Remediation Task、复测 Run 和未关闭风险派生闭环指标。
 - 闭环看板展示失败原因组数、修复任务数、未关闭风险数、已复测任务数、最近复测通过率和下一步建议。
 - V0.10J 看板为前端派生视图，不新增后端接口。
@@ -790,6 +794,10 @@ TypeScript 编译检查
 - V0.10J 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q`、`npm test -- --run`、`npm run lint`、`npm run build` 均通过。
 - V0.10J 完成真实浏览器验收：评估中心可见 `Evaluation Loop Board`，本次刷新验证期间新增 console warning/error 为 0。
 - V0.10J 浏览器验收截图：`.scratch/v0.10j-evaluation-loop-board.png`；验收结果：`.scratch/v0.10j-browser-result.json`。
+- V0.11A 完成 focused 自动化测试：后端创建任务可保存 `owner` 和 `dueDate`，列表支持 `owner`、`priority`、`overdue` 过滤；前端任务卡展示负责人、截止时间和逾期状态，并支持三个筛选控件。
+- V0.11A 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q`、`npm test -- --run`、`npm run lint`、`npm run build` 均通过。
+- V0.11A 完成真实浏览器验收：评估中心 `Remediation Tasks` 区域可见负责人筛选、优先级筛选、逾期筛选和任务卡运营字段，本次验证期间新增 console warning/error 为 0。
+- V0.11A 浏览器验收截图：`.scratch/v0.11a-remediation-ownership.png`；验收结果：`.scratch/v0.11a-browser-result.json`。
 
 验证时没有发现浏览器控制台错误。
 

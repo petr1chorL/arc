@@ -709,7 +709,11 @@ def ensure_current_schema(engine: Engine) -> None:
     ensure_columns(
         engine,
         "remediation_tasks",
-        {"retest_run_id": "VARCHAR(36)"},
+        {
+            "owner": "VARCHAR(120)",
+            "due_date": "DATETIME",
+            "retest_run_id": "VARCHAR(36)",
+        },
     )
     ensure_audit_event_platform_schema(engine)
     backfill_v07a_workspace(engine)

@@ -1960,6 +1960,9 @@ def create_app(
             "sample_ids": task.sample_ids,
             "action": task.action,
             "status": task.status,
+            "owner": task.owner,
+            "due_date": task.due_date,
+            "is_overdue": is_remediation_task_overdue(task),
             "retest_run_id": task.retest_run_id,
             "retest_run": retest_run,
             "created_by": task.created_by,
@@ -1967,6 +1970,15 @@ def create_app(
             "created_at": task.created_at,
             "updated_at": task.updated_at,
         }
+
+    def is_remediation_task_overdue(task: RemediationTaskRecord) -> bool:
+        if task.status == "done" or task.due_date is None:
+            return False
+        now = utc_now()
+        due_date = task.due_date
+        if due_date.tzinfo is None:
+            return due_date < now.replace(tzinfo=None)
+        return due_date < now
 
     def get_retest_run_read(
         session: Session,
@@ -2213,6 +2225,9 @@ def create_app(
     )
     def list_remediation_tasks(
         request: Request,
+        owner: str | None = Query(default=None, max_length=120),
+        priority: str | None = Query(default=None, pattern="^P[0-2]$"),
+        overdue: bool | None = Query(default=None),
         context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
     ) -> list[dict]:
         context, session = context_bundle
@@ -2225,11 +2240,18 @@ def create_app(
             target_id=context.workspace.id,
             request=request,
         )
+        statement = select(RemediationTaskRecord).where(
+            RemediationTaskRecord.workspace_id == context.workspace.id,
+        )
+        if owner:
+            statement = statement.where(RemediationTaskRecord.owner == owner.strip())
+        if priority:
+            statement = statement.where(RemediationTaskRecord.priority == priority)
         tasks = list(session.scalars(
-            select(RemediationTaskRecord)
-            .where(RemediationTaskRecord.workspace_id == context.workspace.id)
-            .order_by(RemediationTaskRecord.created_at.desc()),
+            statement.order_by(RemediationTaskRecord.created_at.desc()),
         ))
+        if overdue is not None:
+            tasks = [task for task in tasks if is_remediation_task_overdue(task) is overdue]
         return [remediation_task_to_read(task) for task in tasks]
 
     @router.post(
@@ -2273,6 +2295,8 @@ def create_app(
             sample_ids=payload.sample_ids,
             action=payload.action,
             status="open",
+            owner=payload.owner or context.user.display_name,
+            due_date=payload.due_date,
             created_by=context.user.id,
             updated_by=context.user.id,
             created_at=now,

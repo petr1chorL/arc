@@ -34,6 +34,7 @@ import {
   retestRemediationTask,
   updateRemediationTask,
   updateRubric,
+  type RemediationTaskFilters,
   type RemediationTaskInput,
   type RubricInput,
 } from '../api/evaluations'
@@ -190,6 +191,17 @@ interface EvaluationLoopBoard {
 
 function formatDelta(value: number) {
   return value > 0 ? `+${value}` : `${value}`
+}
+
+function formatDateOnly(value: string | null) {
+  if (!value) return '未设置'
+  return value.slice(0, 10)
+}
+
+function getDefaultRemediationDueDate() {
+  const dueDate = new Date()
+  dueDate.setDate(dueDate.getDate() + 7)
+  return dueDate.toISOString()
 }
 
 function classifyRecordChange(baseRecord: EvaluationRecord | undefined, targetRecord: EvaluationRecord) {
@@ -524,6 +536,17 @@ export function Evaluations() {
   const [remediationTasks, setRemediationTasks] = useState<RemediationTask[]>([])
   const [remediationTaskError, setRemediationTaskError] = useState('')
   const [remediationTaskBusyId, setRemediationTaskBusyId] = useState('')
+  const [remediationOwnerFilter, setRemediationOwnerFilter] = useState('all')
+  const [remediationPriorityFilter, setRemediationPriorityFilter] = useState('all')
+  const [remediationOverdueFilter, setRemediationOverdueFilter] = useState('all')
+
+  const remediationTaskFilters = useMemo<RemediationTaskFilters>(() => ({
+    owner: remediationOwnerFilter === 'all' ? undefined : remediationOwnerFilter,
+    priority: remediationPriorityFilter === 'all'
+      ? undefined
+      : remediationPriorityFilter as RemediationTask['priority'],
+    overdue: remediationOverdueFilter === 'all' ? undefined : remediationOverdueFilter === 'overdue',
+  }), [remediationOwnerFilter, remediationOverdueFilter, remediationPriorityFilter])
 
   const loadAssets = useCallback(async () => {
     setIsLoading(true)
@@ -560,6 +583,26 @@ export function Evaluations() {
   useEffect(() => {
     void loadAssets()
   }, [loadAssets])
+
+  useEffect(() => {
+    let isCancelled = false
+    setRemediationTaskError('')
+    void listRemediationTasks(workspace.id, remediationTaskFilters)
+      .then((tasks) => {
+        if (!isCancelled) {
+          setRemediationTasks(tasks)
+        }
+      })
+      .catch((taskError) => {
+        if (!isCancelled) {
+          setRemediationTaskError(taskError instanceof Error ? taskError.message : '修复任务加载失败')
+        }
+      })
+
+    return () => {
+      isCancelled = true
+    }
+  }, [remediationTaskFilters, workspace.id])
 
   const totalWeight = useMemo(
     () => form.dimensions.reduce((sum, dimension) => sum + dimension.weight, 0),
@@ -680,6 +723,18 @@ export function Evaluations() {
     () => buildEvaluationLoopBoard(failurePatternSummary, remediationTasks),
     [failurePatternSummary, remediationTasks],
   )
+
+  const remediationOwnerOptions = useMemo(() => {
+    const owners = new Set(
+      remediationTasks
+        .map((task) => task.owner)
+        .filter((owner): owner is string => Boolean(owner)),
+    )
+    if (remediationOwnerFilter !== 'all') {
+      owners.add(remediationOwnerFilter)
+    }
+    return Array.from(owners).sort((left, right) => left.localeCompare(right, 'zh-CN'))
+  }, [remediationOwnerFilter, remediationTasks])
 
   const activeSelectedSamples = useMemo(
     () => selectedSampleSet?.samples.filter((sample) => sample.status === 'active') ?? [],
@@ -1022,6 +1077,8 @@ export function Evaluations() {
       priority: item.priority,
       sampleIds: item.sampleIds,
       action: item.action,
+      owner: '产品审核人',
+      dueDate: getDefaultRemediationDueDate(),
     }
     setRemediationTaskBusyId(item.id)
     setRemediationTaskError('')
@@ -1591,6 +1648,46 @@ export function Evaluations() {
                   </div>
                   <span className="status-pill">{remediationTasks.length} 个任务</span>
                 </header>
+                <div className="remediation-task-filters">
+                  <label>
+                    负责人筛选
+                    <select
+                      aria-label="负责人筛选"
+                      value={remediationOwnerFilter}
+                      onChange={(event) => setRemediationOwnerFilter(event.target.value)}
+                    >
+                      <option value="all">全部负责人</option>
+                      {remediationOwnerOptions.map((owner) => (
+                        <option key={owner} value={owner}>{owner}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    优先级筛选
+                    <select
+                      aria-label="优先级筛选"
+                      value={remediationPriorityFilter}
+                      onChange={(event) => setRemediationPriorityFilter(event.target.value)}
+                    >
+                      <option value="all">全部优先级</option>
+                      <option value="P0">P0</option>
+                      <option value="P1">P1</option>
+                      <option value="P2">P2</option>
+                    </select>
+                  </label>
+                  <label>
+                    逾期筛选
+                    <select
+                      aria-label="逾期筛选"
+                      value={remediationOverdueFilter}
+                      onChange={(event) => setRemediationOverdueFilter(event.target.value)}
+                    >
+                      <option value="all">全部状态</option>
+                      <option value="overdue">只看逾期</option>
+                      <option value="active">未逾期</option>
+                    </select>
+                  </label>
+                </div>
                 <div className="remediation-task-list">
                   {remediationTasks.map((task) => (
                     <article className="remediation-task-card" key={task.id}>
@@ -1605,6 +1702,9 @@ export function Evaluations() {
                         <span>{task.status}</span>
                         <span>{task.sampleIds.length} samples</span>
                         <span className="mono">{task.clusterKey}</span>
+                        <span>负责人 {task.owner ?? '未分配'}</span>
+                        <span>截止 {formatDateOnly(task.dueDate)}</span>
+                        <span>{task.isOverdue ? '已逾期' : '未逾期'}</span>
                       </div>
                       <div className="remediation-task-actions">
                         <button

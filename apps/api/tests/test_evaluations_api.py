@@ -292,6 +292,66 @@ def test_remediation_tasks_can_be_created_listed_and_updated(tmp_path):
     assert done.json()["status"] == "done"
 
 
+def test_remediation_tasks_support_owner_due_date_and_filters(tmp_path):
+    client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'arc-one.db'}")
+    overdue_payload = {
+        "sourceRunId": "run-remediation-owner-1",
+        "clusterKey": "Evidence",
+        "title": "修复 Evidence 偏低",
+        "priority": "P1",
+        "sampleIds": ["sample-a"],
+        "action": "补齐证据",
+        "owner": "产品审核人",
+        "dueDate": "2024-01-01T00:00:00Z",
+    }
+    future_payload = {
+        "sourceRunId": "run-remediation-owner-2",
+        "clusterKey": "Actionability",
+        "title": "修复 Actionability 偏低",
+        "priority": "P2",
+        "sampleIds": ["sample-b"],
+        "action": "补齐行动建议",
+        "owner": "算法审核人",
+        "dueDate": "2099-01-01T00:00:00Z",
+    }
+
+    overdue = client.post(
+        workspace_url(workspace_id, "/evaluations/remediation-tasks"),
+        json=overdue_payload,
+        headers=csrf_headers(client),
+    )
+    future = client.post(
+        workspace_url(workspace_id, "/evaluations/remediation-tasks"),
+        json=future_payload,
+        headers=csrf_headers(client),
+    )
+
+    assert overdue.status_code == 201
+    assert future.status_code == 201
+    assert overdue.json()["owner"] == "产品审核人"
+    assert overdue.json()["dueDate"].startswith("2024-01-01T00:00:00")
+    assert overdue.json()["isOverdue"] is True
+    assert future.json()["isOverdue"] is False
+
+    by_owner = client.get(
+        workspace_url(workspace_id, "/evaluations/remediation-tasks?owner=产品审核人"),
+    )
+    assert by_owner.status_code == 200
+    assert [item["title"] for item in by_owner.json()] == ["修复 Evidence 偏低"]
+
+    by_priority = client.get(
+        workspace_url(workspace_id, "/evaluations/remediation-tasks?priority=P2"),
+    )
+    assert by_priority.status_code == 200
+    assert [item["title"] for item in by_priority.json()] == ["修复 Actionability 偏低"]
+
+    overdue_only = client.get(
+        workspace_url(workspace_id, "/evaluations/remediation-tasks?overdue=true"),
+    )
+    assert overdue_only.status_code == 200
+    assert [item["title"] for item in overdue_only.json()] == ["修复 Evidence 偏低"]
+
+
 def test_completed_remediation_task_can_start_retest_run(tmp_path):
     client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'arc-one.db'}")
     rubric = client.post(

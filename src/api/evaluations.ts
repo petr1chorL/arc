@@ -49,6 +49,14 @@ export interface RemediationTaskInput {
   priority: RemediationTask['priority']
   sampleIds: string[]
   action: string
+  owner?: string
+  dueDate?: string
+}
+
+export interface RemediationTaskFilters {
+  owner?: string
+  priority?: RemediationTask['priority']
+  overdue?: boolean
 }
 
 function workspacePath(workspaceId: string, path = '') {
@@ -124,9 +132,26 @@ export async function createRegressionRun(
   )
 }
 
-export async function listRemediationTasks(workspaceId: string): Promise<RemediationTask[]> {
+function withQuery(path: string, query: Record<string, string | boolean | undefined>) {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined) continue
+    params.set(key, String(value))
+  }
+  const search = params.toString()
+  return search ? `${path}?${search}` : path
+}
+
+export async function listRemediationTasks(
+  workspaceId: string,
+  filters: RemediationTaskFilters = {},
+): Promise<RemediationTask[]> {
   return readJson<RemediationTask[]>(
-    await apiFetch(workspacePath(workspaceId, '/remediation-tasks')),
+    await apiFetch(workspacePath(workspaceId, withQuery('/remediation-tasks', {
+      owner: filters.owner,
+      priority: filters.priority,
+      overdue: filters.overdue,
+    }))),
   )
 }
 

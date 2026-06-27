@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -1319,7 +1319,8 @@ describe('Evaluations page', () => {
           records,
         })
       }
-      if (input === `/api/workspaces/${workspace.id}/evaluations/remediation-tasks`) {
+      const remediationTasksUrl = `/api/workspaces/${workspace.id}/evaluations/remediation-tasks`
+      if (String(input).split('?')[0] === remediationTasksUrl) {
         if (init?.method === 'POST') {
           const payload = JSON.parse(String(init.body)) as {
             sourceRunId: string
@@ -1332,6 +1333,9 @@ describe('Evaluations page', () => {
           const created = {
             id: 'remediation-task-1',
             ...payload,
+            owner: '产品审核人',
+            dueDate: '2024-01-01T00:00:00Z',
+            isOverdue: true,
             status: 'open',
             retestRunId: null,
             retestRun: null,
@@ -1405,6 +1409,19 @@ describe('Evaluations page', () => {
     const taskList = await screen.findByRole('region', { name: 'Remediation Tasks' })
     expect(within(taskList).getByText('修复 Evidence 偏低')).toBeInTheDocument()
     expect(within(taskList).getByText('open')).toBeInTheDocument()
+    expect(within(taskList).getByText('负责人 产品审核人')).toBeInTheDocument()
+    expect(within(taskList).getByText('截止 2024-01-01')).toBeInTheDocument()
+    expect(within(taskList).getByText('已逾期')).toBeInTheDocument()
+
+    await user.selectOptions(within(taskList).getByLabelText('负责人筛选'), '产品审核人')
+    await user.selectOptions(within(taskList).getByLabelText('优先级筛选'), 'P1')
+    await user.selectOptions(within(taskList).getByLabelText('逾期筛选'), 'overdue')
+    await waitFor(() => {
+      const requestedUrls = vi.mocked(fetch).mock.calls.map(([url]) => String(url))
+      expect(requestedUrls).toContain(
+        `/api/workspaces/${workspace.id}/evaluations/remediation-tasks?owner=%E4%BA%A7%E5%93%81%E5%AE%A1%E6%A0%B8%E4%BA%BA&priority=P1&overdue=true`,
+      )
+    })
 
     await user.click(within(taskList).getByRole('button', { name: '标记处理中' }))
     expect(await within(taskList).findByText('in_progress')).toBeInTheDocument()
