@@ -1252,6 +1252,8 @@ describe('Evaluations page', () => {
       sampleIds: string[]
       action: string
       status: string
+      retestRunId: string | null
+      retestRun: unknown | null
       createdBy: string
       updatedBy: string
       createdAt: string
@@ -1331,6 +1333,8 @@ describe('Evaluations page', () => {
             id: 'remediation-task-1',
             ...payload,
             status: 'open',
+            retestRunId: null,
+            retestRun: null,
             createdBy: 'user-1',
             updatedBy: 'user-1',
             createdAt: '2026-06-27T00:30:00Z',
@@ -1349,6 +1353,32 @@ describe('Evaluations page', () => {
           updatedAt: '2026-06-27T00:31:00Z',
         }
         return response(remediationTasks[0])
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/remediation-tasks/remediation-task-1/retest`) {
+        remediationTasks[0] = {
+          ...remediationTasks[0],
+          retestRunId: 'run-retest-1',
+          retestRun: {
+            id: 'run-retest-1',
+            sampleSetId: null,
+            sampleSetName: '修复复测',
+            rubricId: rubricAssets[0].id,
+            rubricName: rubricAssets[0].name,
+            rubricVersion: 'v1.2',
+            status: 'completed',
+            totalSamples: 1,
+            passedSamples: 0,
+            failedSamples: 1,
+            passRate: 0,
+            evaluationIds: ['eval-retest-1'],
+            records: [],
+            createdBy: 'user-1',
+            createdAt: '2026-06-27T00:32:00Z',
+            completedAt: '2026-06-27T00:32:00Z',
+          },
+          updatedAt: '2026-06-27T00:32:00Z',
+        }
+        return response(remediationTasks[0], 201)
       }
       return response({ detail: 'not found' }, 404)
     }))
@@ -1381,5 +1411,11 @@ describe('Evaluations page', () => {
 
     await user.click(within(taskList).getByRole('button', { name: '标记完成' }))
     expect(await within(taskList).findByText('done')).toBeInTheDocument()
+
+    await user.click(within(taskList).getByRole('button', { name: '发起复测' }))
+    expect(await within(taskList).findByText('Retest Run')).toBeInTheDocument()
+    expect(within(taskList).getByText('run-retest-1')).toBeInTheDocument()
+    expect(within(taskList).getByText('通过率 0%')).toBeInTheDocument()
+    expect(within(taskList).getByText('失败 1')).toBeInTheDocument()
   })
 })

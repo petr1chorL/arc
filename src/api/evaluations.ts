@@ -157,6 +157,17 @@ export async function updateRemediationTask(
   )
 }
 
+export async function retestRemediationTask(
+  workspaceId: string,
+  taskId: string,
+): Promise<RemediationTask> {
+  return readJson<RemediationTask>(
+    await apiFetch(workspacePath(workspaceId, `/remediation-tasks/${taskId}/retest`), {
+      method: 'POST',
+    }),
+  )
+}
+
 export async function createRubric(workspaceId: string, input: RubricInput): Promise<Rubric> {
   return readJson<Rubric>(await apiFetch(workspacePath(workspaceId, '/rubrics'), {
     method: 'POST',

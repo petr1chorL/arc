@@ -31,6 +31,7 @@ import {
   listRegressionSampleSets,
   listRubricVersions,
   publishRubric,
+  retestRemediationTask,
   updateRemediationTask,
   updateRubric,
   type RemediationTaskInput,
@@ -969,6 +970,18 @@ export function Evaluations() {
     }
   }
 
+  async function startTaskRetest(task: RemediationTask) {
+    setRemediationTaskBusyId(task.id)
+    setRemediationTaskError('')
+    try {
+      upsertRemediationTask(await retestRemediationTask(workspace.id, task.id))
+    } catch (taskError) {
+      setRemediationTaskError(taskError instanceof Error ? taskError.message : '修复任务复测失败')
+    } finally {
+      setRemediationTaskBusyId('')
+    }
+  }
+
   const disabled = editingRubric?.status === 'disabled'
 
   return (
@@ -1534,7 +1547,25 @@ export function Evaluations() {
                         >
                           标记完成
                         </button>
+                        {task.status === 'done' && !task.retestRunId && (
+                          <button
+                            className="button secondary small"
+                            type="button"
+                            disabled={remediationTaskBusyId === task.id}
+                            onClick={() => void startTaskRetest(task)}
+                          >
+                            发起复测
+                          </button>
+                        )}
                       </div>
+                      {task.retestRun && (
+                        <div className="remediation-retest-result">
+                          <span>Retest Run</span>
+                          <strong className="mono">{task.retestRun.id}</strong>
+                          <em>通过率 {task.retestRun.passRate}%</em>
+                          <em>失败 {task.retestRun.failedSamples}</em>
+                        </div>
+                      )}
                     </article>
                   ))}
                 </div>

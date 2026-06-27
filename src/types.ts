@@ -444,6 +444,8 @@ export interface RemediationTask {
   sampleIds: string[]
   action: string
   status: RemediationTaskStatus
+  retestRunId: string | null
+  retestRun: RegressionRun | null
   createdBy: string
   updatedBy: string
   createdAt: string

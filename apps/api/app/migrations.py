@@ -706,5 +706,10 @@ def ensure_current_schema(engine: Engine) -> None:
         "rubrics",
         {"sort_order": "INTEGER NOT NULL DEFAULT 0"},
     )
+    ensure_columns(
+        engine,
+        "remediation_tasks",
+        {"retest_run_id": "VARCHAR(36)"},
+    )
     ensure_audit_event_platform_schema(engine)
     backfill_v07a_workspace(engine)

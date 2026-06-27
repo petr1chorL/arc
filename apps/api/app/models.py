@@ -586,6 +586,7 @@ class RemediationTaskRecord(Base):
     sample_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
     action: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(32), default="open")
+    retest_run_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     created_by: Mapped[str] = mapped_column(String(36))
     updated_by: Mapped[str] = mapped_column(String(36))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

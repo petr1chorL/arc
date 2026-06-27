@@ -292,6 +292,93 @@ def test_remediation_tasks_can_be_created_listed_and_updated(tmp_path):
     assert done.json()["status"] == "done"
 
 
+def test_completed_remediation_task_can_start_retest_run(tmp_path):
+    client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'arc-one.db'}")
+    rubric = client.post(
+        workspace_url(workspace_id, "/evaluations/rubrics"),
+        json={
+            "name": "Remediation Retest Rubric",
+            "artifact": "Launch plan",
+            "dimensions": [{"name": "Evidence", "weight": 100}],
+            "gate": "Must include evidence",
+            "passScore": 70,
+        },
+        headers=csrf_headers(client),
+    ).json()
+    client.post(
+        workspace_url(workspace_id, f"/evaluations/rubrics/{rubric['id']}/publish"),
+        headers=csrf_headers(client),
+    )
+    source_run = client.post(
+        workspace_url(workspace_id, "/evaluations/regression-runs"),
+        json={
+            "rubricId": rubric["id"],
+            "samples": [
+                {
+                    "sampleId": "sample-pass",
+                    "input": "Evidence-backed plan with owner, risk, and next action.",
+                },
+                {
+                    "sampleId": "sample-fail",
+                    "input": "Thin draft.",
+                },
+            ],
+        },
+        headers=csrf_headers(client),
+    ).json()
+    created = client.post(
+        workspace_url(workspace_id, "/evaluations/remediation-tasks"),
+        json={
+            "sourceRunId": source_run["id"],
+            "clusterKey": "Evidence",
+            "title": "修复 Evidence 偏低",
+            "priority": "P1",
+            "sampleIds": ["sample-fail"],
+            "action": "补齐 Evidence 后复测",
+        },
+        headers=csrf_headers(client),
+    ).json()
+
+    blocked = client.post(
+        workspace_url(workspace_id, f"/evaluations/remediation-tasks/{created['id']}/retest"),
+        headers=csrf_headers(client),
+    )
+
+    assert blocked.status_code == 409
+
+    client.patch(
+        workspace_url(workspace_id, f"/evaluations/remediation-tasks/{created['id']}"),
+        json={"status": "done"},
+        headers=csrf_headers(client),
+    )
+
+    retested = client.post(
+        workspace_url(workspace_id, f"/evaluations/remediation-tasks/{created['id']}/retest"),
+        headers=csrf_headers(client),
+    )
+
+    assert retested.status_code == 201
+    task = retested.json()
+    assert task["status"] == "done"
+    assert task["retestRunId"]
+    assert task["retestRun"]["id"] == task["retestRunId"]
+    assert task["retestRun"]["rubricId"] == rubric["id"]
+    assert task["retestRun"]["totalSamples"] == 1
+    assert task["retestRun"]["failedSamples"] == 1
+    assert task["retestRun"]["records"][0]["subjectId"] == "sample-fail"
+    assert task["retestRun"]["records"][0]["artifactText"] == "Thin draft."
+
+    repeated = client.post(
+        workspace_url(workspace_id, f"/evaluations/remediation-tasks/{created['id']}/retest"),
+        headers=csrf_headers(client),
+    )
+
+    assert repeated.status_code == 200
+    assert repeated.json()["retestRunId"] == task["retestRunId"]
+    listed = client.get(workspace_url(workspace_id, "/evaluations/regression-runs"))
+    assert len([run for run in listed.json() if run["sampleSetName"] == "修复复测"]) == 1
+
+
 def test_rubric_draft_can_be_edited_published_and_deactivated(tmp_path):
     client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'arc-one.db'}")
     body = {

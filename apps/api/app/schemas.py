@@ -901,6 +901,8 @@ class RemediationTaskRead(BaseModel):
     sample_ids: list[str] = Field(serialization_alias="sampleIds")
     action: str
     status: str
+    retest_run_id: str | None = Field(default=None, serialization_alias="retestRunId")
+    retest_run: RegressionRunRead | None = Field(default=None, serialization_alias="retestRun")
     created_by: str = Field(serialization_alias="createdBy")
     updated_by: str = Field(serialization_alias="updatedBy")
     created_at: datetime = Field(serialization_alias="createdAt")
