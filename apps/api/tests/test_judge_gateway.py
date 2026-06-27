@@ -13,13 +13,14 @@ class FakeModelResult:
 
 
 class FakeModelGateway:
-    def __init__(self, result: FakeModelResult):
-        self.result = result
+    def __init__(self, result: FakeModelResult | list[FakeModelResult]):
+        self.results = result if isinstance(result, list) else [result]
         self.calls: list[dict] = []
 
     def complete(self, **request) -> FakeModelResult:
         self.calls.append(request)
-        return self.result
+        index = min(len(self.calls) - 1, len(self.results) - 1)
+        return self.results[index]
 
 
 def test_model_judge_gateway_parses_structured_json_result():
@@ -67,3 +68,65 @@ def test_model_judge_gateway_parses_structured_json_result():
     assert result.input_snapshot["artifactText"] == "Evidence-backed plan with owner and next action."
     assert gateway.calls[0]["model"] == "deepseek-v4-pro"
     assert "Return JSON only" in gateway.calls[0]["system_prompt"]
+
+
+def test_model_judge_gateway_retries_invalid_json_payload_once():
+    gateway = FakeModelGateway([
+        FakeModelResult(content="not json"),
+        FakeModelResult(content=json.dumps({
+            "dimensionScores": [
+                {"name": "Evidence", "weight": 100, "score": 91},
+            ],
+            "score": 91,
+            "status": "passed",
+            "rationale": "Recovered after retry.",
+        })),
+    ])
+
+    result = ModelJudgeGateway(gateway, max_attempts=2).evaluate(
+        rubric_snapshot={
+            "name": "Retry Rubric",
+            "dimensions": [{"name": "Evidence", "weight": 100}],
+            "judgeType": "llm",
+            "judgeModel": "deepseek-v4-pro",
+        },
+        rubric_version="v1.0",
+        artifact_text="Artifact with evidence.",
+        subject_type="manual",
+        subject_id=None,
+    )
+
+    assert result.score == 91
+    assert result.rationale == "Recovered after retry."
+    assert len(gateway.calls) == 2
+
+
+def test_model_judge_gateway_rejects_invalid_dimension_score_schema():
+    gateway = FakeModelGateway(FakeModelResult(
+        content=json.dumps({
+            "dimensionScores": [
+                {"name": "Evidence", "score": 91},
+            ],
+            "score": 91,
+            "status": "passed",
+            "rationale": "Missing dimension weight.",
+        }),
+    ))
+
+    try:
+        ModelJudgeGateway(gateway, max_attempts=1).evaluate(
+            rubric_snapshot={
+                "name": "Strict Rubric",
+                "dimensions": [{"name": "Evidence", "weight": 100}],
+                "judgeType": "llm",
+                "judgeModel": "deepseek-v4-pro",
+            },
+            rubric_version="v1.0",
+            artifact_text="Artifact with evidence.",
+            subject_type="manual",
+            subject_id=None,
+        )
+    except RuntimeError as error:
+        assert str(error) == "LLM Judge returned invalid dimension score schema"
+    else:
+        raise AssertionError("Expected invalid dimension score schema to be rejected")
