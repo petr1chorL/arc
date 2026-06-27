@@ -1417,5 +1417,13 @@ describe('Evaluations page', () => {
     expect(within(taskList).getByText('run-retest-1')).toBeInTheDocument()
     expect(within(taskList).getByText('通过率 0%')).toBeInTheDocument()
     expect(within(taskList).getByText('失败 1')).toBeInTheDocument()
+
+    const loopBoard = await screen.findByRole('region', { name: 'Evaluation Loop Board' })
+    expect(within(loopBoard).getByText('失败原因组 2')).toBeInTheDocument()
+    expect(within(loopBoard).getByText('修复任务 1')).toBeInTheDocument()
+    expect(within(loopBoard).getByText('未关闭风险 0')).toBeInTheDocument()
+    expect(within(loopBoard).getByText('已复测 1')).toBeInTheDocument()
+    expect(within(loopBoard).getByText('最近复测通过率 0%')).toBeInTheDocument()
+    expect(within(loopBoard).getByText('继续补强复测失败样本')).toBeInTheDocument()
   })
 })

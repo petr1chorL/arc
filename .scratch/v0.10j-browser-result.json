@@ -1,0 +1,15 @@
+{
+  "cards": [
+    "失败原因组 1",
+    "修复任务 1",
+    "未关闭风险 0",
+    "已复测 0"
+  ],
+  "hasBoard": true,
+  "hasPassRate": true,
+  "hasRecommendation": true,
+  "text": "EVALUATION LOOPEvaluation Loop Board闭环状态失败原因组 1修复任务 1未关闭风险 0已复测 0最近复测通过率 暂无先将失败原因转成修复任务",
+  "url": "http://127.0.0.1:4173/w/ai-capability-center/evaluations",
+  "warningErrorCount": 2,
+  "newWarningErrorCount": 0
+}

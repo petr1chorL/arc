@@ -2501,6 +2501,70 @@ kbd {
   font-weight: 800;
 }
 
+.evaluation-loop-board {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.34);
+  box-shadow: var(--shadow-raised-sm);
+}
+
+.evaluation-loop-board.warning {
+  background: rgba(255, 247, 237, 0.54);
+}
+
+.evaluation-loop-board.danger {
+  background: rgba(255, 241, 242, 0.56);
+}
+
+.evaluation-loop-board.success {
+  background: rgba(236, 253, 245, 0.52);
+}
+
+.evaluation-loop-board > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.evaluation-loop-board h4 {
+  margin: 4px 0 0;
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.evaluation-loop-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.evaluation-loop-metrics span {
+  min-width: 0;
+  border-radius: 12px;
+  padding: 12px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.36);
+  box-shadow: var(--shadow-inset);
+  font-size: 12px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.evaluation-loop-board p,
+.evaluation-loop-board strong {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.evaluation-loop-board strong {
+  color: var(--ink);
+  font-weight: 800;
+}
+
 .trend-metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

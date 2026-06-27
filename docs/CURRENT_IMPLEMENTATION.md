@@ -1,6 +1,6 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.10I 修复任务关联复测
+> 对应版本：V0.10J 评估闭环看板
 > 上一阶段：V0.8F 轻量告警 / 通知 Outbox
 > 更新时间：2026-06-27
 
@@ -391,6 +391,9 @@ React Flow 节点/连线
 - `done` 状态的修复任务支持发起复测，后端会用来源 Run 的同一 Rubric 和任务代表样本创建新的 Regression Run。
 - 复测 Run ID 会写回 Remediation Task；重复复测返回已有 Run，不重复创建。
 - 任务卡展示复测 Run ID、通过率和失败样本数。
+- 页面展示 `Evaluation Loop Board`，从失败原因组、Remediation Task、复测 Run 和未关闭风险派生闭环指标。
+- 闭环看板展示失败原因组数、修复任务数、未关闭风险数、已复测任务数、最近复测通过率和下一步建议。
+- V0.10J 看板为前端派生视图，不新增后端接口。
 - 当前评分器为确定性评分器，用于验证评估链路；真实 LLM-as-a-Judge 尚未接入。
 
 后端 API：
@@ -783,6 +786,10 @@ TypeScript 编译检查
 - V0.10I 完成 focused 自动化测试：后端支持已完成修复任务发起复测、重复复测去重和未完成任务 409；前端支持任务完成后发起复测并展示复测 Run、通过率和失败数。
 - V0.10I 完成真实浏览器验收：本地登录会话在评估中心点击 `发起复测` 后，任务卡展示复测 Run、通过率和失败数；本次验证期间新增 console warning/error 为 0。
 - V0.10I 浏览器验收截图：`.scratch/v0.10i-remediation-retest.png`；验收结果：`.scratch/v0.10i-browser-result.json`。
+- V0.10J 完成 focused 自动化测试：评估中心在任务复测后展示 `Evaluation Loop Board`，包含失败原因组、修复任务、未关闭风险、已复测、最近复测通过率和下一步建议。
+- V0.10J 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q`、`npm test -- --run`、`npm run lint`、`npm run build` 均通过。
+- V0.10J 完成真实浏览器验收：评估中心可见 `Evaluation Loop Board`，本次刷新验证期间新增 console warning/error 为 0。
+- V0.10J 浏览器验收截图：`.scratch/v0.10j-evaluation-loop-board.png`；验收结果：`.scratch/v0.10j-browser-result.json`。
 
 验证时没有发现浏览器控制台错误。
 

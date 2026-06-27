@@ -178,6 +178,16 @@ interface RemediationQueueItem {
   retestLabel: string
 }
 
+interface EvaluationLoopBoard {
+  failureGroupCount: number
+  remediationTaskCount: number
+  openRiskCount: number
+  retestedTaskCount: number
+  latestRetestPassRate: number | null
+  recommendation: string
+  tone: 'danger' | 'warning' | 'success'
+}
+
 function formatDelta(value: number) {
   return value > 0 ? `+${value}` : `${value}`
 }
@@ -363,6 +373,67 @@ function buildRemediationQueue(summary: FailurePatternSummary | null): Remediati
       || right.sampleCount - left.sampleCount
       || left.weakestScore - right.weakestScore
     ))
+}
+
+function buildEvaluationLoopBoard(
+  summary: FailurePatternSummary | null,
+  tasks: RemediationTask[],
+): EvaluationLoopBoard | null {
+  const failureGroupCount = summary?.clusters.length ?? 0
+  if (failureGroupCount === 0 && tasks.length === 0) return null
+
+  const retestedRuns = tasks
+    .map((task) => task.retestRun)
+    .filter((run): run is RegressionRun => Boolean(run))
+    .sort((left, right) => new Date(right.completedAt).getTime() - new Date(left.completedAt).getTime())
+  const latestRetest = retestedRuns[0] ?? null
+  const openRiskCount = tasks.filter((task) => task.status !== 'done' || !task.retestRunId).length
+
+  if (openRiskCount > 0) {
+    return {
+      failureGroupCount,
+      remediationTaskCount: tasks.length,
+      openRiskCount,
+      retestedTaskCount: retestedRuns.length,
+      latestRetestPassRate: latestRetest?.passRate ?? null,
+      recommendation: '优先关闭未完成修复任务',
+      tone: 'danger',
+    }
+  }
+
+  if (latestRetest && latestRetest.failedSamples > 0) {
+    return {
+      failureGroupCount,
+      remediationTaskCount: tasks.length,
+      openRiskCount,
+      retestedTaskCount: retestedRuns.length,
+      latestRetestPassRate: latestRetest.passRate,
+      recommendation: '继续补强复测失败样本',
+      tone: 'warning',
+    }
+  }
+
+  if (tasks.length > 0 && retestedRuns.length === tasks.length) {
+    return {
+      failureGroupCount,
+      remediationTaskCount: tasks.length,
+      openRiskCount,
+      retestedTaskCount: retestedRuns.length,
+      latestRetestPassRate: latestRetest?.passRate ?? null,
+      recommendation: '闭环健康，继续观察下一次回归',
+      tone: 'success',
+    }
+  }
+
+  return {
+    failureGroupCount,
+    remediationTaskCount: tasks.length,
+    openRiskCount,
+    retestedTaskCount: retestedRuns.length,
+    latestRetestPassRate: latestRetest?.passRate ?? null,
+    recommendation: '先将失败原因转成修复任务',
+    tone: 'warning',
+  }
 }
 
 function buildRegressionRunComparison(
@@ -604,6 +675,11 @@ export function Evaluations() {
     }
     return lookup
   }, [remediationTasks])
+
+  const evaluationLoopBoard = useMemo(
+    () => buildEvaluationLoopBoard(failurePatternSummary, remediationTasks),
+    [failurePatternSummary, remediationTasks],
+  )
 
   const activeSelectedSamples = useMemo(
     () => selectedSampleSet?.samples.filter((sample) => sample.status === 'active') ?? [],
@@ -1569,6 +1645,33 @@ export function Evaluations() {
                     </article>
                   ))}
                 </div>
+              </div>
+            )}
+            {evaluationLoopBoard && (
+              <div
+                className={`evaluation-loop-board ${evaluationLoopBoard.tone}`}
+                role="region"
+                aria-label="Evaluation Loop Board"
+              >
+                <header>
+                  <div>
+                    <span className="eyebrow">EVALUATION LOOP</span>
+                    <h4>Evaluation Loop Board</h4>
+                  </div>
+                  <span className="status-pill">闭环状态</span>
+                </header>
+                <div className="evaluation-loop-metrics">
+                  <span>失败原因组 {evaluationLoopBoard.failureGroupCount}</span>
+                  <span>修复任务 {evaluationLoopBoard.remediationTaskCount}</span>
+                  <span>未关闭风险 {evaluationLoopBoard.openRiskCount}</span>
+                  <span>已复测 {evaluationLoopBoard.retestedTaskCount}</span>
+                </div>
+                <p>
+                  {evaluationLoopBoard.latestRetestPassRate === null
+                    ? '最近复测通过率 暂无'
+                    : `最近复测通过率 ${evaluationLoopBoard.latestRetestPassRate}%`}
+                </p>
+                <strong>{evaluationLoopBoard.recommendation}</strong>
               </div>
             )}
             <div className="trend-metrics">
