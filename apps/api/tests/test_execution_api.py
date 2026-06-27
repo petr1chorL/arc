@@ -225,6 +225,57 @@ def test_agent_test_run_passes_bound_provider_secret_ref_label_to_gateway(tmp_pa
     assert "DEEPSEEK_RUNTIME_KEY" not in response.text
 
 
+def test_agent_test_run_uses_published_provider_secret_ref_snapshot(tmp_path):
+    gateway = FakeGateway([FakeModelResult("Frozen Provider snapshot response.")])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'execution-provider-snapshot.db'}",
+        model_gateway=gateway,
+    )
+    provider = client.post(
+        workspace_url(workspace_id, "/model-providers"),
+        json={
+            "name": "DeepSeek Snapshot",
+            "providerType": "openai-compatible",
+            "baseUrl": "https://api.deepseek.com",
+            "defaultModel": "deepseek-v4-pro",
+            "secretRef": "DEEPSEEK_PUBLISHED_KEY",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    agent, _ = create_published_agent(client, workspace_id)
+    client.patch(
+        workspace_url(workspace_id, f"/agents/{agent['id']}"),
+        json={"modelProviderId": provider["id"]},
+        headers=csrf_headers(client),
+    )
+    version = client.post(
+        workspace_url(workspace_id, f"/agents/{agent['id']}/publish"),
+        headers=csrf_headers(client),
+    ).json()
+    client.patch(
+        workspace_url(workspace_id, f"/model-providers/{provider['id']}"),
+        json={"secretRef": "DEEPSEEK_ROTATED_KEY"},
+        headers=csrf_headers(client),
+    )
+    client.post(
+        workspace_url(workspace_id, f"/model-providers/{provider['id']}/deactivate"),
+        headers=csrf_headers(client),
+    )
+
+    response = client.post(
+        workspace_url(workspace_id, f"/agents/{agent['id']}/test-runs"),
+        json={"input": "Use the frozen Provider snapshot.", "version": version["version"]},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 201
+    assert version["snapshot"]["modelSecretRef"] == "DEEPSEEK_PUBLISHED_KEY"
+    assert gateway.calls[0]["model_provider_id"] == provider["id"]
+    assert gateway.calls[0]["model_secret_ref"] == "DEEPSEEK_PUBLISHED_KEY"
+    assert "DEEPSEEK_ROTATED_KEY" not in response.text
+    assert "apiKey" not in gateway.calls[0]
+
+
 def test_workflow_run_retries_and_persists_node_timeline(tmp_path):
     gateway = FakeGateway([
         RuntimeError("temporary provider failure"),

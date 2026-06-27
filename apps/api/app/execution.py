@@ -115,8 +115,8 @@ class ExecutionService:
         )
         runtime_input = self._input_with_tool_summaries(input_text, tool_call_summaries)
         model_provider_id = snapshot.get("modelProviderId")
-        model_secret_ref = ""
-        if model_provider_id:
+        model_secret_ref = snapshot.get("modelSecretRef", "")
+        if model_provider_id and not model_secret_ref:
             provider = session.scalar(
                 select(ModelProviderRecord).where(
                     ModelProviderRecord.id == model_provider_id,

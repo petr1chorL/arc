@@ -174,7 +174,51 @@ def test_agent_can_bind_workspace_model_provider_asset(tmp_path):
     assert published["snapshot"]["modelProvider"] == "openai-compatible"
     assert published["snapshot"]["modelBaseUrl"] == "https://api.deepseek.com"
     assert published["snapshot"]["model"] == "deepseek-v4-pro"
+    assert published["snapshot"]["modelSecretRef"] == "DEEPSEEK_API_KEY"
     assert "apiKey" not in published["snapshot"]
+
+
+def test_agent_publish_rejects_disabled_bound_model_provider(tmp_path):
+    database_url = f"sqlite:///{tmp_path / 'agents-provider-disabled.db'}"
+    client, workspace_id = create_authenticated_client(database_url)
+    provider = client.post(
+        workspace_url(workspace_id, "/model-providers"),
+        json={
+            "name": "DeepSeek Disabled Before Publish",
+            "providerType": "openai-compatible",
+            "baseUrl": "https://api.deepseek.com",
+            "defaultModel": "deepseek-v4-pro",
+            "secretRef": "DEEPSEEK_API_KEY",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    created = client.post(
+        workspace_url(workspace_id, "/agents"),
+        json={
+            "name": "Provider Disabled Agent",
+            "role": "Should not publish with a disabled Provider.",
+            "owner": "Platform Team",
+            "model": "placeholder-model",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    client.patch(
+        workspace_url(workspace_id, f"/agents/{created['id']}"),
+        json={"modelProviderId": provider["id"]},
+        headers=csrf_headers(client),
+    )
+    client.post(
+        workspace_url(workspace_id, f"/model-providers/{provider['id']}/deactivate"),
+        headers=csrf_headers(client),
+    )
+
+    response = client.post(
+        workspace_url(workspace_id, f"/agents/{created['id']}/publish"),
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "模型 Provider 已停用"
 
 
 def test_agent_survives_application_restart(tmp_path):

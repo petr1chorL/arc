@@ -384,6 +384,27 @@ def create_app(
     def agent_snapshot(record: AgentRecord) -> dict:
         return AgentRead.model_validate(record).model_dump(by_alias=True, mode="json")
 
+    def agent_version_snapshot(
+        record: AgentRecord,
+        *,
+        session: Session,
+        workspace_id: str,
+    ) -> dict:
+        snapshot = agent_snapshot(record)
+        provider_id = snapshot.get("modelProviderId")
+        if not provider_id:
+            return snapshot
+        provider = resolve_model_provider(
+            session,
+            workspace_id=workspace_id,
+            provider_id=provider_id,
+        )
+        snapshot["modelProvider"] = provider.provider_type
+        snapshot["modelBaseUrl"] = provider.base_url
+        snapshot["model"] = provider.default_model
+        snapshot["modelSecretRef"] = provider.secret_ref
+        return snapshot
+
     def find_rubric(workspace_id: str, rubric_id: str, session: Session) -> RubricRecord:
         rubric = session.scalar(
             select(RubricRecord).where(
@@ -1228,7 +1249,11 @@ def create_app(
             workspace_id=context.workspace.id,
             agent_id=agent_id,
             version=version,
-            snapshot=agent_snapshot(record),
+            snapshot=agent_version_snapshot(
+                record,
+                session=session,
+                workspace_id=context.workspace.id,
+            ),
         )
         record.version = version
         record.status = "鍦ㄧ嚎"
