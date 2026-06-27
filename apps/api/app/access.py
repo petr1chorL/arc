@@ -28,6 +28,7 @@ CAPABILITY_MIN_ROLE = {
     "asset.read": "viewer",
     "run.read": "viewer",
     "run.execute": "operator",
+    "evaluation.run": "operator",
     "agent.write": "builder",
     "agent.publish": "builder",
     "rubric.write": "builder",

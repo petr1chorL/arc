@@ -1695,6 +1695,60 @@ kbd {
   color: var(--ink);
 }
 
+.rubric-evaluation-runner {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 16px;
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.24);
+  box-shadow: var(--shadow-inset);
+}
+
+.rubric-evaluation-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.rubric-evaluation-header h3 {
+  margin: 3px 0 0;
+  font-size: 14px;
+}
+
+.rubric-evaluation-runner > .button {
+  justify-self: start;
+}
+
+.rubric-evaluation-result {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.rubric-evaluation-result > strong {
+  color: var(--ink);
+  font-size: 17px;
+}
+
+.rubric-evaluation-result > span {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.rubric-evaluation-result > div {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr) 42px;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
 .members-page {
   display: grid;
   gap: 14px;

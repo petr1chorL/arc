@@ -7,6 +7,7 @@ export type WorkspaceCapability =
   | 'run.read'
   | 'audit.read'
   | 'run.execute'
+  | 'evaluation.run'
   | 'agent.write'
   | 'agent.publish'
   | 'workflow.write'
@@ -148,6 +149,27 @@ export interface Rubric {
 }
 
 export type RubricVersion = AssetVersion<Rubric>
+
+export interface EvaluationDimensionScore {
+  name: string
+  weight: number
+  score: number
+}
+
+export interface EvaluationRecord {
+  id: string
+  rubricId: string
+  rubricVersion: string
+  rubricSnapshot: Rubric
+  subjectType: string
+  subjectId: string | null
+  artifactText: string
+  dimensionScores: EvaluationDimensionScore[]
+  score: number
+  status: string
+  rationale: string
+  createdAt: string
+}
 
 export interface WorkflowRun {
   id: string

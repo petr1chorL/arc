@@ -542,6 +542,25 @@ class RubricVersionRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class EvaluationRecord(Base):
+    __tablename__ = "evaluations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    rubric_id: Mapped[str] = mapped_column(String(36), index=True)
+    rubric_version: Mapped[str] = mapped_column(String(32))
+    rubric_snapshot: Mapped[dict] = mapped_column(JSON)
+    subject_type: Mapped[str] = mapped_column(String(80))
+    subject_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    artifact_text: Mapped[str] = mapped_column(Text)
+    dimension_scores: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    score: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(32))
+    rationale: Mapped[str] = mapped_column(Text)
+    created_by: Mapped[str] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class HumanReviewRecord(Base):
     __tablename__ = "human_reviews"
 

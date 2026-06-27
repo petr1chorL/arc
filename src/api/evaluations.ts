@@ -1,4 +1,4 @@
-import type { EvaluationOverview, Rubric, RubricVersion } from '../types'
+import type { EvaluationRecord, EvaluationOverview, Rubric, RubricVersion } from '../types'
 import { apiFetch, readJson } from './http'
 
 export interface RubricInput {
@@ -7,6 +7,12 @@ export interface RubricInput {
   dimensions: { name: string; weight: number }[]
   gate: string
   passScore: number
+}
+
+export interface RubricEvaluationInput {
+  artifactText: string
+  subjectType: string
+  subjectId?: string | null
 }
 
 function workspacePath(workspaceId: string, path = '') {
@@ -60,5 +66,25 @@ export async function deactivateRubric(workspaceId: string, rubricId: string): P
     await apiFetch(workspacePath(workspaceId, `/rubrics/${rubricId}/deactivate`), {
       method: 'POST',
     }),
+  )
+}
+
+export async function evaluateRubric(
+  workspaceId: string,
+  rubricId: string,
+  input: RubricEvaluationInput,
+): Promise<EvaluationRecord> {
+  return readJson<EvaluationRecord>(
+    await apiFetch(workspacePath(workspaceId, `/rubrics/${rubricId}/evaluate`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
+  )
+}
+
+export async function listEvaluationRecords(workspaceId: string): Promise<EvaluationRecord[]> {
+  return readJson<EvaluationRecord[]>(
+    await apiFetch(workspacePath(workspaceId, '/records')),
   )
 }

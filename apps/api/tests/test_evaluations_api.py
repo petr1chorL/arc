@@ -120,3 +120,96 @@ def test_rubric_validation_rejects_invalid_weights_and_blank_fields(tmp_path):
     )
 
     assert response.status_code == 422
+
+
+def test_published_rubric_can_evaluate_artifact_and_list_records(tmp_path):
+    client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'arc-one.db'}")
+    rubric_body = {
+        "name": "Launch Readiness Rubric",
+        "artifact": "Launch plan",
+        "dimensions": [
+            {"name": "Evidence", "weight": 60},
+            {"name": "Actionability", "weight": 40},
+        ],
+        "gate": "Must include source evidence and clear next actions",
+        "passScore": 70,
+    }
+    created = client.post(
+        workspace_url(workspace_id, "/evaluations/rubrics"),
+        json=rubric_body,
+        headers=csrf_headers(client),
+    )
+    rubric = created.json()
+    published = client.post(
+        workspace_url(workspace_id, f"/evaluations/rubrics/{rubric['id']}/publish"),
+        headers=csrf_headers(client),
+    ).json()
+
+    evaluated = client.post(
+        workspace_url(workspace_id, f"/evaluations/rubrics/{rubric['id']}/evaluate"),
+        json={
+            "artifactText": (
+                "This launch plan includes source evidence, owner, risks, "
+                "clear next actions, and measurable acceptance criteria."
+            ),
+            "subjectType": "manual_artifact",
+            "subjectId": "artifact-v0.9d",
+        },
+        headers=csrf_headers(client),
+    )
+
+    assert evaluated.status_code == 201
+    record = evaluated.json()
+    assert record["id"]
+    assert record["rubricId"] == rubric["id"]
+    assert record["rubricVersion"] == published["version"]
+    assert record["rubricSnapshot"]["passScore"] == 70
+    assert record["subjectType"] == "manual_artifact"
+    assert record["subjectId"] == "artifact-v0.9d"
+    assert record["status"] == "passed"
+    assert record["score"] >= 70
+    assert record["dimensionScores"] == [
+        {"name": "Evidence", "weight": 60, "score": record["dimensionScores"][0]["score"]},
+        {"name": "Actionability", "weight": 40, "score": record["dimensionScores"][1]["score"]},
+    ]
+    assert "deterministic" in record["rationale"]
+
+    records = client.get(workspace_url(workspace_id, "/evaluations/records"))
+    assert records.status_code == 200
+    assert records.json()[0]["id"] == record["id"]
+
+
+def test_draft_or_disabled_rubric_cannot_run_evaluation(tmp_path):
+    client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'arc-one.db'}")
+    rubric_body = {
+        "name": "Draft Rubric",
+        "artifact": "Draft artifact",
+        "dimensions": [{"name": "Completeness", "weight": 100}],
+        "gate": "Must be complete",
+        "passScore": 80,
+    }
+    rubric = client.post(
+        workspace_url(workspace_id, "/evaluations/rubrics"),
+        json=rubric_body,
+        headers=csrf_headers(client),
+    ).json()
+
+    draft_response = client.post(
+        workspace_url(workspace_id, f"/evaluations/rubrics/{rubric['id']}/evaluate"),
+        json={"artifactText": "Short draft", "subjectType": "manual_artifact"},
+        headers=csrf_headers(client),
+    )
+
+    assert draft_response.status_code == 409
+
+    client.post(
+        workspace_url(workspace_id, f"/evaluations/rubrics/{rubric['id']}/deactivate"),
+        headers=csrf_headers(client),
+    )
+    disabled_response = client.post(
+        workspace_url(workspace_id, f"/evaluations/rubrics/{rubric['id']}/evaluate"),
+        json={"artifactText": "Short draft", "subjectType": "manual_artifact"},
+        headers=csrf_headers(client),
+    )
+
+    assert disabled_response.status_code == 409

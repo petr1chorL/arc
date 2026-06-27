@@ -21,6 +21,7 @@ from app.models import (
     AgentVersionRecord,
     AuditEventRecord,
     Base,
+    EvaluationRecord,
     FeedbackCandidateRecord,
     GoldenSampleRecord,
     HumanReviewRecord,
@@ -47,7 +48,9 @@ from app.schemas import (
     AgentCreate,
     AgentRead,
     AgentUpdate,
+    EvaluationRecordRead,
     EvaluationOverviewRead,
+    EvaluationRunCreate,
     FeedbackCandidateRead,
     GoldenSampleConfirm,
     GoldenSampleRead,
@@ -288,6 +291,78 @@ def create_app(
             ),
         ) or 0
         return next_version(count)
+
+    def latest_rubric_version(
+        session: Session,
+        workspace_id: str,
+        rubric_id: str,
+    ) -> RubricVersionRecord | None:
+        return session.scalar(
+            select(RubricVersionRecord)
+            .where(
+                RubricVersionRecord.workspace_id == workspace_id,
+                RubricVersionRecord.rubric_id == rubric_id,
+            )
+            .order_by(RubricVersionRecord.created_at.desc()),
+        )
+
+    def active_rubric_snapshot(
+        session: Session,
+        workspace_id: str,
+        rubric: RubricRecord,
+    ) -> tuple[str, dict]:
+        published = latest_rubric_version(session, workspace_id, rubric.id)
+        if published is not None:
+            return published.version, published.snapshot
+        return rubric.version, rubric_snapshot(rubric)
+
+    def deterministic_dimension_score(artifact_text: str) -> int:
+        normalized = artifact_text.strip()
+        if not normalized:
+            return 0
+        lower = normalized.lower()
+        signal_keywords = (
+            "source",
+            "evidence",
+            "owner",
+            "risk",
+            "next action",
+            "acceptance",
+            "criteria",
+        )
+        keyword_score = min(14, sum(2 for keyword in signal_keywords if keyword in lower))
+        length_score = min(86, 42 + len(normalized) // 3)
+        return min(100, length_score + keyword_score)
+
+    def evaluate_with_rubric_snapshot(
+        snapshot: dict,
+        artifact_text: str,
+    ) -> tuple[list[dict], int, str, str]:
+        dimension_base_score = deterministic_dimension_score(artifact_text)
+        dimension_scores = [
+            {
+                "name": dimension["name"],
+                "weight": dimension["weight"],
+                "score": dimension_base_score,
+            }
+            for dimension in snapshot["dimensions"]
+        ]
+        weighted_score = round(
+            sum(
+                dimension["score"] * dimension["weight"]
+                for dimension in dimension_scores
+            ) / 100,
+        )
+        status_value = (
+            "passed"
+            if weighted_score >= snapshot["pass_score"]
+            else "failed"
+        )
+        rationale = (
+            "deterministic rubric evaluation: score is based on artifact "
+            "length and explicit quality signals; LLM judge is not enabled yet."
+        )
+        return dimension_scores, weighted_score, status_value, rationale
 
     def find_workflow(workspace_id: str, workflow_id: str, session: Session) -> WorkflowRecord:
         workflow = session.scalar(
@@ -2021,6 +2096,88 @@ def create_app(
             action="evaluation.rubric.deactivate",
             target_type="rubric",
             target_id=record.id,
+            request=request,
+        )
+        session.commit()
+        session.refresh(record)
+        return record
+
+    @router.get("/evaluations/records", response_model=list[EvaluationRecordRead])
+    def list_evaluation_records(
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> list[EvaluationRecord]:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "asset.read",
+            action="evaluation.record.list",
+            target_type="workspace",
+            target_id=context.workspace.id,
+            request=request,
+        )
+        return list(session.scalars(
+            select(EvaluationRecord)
+            .where(EvaluationRecord.workspace_id == context.workspace.id)
+            .order_by(EvaluationRecord.created_at.desc()),
+        ))
+
+    @router.post(
+        "/evaluations/rubrics/{rubric_id}/evaluate",
+        response_model=EvaluationRecordRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def run_rubric_evaluation(
+        rubric_id: str,
+        payload: EvaluationRunCreate,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> EvaluationRecord:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "evaluation.run",
+            action="evaluation.run",
+            target_type="rubric",
+            target_id=rubric_id,
+            request=request,
+        )
+        rubric = find_rubric(context.workspace.id, rubric_id, session)
+        if rubric.status != "active":
+            raise HTTPException(status_code=409, detail="只有已启用评分量规可以运行评估")
+        rubric_version, snapshot = active_rubric_snapshot(
+            session,
+            context.workspace.id,
+            rubric,
+        )
+        dimension_scores, score, status_value, rationale = evaluate_with_rubric_snapshot(
+            snapshot,
+            payload.artifact_text,
+        )
+        record = EvaluationRecord(
+            workspace_id=context.workspace.id,
+            rubric_id=rubric.id,
+            rubric_version=rubric_version,
+            rubric_snapshot=snapshot,
+            subject_type=payload.subject_type,
+            subject_id=payload.subject_id,
+            artifact_text=payload.artifact_text,
+            dimension_scores=dimension_scores,
+            score=score,
+            status=status_value,
+            rationale=rationale,
+            created_by=context.user.id,
+        )
+        session.add(record)
+        session.flush()
+        record_success(
+            session,
+            context,
+            action="evaluation.run",
+            target_type="rubric",
+            target_id=rubric.id,
             request=request,
         )
         session.commit()

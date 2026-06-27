@@ -16,6 +16,7 @@ import {
 import {
   createRubric,
   deactivateRubric,
+  evaluateRubric,
   getEvaluationOverview,
   getRubrics,
   listRubricVersions,
@@ -24,7 +25,7 @@ import {
   type RubricInput,
 } from '../api/evaluations'
 import { useWorkspace } from '../auth/workspaceContextState'
-import type { EvaluationOverview, Rubric, RubricVersion } from '../types'
+import type { EvaluationRecord, EvaluationOverview, Rubric, RubricVersion } from '../types'
 
 const emptyOverview: EvaluationOverview = {
   totals: {
@@ -84,6 +85,10 @@ export function Evaluations() {
   const [formError, setFormError] = useState('')
   const [formFeedback, setFormFeedback] = useState('')
   const [isBusy, setIsBusy] = useState(false)
+  const [evaluationText, setEvaluationText] = useState('')
+  const [evaluationResult, setEvaluationResult] = useState<EvaluationRecord | null>(null)
+  const [evaluationError, setEvaluationError] = useState('')
+  const [isEvaluating, setIsEvaluating] = useState(false)
 
   const loadAssets = useCallback(async () => {
     setIsLoading(true)
@@ -118,6 +123,9 @@ export function Evaluations() {
     setVersions([])
     setFormError('')
     setFormFeedback('')
+    setEvaluationText('')
+    setEvaluationResult(null)
+    setEvaluationError('')
   }
 
   async function openEditDialog(rubric: Rubric) {
@@ -126,6 +134,9 @@ export function Evaluations() {
     setForm(toRubricInput(rubric))
     setFormError('')
     setFormFeedback('')
+    setEvaluationText('')
+    setEvaluationResult(null)
+    setEvaluationError('')
     try {
       setVersions(await listRubricVersions(workspace.id, rubric.id))
     } catch {
@@ -140,6 +151,9 @@ export function Evaluations() {
     setVersions([])
     setFormError('')
     setFormFeedback('')
+    setEvaluationText('')
+    setEvaluationResult(null)
+    setEvaluationError('')
   }
 
   function updateDimension(index: number, patch: Partial<RubricInput['dimensions'][number]>) {
@@ -226,6 +240,28 @@ export function Evaluations() {
       setFormError(deactivateError instanceof Error ? deactivateError.message : '评分量规停用失败')
     } finally {
       setIsBusy(false)
+    }
+  }
+
+  async function runEvaluation() {
+    if (!editingRubric) return
+    if (!evaluationText.trim()) {
+      setEvaluationError('待评估产出物不能为空')
+      return
+    }
+    setIsEvaluating(true)
+    setEvaluationError('')
+    try {
+      const result = await evaluateRubric(workspace.id, editingRubric.id, {
+        artifactText: evaluationText.trim(),
+        subjectType: 'manual_artifact',
+        subjectId: null,
+      })
+      setEvaluationResult(result)
+    } catch (runError) {
+      setEvaluationError(runError instanceof Error ? runError.message : '运行评估失败')
+    } finally {
+      setIsEvaluating(false)
     }
   }
 
@@ -481,6 +517,50 @@ export function Evaluations() {
                 </button>
               </footer>
             </form>
+
+            {editingRubric && (
+              <div className="rubric-evaluation-runner">
+                <div className="rubric-evaluation-header">
+                  <div>
+                    <span className="eyebrow">EVALUATION RUN</span>
+                    <h3>运行评估</h3>
+                  </div>
+                  {evaluationResult && <span className={`status-pill ${evaluationResult.status === 'passed' ? 'success' : 'danger'}`}>{evaluationResult.status}</span>}
+                </div>
+                <label className="dialog-field">
+                  待评估产出物
+                  <textarea
+                    aria-label="待评估产出物"
+                    rows={4}
+                    value={evaluationText}
+                    disabled={disabled}
+                    onChange={(event) => setEvaluationText(event.target.value)}
+                  />
+                </label>
+                {evaluationError && <p className="dialog-error" role="alert">{evaluationError}</p>}
+                <button
+                  className="button primary"
+                  type="button"
+                  disabled={disabled || isEvaluating}
+                  onClick={() => void runEvaluation()}
+                >
+                  <Beaker size={15} />运行评估
+                </button>
+                {evaluationResult && (
+                  <div className="rubric-evaluation-result">
+                    <strong>总分 {evaluationResult.score}</strong>
+                    <span>{evaluationResult.rationale}</span>
+                    {evaluationResult.dimensionScores.map((dimension) => (
+                      <div key={dimension.name}>
+                        <span>{dimension.name}</span>
+                        <div className="weight-track"><i style={{ width: `${dimension.score}%` }} /></div>
+                        <strong>{dimension.score}</strong>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {editingRubric && (
               <div className="rubric-version-list">

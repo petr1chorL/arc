@@ -150,4 +150,58 @@ describe('Evaluations page', () => {
       element?.textContent === '适用产出物：机会评估表'
     ))).toBeInTheDocument()
   })
+
+  it('runs a rubric evaluation from the configuration dialog', async () => {
+    const user = userEvent.setup()
+    const evaluationRecord = {
+      id: 'evaluation-1',
+      rubricId: rubricAssets[0].id,
+      rubricVersion: 'v1.0',
+      rubricSnapshot: rubricAssets[0],
+      subjectType: 'manual_artifact',
+      subjectId: null,
+      artifactText: 'This artifact includes source evidence, tradeoffs, and next actions.',
+      dimensionScores: [
+        { name: 'Accuracy', weight: 60, score: 88 },
+        { name: 'Completeness', weight: 40, score: 88 },
+      ],
+      score: 88,
+      status: 'passed',
+      rationale: 'deterministic rubric evaluation',
+      createdAt: '2026-06-27T00:00:00Z',
+    }
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (input === `/api/workspaces/${workspace.id}/evaluations/overview`) {
+        return response(overview)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/rubrics`) {
+        return response(rubricAssets)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/rubrics/${rubricAssets[0].id}/versions`) {
+        return response([])
+      }
+      if (
+        input === `/api/workspaces/${workspace.id}/evaluations/rubrics/${rubricAssets[0].id}/evaluate`
+        && init?.method === 'POST'
+      ) {
+        return response(evaluationRecord, 201)
+      }
+      return response({ detail: 'not found' }, 404)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage()
+
+    await user.click(await screen.findByTitle('配置量规'))
+    expect(await screen.findByRole('heading', { name: '运行评估' })).toBeInTheDocument()
+    await user.type(screen.getByLabelText('待评估产出物'), evaluationRecord.artifactText)
+    await user.click(screen.getByRole('button', { name: '运行评估' }))
+
+    expect(await screen.findByText('总分 88')).toBeInTheDocument()
+    expect(screen.getByText('passed')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/workspaces/${workspace.id}/evaluations/rubrics/${rubricAssets[0].id}/evaluate`,
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
 })

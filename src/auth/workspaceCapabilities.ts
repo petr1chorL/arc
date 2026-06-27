@@ -12,6 +12,7 @@ const minimumRole: Record<WorkspaceCapability, WorkspaceRole> = {
   'run.read': 'viewer',
   'audit.read': 'workspace_admin',
   'run.execute': 'operator',
+  'evaluation.run': 'operator',
   'agent.write': 'builder',
   'agent.publish': 'builder',
   'workflow.write': 'builder',

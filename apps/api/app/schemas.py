@@ -816,3 +816,50 @@ class RubricVersionRead(BaseModel):
     created_at: datetime = Field(serialization_alias="createdAt")
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class EvaluationRunCreate(BaseModel):
+    artifact_text: str = Field(alias="artifactText", min_length=1, max_length=20000)
+    subject_type: str = Field(alias="subjectType", min_length=1, max_length=80)
+    subject_id: str | None = Field(default=None, alias="subjectId", max_length=120)
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    @field_validator("artifact_text", "subject_type")
+    @classmethod
+    def reject_blank_evaluation_fields(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("字段不能为空")
+        return normalized
+
+    @field_validator("subject_id")
+    @classmethod
+    def normalize_subject_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+
+class EvaluationDimensionScoreRead(BaseModel):
+    name: str
+    weight: int
+    score: int
+
+
+class EvaluationRecordRead(BaseModel):
+    id: str
+    rubric_id: str = Field(serialization_alias="rubricId")
+    rubric_version: str = Field(serialization_alias="rubricVersion")
+    rubric_snapshot: RubricRead = Field(serialization_alias="rubricSnapshot")
+    subject_type: str = Field(serialization_alias="subjectType")
+    subject_id: str | None = Field(serialization_alias="subjectId")
+    artifact_text: str = Field(serialization_alias="artifactText")
+    dimension_scores: list[EvaluationDimensionScoreRead] = Field(serialization_alias="dimensionScores")
+    score: int
+    status: str
+    rationale: str
+    created_at: datetime = Field(serialization_alias="createdAt")
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)

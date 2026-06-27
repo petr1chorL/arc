@@ -2,8 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createRubric,
   deactivateRubric,
+  evaluateRubric,
   getEvaluationOverview,
   getRubrics,
+  listEvaluationRecords,
   listRubricVersions,
   publishRubric,
   updateRubric,
@@ -116,5 +118,50 @@ describe('Evaluations API', () => {
     const updateInit = fetchMock.mock.calls[1][1] as RequestInit
     expect(new Headers(createInit.headers).get('Content-Type')).toBe('application/json')
     expect(new Headers(updateInit.headers).get('Content-Type')).toBe('application/json')
+  })
+
+  it('runs and lists evaluation records for a rubric', async () => {
+    const record = {
+      id: 'evaluation-1',
+      rubricId: 'rubric-1',
+      rubricVersion: 'v1.0.0',
+      rubricSnapshot: {
+        id: 'rubric-1',
+        name: 'Lifecycle Rubric',
+        artifact: 'Artifact',
+        dimensions: [{ name: 'Accuracy', weight: 100 }],
+        gate: 'Must pass',
+        passScore: 80,
+        version: 'v1.0.0',
+        status: 'active',
+      },
+      subjectType: 'manual_artifact',
+      subjectId: 'artifact-1',
+      artifactText: 'A sourced artifact with clear next actions.',
+      dimensionScores: [{ name: 'Accuracy', weight: 100, score: 88 }],
+      score: 88,
+      status: 'passed',
+      rationale: 'deterministic rubric evaluation',
+      createdAt: '2026-06-27T00:00:00Z',
+    }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(await jsonResponse(record, 201))
+      .mockResolvedValueOnce(await jsonResponse([record]))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(evaluateRubric(workspaceId, 'rubric-1', {
+      artifactText: record.artifactText,
+      subjectType: 'manual_artifact',
+      subjectId: 'artifact-1',
+    })).resolves.toEqual(record)
+    await expect(listEvaluationRecords(workspaceId)).resolves.toEqual([record])
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      `/api/workspaces/${workspaceId}/evaluations/rubrics/rubric-1/evaluate`,
+      `/api/workspaces/${workspaceId}/evaluations/records`,
+    ])
+    const evaluateInit = fetchMock.mock.calls[0][1] as RequestInit
+    expect(evaluateInit.method).toBe('POST')
+    expect(new Headers(evaluateInit.headers).get('Content-Type')).toBe('application/json')
   })
 })
