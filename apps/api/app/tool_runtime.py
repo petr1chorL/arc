@@ -29,6 +29,16 @@ class HttpToolGateway(Protocol):
         pass
 
 
+class McpToolGateway(Protocol):
+    def execute(
+        self,
+        *,
+        config: dict,
+        parameters: dict,
+    ) -> ToolRuntimeGatewayResult:
+        pass
+
+
 class DisabledHttpToolGateway:
     def execute(
         self,
@@ -37,6 +47,16 @@ class DisabledHttpToolGateway:
         parameters: dict,
     ) -> ToolRuntimeGatewayResult:
         raise ToolRuntimeGatewayError("工具执行网关未配置")
+
+
+class DisabledMcpToolGateway:
+    def execute(
+        self,
+        *,
+        config: dict,
+        parameters: dict,
+    ) -> ToolRuntimeGatewayResult:
+        raise ToolRuntimeGatewayError("MCP Tool 网关未配置")
 
 
 class HttpxToolGateway:
@@ -126,14 +146,31 @@ class ToolRuntimeResult:
 
 
 class ToolRuntimeExecutor:
-    def __init__(self, gateway: HttpToolGateway):
-        self.gateway = gateway
+    def __init__(
+        self,
+        http_gateway: HttpToolGateway,
+        mcp_gateway: McpToolGateway | None = None,
+    ):
+        self.http_gateway = http_gateway
+        self.mcp_gateway = mcp_gateway or DisabledMcpToolGateway()
 
     def execute_http(self, *, config: dict, parameters: dict) -> ToolRuntimeResult:
+        return self._execute(self.http_gateway, config=config, parameters=parameters)
+
+    def execute_mcp(self, *, config: dict, parameters: dict) -> ToolRuntimeResult:
+        return self._execute(self.mcp_gateway, config=config, parameters=parameters)
+
+    def _execute(
+        self,
+        gateway: HttpToolGateway | McpToolGateway,
+        *,
+        config: dict,
+        parameters: dict,
+    ) -> ToolRuntimeResult:
         started_at = perf_counter()
         input_summary = json.dumps(parameters, ensure_ascii=False)
         try:
-            gateway_result = self.gateway.execute(
+            gateway_result = gateway.execute(
                 config=config,
                 parameters=parameters,
             )

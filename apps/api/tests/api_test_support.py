@@ -46,6 +46,7 @@ def create_authenticated_client(
     model_gateway=None,
     human_task_clock=None,
     tool_gateway=None,
+    mcp_gateway=None,
 ) -> tuple[TestClient, str]:
     engine, session_factory = create_database(database_url)
     Base.metadata.create_all(engine)
@@ -70,6 +71,7 @@ def create_authenticated_client(
             human_task_clock=human_task_clock or (lambda: FIXED_NOW),
             auth_clock=lambda: FIXED_NOW,
             tool_gateway=tool_gateway,
+            mcp_gateway=mcp_gateway,
         ),
     )
     login_admin(client)

@@ -45,7 +45,7 @@ from app.models import (
     WorkflowVersionRecord,
     utc_now,
 )
-from app.tool_runtime import HttpToolGateway, HttpxToolGateway, ToolRuntimeExecutor
+from app.tool_runtime import HttpToolGateway, HttpxToolGateway, McpToolGateway, ToolRuntimeExecutor
 from app.routers.auth import (
     SessionAuthenticationError,
     build_session_auth_error_handler,
@@ -175,6 +175,7 @@ def create_app(
     human_task_clock: Callable[[], datetime] = utc_now,
     auth_clock: Callable[[], datetime] = utc_now,
     tool_gateway: HttpToolGateway | None = None,
+    mcp_gateway: McpToolGateway | None = None,
 ) -> FastAPI:
     settings = Settings()
     resolved_database_url = database_url or settings.database_url
@@ -199,7 +200,10 @@ def create_app(
     authorization_service = AuthorizationService(audit_service)
     context_service = RequestContextService(authentication_service, settings, audit_service)
     human_task_service = HumanTaskService(human_task_clock)
-    tool_runtime = ToolRuntimeExecutor(tool_gateway or HttpxToolGateway(settings))
+    tool_runtime = ToolRuntimeExecutor(
+        http_gateway=tool_gateway or HttpxToolGateway(settings),
+        mcp_gateway=mcp_gateway,
+    )
     execution_service = ExecutionService(
         model_gateway or OpenAICompatibleGateway(settings),
         settings,
@@ -1335,13 +1339,18 @@ def create_app(
         )
         if asset is None:
             raise HTTPException(status_code=404, detail="资产不存在")
-        if asset.asset_type != "tool" or asset.adapter_type != "http":
-            raise HTTPException(status_code=422, detail="仅 HTTP Tool 支持测试调用")
-
-        runtime_result = tool_runtime.execute_http(
-            config=asset.adapter_config,
-            parameters=payload.parameters,
-        )
+        if asset.asset_type != "tool" or asset.adapter_type not in {"http", "mcp"}:
+            raise HTTPException(status_code=422, detail="仅 HTTP / MCP Tool 支持测试调用")
+        if asset.adapter_type == "http":
+            runtime_result = tool_runtime.execute_http(
+                config=asset.adapter_config,
+                parameters=payload.parameters,
+            )
+        else:
+            runtime_result = tool_runtime.execute_mcp(
+                config=asset.adapter_config,
+                parameters=payload.parameters,
+            )
         record = ToolSkillAssetInvocationRecord(
             workspace_id=context.workspace.id,
             asset_id=asset.id,

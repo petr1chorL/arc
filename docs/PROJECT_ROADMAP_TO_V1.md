@@ -61,7 +61,7 @@
 10. V0.12C：MCP / HTTP 工具适配。
    - 接入 MCP Server 或企业 HTTP API。
    - 验收：工具调用结果进入节点产出物和 Trace。
-   - 当前状态：HTTP Tool 测试调用、Agent 执行调用日志、Trace 事件和 HTTP allowlist Gateway 已完成；MCP 待继续。
+   - 当前状态：HTTP Tool 测试调用、Agent 执行调用日志、Trace 事件、HTTP allowlist Gateway 和可注入 MCP 测试调用骨架已完成；真实 MCP Server client 待具体目标确定后接入。
 11. V0.12D：LLM-as-a-Judge。
    - Rubric 可选择确定性评分器或 LLM Judge。
    - 验收：评分结果带理由、模型、版本和可复现输入。
@@ -124,4 +124,4 @@
 
 ## 当前推荐下一步
 
-下一步继续 V0.12C：补 MCP 适配。完成后再进入 V0.12D：LLM-as-a-Judge。
+下一步进入 V0.12D：LLM-as-a-Judge。真实 MCP Server client 可以在确定具体 MCP Server、鉴权方式和部署方式后作为 V0.12C 扩展切片补上。

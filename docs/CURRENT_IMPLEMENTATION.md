@@ -18,7 +18,7 @@ Agent 执行已引入第一版 Runtime 合约：`app.agent_runtime` 负责统一
 
 Tool / Skill 已新增第一版 Workspace 级资产库后端：`tool_skill_assets` 表保存 `tool` 与 `skill` 两类资产，支持创建、列表查询、参数 Schema、状态、适配类型、适配配置和 Workspace 隔离。Agent 更新和发布时会校验所绑定的 Tools / Skills 必须是当前 Workspace 内已启用资产。`tool_skill_asset_invocations` 表提供调用日志查询能力，并已支持 HTTP Tool 测试调用写入成功或失败日志。
 
-HTTP Tool 适配当前采用可注入 `HttpToolGateway`。自动化测试可使用 Fake Gateway；默认运行时使用 `HttpxToolGateway`，只有 `TOOL_HTTP_ALLOWED_HOSTS` 配置了目标 host 时才允许 GET / POST 外联，超时由 `TOOL_HTTP_TIMEOUT_SECONDS` 控制。Agent 直接测试运行和工作流 Agent 节点执行时，会调用已绑定的 HTTP Tool 并写入带 Agent、Run 和 NodeRun 上下文的调用日志。运行观测详情会把 Tool 调用日志派生成 `tool_skill_invocation` 执行事件，并关联到对应 NodeRun Span。MCP 仍在 V0.12C 后续切片。
+HTTP Tool 适配当前采用可注入 `HttpToolGateway`。自动化测试可使用 Fake Gateway；默认运行时使用 `HttpxToolGateway`，只有 `TOOL_HTTP_ALLOWED_HOSTS` 配置了目标 host 时才允许 GET / POST 外联，超时由 `TOOL_HTTP_TIMEOUT_SECONDS` 控制。MCP Tool 当前支持可注入 `McpToolGateway` 的测试调用骨架，默认不连接真实 MCP Server。Agent 直接测试运行和工作流 Agent 节点执行时，会调用已绑定的 HTTP Tool 并写入带 Agent、Run 和 NodeRun 上下文的调用日志。运行观测详情会把 Tool 调用日志派生成 `tool_skill_invocation` 执行事件，并关联到对应 NodeRun Span。
 
 当前已使用 DeepSeek OpenAI-compatible API 完成真实成功调用验证：Base URL 为 `https://api.deepseek.com`，模型为 `deepseek-v4-pro`。真实 API Key 仅保存在被 Git 忽略的本地 `apps/api/.env` 中。模型单价环境变量尚未配置，因此运行中心的成本暂显示为 `$0.000000`，Token 统计不受影响。
 
@@ -350,11 +350,12 @@ React Flow 节点/连线
 - 运行观测详情会把 Tool 调用日志展示为执行事件流中的 `tool_skill_invocation` 事件。
 - 默认 `HttpxToolGateway` 支持 GET / POST、host allowlist、超时和响应摘要。
 - 未配置 `TOOL_HTTP_ALLOWED_HOSTS` 或目标 host 不在允许名单内时，不发起 HTTP Tool 外联。
+- MCP Tool 支持可注入网关测试调用和调用日志写入，默认不连接真实 MCP Server。
 
 未实现：
 
 - 模型参数。
-- MCP 工具适配。
+- 真实 MCP Server client、session 管理和鉴权。
 - HTTP Tool 鉴权头、响应字段映射和更细粒度脱敏策略。
 - Agent 版本比较和回滚。
 - 聚合后的真实运行统计。
@@ -854,8 +855,9 @@ TypeScript 编译检查
 - V0.12C 完成 Agent 执行工具调用 RED/GREEN 测试：首次因 Agent 运行后没有调用日志失败，随后 Agent 测试运行可写入带 `agentId`、`agentVersion`、`runId` 和 `nodeRunId` 的 HTTP Tool 调用日志。
 - V0.12C 完成 Tool 调用 Trace 事件 RED/GREEN 测试：首次因运行详情缺少 `tool_skill_invocation` 事件失败，随后 Tool 调用日志可进入运行观测 `executionEvents` 并继承 NodeRun Span。
 - V0.12C 完成 HTTP allowlist Gateway RED/GREEN 测试：首次因 `HttpxToolGateway` 不存在失败，随后 allowlist 拦截和 MockTransport 成功调用通过。
+- V0.12C 完成 MCP 测试调用 RED/GREEN 测试：首次因路由不支持 MCP 和测试客户端不支持 `mcp_gateway` 失败，随后 MCP Tool 测试调用可通过可注入网关写入调用日志。
 - V0.12C 完成相关回归验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests/test_tool_runtime_api.py apps/api/tests/test_agent_runtime.py apps/api/tests/test_execution_api.py apps/api/tests/test_agent_lifecycle_api.py apps/api/tests/test_tool_skill_assets_api.py apps/api/tests/test_tool_skill_invocation_logs_api.py -q`，23 项通过。
-- V0.12C 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 165 项通过；`npm test -- --run` 27 个测试文件、96 项测试通过；`npm run lint` 通过；`npm run build` 通过。
+- V0.12C 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 166 项通过；`npm test -- --run` 27 个测试文件、96 项测试通过；`npm run lint` 通过；`npm run build` 通过。
 
 验证时没有发现浏览器控制台错误。
 

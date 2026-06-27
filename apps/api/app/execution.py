@@ -46,7 +46,9 @@ class ExecutionService:
         self.gateway = gateway
         self.settings = settings
         self.human_task_service = human_task_service
-        self.tool_runtime = tool_runtime or ToolRuntimeExecutor(DisabledHttpToolGateway())
+        self.tool_runtime = tool_runtime or ToolRuntimeExecutor(
+            http_gateway=DisabledHttpToolGateway(),
+        )
         self.agent_runtime = AgentRuntimeExecutor(
             gateway=gateway,
             cost_calculator=self.calculate_cost,

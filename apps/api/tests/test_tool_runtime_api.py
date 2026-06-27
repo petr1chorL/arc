@@ -68,6 +68,30 @@ def create_http_tool(client, workspace_id: str, *, name: str = "价格查询") -
     return response.json()
 
 
+def create_mcp_tool(client, workspace_id: str, *, name: str = "飞书文档读取") -> dict:
+    response = client.post(
+        workspace_url(workspace_id, "/asset-library"),
+        json={
+            "assetType": "tool",
+            "name": name,
+            "description": "Read docs through MCP",
+            "parameterSchema": {
+                "type": "object",
+                "properties": {"docToken": {"type": "string"}},
+                "required": ["docToken"],
+            },
+            "adapterType": "mcp",
+            "adapterConfig": {
+                "server": "lark-doc",
+                "tool": "get_doc",
+            },
+        },
+        headers=csrf_headers(client),
+    )
+    assert response.status_code == 201
+    return response.json()
+
+
 def create_agent_bound_to_tool(
     client,
     workspace_id: str,
@@ -175,7 +199,36 @@ def test_non_http_tool_cannot_be_test_invoked(tmp_path):
     )
 
     assert response.status_code == 422
-    assert response.json()["detail"] == "仅 HTTP Tool 支持测试调用"
+    assert response.json()["detail"] == "仅 HTTP / MCP Tool 支持测试调用"
+
+
+def test_mcp_tool_test_invocation_writes_success_log(tmp_path):
+    gateway = FakeHttpToolGateway([
+        ToolRuntimeGatewayResult(output_summary="doc title=AI Notes", raw_output={"title": "AI Notes"}),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'mcp-tool-runtime.db'}",
+        mcp_gateway=gateway,
+    )
+    tool = create_mcp_tool(client, workspace_id)
+
+    response = client.post(
+        workspace_url(workspace_id, f"/asset-library/{tool['id']}/test-invocations"),
+        json={"parameters": {"docToken": "doc-1"}},
+        headers=csrf_headers(client),
+    )
+    logs = client.get(
+        workspace_url(workspace_id, f"/asset-library/invocations?assetId={tool['id']}"),
+    ).json()
+
+    assert response.status_code == 201
+    assert response.json()["status"] == "succeeded"
+    assert response.json()["outputSummary"] == "doc title=AI Notes"
+    assert logs[0]["id"] == response.json()["id"]
+    assert gateway.calls == [{
+        "config": {"server": "lark-doc", "tool": "get_doc"},
+        "parameters": {"docToken": "doc-1"},
+    }]
 
 
 def test_agent_test_run_writes_http_tool_invocation_with_run_context(tmp_path):
