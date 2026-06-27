@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     model_input_usd_per_million_tokens: float = 0
     model_output_usd_per_million_tokens: float = 0
     model_timeout_seconds: float = 60
+    tool_http_allowed_hosts: tuple[str, ...] = ()
+    tool_http_timeout_seconds: float = 10
 
     model_config = SettingsConfigDict(
         env_file=API_ROOT / ".env",

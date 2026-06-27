@@ -45,7 +45,7 @@ from app.models import (
     WorkflowVersionRecord,
     utc_now,
 )
-from app.tool_runtime import DisabledHttpToolGateway, HttpToolGateway, ToolRuntimeExecutor
+from app.tool_runtime import HttpToolGateway, HttpxToolGateway, ToolRuntimeExecutor
 from app.routers.auth import (
     SessionAuthenticationError,
     build_session_auth_error_handler,
@@ -199,7 +199,7 @@ def create_app(
     authorization_service = AuthorizationService(audit_service)
     context_service = RequestContextService(authentication_service, settings, audit_service)
     human_task_service = HumanTaskService(human_task_clock)
-    tool_runtime = ToolRuntimeExecutor(tool_gateway or DisabledHttpToolGateway())
+    tool_runtime = ToolRuntimeExecutor(tool_gateway or HttpxToolGateway(settings))
     execution_service = ExecutionService(
         model_gateway or OpenAICompatibleGateway(settings),
         settings,

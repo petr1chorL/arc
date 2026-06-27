@@ -1,7 +1,11 @@
 from dataclasses import dataclass
 
+import pytest
+import httpx
+
 from api_test_support import create_authenticated_client, csrf_headers, workspace_url
-from app.tool_runtime import ToolRuntimeGatewayError, ToolRuntimeGatewayResult
+from app.config import Settings
+from app.tool_runtime import HttpxToolGateway, ToolRuntimeGatewayError, ToolRuntimeGatewayResult
 
 
 @dataclass
@@ -214,3 +218,46 @@ def test_agent_test_run_writes_http_tool_invocation_with_run_context(tmp_path):
         "config": {"method": "POST", "url": "https://internal.example.test/price"},
         "parameters": {"input": "Lookup SKU A001"},
     }]
+
+
+def test_httpx_tool_gateway_rejects_hosts_outside_allowlist():
+    gateway = HttpxToolGateway(
+        Settings(tool_http_allowed_hosts=("allowed.example.test",)),
+    )
+
+    with pytest.raises(ToolRuntimeGatewayError):
+        gateway.execute(
+            config={"method": "POST", "url": "https://blocked.example.test/price"},
+            parameters={"sku": "A001"},
+        )
+
+
+def test_httpx_tool_gateway_posts_parameters_to_allowed_host():
+    requests: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append({
+            "method": request.method,
+            "url": str(request.url),
+            "body": request.content.decode("utf-8"),
+        })
+        return httpx.Response(200, json={"price": 199})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        gateway = HttpxToolGateway(
+            Settings(tool_http_allowed_hosts=("internal.example.test",)),
+            client=client,
+        )
+
+        result = gateway.execute(
+            config={"method": "POST", "url": "https://internal.example.test/price"},
+            parameters={"sku": "A001"},
+        )
+
+    assert requests == [{
+        "method": "POST",
+        "url": "https://internal.example.test/price",
+        "body": '{"sku":"A001"}',
+    }]
+    assert result.output_summary == '{"price":199}'
+    assert result.raw_output == {"price": 199}

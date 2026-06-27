@@ -2,6 +2,11 @@ import json
 from dataclasses import dataclass
 from time import perf_counter
 from typing import Any, Protocol
+from urllib.parse import urlparse
+
+import httpx
+
+from app.config import Settings
 
 
 @dataclass(frozen=True)
@@ -32,6 +37,83 @@ class DisabledHttpToolGateway:
         parameters: dict,
     ) -> ToolRuntimeGatewayResult:
         raise ToolRuntimeGatewayError("工具执行网关未配置")
+
+
+class HttpxToolGateway:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        client: httpx.Client | None = None,
+    ):
+        self.settings = settings
+        self.client = client or httpx.Client()
+
+    def execute(
+        self,
+        *,
+        config: dict,
+        parameters: dict,
+    ) -> ToolRuntimeGatewayResult:
+        method = str(config.get("method", "POST")).upper()
+        url = str(config.get("url", "")).strip()
+        self._validate_request(method, url)
+        try:
+            response = self._send(method, url, parameters)
+            response.raise_for_status()
+            raw_output = self._response_payload(response)
+            return ToolRuntimeGatewayResult(
+                output_summary=self._summarize(raw_output),
+                raw_output=raw_output,
+            )
+        except ToolRuntimeGatewayError:
+            raise
+        except httpx.HTTPStatusError as error:
+            raise ToolRuntimeGatewayError(
+                f"HTTP Tool 请求失败（HTTP {error.response.status_code}）",
+            ) from None
+        except httpx.HTTPError:
+            raise ToolRuntimeGatewayError("HTTP Tool 请求失败") from None
+
+    def _validate_request(self, method: str, url: str) -> None:
+        if method not in {"GET", "POST"}:
+            raise ToolRuntimeGatewayError("HTTP Tool 仅支持 GET / POST")
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise ToolRuntimeGatewayError("HTTP Tool URL 无效")
+        allowed_hosts = {host.lower() for host in self.settings.tool_http_allowed_hosts}
+        if not allowed_hosts:
+            raise ToolRuntimeGatewayError("HTTP Tool 允许名单未配置")
+        if parsed.hostname.lower() not in allowed_hosts:
+            raise ToolRuntimeGatewayError("HTTP Tool Host 不在允许名单内")
+
+    def _send(self, method: str, url: str, parameters: dict) -> httpx.Response:
+        if method == "GET":
+            return self.client.get(
+                url,
+                params=parameters,
+                timeout=self.settings.tool_http_timeout_seconds,
+            )
+        return self.client.post(
+            url,
+            json=parameters,
+            timeout=self.settings.tool_http_timeout_seconds,
+        )
+
+    @staticmethod
+    def _response_payload(response: httpx.Response) -> Any:
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
+
+    @staticmethod
+    def _summarize(raw_output: Any) -> str:
+        if isinstance(raw_output, str):
+            summary = raw_output
+        else:
+            summary = json.dumps(raw_output, ensure_ascii=False, separators=(",", ":"))
+        return summary[:1000]
 
 
 @dataclass(frozen=True)
