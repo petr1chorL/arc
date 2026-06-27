@@ -143,6 +143,22 @@ interface RegressionRunInsight {
   riskRunCount: number
 }
 
+interface FailurePatternCluster {
+  key: string
+  title: string
+  count: number
+  averageScore: number
+  weakestScore: number
+  sampleIds: string[]
+  recommendation: string
+}
+
+interface FailurePatternSummary {
+  runId: string
+  totalFailed: number
+  clusters: FailurePatternCluster[]
+}
+
 function formatDelta(value: number) {
   return value > 0 ? `+${value}` : `${value}`
 }
@@ -241,6 +257,60 @@ function buildRegressionRunInsight(trend: RegressionRunTrend): RegressionRunInsi
   }
 }
 
+function findLatestRegressionRun(runs: RegressionRun[]): RegressionRun | null {
+  if (runs.length === 0) return null
+
+  return [...runs].sort(
+    (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
+  )[0]
+}
+
+function buildFailurePatternSummary(latestRun: RegressionRun | null): FailurePatternSummary | null {
+  if (!latestRun) return null
+
+  const failedRecords = latestRun.records.filter((record) => record.status === 'failed')
+  if (failedRecords.length === 0) return null
+
+  const clusters = new Map<string, {
+    title: string
+    scores: number[]
+    sampleIds: string[]
+  }>()
+
+  for (const record of failedRecords) {
+    const weakestDimension = [...record.dimensionScores].sort((left, right) => left.score - right.score)[0]
+    const key = weakestDimension?.name || '综合质量'
+    const title = weakestDimension ? `${weakestDimension.name} 偏低` : '综合质量不足'
+    const cluster = clusters.get(key) ?? {
+      title,
+      scores: [],
+      sampleIds: [],
+    }
+    cluster.scores.push(record.score)
+    cluster.sampleIds.push(record.subjectId ?? record.id)
+    clusters.set(key, cluster)
+  }
+
+  return {
+    runId: latestRun.id,
+    totalFailed: failedRecords.length,
+    clusters: Array.from(clusters.entries())
+      .map(([key, cluster]) => ({
+        key,
+        title: cluster.title,
+        count: cluster.sampleIds.length,
+        averageScore: Math.round(
+          cluster.scores.reduce((sum, score) => sum + score, 0) / cluster.scores.length,
+        ),
+        weakestScore: Math.min(...cluster.scores),
+        sampleIds: cluster.sampleIds.slice(0, 3),
+        recommendation: `优先补齐 ${cluster.title.replace(' 偏低', '')} 相关证据与判定依据`,
+      }))
+      .sort((left, right) => right.count - left.count || left.averageScore - right.averageScore)
+      .slice(0, 3),
+  }
+}
+
 function buildRegressionRunComparison(
   base: RegressionRun,
   target: RegressionRun,
@@ -325,6 +395,7 @@ export function Evaluations() {
   const [regressionRunComparison, setRegressionRunComparison] = useState<RegressionRunComparison | null>(null)
   const [regressionRunComparisonError, setRegressionRunComparisonError] = useState('')
   const [isRegressionRunComparisonLoading, setIsRegressionRunComparisonLoading] = useState(false)
+  const [failurePatternRunDetail, setFailurePatternRunDetail] = useState<RegressionRun | null>(null)
 
   const loadAssets = useCallback(async () => {
     setIsLoading(true)
@@ -410,6 +481,49 @@ export function Evaluations() {
   const regressionRunInsight = useMemo(
     () => (regressionRunTrend ? buildRegressionRunInsight(regressionRunTrend) : null),
     [regressionRunTrend],
+  )
+
+  const latestFilteredRegressionRun = useMemo(
+    () => findLatestRegressionRun(filteredRegressionRuns),
+    [filteredRegressionRuns],
+  )
+
+  useEffect(() => {
+    let isCancelled = false
+    setFailurePatternRunDetail(null)
+
+    if (
+      !latestFilteredRegressionRun
+      || latestFilteredRegressionRun.failedSamples === 0
+      || latestFilteredRegressionRun.records.length > 0
+    ) {
+      return undefined
+    }
+
+    void getRegressionRun(workspace.id, latestFilteredRegressionRun.id)
+      .then((detail) => {
+        if (!isCancelled) {
+          setFailurePatternRunDetail(detail)
+        }
+      })
+      .catch(() => {
+        if (!isCancelled) {
+          setFailurePatternRunDetail(null)
+        }
+      })
+
+    return () => {
+      isCancelled = true
+    }
+  }, [latestFilteredRegressionRun, workspace.id])
+
+  const latestRegressionRunForPatterns = failurePatternRunDetail?.id === latestFilteredRegressionRun?.id
+    ? failurePatternRunDetail
+    : latestFilteredRegressionRun
+
+  const failurePatternSummary = useMemo(
+    () => buildFailurePatternSummary(latestRegressionRunForPatterns),
+    [latestRegressionRunForPatterns],
   )
 
   const activeSelectedSamples = useMemo(
@@ -1179,6 +1293,37 @@ export function Evaluations() {
                   </span>
                 </div>
                 <p className="insight-recommendation">{regressionRunInsight.recommendation}</p>
+              </div>
+            )}
+            {failurePatternSummary && (
+              <div className="failure-pattern-summary" role="region" aria-label="Failure Pattern Summary">
+                <header>
+                  <div>
+                    <span className="eyebrow">FAILURE PATTERNS</span>
+                    <h4>Failure Pattern Summary</h4>
+                  </div>
+                  <span className="status-pill">最新失败样本 {failurePatternSummary.totalFailed} 条</span>
+                </header>
+                <div className="failure-cluster-list">
+                  {failurePatternSummary.clusters.map((cluster) => (
+                    <article className="failure-cluster-card" key={cluster.key}>
+                      <div>
+                        <h5>{cluster.title}</h5>
+                        <p>{cluster.count} {cluster.count === 1 ? 'sample' : 'samples'}</p>
+                      </div>
+                      <div className="cluster-score">
+                        <span>平均分 {cluster.averageScore}</span>
+                        <span>最低分 {cluster.weakestScore}</span>
+                      </div>
+                      <div className="cluster-samples">
+                        {cluster.sampleIds.map((sampleId) => (
+                          <span className="mono" key={sampleId}>{sampleId}</span>
+                        ))}
+                      </div>
+                      <p>{cluster.recommendation}</p>
+                    </article>
+                  ))}
+                </div>
               </div>
             )}
             <div className="trend-metrics">

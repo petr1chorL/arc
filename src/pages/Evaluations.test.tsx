@@ -1170,4 +1170,150 @@ describe('Evaluations page', () => {
     expect(within(insight).getByText('风险 Run 1 个')).toBeInTheDocument()
     expect(within(insight).getByText('建议：优先查看最新失败样本')).toBeInTheDocument()
   })
+
+  it('shows failed sample clusters for the latest Regression Run', async () => {
+    const records = [
+      {
+        id: 'eval-evidence-a',
+        rubricId: rubricAssets[0].id,
+        rubricVersion: 'v1.2',
+        rubricSnapshot: rubricAssets[0],
+        subjectType: 'regression_run_sample',
+        subjectId: 'sample-evidence-a',
+        artifactText: 'Thin launch note without source evidence.',
+        dimensionScores: [
+          { name: 'Evidence', weight: 60, score: 35 },
+          { name: 'Actionability', weight: 40, score: 58 },
+        ],
+        score: 44,
+        status: 'failed',
+        rationale: 'missing evidence',
+        createdAt: '2026-06-27T00:20:00Z',
+      },
+      {
+        id: 'eval-evidence-b',
+        rubricId: rubricAssets[0].id,
+        rubricVersion: 'v1.2',
+        rubricSnapshot: rubricAssets[0],
+        subjectType: 'regression_run_sample',
+        subjectId: 'sample-evidence-b',
+        artifactText: 'Claim-heavy launch plan without citations.',
+        dimensionScores: [
+          { name: 'Evidence', weight: 60, score: 40 },
+          { name: 'Actionability', weight: 40, score: 55 },
+        ],
+        score: 46,
+        status: 'failed',
+        rationale: 'lost citation',
+        createdAt: '2026-06-27T00:21:00Z',
+      },
+      {
+        id: 'eval-actionability',
+        rubricId: rubricAssets[0].id,
+        rubricVersion: 'v1.2',
+        rubricSnapshot: rubricAssets[0],
+        subjectType: 'regression_run_sample',
+        subjectId: 'sample-actionability',
+        artifactText: 'Evidence is present, but there is no owner or next action.',
+        dimensionScores: [
+          { name: 'Evidence', weight: 60, score: 78 },
+          { name: 'Actionability', weight: 40, score: 38 },
+        ],
+        score: 62,
+        status: 'failed',
+        rationale: 'missing owner and next action',
+        createdAt: '2026-06-27T00:22:00Z',
+      },
+      {
+        id: 'eval-pass',
+        rubricId: rubricAssets[0].id,
+        rubricVersion: 'v1.2',
+        rubricSnapshot: rubricAssets[0],
+        subjectType: 'regression_run_sample',
+        subjectId: 'sample-pass',
+        artifactText: 'Evidence-backed plan with owner, risk, and next action.',
+        dimensionScores: [
+          { name: 'Evidence', weight: 60, score: 88 },
+          { name: 'Actionability', weight: 40, score: 86 },
+        ],
+        score: 87,
+        status: 'passed',
+        rationale: 'strong sample',
+        createdAt: '2026-06-27T00:23:00Z',
+      },
+    ]
+    const runs = [
+      {
+        id: 'run-latest-patterns',
+        sampleSetId: 'sample-set-1',
+        sampleSetName: 'Launch Golden Set',
+        rubricId: rubricAssets[0].id,
+        rubricName: rubricAssets[0].name,
+        rubricVersion: 'v1.2',
+        status: 'completed',
+        totalSamples: 4,
+        passedSamples: 1,
+        failedSamples: 3,
+        passRate: 25,
+        evaluationIds: records.map((record) => record.id),
+        records: [],
+        createdBy: 'user-1',
+        createdAt: '2026-06-27T00:20:00Z',
+        completedAt: '2026-06-27T00:20:00Z',
+      },
+      {
+        id: 'run-previous-patterns',
+        sampleSetId: 'sample-set-1',
+        sampleSetName: 'Launch Golden Set',
+        rubricId: rubricAssets[0].id,
+        rubricName: rubricAssets[0].name,
+        rubricVersion: 'v1.1',
+        status: 'completed',
+        totalSamples: 4,
+        passedSamples: 3,
+        failedSamples: 1,
+        passRate: 75,
+        evaluationIds: ['eval-previous'],
+        records: [],
+        createdBy: 'user-1',
+        createdAt: '2026-06-27T00:10:00Z',
+        completedAt: '2026-06-27T00:10:00Z',
+      },
+    ]
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      if (input === `/api/workspaces/${workspace.id}/evaluations/overview`) {
+        return response(overview)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/rubrics`) {
+        return response(rubricAssets)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/records`) {
+        return response([])
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/sample-sets`) {
+        return response([])
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/regression-runs`) {
+        return response(runs)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/regression-runs/run-latest-patterns`) {
+        return response({
+          ...runs[0],
+          records,
+        })
+      }
+      return response({ detail: 'not found' }, 404)
+    }))
+
+    renderPage()
+
+    const summary = await screen.findByRole('region', { name: 'Failure Pattern Summary' })
+    expect(within(summary).getByText('最新失败样本 3 条')).toBeInTheDocument()
+    expect(within(summary).getByText('Evidence 偏低')).toBeInTheDocument()
+    expect(within(summary).getByText('2 samples')).toBeInTheDocument()
+    expect(within(summary).getByText('Actionability 偏低')).toBeInTheDocument()
+    expect(within(summary).getByText('1 sample')).toBeInTheDocument()
+    expect(within(summary).getByText('sample-evidence-a')).toBeInTheDocument()
+    expect(within(summary).getByText('sample-actionability')).toBeInTheDocument()
+  })
 })
