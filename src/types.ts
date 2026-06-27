@@ -174,6 +174,18 @@ export interface ModelProviderDraftMigration {
   migratedAgents: ModelProviderMigratedAgent[]
 }
 
+export interface ModelProviderAuditEvent {
+  id: string
+  eventType: string
+  targetType: string
+  targetId: string
+  outcome: string
+  reason: string
+  actorId: string | null
+  createdAt: string
+  metadata: Record<string, unknown>
+}
+
 export interface WorkflowNodeContract {
   id: string
   type: string

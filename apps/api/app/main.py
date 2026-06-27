@@ -80,6 +80,7 @@ from app.schemas import (
     ModelProviderDraftAgentImpactRead,
     ModelProviderDraftMigrationCreate,
     ModelProviderDraftMigrationRead,
+    ModelProviderAuditEventRead,
     ModelProviderImpactRead,
     ModelProviderImpactTotalsRead,
     ModelProviderMigratedAgentRead,
@@ -1750,6 +1751,7 @@ def create_app(
             target_id=source_provider.id,
             request=request,
             metadata={
+                "sourceProviderId": source_provider.id,
                 "targetProviderId": target_provider.id,
                 "reason": payload.reason,
                 "migratedAgentIds": [agent.agent_id for agent in migrated_agents],
@@ -1762,6 +1764,60 @@ def create_app(
             migrated_count=len(migrated_agents),
             migrated_agents=migrated_agents,
         )
+
+    @router.get("/model-providers/{provider_id}/audit-events", response_model=list[ModelProviderAuditEventRead])
+    def get_model_provider_audit_events(
+        provider_id: str,
+        request: Request,
+        limit: int = Query(10, ge=1, le=50),
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> list[ModelProviderAuditEventRead]:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "audit.read",
+            action="model_provider.audit_events",
+            target_type="model_provider",
+            target_id=provider_id,
+            request=request,
+        )
+        provider = find_model_provider(
+            session,
+            workspace_id=context.workspace.id,
+            provider_id=provider_id,
+        )
+        audit_records = list(session.scalars(
+            select(AuditEventRecord)
+            .where(AuditEventRecord.workspace_id == context.workspace.id)
+            .order_by(AuditEventRecord.created_at.desc(), AuditEventRecord.id.desc())
+            .limit(200),
+        ))
+        related_records: list[AuditEventRecord] = []
+        for event in audit_records:
+            metadata = event.event_metadata or {}
+            is_related = (
+                event.target_type == "model_provider"
+                and event.target_id == provider.id
+            ) or metadata.get("targetProviderId") == provider.id or metadata.get("sourceProviderId") == provider.id
+            if is_related:
+                related_records.append(event)
+            if len(related_records) >= limit:
+                break
+        return [
+            ModelProviderAuditEventRead(
+                id=event.id,
+                event_type=event.action or event.event_type or "",
+                target_type=event.target_type or "",
+                target_id=event.target_id or "",
+                outcome=event.outcome or "",
+                reason=event.reason or str((event.event_metadata or {}).get("reason", "")),
+                actor_id=event.actor_user_id or event.actor_id,
+                created_at=event.created_at,
+                metadata=event.event_metadata or {},
+            )
+            for event in related_records
+        ]
 
     @router.post(
         "/model-providers/{provider_id}/test",

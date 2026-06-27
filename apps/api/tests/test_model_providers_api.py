@@ -317,3 +317,85 @@ def test_model_provider_migration_rejects_disabled_target_provider(tmp_path):
 
     assert response.status_code == 422
     assert response.json()["detail"] == "模型 Provider 已停用"
+
+
+def test_model_provider_audit_events_show_lifecycle_and_migration_metadata(tmp_path):
+    database_url = f"sqlite:///{tmp_path / 'model-provider-audit.db'}"
+    client, workspace_id = create_authenticated_client(database_url)
+    source_provider = client.post(
+        workspace_url(workspace_id, "/model-providers"),
+        json={
+            "name": "DeepSeek Audit Source",
+            "providerType": "openai-compatible",
+            "baseUrl": "https://api.source.example.com",
+            "defaultModel": "source-model",
+            "secretRef": "SOURCE_PROVIDER_KEY",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    target_provider = client.post(
+        workspace_url(workspace_id, "/model-providers"),
+        json={
+            "name": "DeepSeek Audit Target",
+            "providerType": "openai-compatible",
+            "baseUrl": "https://api.target.example.com",
+            "defaultModel": "target-model",
+            "secretRef": "TARGET_PROVIDER_KEY",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    client.patch(
+        workspace_url(workspace_id, f"/model-providers/{source_provider['id']}"),
+        json={
+            "name": "DeepSeek Audit Source Updated",
+            "baseUrl": "https://api.source.example.com/v1",
+            "defaultModel": "source-model-v2",
+            "secretRef": "SOURCE_PROVIDER_KEY_V2",
+        },
+        headers=csrf_headers(client),
+    )
+    draft_agent = client.post(
+        workspace_url(workspace_id, "/agents"),
+        json={
+            "name": "Provider Audit Agent",
+            "role": "Bound to the audited Provider.",
+            "owner": "Platform Team",
+            "model": "placeholder-model",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    client.patch(
+        workspace_url(workspace_id, f"/agents/{draft_agent['id']}"),
+        json={"modelProviderId": source_provider["id"]},
+        headers=csrf_headers(client),
+    )
+    client.post(
+        workspace_url(workspace_id, f"/model-providers/{source_provider['id']}/migrate-drafts"),
+        json={
+            "targetProviderId": target_provider["id"],
+            "reason": "Prepare Provider rollback evidence.",
+        },
+        headers=csrf_headers(client),
+    )
+
+    response = client.get(
+        workspace_url(workspace_id, f"/model-providers/{source_provider['id']}/audit-events"),
+    )
+
+    assert response.status_code == 200
+    audit_events = response.json()
+    assert len(audit_events) >= 3
+    assert [event["eventType"] for event in audit_events[:3]] == [
+        "model_provider.migrate_drafts",
+        "model_provider.update",
+        "model_provider.create",
+    ]
+    migration_event = audit_events[0]
+    assert migration_event["outcome"] == "success"
+    assert migration_event["targetType"] == "model_provider"
+    assert migration_event["targetId"] == source_provider["id"]
+    assert migration_event["reason"] == "Prepare Provider rollback evidence."
+    assert migration_event["metadata"]["sourceProviderId"] == source_provider["id"]
+    assert migration_event["metadata"]["targetProviderId"] == target_provider["id"]
+    assert migration_event["metadata"]["migratedAgentIds"] == [draft_agent["id"]]
+    assert "apiKey" not in response.text

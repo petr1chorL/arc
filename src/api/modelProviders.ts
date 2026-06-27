@@ -1,5 +1,6 @@
 import type {
   ModelProvider,
+  ModelProviderAuditEvent,
   ModelProviderConnectivity,
   ModelProviderDraftMigration,
   ModelProviderDraftMigrationInput,
@@ -51,6 +52,13 @@ export async function getModelProviderImpact(
   providerId: string,
 ): Promise<ModelProviderImpact> {
   return readJson<ModelProviderImpact>(await apiFetch(workspacePath(workspaceId, `/${providerId}/impact`)))
+}
+
+export async function getModelProviderAuditEvents(
+  workspaceId: string,
+  providerId: string,
+): Promise<ModelProviderAuditEvent[]> {
+  return readJson<ModelProviderAuditEvent[]>(await apiFetch(workspacePath(workspaceId, `/${providerId}/audit-events`)))
 }
 
 export async function updateModelProvider(

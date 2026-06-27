@@ -164,6 +164,56 @@ describe('ModelProviders page', () => {
     expect(screen.queryByText('apiKey')).not.toBeInTheDocument()
   })
 
+  it('shows recent Provider audit events and rollback helper metadata', async () => {
+    const auditEvents = [
+      {
+        id: 'audit-1',
+        eventType: 'model_provider.migrate_drafts',
+        targetType: 'model_provider',
+        targetId: provider.id,
+        outcome: 'success',
+        reason: 'Prepare rollback evidence.',
+        actorId: 'user-1',
+        createdAt: '2026-06-28T00:00:00Z',
+        metadata: {
+          targetProviderId: targetProvider.id,
+          migratedAgentIds: ['agent-1'],
+        },
+      },
+    ]
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
+      if (url === `/api/workspaces/${workspace.id}/model-providers` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([provider, targetProvider]), { status: 200 }))
+      }
+      if (url.endsWith('/impact')) {
+        return Promise.resolve(new Response(JSON.stringify({
+          providerId: url.includes(provider.id) ? provider.id : targetProvider.id,
+          totals: { draftAgents: 0, publishedVersions: 0 },
+          draftAgents: [],
+          publishedVersions: [],
+        }), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/model-providers/${provider.id}/audit-events`) {
+        return Promise.resolve(new Response(JSON.stringify(auditEvents), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/model-providers/${targetProvider.id}/audit-events`) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify({ detail: 'not found' }), { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage()
+
+    expect(await screen.findByText('最近变更')).toBeInTheDocument()
+    expect(screen.getByText('model_provider.migrate_drafts')).toBeInTheDocument()
+    expect(screen.getByText('Prepare rollback evidence.')).toBeInTheDocument()
+    expect(screen.getByText(`目标 Provider ${targetProvider.id}`)).toBeInTheDocument()
+    expect(screen.getByText('迁移 Agent 1 个')).toBeInTheDocument()
+    expect(screen.queryByText('apiKey')).not.toBeInTheDocument()
+  })
+
   it('migrates draft Agents to another Provider from the card', async () => {
     const user = userEvent.setup()
     const initialImpact = {

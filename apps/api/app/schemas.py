@@ -457,6 +457,20 @@ class ModelProviderDraftMigrationRead(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class ModelProviderAuditEventRead(BaseModel):
+    id: str
+    event_type: str = Field(serialization_alias="eventType")
+    target_type: str = Field(serialization_alias="targetType")
+    target_id: str = Field(serialization_alias="targetId")
+    outcome: str
+    reason: str
+    actor_id: str | None = Field(serialization_alias="actorId")
+    created_at: datetime = Field(serialization_alias="createdAt")
+    metadata: dict
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class VersionRead(BaseModel):
     id: str
     version: str

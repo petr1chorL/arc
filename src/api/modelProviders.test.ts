@@ -3,6 +3,7 @@ import {
   createModelProvider,
   deactivateModelProvider,
   getModelProviderImpact,
+  getModelProviderAuditEvents,
   listModelProviders,
   migrateModelProviderDrafts,
   testModelProviderConnection,
@@ -186,5 +187,36 @@ describe('Model Provider API', () => {
       reason: '切换到生产 Provider',
     })
     expect(body).not.toHaveProperty('apiKey')
+  })
+
+  it('loads Provider audit events without API keys', async () => {
+    const auditEvents = [
+      {
+        id: 'audit-1',
+        eventType: 'model_provider.migrate_drafts',
+        targetType: 'model_provider',
+        targetId: 'provider-1',
+        outcome: 'success',
+        reason: 'Prepare rollback evidence.',
+        actorId: 'user-1',
+        createdAt: '2026-06-28T00:00:00Z',
+        metadata: {
+          targetProviderId: 'provider-2',
+          migratedAgentIds: ['agent-1'],
+        },
+      },
+    ]
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(auditEvents), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(getModelProviderAuditEvents(workspaceId, 'provider-1')).resolves.toEqual(auditEvents)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/workspaces/workspace-1/model-providers/provider-1/audit-events',
+      expect.objectContaining({
+        credentials: 'same-origin',
+      }),
+    )
+    expect(JSON.stringify(auditEvents)).not.toContain('apiKey')
   })
 })

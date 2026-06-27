@@ -3690,6 +3690,36 @@ kbd {
   white-space: nowrap;
 }
 
+.provider-audit {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow: inset 2px 2px 5px rgba(141, 156, 184, 0.16), inset -2px -2px 5px rgba(255, 255, 255, 0.78);
+}
+
+.provider-audit ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.provider-audit li {
+  display: grid;
+  gap: 4px;
+}
+
+.provider-audit p,
+.provider-audit small {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
 .provider-card-actions {
   display: flex;
   flex-wrap: wrap;

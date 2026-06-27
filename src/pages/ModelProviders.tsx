@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   createModelProvider,
   deactivateModelProvider,
+  getModelProviderAuditEvents,
   getModelProviderImpact,
   listModelProviders,
   migrateModelProviderDrafts,
@@ -11,7 +12,13 @@ import {
   type CreateModelProviderInput,
 } from '../api/modelProviders'
 import { useWorkspace } from '../auth/workspaceContextState'
-import type { ModelProvider, ModelProviderConnectivity, ModelProviderImpact, ModelProviderType } from '../types'
+import type {
+  ModelProvider,
+  ModelProviderAuditEvent,
+  ModelProviderConnectivity,
+  ModelProviderImpact,
+  ModelProviderType,
+} from '../types'
 
 const initialForm: CreateModelProviderInput = {
   name: '',
@@ -34,6 +41,7 @@ export function ModelProviders() {
   const [error, setError] = useState('')
   const [connectivityByProviderId, setConnectivityByProviderId] = useState<Record<string, ModelProviderConnectivity>>({})
   const [impactByProviderId, setImpactByProviderId] = useState<Record<string, ModelProviderImpact>>({})
+  const [auditEventsByProviderId, setAuditEventsByProviderId] = useState<Record<string, ModelProviderAuditEvent[]>>({})
   const [editingProviderId, setEditingProviderId] = useState('')
   const [editForm, setEditForm] = useState<CreateModelProviderInput>(initialForm)
   const [migrationForms, setMigrationForms] = useState<Record<string, MigrationFormState>>({})
@@ -54,14 +62,31 @@ export function ModelProviders() {
     ))
   }, [workspace.id])
 
+  const loadProviderAuditEvents = useCallback(async (loadedProviders: ModelProvider[]) => {
+    const entries = await Promise.all(loadedProviders.map(async (provider) => {
+      try {
+        const events = await getModelProviderAuditEvents(workspace.id, provider.id)
+        return [provider.id, events] as const
+      } catch {
+        return undefined
+      }
+    }))
+    setAuditEventsByProviderId(Object.fromEntries(
+      entries.filter((entry): entry is readonly [string, ModelProviderAuditEvent[]] => Boolean(entry)),
+    ))
+  }, [workspace.id])
+
   useEffect(() => {
     void listModelProviders(workspace.id)
       .then((loadedProviders) => {
         setProviders(loadedProviders)
-        return loadProviderImpacts(loadedProviders)
+        return Promise.all([
+          loadProviderImpacts(loadedProviders),
+          loadProviderAuditEvents(loadedProviders),
+        ])
       })
       .catch((loadError) => setError(loadError instanceof Error ? loadError.message : '模型 Provider 加载失败'))
-  }, [loadProviderImpacts, workspace.id])
+  }, [loadProviderAuditEvents, loadProviderImpacts, workspace.id])
 
   function updateField<TField extends keyof CreateModelProviderInput>(
     field: TField,
@@ -203,7 +228,10 @@ export function ModelProviders() {
         ...current,
         [provider.id]: { targetProviderId, reason: '' },
       }))
-      await loadProviderImpacts(providers)
+      await Promise.all([
+        loadProviderImpacts(providers),
+        loadProviderAuditEvents(providers),
+      ])
     } catch (migrationError) {
       setError(migrationError instanceof Error ? migrationError.message : 'Agent 草稿迁移失败')
     } finally {
@@ -269,6 +297,7 @@ export function ModelProviders() {
           {providers.map((provider) => {
             const connectivity = connectivityByProviderId[provider.id]
             const impact = impactByProviderId[provider.id]
+            const auditEvents = auditEventsByProviderId[provider.id] ?? []
             const isEditing = editingProviderId === provider.id
             const migrationForm = migrationForms[provider.id] ?? { targetProviderId: '', reason: '' }
             const migrationTargets = providers.filter((candidate) => (
@@ -355,6 +384,29 @@ export function ModelProviders() {
                     >
                       迁移草稿
                     </button>
+                  </div>
+                )}
+                {auditEvents.length > 0 && (
+                  <div className="provider-audit">
+                    <strong>最近变更</strong>
+                    <ul>
+                      {auditEvents.slice(0, 3).map((event) => {
+                        const targetProviderId = typeof event.metadata.targetProviderId === 'string'
+                          ? event.metadata.targetProviderId
+                          : ''
+                        const migratedAgentIds = Array.isArray(event.metadata.migratedAgentIds)
+                          ? event.metadata.migratedAgentIds
+                          : []
+                        return (
+                          <li key={event.id}>
+                            <span>{event.eventType}</span>
+                            {event.reason && <p>{event.reason}</p>}
+                            {targetProviderId && <small>目标 Provider {targetProviderId}</small>}
+                            {migratedAgentIds.length > 0 && <small>迁移 Agent {migratedAgentIds.length} 个</small>}
+                          </li>
+                        )
+                      })}
+                    </ul>
                   </div>
                 )}
                 <div className="provider-card-actions">
