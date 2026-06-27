@@ -16,7 +16,7 @@ Agent 资产页和工作流设计器已经接入 SQLAlchemy。Agent 支持草稿
 
 Agent 执行已引入第一版 Runtime 合约：`app.agent_runtime` 负责统一 Agent 输入、输出、脱敏错误、Token、成本、评分、尝试次数、耗时和工具调用占位。Agent 直接测试运行与工作流 Agent 节点都通过 `ExecutionService.execute_agent` 调用该 Runtime，再映射到 `NodeRunRecord`。
 
-Tool / Skill 已新增第一版 Workspace 级资产库后端：`tool_skill_assets` 表保存 `tool` 与 `skill` 两类资产，支持创建、列表查询、参数 Schema、状态和 Workspace 隔离。Agent 更新和发布时会校验所绑定的 Tools / Skills 必须是当前 Workspace 内已启用资产。
+Tool / Skill 已新增第一版 Workspace 级资产库后端：`tool_skill_assets` 表保存 `tool` 与 `skill` 两类资产，支持创建、列表查询、参数 Schema、状态和 Workspace 隔离。Agent 更新和发布时会校验所绑定的 Tools / Skills 必须是当前 Workspace 内已启用资产。`tool_skill_asset_invocations` 表提供调用日志骨架和查询 API，真实外部工具调用将在 V0.12C 接入。
 
 当前已使用 DeepSeek OpenAI-compatible API 完成真实成功调用验证：Base URL 为 `https://api.deepseek.com`，模型为 `deepseek-v4-pro`。真实 API Key 仅保存在被 Git 忽略的本地 `apps/api/.env` 中。模型单价环境变量尚未配置，因此运行中心的成本暂显示为 `$0.000000`，Token 统计不受影响。
 
@@ -340,12 +340,13 @@ React Flow 节点/连线
 - Tool / Skill 资产包含类型、名称、描述、参数 Schema、状态和创建信息。
 - Agent 只能绑定已存在且启用的 Tool / Skill 资产。
 - Agent 发布会重新校验资产可用性，禁用资产不会进入不可变版本快照。
+- Tool / Skill 调用日志支持 Workspace 级查询，并可按资产、Agent 和状态过滤。
 
 未实现：
 
 - 模型参数。
-- Tool/Skill 调用日志。
 - Runtime 工具调用真实执行；当前 `tool_calls` 为空列表占位。
+- 真实工具调用成功/失败日志写入；当前仅有日志骨架和查询能力。
 - Agent 版本比较和回滚。
 - 聚合后的真实运行统计。
 
@@ -838,6 +839,7 @@ TypeScript 编译检查
 - V0.12A 后端全量验证通过：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q`。
 - V0.12B 完成 Tool / Skill 资产库后端 RED/GREEN 测试：`test_tool_skill_assets_api.py` 首次因 `/asset-library` 路由不存在失败，随后创建、列表、重复名、Workspace 隔离和观察者禁止写入 4 条测试通过。
 - V0.12B 完成 Agent 资产授权 RED/GREEN 测试：首次因任意字符串工具可保存、禁用资产仍可发布失败，随后 Agent 只能绑定已启用资产且发布时会重新校验。
+- V0.12B 完成 Tool / Skill 调用日志骨架 RED/GREEN 测试：首次因调用日志模型不存在失败，随后日志查询、过滤和 Workspace 隔离测试通过。
 - V0.12B 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q`、`npm run lint`、`npm run build` 均通过。
 
 验证时没有发现浏览器控制台错误。

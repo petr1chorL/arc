@@ -206,6 +206,26 @@ class ToolSkillAssetRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class ToolSkillAssetInvocationRecord(Base):
+    __tablename__ = "tool_skill_asset_invocations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str] = mapped_column(String(36), index=True)
+    asset_id: Mapped[str] = mapped_column(String(36), index=True)
+    asset_type: Mapped[str] = mapped_column(String(20), index=True)
+    asset_name: Mapped[str] = mapped_column(String(120))
+    agent_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    agent_version: Mapped[str] = mapped_column(String(20), default="")
+    run_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    node_run_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(20), index=True)
+    input_summary: Mapped[str] = mapped_column(Text, default="")
+    output_summary: Mapped[str] = mapped_column(Text, default="")
+    error: Mapped[str] = mapped_column(Text, default="")
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class WorkflowRecord(Base):
     __tablename__ = "workflows"
 

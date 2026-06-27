@@ -254,6 +254,25 @@ class ToolSkillAssetRead(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
+class ToolSkillAssetInvocationRead(BaseModel):
+    id: str
+    asset_id: str = Field(serialization_alias="assetId")
+    asset_type: ToolSkillAssetType = Field(serialization_alias="assetType")
+    asset_name: str = Field(serialization_alias="assetName")
+    agent_id: str | None = Field(serialization_alias="agentId")
+    agent_version: str = Field(serialization_alias="agentVersion")
+    run_id: str | None = Field(serialization_alias="runId")
+    node_run_id: str | None = Field(serialization_alias="nodeRunId")
+    status: str
+    input_summary: str = Field(serialization_alias="inputSummary")
+    output_summary: str = Field(serialization_alias="outputSummary")
+    error: str
+    duration_ms: int = Field(serialization_alias="durationMs")
+    created_at: datetime = Field(serialization_alias="createdAt")
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
 class VersionRead(BaseModel):
     id: str
     version: str

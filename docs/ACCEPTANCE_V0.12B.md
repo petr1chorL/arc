@@ -2,7 +2,7 @@
 
 ## 当前切片目标
 
-建立第一版 Workspace 级 Tool / Skill 资产库后端，支持创建和列表查询，并让 Agent 只能绑定当前 Workspace 中已存在且启用的 Tool / Skill 资产。
+建立第一版 Workspace 级 Tool / Skill 资产库后端，支持创建和列表查询，让 Agent 只能绑定当前 Workspace 中已存在且启用的 Tool / Skill 资产，并提供调用日志查询骨架。
 
 ## 已实现能力
 
@@ -17,6 +17,10 @@
 - 观察者无权创建资产。
 - Agent 更新时会校验 `tools` 和 `skills` 必须存在且处于 `active` 状态。
 - Agent 发布时会重新校验已绑定资产，避免禁用资产进入不可变版本快照。
+- 新增 Tool / Skill 调用日志记录模型。
+- `GET /asset-library/invocations` 可查询当前 Workspace 的调用日志。
+- 调用日志支持按 `assetId`、`agentId` 和 `status` 过滤。
+- 跨 Workspace 调用日志不可见。
 
 ## 验收命令
 
@@ -25,13 +29,15 @@
 - Agent 授权 RED：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests/test_agent_lifecycle_api.py::test_agent_can_only_bind_existing_active_tool_and_skill_assets apps/api/tests/test_agent_lifecycle_api.py::test_agent_publish_revalidates_bound_tool_and_skill_assets -q` 首次 2 条失败，原因是任意字符串工具可保存且禁用资产仍可发布。
 - Agent 授权 GREEN：同一 focused 命令 2 条通过。
 - 交界测试：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests/test_agent_lifecycle_api.py apps/api/tests/test_execution_api.py apps/api/tests/test_tool_skill_assets_api.py -q`：15 条通过。
+- 调用日志 RED：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests/test_tool_skill_invocation_logs_api.py -q` 首次失败，原因是 `ToolSkillAssetInvocationRecord` 不存在。
+- 调用日志 GREEN：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests/test_tool_skill_invocation_logs_api.py -q`：2 条通过。
+- V0.12B 相关测试：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests/test_tool_skill_assets_api.py apps/api/tests/test_tool_skill_invocation_logs_api.py apps/api/tests/test_agent_lifecycle_api.py apps/api/tests/test_execution_api.py -q`：17 条通过。
 - 后端全量：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q`：全量通过。
 - `npm run lint`：通过。
 - `npm run build`：通过。
 
 ## 尚未完成
 
-- Tool / Skill 调用日志。
 - Runtime 真实工具调用。
 - 前端资产库页面。
 

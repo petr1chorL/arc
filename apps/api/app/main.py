@@ -38,6 +38,7 @@ from app.models import (
     RubricRecord,
     RubricVersionRecord,
     ToolSkillAssetRecord,
+    ToolSkillAssetInvocationRecord,
     WorkspaceRecord,
     WorkflowRecord,
     WorkflowRunRecord,
@@ -105,6 +106,7 @@ from app.schemas import (
     RunCreate,
     RunRead,
     ToolSkillAssetCreate,
+    ToolSkillAssetInvocationRead,
     ToolSkillAssetRead,
     ValidationResult,
     VersionRead,
@@ -1189,6 +1191,39 @@ def create_app(
             .where(ToolSkillAssetRecord.workspace_id == context.workspace.id)
             .order_by(ToolSkillAssetRecord.created_at.desc())
         )
+        return list(session.scalars(statement))
+
+    @router.get(
+        "/asset-library/invocations",
+        response_model=list[ToolSkillAssetInvocationRead],
+    )
+    def list_tool_skill_asset_invocations(
+        request: Request,
+        asset_id: str | None = Query(default=None, alias="assetId"),
+        agent_id: str | None = Query(default=None, alias="agentId"),
+        invocation_status: str | None = Query(default=None, alias="status"),
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> list[ToolSkillAssetInvocationRecord]:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "asset.read",
+            action="tool_skill_asset_invocation.list",
+            target_type="workspace",
+            target_id=context.workspace.id,
+            request=request,
+        )
+        statement = select(ToolSkillAssetInvocationRecord).where(
+            ToolSkillAssetInvocationRecord.workspace_id == context.workspace.id,
+        )
+        if asset_id:
+            statement = statement.where(ToolSkillAssetInvocationRecord.asset_id == asset_id)
+        if agent_id:
+            statement = statement.where(ToolSkillAssetInvocationRecord.agent_id == agent_id)
+        if invocation_status:
+            statement = statement.where(ToolSkillAssetInvocationRecord.status == invocation_status)
+        statement = statement.order_by(ToolSkillAssetInvocationRecord.created_at.desc())
         return list(session.scalars(statement))
 
     @router.post(
