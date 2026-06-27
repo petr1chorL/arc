@@ -622,6 +622,56 @@ describe('Observability', () => {
     expect(screen.getByText('当前错误：Agent 执行失败，请稍后重试')).toBeInTheDocument()
   })
 
+  it('highlights expired worker leases for running execution jobs', async () => {
+    const user = userEvent.setup()
+    const expiredRunningJob = {
+      ...executionJobs[1],
+      id: 'job-running-expired',
+      status: 'running',
+      attempts: 1,
+      lockedBy: 'worker-stale',
+      lockedUntil: '2026-06-26T08:05:00Z',
+      lastHeartbeatAt: '2026-06-26T08:00:00Z',
+      startedAt: '2026-06-26T08:00:00Z',
+    }
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = typeof input === 'string' ? input : input instanceof URL ? input.pathname + input.search : input.url
+      if (path === '/api/workspaces/workspace-1/observability/overview') {
+        return new Response(JSON.stringify(overview), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/observability/human-sla') {
+        return new Response(JSON.stringify(humanSla), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/observability/cost-usage') {
+        return new Response(JSON.stringify(costUsage), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/execution-jobs') {
+        return new Response(JSON.stringify([expiredRunningJob]), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/execution-jobs/job-running-expired') {
+        return new Response(JSON.stringify({
+          ...expiredRunningJob,
+          auditEvents: [],
+        }), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/observability/runs/run-failed') {
+        return new Response(JSON.stringify(detail), { status: 200 })
+      }
+      throw new Error(`Unexpected fetch: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage()
+
+    expect(await screen.findByText('运行中 · workflow_run')).toBeInTheDocument()
+    expect(screen.getByText('租约已过期')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '查看详情' }))
+
+    expect(await screen.findByText('队列排障建议')).toBeInTheDocument()
+    expect(screen.getByText('Worker 租约已过期，任务可被其他 Worker 接管；如果长期停留运行中，请检查 Worker 进程。')).toBeInTheDocument()
+  })
+
   it('loads another run detail when a recent run is selected', async () => {
     const user = userEvent.setup()
     const waitingDetail = {

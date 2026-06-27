@@ -1,6 +1,6 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.13P 队列排障建议
+> 对应版本：V0.13Q 运行中任务租约过期提示
 > 上一阶段：V0.8F 轻量告警 / 通知 Outbox
 > 更新时间：2026-06-27
 
@@ -542,10 +542,11 @@ POST /api/workspaces/{workspace_id}/evaluations/remediation-tasks/{task_id}/rete
 - 模型单价未配置时明确提示“成本单价未配置”，不把 `$0.0000` 伪装成真实成本。
 - 执行队列运营区块展示 `execution_jobs` 的排队中、运行中、已完成和死信数量。
 - 执行队列运营区块支持按全部队列、排队中、运行中、已完成、死信和已取消筛选；非全部状态会请求 `GET /execution-jobs?status=...`。
-- 队列任务卡展示状态、Run/Workflow 摘要、尝试次数、最大尝试次数、锁持有者、租约到期和错误原因。
+- 队列任务卡展示状态、Run/Workflow 摘要、尝试次数、最大尝试次数、锁持有者、租约到期和错误原因；运行中任务租约已过期时显示“租约已过期”风险标识。
 - 队列任务卡支持“查看详情”，点击后调用 `GET /execution-jobs/{jobId}` 并在当前观测页展开任务详情。
 - 队列任务详情展示 Job ID、Run ID、Workflow 版本、尝试次数、Worker 锁、租约、下次尝试、终态时间、失败原因和关联审计事件。
 - 队列任务详情展示“队列排障建议”，根据状态、尝试次数、错误、租约和下次尝试时间派生运营处理建议。
+- 运行中任务的租约已过期时，队列任务详情会提示该任务可被其他 Worker 接管，并建议检查 Worker 进程。
 - 死信任务卡展示“重新入队”按钮，点击后调用 requeue 接口并刷新队列。
 - 可取消队列任务卡展示“取消任务”按钮，点击后调用 cancel 接口并刷新队列。
 - “重新入队”和“取消任务”在提交前要求填写操作原因；原因会作为 JSON body 传给后端并进入审计事件。
@@ -953,6 +954,11 @@ TypeScript 编译检查
 - V0.13P 完成全量验证：显式测试文件列表运行 `npx vitest run @($files) --reporter verbose` 27 个测试文件、105 项通过；`npm run lint` 通过；`npm run build` 通过；`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 后端完整测试集通过；`git diff --check` 仅有 Windows 换行提示。
 - V0.13P 完成浏览器验收：死信任务详情展示“队列排障建议”、死信处理建议、最大尝试次数建议和 `V0.13P browser troubleshooting check` 当前错误建议；浏览器控制台新增 warning/error 为 0。
 - V0.13P 浏览器验收截图：`.scratch/v0.13p-queue-troubleshooting-guidance.png`；验收结果：`.scratch/v0.13p-browser-result.json`。
+- V0.13Q 完成运行中任务租约过期提示 RED/GREEN 测试：首次因运行中且租约已过期的队列任务卡片没有“租约已过期”失败，随后任务卡片显示风险标识，详情“队列排障建议”提示任务可被其他 Worker 接管。
+- V0.13Q 完成 focused 回归：`npx vitest run src/pages/Observability.test.tsx --reporter verbose --pool=threads` 1 个测试文件、10 项通过。
+- V0.13Q 完成全量验证：显式测试文件列表运行 `npx vitest run @($files) --reporter verbose` 27 个测试文件、106 项通过；`npm run lint` 通过；`npm run build` 通过；`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 后端完整测试集通过；`git diff --check` 仅有 Windows 换行提示。
+- V0.13Q 完成浏览器验收：运行中队列任务卡显示“租约已过期”，打开详情后“队列排障建议”展示 Worker 租约过期和可接管提示；浏览器控制台新增 warning/error 为 0。
+- V0.13Q 浏览器验收截图：`.scratch/v0.13q-expired-lease-guidance.png`；验收结果：`.scratch/v0.13q-browser-result.json`。
 
 验证时没有发现浏览器控制台错误。
 

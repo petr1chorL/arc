@@ -69,10 +69,17 @@ function executionJobStatusLabel(status: string) {
   }[status] ?? status
 }
 
+function isExecutionJobLeaseExpired(job: ExecutionJob) {
+  if (job.status !== 'running' || !job.lockedUntil) return false
+  return new Date(job.lockedUntil).getTime() <= Date.now()
+}
+
 function buildExecutionJobTroubleshootingHints(job: ExecutionJob) {
   const hints: string[] = []
   if (job.status === 'dead_letter') {
     hints.push('已进入死信队列，先复核失败原因和上游依赖，再决定是否重新入队。')
+  } else if (isExecutionJobLeaseExpired(job)) {
+    hints.push('Worker 租约已过期，任务可被其他 Worker 接管；如果长期停留运行中，请检查 Worker 进程。')
   } else if (job.status === 'running' && job.lockedBy) {
     hints.push(`当前由 ${job.lockedBy} 持有租约，若长时间无心跳请等待租约过期或检查 Worker。`)
   } else if (job.status === 'queued' && job.nextAttemptAt) {
@@ -747,6 +754,9 @@ function ExecutionQueuePanel({
                     </div>
                     <aside>
                       <StatusBadge status={executionJobStatusLabel(job.status)} />
+                      {isExecutionJobLeaseExpired(job) && (
+                        <em className="execution-queue-risk">租约已过期</em>
+                      )}
                       <span>{job.attempts}/{job.maxAttempts} 次</span>
                       <small>{job.lockedBy || '未锁定'} · {formatTime(job.lockedUntil)}</small>
                       <button
