@@ -1,6 +1,6 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.13O 队列运营动作原因记录
+> 对应版本：V0.13P 队列排障建议
 > 上一阶段：V0.8F 轻量告警 / 通知 Outbox
 > 更新时间：2026-06-27
 
@@ -545,6 +545,7 @@ POST /api/workspaces/{workspace_id}/evaluations/remediation-tasks/{task_id}/rete
 - 队列任务卡展示状态、Run/Workflow 摘要、尝试次数、最大尝试次数、锁持有者、租约到期和错误原因。
 - 队列任务卡支持“查看详情”，点击后调用 `GET /execution-jobs/{jobId}` 并在当前观测页展开任务详情。
 - 队列任务详情展示 Job ID、Run ID、Workflow 版本、尝试次数、Worker 锁、租约、下次尝试、终态时间、失败原因和关联审计事件。
+- 队列任务详情展示“队列排障建议”，根据状态、尝试次数、错误、租约和下次尝试时间派生运营处理建议。
 - 死信任务卡展示“重新入队”按钮，点击后调用 requeue 接口并刷新队列。
 - 可取消队列任务卡展示“取消任务”按钮，点击后调用 cancel 接口并刷新队列。
 - “重新入队”和“取消任务”在提交前要求填写操作原因；原因会作为 JSON body 传给后端并进入审计事件。
@@ -947,6 +948,11 @@ TypeScript 编译检查
 - V0.13O 完成全量验证：`npm test -- --run --reporter verbose` 27 个测试文件、104 项通过；`npm run lint` 通过；`npm run build` 通过；`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 后端完整测试集通过；`git diff --check` 仅有 Windows 换行提示。
 - V0.13O 完成浏览器验收：死信任务点击“重新入队”后展示原因面板，空原因提示，填写 `V0.13O browser requeue reason` 后提交成功；死信筛选下任务数变为 `0 条任务`；浏览器控制台新增 warning/error 为 0。
 - V0.13O 浏览器验收截图：`.scratch/v0.13o-queue-action-reason.png`；验收结果：`.scratch/v0.13o-browser-result.json`。
+- V0.13P 完成队列排障建议 RED/GREEN 测试：首次因队列任务详情没有“队列排障建议”失败，随后死信详情展示死信处理建议、最大尝试次数建议和当前错误建议。
+- V0.13P 完成 focused 回归：`npx vitest run src/pages/Observability.test.tsx --reporter verbose` 1 个测试文件、9 项通过。
+- V0.13P 完成全量验证：显式测试文件列表运行 `npx vitest run @($files) --reporter verbose` 27 个测试文件、105 项通过；`npm run lint` 通过；`npm run build` 通过；`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 后端完整测试集通过；`git diff --check` 仅有 Windows 换行提示。
+- V0.13P 完成浏览器验收：死信任务详情展示“队列排障建议”、死信处理建议、最大尝试次数建议和 `V0.13P browser troubleshooting check` 当前错误建议；浏览器控制台新增 warning/error 为 0。
+- V0.13P 浏览器验收截图：`.scratch/v0.13p-queue-troubleshooting-guidance.png`；验收结果：`.scratch/v0.13p-browser-result.json`。
 
 验证时没有发现浏览器控制台错误。
 

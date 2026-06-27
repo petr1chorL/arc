@@ -586,6 +586,42 @@ describe('Observability', () => {
     })
   })
 
+  it('shows troubleshooting guidance for dead-letter execution jobs', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = typeof input === 'string' ? input : input instanceof URL ? input.pathname + input.search : input.url
+      if (path === '/api/workspaces/workspace-1/observability/overview') {
+        return new Response(JSON.stringify(overview), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/observability/human-sla') {
+        return new Response(JSON.stringify(humanSla), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/observability/cost-usage') {
+        return new Response(JSON.stringify(costUsage), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/execution-jobs') {
+        return new Response(JSON.stringify(executionJobs), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/execution-jobs/job-dead-letter') {
+        return new Response(JSON.stringify(executionJobDetail), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/observability/runs/run-failed') {
+        return new Response(JSON.stringify(detail), { status: 200 })
+      }
+      throw new Error(`Unexpected fetch: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage()
+
+    await user.click((await screen.findAllByRole('button', { name: '查看详情' }))[0])
+
+    expect(await screen.findByText('队列排障建议')).toBeInTheDocument()
+    expect(screen.getByText('已进入死信队列，先复核失败原因和上游依赖，再决定是否重新入队。')).toBeInTheDocument()
+    expect(screen.getByText('已达到最大尝试次数 3/3，建议修复配置或输入后再重新入队。')).toBeInTheDocument()
+    expect(screen.getByText('当前错误：Agent 执行失败，请稍后重试')).toBeInTheDocument()
+  })
+
   it('loads another run detail when a recent run is selected', async () => {
     const user = userEvent.setup()
     const waitingDetail = {

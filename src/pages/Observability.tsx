@@ -69,6 +69,35 @@ function executionJobStatusLabel(status: string) {
   }[status] ?? status
 }
 
+function buildExecutionJobTroubleshootingHints(job: ExecutionJob) {
+  const hints: string[] = []
+  if (job.status === 'dead_letter') {
+    hints.push('已进入死信队列，先复核失败原因和上游依赖，再决定是否重新入队。')
+  } else if (job.status === 'running' && job.lockedBy) {
+    hints.push(`当前由 ${job.lockedBy} 持有租约，若长时间无心跳请等待租约过期或检查 Worker。`)
+  } else if (job.status === 'queued' && job.nextAttemptAt) {
+    hints.push(`任务处于退避等待中，下次尝试时间为 ${formatTime(job.nextAttemptAt)}。`)
+  } else if (job.status === 'canceled') {
+    hints.push('任务已取消，若需要继续业务流程，请重新触发工作流而不是直接恢复该任务。')
+  } else if (job.status === 'succeeded') {
+    hints.push('任务已完成，可进入运行详情复核节点输出、成本和审计事件。')
+  }
+
+  if (job.attempts >= job.maxAttempts && job.maxAttempts > 0) {
+    hints.push(`已达到最大尝试次数 ${job.attempts}/${job.maxAttempts}，建议修复配置或输入后再重新入队。`)
+  } else if (job.attempts > 0) {
+    hints.push(`当前已尝试 ${job.attempts}/${job.maxAttempts} 次，继续失败会进入死信队列。`)
+  }
+
+  if (job.error) {
+    hints.push(`当前错误：${job.error}`)
+  } else if (!hints.length) {
+    hints.push('暂无错误信息，优先检查任务状态、Worker 租约和关联 Run 详情。')
+  }
+
+  return hints
+}
+
 function runTitle(run: ObservabilityRunSummary) {
   return run.workflowName
 }
@@ -841,6 +870,8 @@ function ExecutionJobDetailPanel({
   isLoading: boolean
   error: string
 }) {
+  const troubleshootingHints = detail ? buildExecutionJobTroubleshootingHints(detail) : []
+
   return (
     <div className="execution-job-detail-panel">
       <div className="panel-header">
@@ -896,6 +927,15 @@ function ExecutionJobDetailPanel({
               <p>{detail.error}</p>
             </div>
           )}
+
+          <section className="execution-job-troubleshooting" aria-label="队列排障建议">
+            <h4>队列排障建议</h4>
+            <ul>
+              {troubleshootingHints.map((hint) => (
+                <li key={hint}>{hint}</li>
+              ))}
+            </ul>
+          </section>
 
           <section className="execution-job-audit-section" aria-label="队列审计事件">
             <h4>审计事件</h4>

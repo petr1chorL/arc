@@ -4905,6 +4905,35 @@ kbd {
   line-height: 1.6;
 }
 
+.execution-job-troubleshooting {
+  display: grid;
+  gap: 10px;
+  margin: 14px 16px 0;
+  padding: 13px;
+  border-radius: 14px;
+  background: rgba(236, 245, 255, 0.74);
+  box-shadow: var(--shadow-in);
+}
+
+.execution-job-troubleshooting h4 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.execution-job-troubleshooting ul {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.execution-job-troubleshooting li {
+  color: var(--muted);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
 .execution-job-audit-section {
   display: grid;
   gap: 12px;
