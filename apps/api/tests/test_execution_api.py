@@ -77,6 +77,7 @@ def create_published_workflow(
     workspace_id: str,
     agent: dict,
     version: dict,
+    retry_max_attempts: int = 2,
 ) -> dict:
     workflow = client.post(
         workspace_url(workspace_id, "/workflows"),
@@ -92,6 +93,7 @@ def create_published_workflow(
                         "label": "Insight Agent",
                         "agentId": agent["id"],
                         "agentVersion": version["version"],
+                        "retryMaxAttempts": retry_max_attempts,
                     },
                 },
                 {"id": "end", "type": "end", "position": {"x": 400, "y": 0}, "data": {"label": "End"}},
@@ -109,6 +111,13 @@ def create_published_workflow(
     )
     assert publish_response.status_code == 201
     return workflow
+
+
+def make_queued_execution_job_claimable(client: TestClient) -> None:
+    with client.app.state.session_factory() as session:
+        job = session.scalar(select(ExecutionJobRecord))
+        job.next_attempt_at = utc_now() - timedelta(seconds=1)
+        session.commit()
 
 
 def test_agent_test_run_records_model_usage_and_output(tmp_path):
@@ -244,6 +253,7 @@ def test_async_execution_job_retries_failure_before_dead_letter(tmp_path):
         assert job.attempts == 1
         assert job.error == "Agent 执行失败，请稍后重试"
 
+    make_queued_execution_job_claimable(client)
     second_attempt = client.post(
         workspace_url(workspace_id, "/execution-jobs/next"),
         headers=csrf_headers(client),
@@ -256,6 +266,50 @@ def test_async_execution_job_retries_failure_before_dead_letter(tmp_path):
         job = session.scalar(select(ExecutionJobRecord))
         assert job.status == "succeeded"
         assert job.attempts == 2
+
+
+def test_async_execution_job_retry_uses_future_backoff_before_next_claim(tmp_path):
+    gateway = FakeGateway([
+        RuntimeError("temporary outage"),
+        FakeModelResult("The retry completed after backoff."),
+    ])
+    database_url = f"sqlite:///{tmp_path / 'async-backoff.db'}"
+    client, workspace_id = create_authenticated_client(database_url, model_gateway=gateway)
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(
+        client,
+        workspace_id,
+        agent,
+        version,
+        retry_max_attempts=1,
+    )
+
+    response = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Back off before retrying this workflow.", "asyncMode": True},
+        headers=csrf_headers(client),
+    )
+    assert response.status_code == 201
+    first_attempt = client.post(
+        workspace_url(workspace_id, "/execution-jobs/next?workerId=worker-a"),
+        headers=csrf_headers(client),
+    )
+
+    assert first_attempt.status_code == 200
+    with client.app.state.session_factory() as session:
+        job = session.scalar(select(ExecutionJobRecord))
+        assert job.status == "queued"
+        assert job.attempts == 1
+        assert job.next_attempt_at is not None
+        assert job.next_attempt_at > utc_now().replace(tzinfo=None)
+
+    blocked_attempt = client.post(
+        workspace_url(workspace_id, "/execution-jobs/next?workerId=worker-b"),
+        headers=csrf_headers(client),
+    )
+
+    assert blocked_attempt.status_code == 404
+    assert len(gateway.calls) == 1
 
 
 def test_async_execution_job_moves_to_dead_letter_after_max_attempts(tmp_path):
@@ -279,6 +333,7 @@ def test_async_execution_job_moves_to_dead_letter_after_max_attempts(tmp_path):
     )
 
     for _ in range(3):
+        make_queued_execution_job_claimable(client)
         response = client.post(
             workspace_url(workspace_id, "/execution-jobs/next"),
             headers=csrf_headers(client),

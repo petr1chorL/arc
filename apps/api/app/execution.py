@@ -537,12 +537,18 @@ class ExecutionService:
             return
         job.status = "queued"
         job.locked_until = None
-        job.next_attempt_at = now
+        job.next_attempt_at = now + ExecutionService._retry_backoff_delay(job.attempts)
         job.completed_at = None
         run.status = "排队中"
         run.current_node = "等待重试"
         run.error = error
         run.completed_at = None
+
+    @staticmethod
+    def _retry_backoff_delay(attempts: int) -> timedelta:
+        retry_index = max(attempts - 1, 0)
+        seconds = min(30 * (2 ** retry_index), 15 * 60)
+        return timedelta(seconds=seconds)
 
     def execute_workflow_from(
         self,
