@@ -40,11 +40,13 @@ const deniedEvent = {
   metadata: { userEmail: 'member@example.com' },
 }
 
-function renderPage() {
+function renderPage(initialPath = '/w/ai-capability-center/settings/audit') {
   return render(
-    <WorkspaceProvider workspace={workspace}>
-      <MemoryRouter><AuditLog /></MemoryRouter>
-    </WorkspaceProvider>,
+    <MemoryRouter initialEntries={[initialPath]}>
+      <WorkspaceProvider workspace={workspace}>
+        <AuditLog />
+      </WorkspaceProvider>
+    </MemoryRouter>,
   )
 }
 
@@ -84,5 +86,31 @@ describe('AuditLog page', () => {
     expect(await screen.findByText('member.invite')).toBeInTheDocument()
     expect(screen.getByText('权限不足')).toBeInTheDocument()
     expect(screen.queryByText('apiKey')).not.toBeInTheDocument()
+  })
+
+  it('loads the trace id filter from the URL and keeps it in audit requests', async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
+      if (url.includes('traceId=trace-1')) {
+        return Promise.resolve(new Response(JSON.stringify([successEvent]), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage('/w/ai-capability-center/settings/audit?traceId=trace-1')
+
+    expect(await screen.findByRole('heading', { name: 'Workspace 审计事件' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Trace ID')).toHaveValue('trace-1')
+    expect(screen.getByText('当前 Trace 过滤')).toBeInTheDocument()
+    expect(screen.getByText('trace-1')).toBeInTheDocument()
+    expect(screen.getByText('tool_skill_asset.update')).toBeInTheDocument()
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/workspaces/${workspace.id}/audit-events?traceId=trace-1&limit=50`,
+        expect.objectContaining({ credentials: 'same-origin' }),
+      )
+    })
   })
 })

@@ -28,11 +28,12 @@ describe('Workspace Audit API', () => {
       action: 'tool_skill_asset.update',
       targetType: 'tool_skill_asset',
       outcome: 'success',
+      traceId: 'trace-1',
       limit: 25,
     })).resolves.toEqual(events)
 
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/workspaces/workspace-1/audit-events?action=tool_skill_asset.update&targetType=tool_skill_asset&outcome=success&limit=25',
+      '/api/workspaces/workspace-1/audit-events?action=tool_skill_asset.update&targetType=tool_skill_asset&outcome=success&traceId=trace-1&limit=25',
       expect.objectContaining({ credentials: 'same-origin' }),
     )
     expect(JSON.stringify(events)).not.toContain('apiKey')

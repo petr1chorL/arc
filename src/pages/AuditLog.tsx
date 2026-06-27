@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { FileClock, RefreshCw } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
 import { useWorkspace } from '../auth/workspaceContextState'
 import { listWorkspaceAuditEvents } from '../api/audit'
 import type { WorkspaceAuditEvent } from '../types'
@@ -38,10 +39,12 @@ function eventTitle(event: WorkspaceAuditEvent) {
 
 export function AuditLog() {
   const { workspace } = useWorkspace()
+  const [searchParams] = useSearchParams()
   const [events, setEvents] = useState<WorkspaceAuditEvent[]>([])
   const [action, setAction] = useState('')
   const [targetType, setTargetType] = useState('')
   const [outcome, setOutcome] = useState('')
+  const [traceId, setTraceId] = useState(() => searchParams.get('traceId') ?? '')
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -49,8 +52,9 @@ export function AuditLog() {
     action: action.trim() || undefined,
     targetType: targetType.trim() || undefined,
     outcome: outcome || undefined,
+    traceId: traceId.trim() || undefined,
     limit: 50,
-  }), [action, targetType, outcome])
+  }), [action, targetType, outcome, traceId])
 
   async function loadEvents() {
     setIsLoading(true)
@@ -85,6 +89,14 @@ export function AuditLog() {
 
       <section className="panel observability-filter-bar">
         <label>
+          <span>Trace ID</span>
+          <input
+            value={traceId}
+            onChange={(event) => setTraceId(event.target.value)}
+            placeholder="trace-run-..."
+          />
+        </label>
+        <label>
           <span>动作</span>
           <input
             value={action}
@@ -110,6 +122,14 @@ export function AuditLog() {
           </select>
         </label>
       </section>
+
+      {filters.traceId && (
+        <section className="panel audit-trace-context" aria-label="当前 Trace 过滤">
+          <span>当前 Trace 过滤</span>
+          <strong>{filters.traceId}</strong>
+          <p>下方只展示该 Trace ID 关联的 Workspace 审计事件，可继续组合动作、对象类型和结果筛选。</p>
+        </section>
+      )}
 
       <section className="panel execution-event-list">
         {isLoading && <div className="table-state">正在加载审计事件…</div>}

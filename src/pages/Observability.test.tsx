@@ -470,6 +470,10 @@ describe('Observability', () => {
     })
     expect(screen.getByText('节点执行链路')).toBeInTheDocument()
     expect(screen.getByText('Trace ID')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '查看审计日志' })).toHaveAttribute(
+      'href',
+      '/w/ai-capability-center/settings/audit?traceId=trace-run-failed',
+    )
     expect(screen.getAllByText('trace-run-failed').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('Trace 链路索引')).toBeInTheDocument()
     expect(screen.getByText('root 运行级事件')).toBeInTheDocument()

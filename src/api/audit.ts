@@ -5,6 +5,7 @@ export interface WorkspaceAuditEventFilters {
   action?: string
   targetType?: string
   outcome?: string
+  traceId?: string
   limit?: number
 }
 
@@ -16,6 +17,7 @@ export async function listWorkspaceAuditEvents(
   if (filters.action) params.set('action', filters.action)
   if (filters.targetType) params.set('targetType', filters.targetType)
   if (filters.outcome) params.set('outcome', filters.outcome)
+  if (filters.traceId) params.set('traceId', filters.traceId)
   if (filters.limit) params.set('limit', String(filters.limit))
   const search = params.toString()
   const path = `/api/workspaces/${workspaceId}/audit-events${search ? `?${search}` : ''}`

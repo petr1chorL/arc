@@ -580,6 +580,19 @@ def test_workspace_admin_can_list_filtered_workspace_audit_events(workspace_cont
     assert events[0]["metadata"]["assetName"] == "价格查询 Tool"
     assert "createdAt" in events[0]
 
+    trace_response = client.get(
+        workspace_url(
+            workspace_a,
+            "/audit-events?traceId=trace-asset-a&limit=10",
+        ),
+    )
+
+    assert trace_response.status_code == 200
+    trace_events = trace_response.json()
+    assert len(trace_events) == 1
+    assert trace_events[0]["traceId"] == "trace-asset-a"
+    assert trace_events[0]["targetId"] == "asset-a"
+
 
 def test_viewer_cannot_list_workspace_audit_events(workspace_context):
     client: TestClient = workspace_context["client"]

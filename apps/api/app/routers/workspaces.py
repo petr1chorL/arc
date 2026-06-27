@@ -301,6 +301,7 @@ def create_workspaces_router(
         action: str | None = None,
         target_type: str | None = Query(default=None, alias="targetType"),
         outcome: str | None = None,
+        trace_id: str | None = Query(default=None, alias="traceId"),
         limit: int = Query(default=50, ge=1, le=200),
         context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
     ) -> list[WorkspaceAuditEventRead]:
@@ -323,6 +324,8 @@ def create_workspaces_router(
             statement = statement.where(AuditEventRecord.target_type == target_type)
         if outcome:
             statement = statement.where(AuditEventRecord.outcome == outcome)
+        if trace_id:
+            statement = statement.where(AuditEventRecord.trace_id == trace_id)
         records = list(
             session.scalars(
                 statement.order_by(AuditEventRecord.created_at.desc(), AuditEventRecord.id.desc())

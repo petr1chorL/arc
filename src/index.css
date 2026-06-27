@@ -5997,7 +5997,7 @@ kbd {
 
 .observability-trace-chip {
   display: inline-grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
   max-width: 100%;
@@ -6022,6 +6022,38 @@ kbd {
   color: var(--ink);
   font: 700 10px var(--mono);
   overflow-wrap: anywhere;
+}
+
+.observability-trace-chip .trace-audit-link {
+  white-space: nowrap;
+}
+
+.audit-trace-context {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 12px;
+  align-items: center;
+}
+
+.audit-trace-context span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.audit-trace-context strong {
+  min-width: 0;
+  color: var(--ink);
+  font: 700 12px var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.audit-trace-context p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .observability-next-action {

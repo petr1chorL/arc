@@ -707,7 +707,12 @@ export function Observability() {
         <section className="panel observability-detail">
           {isDetailLoading && <div className="table-state">正在加载运行详情...</div>}
           {detailError && <div className="table-state error" role="alert">{detailError}</div>}
-          {!isDetailLoading && !detailError && detail && <RunTroubleshooting detail={detail} />}
+          {!isDetailLoading && !detailError && detail && (
+            <RunTroubleshooting
+              detail={detail}
+              auditHref={workspacePath(`settings/audit?traceId=${encodeURIComponent(detail.traceId)}`)}
+            />
+          )}
         </section>
       </div>
     </div>
@@ -1257,7 +1262,13 @@ function MetricCard({
   )
 }
 
-function RunTroubleshooting({ detail }: { detail: ObservabilityRunDetail }) {
+function RunTroubleshooting({
+  detail,
+  auditHref,
+}: {
+  detail: ObservabilityRunDetail
+  auditHref: string
+}) {
   const resultText = detail.output || detail.error || '本次运行暂无产出或错误信息。'
 
   return (
@@ -1270,6 +1281,9 @@ function RunTroubleshooting({ detail }: { detail: ObservabilityRunDetail }) {
           <div className="observability-trace-chip">
             <span>Trace ID</span>
             <strong>{detail.traceId}</strong>
+            <Link className="button ghost compact trace-audit-link" to={auditHref}>
+              查看审计日志
+            </Link>
           </div>
         </div>
         <StatusBadge status={detail.status} />
