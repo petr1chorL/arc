@@ -1845,6 +1845,100 @@ kbd {
   font-size: 9px;
 }
 
+.batch-regression {
+  padding: 22px;
+  border: 0;
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  box-shadow: var(--shadow-raised-sm);
+}
+
+.batch-regression > header,
+.batch-regression-layout,
+.batch-regression-summary,
+.batch-regression-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.batch-regression-layout {
+  align-items: stretch;
+  margin-top: 16px;
+}
+
+.batch-regression-form,
+.batch-regression-output {
+  display: grid;
+  gap: 12px;
+}
+
+.batch-regression-form {
+  width: min(380px, 42%);
+  padding: 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.24);
+  box-shadow: var(--shadow-inset);
+}
+
+.batch-regression-form .button {
+  justify-self: start;
+}
+
+.batch-regression-output {
+  min-width: 0;
+  flex: 1;
+}
+
+.batch-regression-summary {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.28);
+  box-shadow: var(--shadow-inset);
+}
+
+.batch-regression-summary strong {
+  color: var(--ink);
+  font-size: 18px;
+}
+
+.batch-regression-summary span {
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.34);
+  font-size: 10px;
+}
+
+.batch-regression-results {
+  display: grid;
+  gap: 10px;
+}
+
+.batch-regression-result {
+  align-items: stretch;
+  padding: 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.24);
+  box-shadow: var(--shadow-inset);
+}
+
+.batch-regression-result h3 {
+  margin: 5px 0 3px;
+  font-size: 13px;
+}
+
+.batch-regression-result p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
 .evaluation-detail-dialog {
   width: min(760px, calc(100vw - 32px));
   max-height: min(86vh, 780px);
@@ -4162,9 +4256,16 @@ kbd {
 
 @media (max-width: 760px) {
   .evaluation-records > header,
-  .evaluation-record-card {
+  .evaluation-record-card,
+  .batch-regression > header,
+  .batch-regression-layout,
+  .batch-regression-result {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .batch-regression-form {
+    width: auto;
   }
 
   .evaluation-record-filters {

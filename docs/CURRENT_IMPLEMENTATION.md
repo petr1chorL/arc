@@ -1,6 +1,6 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.9F 评估记录详情
+> 对应版本：V0.9G 轻量批量回归
 > 上一阶段：V0.8F 轻量告警 / 通知 Outbox
 > 更新时间：2026-06-27
 
@@ -329,6 +329,9 @@ React Flow 节点/连线
 - 支持按 Rubric 筛选评估记录；历史记录引用的 Rubric 即使不在当前 Rubric 列表中，也会以记录快照名称出现在筛选项里。
 - Rubric 配置弹窗运行评估成功后，会把新记录即时插入评估记录列表顶部。
 - 支持查看 Evaluation 记录详情，展示评估对象、运行时 Rubric 快照、维度权重、维度得分、待评估产出物和评分说明。
+- 支持轻量批量回归：选择可用 Rubric，输入多条样本后按顺序运行现有单条评估 API。
+- 批量回归会展示通过率、样本总数、通过数、失败数和每条样本的得分/状态。
+- 批量回归的每条样本都会形成独立 Evaluation 记录，并即时合并进评估历史。
 - 当前评分器为确定性评分器，用于验证评估链路；真实 LLM-as-a-Judge 尚未接入。
 
 后端 API：
@@ -349,7 +352,7 @@ GET /api/workspaces/{workspace_id}/evaluations/records
 
 - LLM-as-a-Judge。
 - Golden Set 管理。
-- 回归测试任务。
+- 持久化回归测试任务、定时调度、后台队列和回归任务历史。
 - 评价一致性校准。
 
 ## 9. 运行中心
@@ -645,7 +648,7 @@ TypeScript 编译检查
 已经完成：
 
 - `apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q`：后端全量测试通过。
-- `npm test -- --run`：27 个前端测试文件、87 项测试通过。
+- `npm test -- --run`：27 个前端测试文件、88 项测试通过。
 - `npm run lint`：Oxlint 通过。
 - `npm run build`：TypeScript 编译与 Vite 生产构建通过。
 - Human 节点发布前校验覆盖分配方式、会签人数和 SLA 参数。
@@ -677,6 +680,9 @@ TypeScript 编译检查
 - V0.9F 完成评估详情自动化测试：点击“查看详情”后，弹窗展示记录 ID、待评估产出物、Rubric 快照、维度权重和维度得分。
 - V0.9F 完成浏览器验收：临时账号运行一次 Rubric 评估后打开详情弹窗，确认 Rubric 快照、维度评分、待评估产出物和评分说明可见；登录后页面控制台无 error/warn。
 - V0.9F 浏览器验收截图：`.scratch/v0.9f-evaluation-detail.png`。
+- V0.9G 完成轻量批量回归自动化测试：输入两条回归样本后连续调用评估 API，页面展示 50% 通过率、失败样本和对应 Evaluation 记录。
+- V0.9G 完成浏览器验收：临时账号在评估中心运行两条回归样本，页面展示批量结果、失败样本和 Evaluation 记录；控制台无 error/warn；验收后已清理临时账号与评估记录。
+- V0.9G 浏览器验收截图：`.scratch/v0.9g-batch-regression.png`。
 
 验证时没有发现浏览器控制台错误。
 

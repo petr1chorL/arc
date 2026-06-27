@@ -275,6 +275,85 @@ describe('Evaluations page', () => {
     expect(screen.getByText('evaluation-pass')).toBeInTheDocument()
   })
 
+  it('runs a lightweight batch regression and shows pass rate and failed samples', async () => {
+    const user = userEvent.setup()
+    const batchResponses = [
+      {
+        id: 'batch-pass',
+        rubricId: rubricAssets[0].id,
+        rubricVersion: 'v1.0',
+        rubricSnapshot: rubricAssets[0],
+        subjectType: 'regression_sample',
+        subjectId: 'sample-1',
+        artifactText: 'sample with evidence and next action',
+        dimensionScores: [{ name: 'Accuracy', weight: 100, score: 88 }],
+        score: 88,
+        status: 'passed',
+        rationale: 'deterministic rubric evaluation',
+        createdAt: '2026-06-27T00:00:00Z',
+      },
+      {
+        id: 'batch-fail',
+        rubricId: rubricAssets[0].id,
+        rubricVersion: 'v1.0',
+        rubricSnapshot: rubricAssets[0],
+        subjectType: 'regression_sample',
+        subjectId: 'sample-2',
+        artifactText: 'thin sample',
+        dimensionScores: [{ name: 'Accuracy', weight: 100, score: 42 }],
+        score: 42,
+        status: 'failed',
+        rationale: 'missing evidence',
+        createdAt: '2026-06-27T00:01:00Z',
+      },
+    ]
+    const evaluatedBodies: unknown[] = []
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (input === `/api/workspaces/${workspace.id}/evaluations/overview`) {
+        return response(overview)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/rubrics`) {
+        return response(rubricAssets)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/records`) {
+        return response([])
+      }
+      if (
+        input === `/api/workspaces/${workspace.id}/evaluations/rubrics/${rubricAssets[0].id}/evaluate`
+        && init?.method === 'POST'
+      ) {
+        evaluatedBodies.push(JSON.parse(String(init.body)))
+        return response(batchResponses[evaluatedBodies.length - 1], 201)
+      }
+      return response({ detail: 'not found' }, 404)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage()
+
+    expect(await screen.findByText('批量回归')).toBeInTheDocument()
+    await user.type(screen.getByLabelText('回归样本'), 'sample with evidence and next action\nthin sample')
+    await user.click(screen.getByRole('button', { name: '运行批量回归' }))
+
+    expect(await screen.findAllByText('通过率 50%')).toHaveLength(2)
+    expect(screen.getByText('2 条样本')).toBeInTheDocument()
+    expect(screen.getByText('1 条失败')).toBeInTheDocument()
+    expect(screen.getByText('thin sample')).toBeInTheDocument()
+    expect(screen.getAllByText('batch-fail')).toHaveLength(2)
+    expect(evaluatedBodies).toEqual([
+      {
+        artifactText: 'sample with evidence and next action',
+        subjectType: 'regression_sample',
+        subjectId: 'sample-1',
+      },
+      {
+        artifactText: 'thin sample',
+        subjectType: 'regression_sample',
+        subjectId: 'sample-2',
+      },
+    ])
+  })
+
   it('opens an evaluation record detail dialog with artifact text and rubric snapshot', async () => {
     const user = userEvent.setup()
     const records = [{

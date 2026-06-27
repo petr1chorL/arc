@@ -74,6 +74,13 @@ function validateRubric(input: RubricInput): string {
   return ''
 }
 
+function parseBatchSamples(input: string) {
+  return input
+    .split(/\n+/)
+    .map((sample) => sample.trim())
+    .filter(Boolean)
+}
+
 export function Evaluations() {
   const { workspace } = useWorkspace()
   const [overview, setOverview] = useState<EvaluationOverview>(emptyOverview)
@@ -95,6 +102,11 @@ export function Evaluations() {
   const [recordStatusFilter, setRecordStatusFilter] = useState('all')
   const [recordRubricFilter, setRecordRubricFilter] = useState('all')
   const [selectedEvaluationRecord, setSelectedEvaluationRecord] = useState<EvaluationRecord | null>(null)
+  const [batchRubricId, setBatchRubricId] = useState('')
+  const [batchSamples, setBatchSamples] = useState('')
+  const [batchResults, setBatchResults] = useState<EvaluationRecord[]>([])
+  const [batchError, setBatchError] = useState('')
+  const [isBatchRunning, setIsBatchRunning] = useState(false)
 
   const loadAssets = useCallback(async () => {
     setIsLoading(true)
@@ -139,6 +151,23 @@ export function Evaluations() {
     }
     return Array.from(unknownRecordRubrics, ([id, name]) => ({ id, name }))
   }, [evaluationRecords, rubrics])
+
+  const activeRubrics = useMemo(
+    () => rubrics.filter((rubric) => rubric.status === 'active'),
+    [rubrics],
+  )
+
+  useEffect(() => {
+    if (!batchRubricId && activeRubrics[0]) {
+      setBatchRubricId(activeRubrics[0].id)
+    }
+  }, [activeRubrics, batchRubricId])
+
+  const batchPassedCount = batchResults.filter((result) => result.status === 'passed').length
+  const batchFailedCount = batchResults.length - batchPassedCount
+  const batchPassRate = batchResults.length > 0
+    ? Math.round((batchPassedCount / batchResults.length) * 100)
+    : 0
 
   function openCreateDialog() {
     setIsRubricDialogOpen(true)
@@ -293,6 +322,42 @@ export function Evaluations() {
     }
   }
 
+  async function runBatchRegression() {
+    const rubric = activeRubrics.find((candidate) => candidate.id === batchRubricId)
+    const samples = parseBatchSamples(batchSamples)
+    if (!rubric) {
+      setBatchError('请选择可用 Rubric')
+      return
+    }
+    if (samples.length === 0) {
+      setBatchError('至少输入 1 条回归样本')
+      return
+    }
+
+    setIsBatchRunning(true)
+    setBatchError('')
+    try {
+      const nextResults: EvaluationRecord[] = []
+      for (const [index, sample] of samples.entries()) {
+        const result = await evaluateRubric(workspace.id, rubric.id, {
+          artifactText: sample,
+          subjectType: 'regression_sample',
+          subjectId: `sample-${index + 1}`,
+        })
+        nextResults.push(result)
+      }
+      setBatchResults(nextResults)
+      setEvaluationRecords((current) => [
+        ...nextResults,
+        ...current.filter((record) => !nextResults.some((result) => result.id === record.id)),
+      ])
+    } catch (batchRunError) {
+      setBatchError(batchRunError instanceof Error ? batchRunError.message : '批量回归运行失败')
+    } finally {
+      setIsBatchRunning(false)
+    }
+  }
+
   const disabled = editingRubric?.status === 'disabled'
 
   return (
@@ -421,6 +486,90 @@ export function Evaluations() {
             ))}
           </div>
         )}
+      </section>
+
+      <section className="panel batch-regression">
+        <header>
+          <div>
+            <span className="eyebrow">BATCH REGRESSION</span>
+            <h2>批量回归</h2>
+          </div>
+          {batchResults.length > 0 && (
+            <span className={`status-pill ${batchFailedCount === 0 ? 'success' : 'danger'}`}>
+              通过率 {batchPassRate}%
+            </span>
+          )}
+        </header>
+        <div className="batch-regression-layout">
+          <div className="batch-regression-form">
+            <label className="dialog-field">
+              回归 Rubric
+              <select
+                aria-label="回归 Rubric"
+                value={batchRubricId}
+                disabled={activeRubrics.length === 0 || isBatchRunning}
+                onChange={(event) => setBatchRubricId(event.target.value)}
+              >
+                {activeRubrics.length === 0 && <option value="">暂无可用 Rubric</option>}
+                {activeRubrics.map((rubric) => (
+                  <option key={rubric.id} value={rubric.id}>{rubric.name} / {rubric.version}</option>
+                ))}
+              </select>
+            </label>
+            <label className="dialog-field">
+              回归样本
+              <textarea
+                aria-label="回归样本"
+                rows={5}
+                placeholder="每行一条样本。运行后会逐条生成 Evaluation Record。"
+                value={batchSamples}
+                disabled={isBatchRunning}
+                onChange={(event) => setBatchSamples(event.target.value)}
+              />
+            </label>
+            {batchError && <p className="dialog-error" role="alert">{batchError}</p>}
+            <button
+              className="button primary"
+              type="button"
+              disabled={isBatchRunning || activeRubrics.length === 0}
+              onClick={() => void runBatchRegression()}
+            >
+              <Beaker size={15} />{isBatchRunning ? '运行中' : '运行批量回归'}
+            </button>
+          </div>
+          <div className="batch-regression-output">
+            {batchResults.length === 0 && (
+              <div className="table-state">选择 Rubric 并输入样本后，可以一次性验证当前量规是否稳定。</div>
+            )}
+            {batchResults.length > 0 && (
+              <>
+                <div className="batch-regression-summary">
+                  <strong>通过率 {batchPassRate}%</strong>
+                  <span>{batchResults.length} 条样本</span>
+                  <span>{batchPassedCount} 条通过</span>
+                  <span>{batchFailedCount} 条失败</span>
+                </div>
+                <div className="batch-regression-results">
+                  {batchResults.map((result, index) => (
+                    <article className="batch-regression-result" key={result.id}>
+                      <div>
+                        <span className="mono">{result.id}</span>
+                        <h3>样本 #{index + 1}</h3>
+                        <p>{result.artifactText}</p>
+                      </div>
+                      <div className="evaluation-record-score">
+                        <strong>{result.score}</strong>
+                        <span className={`status-pill ${result.status === 'passed' ? 'success' : 'danger'}`}>
+                          {result.status}
+                        </span>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       </section>
 
       <section className="panel">
