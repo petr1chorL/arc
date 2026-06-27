@@ -234,6 +234,7 @@ def create_app(
 
     app.state.session_factory = session_factory
     app.state.authentication_service = authentication_service
+    app.state.execution_service = execution_service
     app.include_router(
         create_auth_router(
             get_session,
