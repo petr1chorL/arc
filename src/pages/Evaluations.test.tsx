@@ -352,6 +352,68 @@ describe('Evaluations page', () => {
     expect(screen.getByText('evaluation-pass')).toBeInTheDocument()
   })
 
+  it('summarizes LLM Judge calibration coverage from evaluation records', async () => {
+    const llmRecords = [
+      {
+        id: 'llm-evaluation-1',
+        rubricId: rubricAssets[0].id,
+        rubricVersion: 'v1.0',
+        rubricSnapshot: { ...rubricAssets[0], judgeType: 'llm', judgeModel: 'deepseek-v4-pro' },
+        subjectType: 'manual',
+        subjectId: 'sample-1',
+        artifactText: 'Artifact with evidence.',
+        dimensionScores: [{ name: '准确性', weight: 100, score: 88 }],
+        score: 88,
+        status: 'passed',
+        rationale: 'llm judge passed',
+        evaluatorType: 'llm',
+        evaluatorModel: 'deepseek-v4-pro',
+        evaluatorInput: { judgePromptVersion: 'llm-judge-v1' },
+        createdAt: '2026-06-27T00:00:00Z',
+      },
+      {
+        id: 'llm-evaluation-2',
+        rubricId: rubricAssets[0].id,
+        rubricVersion: 'v1.0',
+        rubricSnapshot: { ...rubricAssets[0], judgeType: 'llm', judgeModel: 'deepseek-v4-pro' },
+        subjectType: 'manual',
+        subjectId: 'sample-2',
+        artifactText: 'Artifact missing evidence.',
+        dimensionScores: [{ name: '准确性', weight: 100, score: 60 }],
+        score: 60,
+        status: 'failed',
+        rationale: 'llm judge failed',
+        evaluatorType: 'llm',
+        evaluatorModel: 'deepseek-v4-pro',
+        evaluatorInput: { judgePromptVersion: 'llm-judge-v1' },
+        createdAt: '2026-06-27T00:05:00Z',
+      },
+    ]
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      if (input === `/api/workspaces/${workspace.id}/evaluations/overview`) {
+        return response(overview)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/rubrics`) {
+        return response(rubricAssets)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/records`) {
+        return response(llmRecords)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/sample-sets`) {
+        return response([])
+      }
+      return response({ detail: 'not found' }, 404)
+    }))
+
+    renderPage()
+
+    expect(await screen.findByRole('heading', { name: 'LLM Judge 校准' })).toBeInTheDocument()
+    expect(screen.getByText('2 条样本')).toBeInTheDocument()
+    expect(screen.getByText('50% 通过率')).toBeInTheDocument()
+    expect(screen.getByText('deepseek-v4-pro')).toBeInTheDocument()
+    expect(screen.getByText('llm-judge-v1')).toBeInTheDocument()
+  })
+
   it('runs a lightweight batch regression and shows pass rate and failed samples', async () => {
     const user = userEvent.setup()
     const batchResponses = [

@@ -195,6 +195,17 @@ interface EvaluationLoopBoard {
   tone: 'danger' | 'warning' | 'success'
 }
 
+interface JudgeCalibrationSummary {
+  sampleCount: number
+  passRate: number
+  averageScore: number
+  failedCount: number
+  models: string[]
+  promptVersions: string[]
+  recommendation: string
+  tone: 'danger' | 'warning' | 'success'
+}
+
 function formatDelta(value: number) {
   return value > 0 ? `+${value}` : `${value}`
 }
@@ -461,6 +472,42 @@ function buildEvaluationLoopBoard(
   }
 }
 
+function buildJudgeCalibrationSummary(records: EvaluationRecord[]): JudgeCalibrationSummary | null {
+  const llmRecords = records.filter((record) => (
+    record.evaluatorType === 'llm' || record.rubricSnapshot.judgeType === 'llm'
+  ))
+  if (llmRecords.length === 0) return null
+
+  const passedCount = llmRecords.filter((record) => record.status === 'passed').length
+  const failedCount = llmRecords.length - passedCount
+  const passRate = Math.round((passedCount / llmRecords.length) * 100)
+  const averageScore = Math.round(
+    llmRecords.reduce((sum, record) => sum + record.score, 0) / llmRecords.length,
+  )
+  const models = Array.from(new Set(
+    llmRecords
+      .map((record) => record.evaluatorModel || record.rubricSnapshot.judgeModel || '未记录模型')
+      .filter(Boolean),
+  ))
+  const promptVersions = Array.from(new Set(
+    llmRecords.map((record) => {
+      const version = record.evaluatorInput?.judgePromptVersion
+      return typeof version === 'string' && version.trim() ? version : '未记录版本'
+    }),
+  ))
+
+  return {
+    sampleCount: llmRecords.length,
+    passRate,
+    averageScore,
+    failedCount,
+    models,
+    promptVersions,
+    recommendation: failedCount > 0 ? '优先复核失败样本，确认 Judge 标准是否稳定' : '当前 LLM Judge 样本全部通过，可继续扩大校准样本',
+    tone: failedCount > 0 ? 'warning' : 'success',
+  }
+}
+
 function buildRegressionRunComparison(
   base: RegressionRun,
   target: RegressionRun,
@@ -628,6 +675,11 @@ export function Evaluations() {
     (recordStatusFilter === 'all' || record.status === recordStatusFilter)
     && (recordRubricFilter === 'all' || record.rubricId === recordRubricFilter)
   )), [evaluationRecords, recordRubricFilter, recordStatusFilter])
+
+  const judgeCalibration = useMemo(
+    () => buildJudgeCalibrationSummary(evaluationRecords),
+    [evaluationRecords],
+  )
 
   const recordRubricOptions = useMemo(() => {
     const knownRubricIds = new Set(rubrics.map((rubric) => rubric.id))
@@ -1181,6 +1233,29 @@ export function Evaluations() {
         <div className="evaluation-stat"><CheckCircle2 size={20} /><span>覆盖工作流<strong>{overview.totals.coveredWorkflows}</strong></span><small>来自真实 Human Task</small></div>
         <div className="evaluation-stat"><Beaker size={20} /><span>待确认候选<strong>{overview.totals.pendingCandidates}</strong></span><small>{overview.totals.coveredAgents} 个 Agent 涉及</small></div>
       </section>
+
+      {judgeCalibration && (
+        <section className="panel evaluation-assets">
+          <header>
+            <div>
+              <span className="eyebrow">JUDGE CALIBRATION</span>
+              <h2>LLM Judge 校准</h2>
+            </div>
+            <span className={`status-pill ${judgeCalibration.tone === 'success' ? 'success' : 'warning'}`}>
+              {judgeCalibration.failedCount > 0 ? `${judgeCalibration.failedCount} 条待复核` : '样本稳定'}
+            </span>
+          </header>
+          <div className="evaluation-overview">
+            <div className="evaluation-stat"><Beaker size={20} /><span>校准样本<strong>{judgeCalibration.sampleCount}</strong></span><small>{judgeCalibration.sampleCount} 条样本</small></div>
+            <div className="evaluation-stat"><CheckCircle2 size={20} /><span>通过率<strong>{judgeCalibration.passRate}%</strong></span><small>{judgeCalibration.passRate}% 通过率</small></div>
+            <div className="evaluation-stat"><ShieldCheck size={20} /><span>平均分<strong>{judgeCalibration.averageScore}</strong></span><small>{judgeCalibration.recommendation}</small></div>
+            <div className="evaluation-stat"><FlaskConical size={20} /><span>覆盖模型<strong>{judgeCalibration.models.length}</strong></span><small>{judgeCalibration.models.join('、')}</small></div>
+          </div>
+          <div className="candidate-tags">
+            {judgeCalibration.promptVersions.map((version) => <span key={version}>{version}</span>)}
+          </div>
+        </section>
+      )}
 
       <section className="panel evaluation-assets">
         <header>

@@ -396,6 +396,7 @@ React Flow 节点/连线
 - 展示 Evaluation 历史记录列表，包含记录 ID、Rubric 快照名称、评估对象、版本、维度分、总分、状态和评分说明。
 - 支持按 `passed` / `failed` 状态筛选评估记录。
 - 支持按 Rubric 筛选评估记录；历史记录引用的 Rubric 即使不在当前 Rubric 列表中，也会以记录快照名称出现在筛选项里。
+- 页面会从 LLM Judge Evaluation Records 派生校准概览，展示校准样本数、通过率、平均分、模型覆盖和 Prompt 版本覆盖。
 - Rubric 配置弹窗运行评估成功后，会把新记录即时插入评估记录列表顶部。
 - 支持查看 Evaluation 记录详情，展示评估对象、运行时 Rubric 快照、维度权重、维度得分、待评估产出物和评分说明。
 - 支持创建 Workspace 级 Golden Set / 回归样本集。
@@ -467,7 +468,7 @@ POST /api/workspaces/{workspace_id}/evaluations/remediation-tasks/{task_id}/rete
 
 未实现：
 
-- LLM Judge 校准和成本统计。
+- 更深层的 LLM Judge 一致性评估和成本统计。
 - Golden Set 样本导入、导出、版本对比和停用。
 - 定时调度、后台队列、Run 取消、Run 重试和异步回归任务。
 - 评价一致性校准。
@@ -875,7 +876,8 @@ TypeScript 编译检查
 - V0.12D 完成 Judge schema 与重试 RED/GREEN 测试：首次因 `max_attempts` 不存在失败，随后无效 JSON 可重试一次后成功，缺失维度权重会被拒绝。
 - V0.12D 完成 Judge Prompt 版本 RED/GREEN 测试：首次因 `judgePromptVersion` 缺失失败，随后输入快照和系统提示词均包含 `llm-judge-v1`。
 - V0.12D 完成 Rubric Judge 前端配置 RED/GREEN 测试：首次因页面缺少“评分器类型”控件失败，随后创建 LLM Judge Rubric 时可提交 `judgeType=llm` 与 `judgeModel`。
-- V0.12D 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 170 项通过；`npm test -- --run` 27 个测试文件、97 项测试通过；`npm run lint` 通过；`npm run build` 通过。
+- V0.12D 完成 LLM Judge 校准概览 RED/GREEN 测试：首次因页面缺少“LLM Judge 校准”失败，随后页面可从两条 LLM Judge 记录展示 2 条样本、50% 通过率、模型和 Prompt 版本。
+- V0.12D 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 170 项通过；`npm test -- --run` 27 个测试文件、98 项测试通过；`npm run lint` 通过；`npm run build` 通过。
 - V0.12D 完成浏览器验收：评估中心 Rubric 弹窗中“评分器类型”控件唯一；默认隐藏 Judge 模型；切换为 LLM Judge 后模型输入出现并可填写 `deepseek-v4-pro`；浏览器控制台新增 error/warn 为 0。
 
 验证时没有发现浏览器控制台错误。

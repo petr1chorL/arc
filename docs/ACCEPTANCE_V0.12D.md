@@ -15,11 +15,12 @@ V0.12D 第一切片把评估中心从“只有确定性评分器”推进到“R
 - `ModelJudgeGateway` 会校验 Judge 返回的维度分结构，并在解析失败时重试。
 - Judge 输入快照和系统提示词包含 `judgePromptVersion=llm-judge-v1`。
 - 前端 Rubric 配置弹窗支持选择确定性评分器或 LLM Judge，并保存 Judge 模型。
+- 评估中心会从 Evaluation Records 派生 LLM Judge 校准概览，展示样本数、通过率、平均分、模型覆盖和 Prompt 版本覆盖。
 - 旧 SQLite 表会自动补 Rubric 与 Evaluation 新字段。
 
 ## 没有完成的内容
 
-- LLM Judge 的批量校准、一致性评估和成本统计。
+- LLM Judge 的更深一致性评估和成本统计。
 
 ## 自动化验收
 
@@ -56,8 +57,8 @@ npm test -- --run src/pages/Evaluations.test.tsx
 
 预期结果：
 
-- 14 项通过。
-- 覆盖 Rubric 配置弹窗创建 LLM Judge 量规并提交 `judgeType` / `judgeModel`。
+- 15 项通过。
+- 覆盖 Rubric 配置弹窗创建 LLM Judge 量规并提交 `judgeType` / `judgeModel`，以及 LLM Judge 校准概览。
 
 ```powershell
 apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q
@@ -69,6 +70,6 @@ npm run build
 预期结果：
 
 - 后端全量 170 项通过。
-- 前端 27 个测试文件、97 项测试通过。
+- 前端 27 个测试文件、98 项测试通过。
 - Oxlint 通过。
 - TypeScript 编译与 Vite 生产构建通过。

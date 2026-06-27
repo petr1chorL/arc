@@ -65,7 +65,7 @@
 11. V0.12D：LLM-as-a-Judge。
    - Rubric 可选择确定性评分器或 LLM Judge。
    - 验收：评分结果带理由、模型、版本和可复现输入。
-   - 当前状态：可注入 Judge Gateway、Rubric judge 类型、Evaluation evaluator 元数据、ModelGateway JSON 解析、返回 schema 校验、解析失败重试、Prompt 版本记录和前端配置入口已完成；校准待继续。
+   - 当前状态：可注入 Judge Gateway、Rubric judge 类型、Evaluation evaluator 元数据、ModelGateway JSON 解析、返回 schema 校验、解析失败重试、Prompt 版本记录、前端配置入口和校准概览已完成；更深一致性评估与成本统计待继续。
 
 ## 阶段 4：工作流调度与生产可靠性，V0.13
 
@@ -125,4 +125,4 @@
 
 ## 当前推荐下一步
 
-下一步继续 V0.12D：补 LLM Judge 校准指标。真实 MCP Server client 可以在确定具体 MCP Server、鉴权方式和部署方式后作为 V0.12C 扩展切片补上。
+下一步进入 V0.13A：异步任务队列。真实 MCP Server client 可以在确定具体 MCP Server、鉴权方式和部署方式后作为 V0.12C 扩展切片补上；LLM Judge 更深一致性评估与成本统计可作为评估中心增强项继续补。
