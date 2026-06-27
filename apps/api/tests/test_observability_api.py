@@ -9,6 +9,9 @@ from app.models import (
     HumanTaskRecord,
     NodeRunRecord,
     OrganizationRecord,
+    RegressionRunRecord,
+    RemediationTaskActivityRecord,
+    RemediationTaskRecord,
     ReviewerRecord,
     ReviewGroupRecord,
     WorkspaceRecord,
@@ -441,6 +444,25 @@ def test_observability_run_detail_includes_trace_context(tmp_path):
     assert body["nodes"][1]["parentSpanId"] == body["nodes"][0]["spanId"]
     assert body["auditEvents"][0]["traceId"] == body["traceId"]
     assert body["auditEvents"][0]["spanId"] == body["nodes"][1]["spanId"]
+    assert [event["sourceType"] for event in body["executionEvents"]] == [
+        "workflow_run",
+        "node_run",
+        "node_run",
+        "human_task",
+        "audit_event",
+    ]
+    assert body["executionEvents"][0]["type"] == "run_started"
+    assert body["executionEvents"][0]["traceId"] == body["traceId"]
+    assert body["executionEvents"][1]["spanId"] == body["nodes"][0]["spanId"]
+    assert body["executionEvents"][2]["spanId"] == body["nodes"][1]["spanId"]
+    assert body["executionEvents"][3]["type"] == "human_task_created"
+    assert body["executionEvents"][3]["sourceId"] == body["humanTasks"][0]["id"]
+    assert body["executionEvents"][4]["type"] == "task_created"
+    assert body["executionEvents"][4]["spanId"] == body["nodes"][1]["spanId"]
+    assert body["executionEvents"] == sorted(
+        body["executionEvents"],
+        key=lambda event: event["occurredAt"],
+    )
 
     with client.app.state.session_factory() as session:
         stored_run = session.get(WorkflowRunRecord, run.id)
@@ -473,6 +495,78 @@ def test_observability_run_detail_is_workspace_scoped(tmp_path):
     response = client.get(workspace_url(workspace_id, f"/observability/runs/{other_run.id}"))
 
     assert response.status_code == 404
+
+
+def test_workspace_execution_events_include_remediation_and_retest_events(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'observability-execution-events.db'}",
+    )
+    with client.app.state.session_factory() as session:
+        retest_run = RegressionRunRecord(
+            workspace_id=workspace_id,
+            sample_set_id=None,
+            sample_set_name="修复复测",
+            rubric_id="rubric-1",
+            rubric_name="质量标准",
+            rubric_version="v1.0",
+            status="completed",
+            total_samples=1,
+            passed_samples=0,
+            failed_samples=1,
+            pass_rate=0,
+            evaluation_ids=[],
+            created_by="tester",
+            created_at=FIXED_NOW + timedelta(minutes=2),
+            completed_at=FIXED_NOW + timedelta(minutes=2),
+        )
+        session.add(retest_run)
+        session.flush()
+        task = RemediationTaskRecord(
+            workspace_id=workspace_id,
+            source_run_id="regression-source-1",
+            cluster_key="Evidence",
+            title="修复 Evidence 偏低",
+            priority="P1",
+            sample_ids=["sample-1"],
+            action="补充证据",
+            status="in_progress",
+            retest_run_id=retest_run.id,
+            created_by="tester",
+            updated_by="tester",
+            created_at=FIXED_NOW,
+            updated_at=FIXED_NOW + timedelta(minutes=3),
+        )
+        session.add(task)
+        session.flush()
+        session.add(RemediationTaskActivityRecord(
+            workspace_id=workspace_id,
+            task_id=task.id,
+            kind="retest_failed",
+            body="复测未通过：1 条样本失败，任务已回流",
+            attachment_refs=[],
+            actor_user_id="tester",
+            actor_display_name="Tester",
+            created_at=FIXED_NOW + timedelta(minutes=3),
+        ))
+        session.commit()
+
+    response = client.get(workspace_url(workspace_id, "/observability/execution-events"))
+
+    assert response.status_code == 200
+    source_types = [event["sourceType"] for event in response.json()]
+    assert "remediation_task" in source_types
+    assert "regression_run" in source_types
+    assert "remediation_activity" in source_types
+    remediation_events = [
+        event for event in response.json()
+        if event["traceId"] == "evaluation-regression-source-1"
+    ]
+    assert [event["sourceType"] for event in remediation_events] == [
+        "remediation_task",
+        "regression_run",
+        "remediation_activity",
+    ]
+    assert remediation_events[-1]["summary"] == "复测未通过：1 条样本失败，任务已回流"
 
 
 def test_observability_overview_empty_state(tmp_path):

@@ -1,6 +1,7 @@
 import type {
   CostUsageOverview,
   HumanSlaOverview,
+  ObservabilityExecutionEvent,
   ObservabilityOverview,
   ObservabilityRunDetail,
 } from '../types'
@@ -19,6 +20,24 @@ export async function getObservabilityRunDetail(
   runId: string,
 ): Promise<ObservabilityRunDetail> {
   return readJson<ObservabilityRunDetail>(await apiFetch(workspacePath(workspaceId, `/runs/${runId}`)))
+}
+
+export interface ExecutionEventFilters {
+  runId?: string
+  traceId?: string
+}
+
+export async function listExecutionEvents(
+  workspaceId: string,
+  filters: ExecutionEventFilters = {},
+): Promise<ObservabilityExecutionEvent[]> {
+  const params = new URLSearchParams()
+  if (filters.runId) params.set('runId', filters.runId)
+  if (filters.traceId) params.set('traceId', filters.traceId)
+  const query = params.toString()
+  return readJson<ObservabilityExecutionEvent[]>(
+    await apiFetch(workspacePath(workspaceId, `/execution-events${query ? `?${query}` : ''}`)),
+  )
 }
 
 export interface HumanSlaOverviewFilters {

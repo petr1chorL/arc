@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   getCostUsageOverview,
   getHumanSlaOverview,
+  listExecutionEvents,
   getObservabilityOverview,
   getObservabilityRunDetail,
 } from './observability'
@@ -126,6 +127,33 @@ describe('Observability API', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/workspaces/workspace-1/observability/runs/run-1',
+      expect.objectContaining({ credentials: 'same-origin' }),
+    )
+  })
+
+  it('loads workspace execution events with optional filters', async () => {
+    const events = [{
+      id: 'event-1',
+      type: 'run_started',
+      title: '运行开始',
+      status: '失败',
+      traceId: 'trace-run-1',
+      spanId: null,
+      sourceType: 'workflow_run',
+      sourceId: 'run-1',
+      occurredAt: '2026-06-26T08:00:00Z',
+      summary: '运行开始',
+    }]
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(events), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(listExecutionEvents('workspace-1', {
+      runId: 'run-1',
+      traceId: 'trace-run-1',
+    })).resolves.toEqual(events)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/workspaces/workspace-1/observability/execution-events?runId=run-1&traceId=trace-run-1',
       expect.objectContaining({ credentials: 'same-origin' }),
     )
   })

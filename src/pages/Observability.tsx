@@ -32,6 +32,7 @@ import type {
   ObservabilityOverview,
   ObservabilityRisk,
   ObservabilityRunDetail,
+  ObservabilityExecutionEvent,
   ObservabilityRunSummary,
 } from '../types'
 
@@ -722,6 +723,8 @@ function RunTroubleshooting({ detail }: { detail: ObservabilityRunDetail }) {
         <div><span>结果</span><p>{resultText}</p></div>
       </section>
 
+      <ExecutionEventStream events={detail.executionEvents ?? []} />
+
       <section className="observability-section">
         <h4>节点执行链路</h4>
         {detail.nodes.length === 0
@@ -769,5 +772,32 @@ function RunTroubleshooting({ detail }: { detail: ObservabilityRunDetail }) {
           ))}
       </section>
     </>
+  )
+}
+
+function ExecutionEventStream({ events }: { events: ObservabilityExecutionEvent[] }) {
+  return (
+    <section className="observability-section execution-event-stream" aria-label="执行事件流">
+      <h4>执行事件流</h4>
+      {events.length === 0
+        ? <p className="muted-copy">暂无统一执行事件。</p>
+        : (
+          <div className="execution-event-list">
+            {events.map((event) => (
+              <article className={`execution-event ${event.sourceType}`} key={event.id}>
+                <time>{formatTime(event.occurredAt)}</time>
+                <div>
+                  <strong>{event.title}</strong>
+                  <span>{event.sourceType} · {event.type}</span>
+                  <p>{event.summary}</p>
+                  <em>Trace {event.traceId}</em>
+                  <em>Span {event.spanId ?? 'root'}</em>
+                </div>
+                {event.status && <StatusBadge status={event.status} />}
+              </article>
+            ))}
+          </div>
+        )}
+    </section>
   )
 }

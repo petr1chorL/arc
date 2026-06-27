@@ -601,6 +601,26 @@ export interface ObservabilityAuditEvent {
   createdAt: string
 }
 
+export interface ObservabilityExecutionEvent {
+  id: string
+  type: string
+  title: string
+  status: string | null
+  traceId: string
+  spanId: string | null
+  sourceType:
+    | 'workflow_run'
+    | 'node_run'
+    | 'human_task'
+    | 'audit_event'
+    | 'remediation_task'
+    | 'remediation_activity'
+    | 'regression_run'
+  sourceId: string
+  occurredAt: string
+  summary: string
+}
+
 export interface ObservabilityRunDetail extends ObservabilityRunSummary {
   input: string
   output: string
@@ -609,6 +629,7 @@ export interface ObservabilityRunDetail extends ObservabilityRunSummary {
   nodes: ObservabilityNodeRun[]
   humanTasks: ObservabilityHumanTask[]
   auditEvents: ObservabilityAuditEvent[]
+  executionEvents: ObservabilityExecutionEvent[]
 }
 
 export interface HumanSlaTotals {

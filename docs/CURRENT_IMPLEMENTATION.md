@@ -1,6 +1,6 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.11C 复测失败回流
+> 对应版本：V0.11D 执行事件流
 > 上一阶段：V0.8F 轻量告警 / 通知 Outbox
 > 更新时间：2026-06-27
 
@@ -31,6 +31,8 @@ flowchart LR
 ```
 
 Agent、工作流、运行记录、Human Task、审核决定、审计事件和反馈数据通过本机 `/api` 发送到 FastAPI，并保存到默认 SQLite 文件 `apps/api/data/arc_one.db`。刷新页面或重启 API 后会重新读取持久化记录。
+
+运行观测详情会把 Workflow Run、Node Run、Human Task 和 Audit Event 派生成统一执行事件流，按 Trace 时间顺序展示。Workspace 级执行事件查询也会把 Remediation Task、修复处理活动和复测 Regression Run 纳入同一事件模型，便于从一个 Trace 复盘完整业务链路。
 
 ## 2. 启动链路
 
@@ -491,6 +493,8 @@ POST /api/workspaces/{workspace_id}/evaluations/remediation-tasks/{task_id}/rete
 - 运行观测页展示“告警 Outbox”面板，告警会跟随当前运行筛选条件变化。
 - 旧运行数据在读取观测详情时会懒回填轻量 Trace/Span 字段。
 - 审计事件会挂到同一 Trace，并尽量关联到对应 Human Task 节点 Span。
+- 运行详情会返回统一 `executionEvents`，覆盖 Workflow Run、Node Run、Human Task 和 Audit Event。
+- Workspace 级执行事件查询支持 `runId` 与 `traceId` 过滤，并把修复任务、复测 Run 和复测失败活动映射到 `evaluation-{sourceRunId}` 合成 Trace。
 - 详情展示当前处理建议、输入/结果、节点执行链路、人工审核任务和审计事件。
 - 无运行数据时提示先发布并运行工作流。
 - 状态文案通过 `displayStatus` 规整历史乱码状态。
@@ -506,6 +510,7 @@ POST /api/workspaces/{workspace_id}/evaluations/remediation-tasks/{task_id}/rete
 ```text
 GET /api/workspaces/{workspace_id}/observability/overview
 GET /api/workspaces/{workspace_id}/observability/runs/{run_id}
+GET /api/workspaces/{workspace_id}/observability/execution-events
 GET /api/workspaces/{workspace_id}/observability/human-sla
 GET /api/workspaces/{workspace_id}/observability/cost-usage
 ```
@@ -813,6 +818,10 @@ TypeScript 编译检查
 - V0.11C 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q`、`npm test -- --run`、`npm run lint`、`npm run build` 均通过。
 - V0.11C 完成真实浏览器验收：评估中心点击“发起复测”后，任务卡显示“复测失败已回流”，状态回流为 `in_progress`，Evaluation Loop Board 显示“未关闭风险 1”；刷新后复测摘要和回流状态仍保留，本次新起点后 console warning/error 为 0。
 - V0.11C 浏览器验收截图：`.scratch/v0.11c-retest-loopback.png`；验收结果：`.scratch/v0.11c-browser-result.json`。
+- V0.11D 完成 focused 自动化测试：运行详情返回 `executionEvents`，覆盖 `workflow_run`、`node_run`、`human_task`、`audit_event` 并按时间排序；前端运行观测详情展示“执行事件流”。
+- V0.11D 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q`、`npm test -- --run`、`npm run lint`、`npm run build` 均通过。
+- V0.11D 完成真实浏览器验收：运行观测详情可见“执行事件流”，包含 workflow/node/human/audit 事件、Trace 与 Span；本次新起点后 console warning/error 为 0。
+- V0.11D 浏览器验收截图：`.scratch/v0.11d-execution-event-stream.png`；验收结果：`.scratch/v0.11d-browser-result.json`。
 
 验证时没有发现浏览器控制台错误。
 

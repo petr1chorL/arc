@@ -71,6 +71,7 @@ from app.schemas import (
     ObservabilityCostUsageGroupRead,
     ObservabilityCostUsageRead,
     ObservabilityCostUsageTotalsRead,
+    ObservabilityExecutionEventRead,
     ObservabilityHumanSlaGroupRead,
     ObservabilityHumanSlaOverviewRead,
     ObservabilityHumanSlaReviewerRead,
@@ -559,6 +560,163 @@ def create_app(
                 event.span_id = task_span_by_id.get(event.human_task_id)
 
         session.commit()
+
+    def observability_execution_events(
+        run: WorkflowRunRecord,
+        nodes: list[NodeRunRecord],
+        human_tasks: list[HumanTaskRecord],
+        audit_events: list[AuditEventRecord],
+    ) -> list[ObservabilityExecutionEventRead]:
+        trace_id = run.trace_id or f"trace-{run.id}"
+        events: list[ObservabilityExecutionEventRead] = [
+            ObservabilityExecutionEventRead(
+                id=f"run-{run.id}-started",
+                type="run_started",
+                title="运行开始",
+                status=run.status,
+                trace_id=trace_id,
+                span_id=None,
+                source_type="workflow_run",
+                source_id=run.id,
+                occurred_at=run.started_at,
+                summary=f"{run.name} 开始执行",
+            ),
+        ]
+        if run.completed_at is not None:
+            events.append(ObservabilityExecutionEventRead(
+                id=f"run-{run.id}-completed",
+                type="run_completed",
+                title="运行终态",
+                status=run.status,
+                trace_id=trace_id,
+                span_id=None,
+                source_type="workflow_run",
+                source_id=run.id,
+                occurred_at=run.completed_at,
+                summary=f"{run.name} 进入 {run.status}",
+            ))
+
+        node_span_by_id = {node.id: node.span_id or f"span-{node.id}" for node in nodes}
+        for node in nodes:
+            events.append(ObservabilityExecutionEventRead(
+                id=f"node-{node.id}",
+                type="node_run",
+                title=node.node_name,
+                status=node.status,
+                trace_id=node.trace_id or trace_id,
+                span_id=node.span_id or f"span-{node.id}",
+                source_type="node_run",
+                source_id=node.id,
+                occurred_at=node.started_at,
+                summary=f"{node.node_type} 节点 {node.node_name}：{node.status}",
+            ))
+
+        for task in human_tasks:
+            events.append(ObservabilityExecutionEventRead(
+                id=f"human-task-{task.id}",
+                type="human_task_created",
+                title=task.title,
+                status=task.status,
+                trace_id=trace_id,
+                span_id=node_span_by_id.get(task.node_run_id),
+                source_type="human_task",
+                source_id=task.id,
+                occurred_at=task.created_at,
+                summary=f"人工任务 {task.title}：{task.status}",
+            ))
+
+        for event in audit_events:
+            event_type = event.event_type or event.action or "audit_event"
+            events.append(ObservabilityExecutionEventRead(
+                id=f"audit-{event.id}",
+                type=event_type,
+                title=event_type,
+                status=event.outcome,
+                trace_id=event.trace_id or trace_id,
+                span_id=event.span_id,
+                source_type="audit_event",
+                source_id=event.id,
+                occurred_at=event.created_at,
+                summary=event.reason or event.action or event_type,
+            ))
+
+        source_order = {
+            "workflow_run": 0,
+            "node_run": 1,
+            "human_task": 2,
+            "audit_event": 3,
+            "remediation_task": 4,
+            "remediation_activity": 5,
+            "regression_run": 6,
+        }
+        return sorted(
+            events,
+            key=lambda event: (
+                event.occurred_at,
+                source_order[event.source_type],
+                event.id,
+            ),
+        )
+
+    def remediation_execution_events(
+        tasks: list[RemediationTaskRecord],
+        activities_by_task_id: dict[str, list[RemediationTaskActivityRecord]],
+        retest_runs_by_id: dict[str, RegressionRunRecord],
+    ) -> list[ObservabilityExecutionEventRead]:
+        events: list[ObservabilityExecutionEventRead] = []
+        task_by_retest_run_id = {
+            task.retest_run_id: task
+            for task in tasks
+            if task.retest_run_id
+        }
+        for task in tasks:
+            trace_id = f"evaluation-{task.source_run_id}"
+            events.append(ObservabilityExecutionEventRead(
+                id=f"remediation-task-{task.id}",
+                type="remediation_task_created",
+                title=task.title,
+                status=task.status,
+                trace_id=trace_id,
+                span_id=None,
+                source_type="remediation_task",
+                source_id=task.id,
+                occurred_at=task.created_at,
+                summary=f"修复任务 {task.title}：{task.status}",
+            ))
+            for activity in activities_by_task_id.get(task.id, []):
+                events.append(ObservabilityExecutionEventRead(
+                    id=f"remediation-activity-{activity.id}",
+                    type=activity.kind,
+                    title=activity.kind,
+                    status=task.status,
+                    trace_id=trace_id,
+                    span_id=None,
+                    source_type="remediation_activity",
+                    source_id=activity.id,
+                    occurred_at=activity.created_at,
+                    summary=activity.body,
+                ))
+
+        for run_id, run in retest_runs_by_id.items():
+            task = task_by_retest_run_id.get(run_id)
+            trace_id = f"evaluation-{task.source_run_id}" if task else f"evaluation-{run.id}"
+            events.append(ObservabilityExecutionEventRead(
+                id=f"regression-run-{run.id}",
+                type="remediation_retest_run",
+                title=run.sample_set_name,
+                status=run.status,
+                trace_id=trace_id,
+                span_id=None,
+                source_type="regression_run",
+                source_id=run.id,
+                occurred_at=run.created_at,
+                summary=f"复测 Run {run.id}：通过率 {run.pass_rate}%，失败 {run.failed_samples}",
+            ))
+
+        return sorted(
+            events,
+            key=lambda event: (event.occurred_at, event.source_type, event.id),
+        )
 
     def observability_risk(run: WorkflowRunRecord) -> ObservabilityRiskRead | None:
         priority = observability_priority(run)[1]
@@ -1436,6 +1594,102 @@ def create_app(
             by_model=grouped_cost_usage(runs, lambda run: run.model),
         )
 
+    @router.get("/observability/execution-events", response_model=list[ObservabilityExecutionEventRead])
+    def list_observability_execution_events(
+        request: Request,
+        run_id: str | None = Query(default=None, alias="runId"),
+        trace_id: str | None = Query(default=None, alias="traceId"),
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> list[ObservabilityExecutionEventRead]:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "run.read",
+            action="observability.execution_events.list",
+            target_type="workspace",
+            target_id=context.workspace.id,
+            request=request,
+        )
+        run_statement = (
+            select(WorkflowRunRecord)
+            .where(WorkflowRunRecord.workspace_id == context.workspace.id)
+            .order_by(WorkflowRunRecord.started_at.desc())
+        )
+        if run_id:
+            run_statement = run_statement.where(WorkflowRunRecord.id == run_id)
+        if trace_id:
+            run_statement = run_statement.where(WorkflowRunRecord.trace_id == trace_id)
+        runs = list(session.scalars(run_statement.limit(50)))
+        events: list[ObservabilityExecutionEventRead] = []
+        for run in runs:
+            nodes = list(session.scalars(
+                select(NodeRunRecord)
+                .where(
+                    NodeRunRecord.workspace_id == context.workspace.id,
+                    NodeRunRecord.run_id == run.id,
+                )
+                .order_by(NodeRunRecord.started_at.asc()),
+            ))
+            human_tasks = list(session.scalars(
+                select(HumanTaskRecord)
+                .where(
+                    HumanTaskRecord.workspace_id == context.workspace.id,
+                    HumanTaskRecord.workflow_run_id == run.id,
+                )
+                .order_by(HumanTaskRecord.created_at.asc()),
+            ))
+            task_ids = [task.id for task in human_tasks]
+            audit_events = list(session.scalars(
+                select(AuditEventRecord)
+                .where(
+                    AuditEventRecord.workspace_id == context.workspace.id,
+                    AuditEventRecord.human_task_id.in_(task_ids),
+                )
+                .order_by(AuditEventRecord.created_at.asc()),
+            )) if task_ids else []
+            ensure_observability_trace_context(
+                session,
+                run,
+                nodes,
+                human_tasks,
+                audit_events,
+            )
+            events.extend(observability_execution_events(run, nodes, human_tasks, audit_events))
+
+        if not run_id:
+            remediation_tasks = list(session.scalars(
+                select(RemediationTaskRecord)
+                .where(RemediationTaskRecord.workspace_id == context.workspace.id)
+                .order_by(RemediationTaskRecord.created_at.asc()),
+            ))
+            activities_by_task_id = list_remediation_task_activities(
+                session,
+                context.workspace.id,
+                [task.id for task in remediation_tasks],
+            )
+            retest_run_ids = [
+                task.retest_run_id
+                for task in remediation_tasks
+                if task.retest_run_id
+            ]
+            retest_runs = list(session.scalars(
+                select(RegressionRunRecord)
+                .where(
+                    RegressionRunRecord.workspace_id == context.workspace.id,
+                    RegressionRunRecord.id.in_(retest_run_ids),
+                ),
+            )) if retest_run_ids else []
+            events.extend(remediation_execution_events(
+                remediation_tasks,
+                activities_by_task_id,
+                {run.id: run for run in retest_runs},
+            ))
+
+        if trace_id:
+            events = [event for event in events if event.trace_id == trace_id]
+        return sorted(events, key=lambda event: (event.occurred_at, event.source_type, event.id))
+
     @router.get("/observability/runs/{run_id}", response_model=ObservabilityRunDetailRead)
     def observability_run_detail(
         run_id: str,
@@ -1497,6 +1751,12 @@ def create_app(
                 ObservabilityAuditEventRead.model_validate(event)
                 for event in audit_events
             ],
+            execution_events=observability_execution_events(
+                run,
+                nodes,
+                human_tasks,
+                audit_events,
+            ),
         )
 
     @router.get("/reviews", response_model=list[HumanReviewRead])

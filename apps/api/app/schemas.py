@@ -451,10 +451,36 @@ class ObservabilityAuditEventRead(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
+class ObservabilityExecutionEventRead(BaseModel):
+    id: str
+    type: str
+    title: str
+    status: str | None
+    trace_id: str = Field(serialization_alias="traceId")
+    span_id: str | None = Field(serialization_alias="spanId")
+    source_type: Literal[
+        "workflow_run",
+        "node_run",
+        "human_task",
+        "audit_event",
+        "remediation_task",
+        "remediation_activity",
+        "regression_run",
+    ] = Field(
+        serialization_alias="sourceType",
+    )
+    source_id: str = Field(serialization_alias="sourceId")
+    occurred_at: datetime = Field(serialization_alias="occurredAt")
+    summary: str
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class ObservabilityRunDetailRead(ObservabilityRunSummaryRead):
     nodes: list[ObservabilityNodeRunRead]
     human_tasks: list[ObservabilityHumanTaskRead] = Field(serialization_alias="humanTasks")
     audit_events: list[ObservabilityAuditEventRead] = Field(serialization_alias="auditEvents")
+    execution_events: list[ObservabilityExecutionEventRead] = Field(serialization_alias="executionEvents")
 
     model_config = ConfigDict(populate_by_name=True)
 

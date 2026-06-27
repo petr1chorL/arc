@@ -151,6 +151,51 @@ const detail = {
     reason: '质量门未通过',
     createdAt: '2026-06-26T08:00:02Z',
   }],
+  executionEvents: [{
+    id: 'run-run-failed-started',
+    type: 'run_started',
+    title: '运行开始',
+    status: '失败',
+    traceId: 'trace-run-failed',
+    spanId: null,
+    sourceType: 'workflow_run',
+    sourceId: 'run-failed',
+    occurredAt: '2026-06-26T08:00:00Z',
+    summary: 'Amazon 评论分析 开始执行',
+  }, {
+    id: 'node-node-1',
+    type: 'node_run',
+    title: '数据清洗 Agent',
+    status: '失败',
+    traceId: 'trace-run-failed',
+    spanId: 'span-agent',
+    sourceType: 'node_run',
+    sourceId: 'node-1',
+    occurredAt: '2026-06-26T08:00:00Z',
+    summary: 'agent 节点 数据清洗 Agent：失败',
+  }, {
+    id: 'human-task-task-1',
+    type: 'human_task_created',
+    title: '复核失败原因',
+    status: '待认领',
+    traceId: 'trace-run-failed',
+    spanId: 'span-human',
+    sourceType: 'human_task',
+    sourceId: 'task-1',
+    occurredAt: '2026-06-26T08:00:01Z',
+    summary: '人工任务 复核失败原因：待认领',
+  }, {
+    id: 'audit-event-1',
+    type: 'human_task_created',
+    title: 'human_task_created',
+    status: null,
+    traceId: 'trace-run-failed',
+    spanId: 'span-human',
+    sourceType: 'audit_event',
+    sourceId: 'event-1',
+    occurredAt: '2026-06-26T08:00:02Z',
+    summary: '质量门未通过',
+  }],
 }
 
 const humanSla = {
@@ -304,13 +349,20 @@ describe('Observability', () => {
     expect(screen.getByText('节点执行链路')).toBeInTheDocument()
     expect(screen.getByText('Trace ID')).toBeInTheDocument()
     expect(screen.getByText('trace-run-failed')).toBeInTheDocument()
-    expect(screen.getByText('Span span-agent')).toBeInTheDocument()
+    expect(screen.getAllByText('Span span-agent').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('父 Span root')).toBeInTheDocument()
-    expect(screen.getByText('Span span-human')).toBeInTheDocument()
+    expect(screen.getAllByText('Span span-human').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('父 Span span-agent')).toBeInTheDocument()
     expect(screen.getByText('审计 Span span-human')).toBeInTheDocument()
     expect(screen.getByText('人工审核任务')).toBeInTheDocument()
-    expect(screen.getByText('质量门未通过')).toBeInTheDocument()
+    expect(screen.getAllByText('质量门未通过').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText('执行事件流')).toBeInTheDocument()
+    expect(screen.getByText('运行开始')).toBeInTheDocument()
+    expect(screen.getByText('workflow_run · run_started')).toBeInTheDocument()
+    expect(screen.getByText('node_run · node_run')).toBeInTheDocument()
+    expect(screen.getByText('human_task · human_task_created')).toBeInTheDocument()
+    expect(screen.getByText('audit_event · human_task_created')).toBeInTheDocument()
+    expect(screen.getAllByText('Trace trace-run-failed').length).toBeGreaterThanOrEqual(1)
   })
 
   it('loads another run detail when a recent run is selected', async () => {
