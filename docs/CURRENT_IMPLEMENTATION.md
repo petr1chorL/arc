@@ -1,6 +1,6 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.10C Regression Run 对比
+> 对应版本：V0.10D Regression Run 趋势视图
 > 上一阶段：V0.8F 轻量告警 / 通知 Outbox
 > 更新时间：2026-06-27
 
@@ -363,6 +363,9 @@ React Flow 节点/连线
 - 支持点击 Run 打开详情弹窗，展示 Run 上下文、样本级 Evaluation 记录、输入、分数、状态和评分说明。
 - 支持选择基准 Run 与目标 Run 进行轻量对比，展示通过率、样本总数、通过样本和失败样本变化。
 - Regression Run 对比会读取两次 Run 详情，并按样本 `subjectId` 展示失败变通过、通过变失败、持续失败和新增失败等样本级变化。
+- `Regression Run History` 会基于当前筛选后的最近 Run 展示趋势视图。
+- 趋势视图展示最新通过率、较上次变化、平均通过率、最佳通过率和最近最多 8 次 Run 的通过率柱状趋势。
+- 通过率低于 70% 的趋势点会标记为风险，便于快速发现回归质量下滑。
 - 当前评分器为确定性评分器，用于验证评估链路；真实 LLM-as-a-Judge 尚未接入。
 
 后端 API：
@@ -685,7 +688,7 @@ TypeScript 编译检查
 已经完成：
 
 - `apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q`：后端全量测试通过。
-- `npm test -- --run`：27 个前端测试文件、92 项测试通过。
+- `npm test -- --run`：27 个前端测试文件、93 项测试通过。
 - `npm run lint`：Oxlint 通过。
 - `npm run build`：TypeScript 编译与 Vite 生产构建通过。
 - Human 节点发布前校验覆盖分配方式、会签人数和 SLA 参数。
@@ -732,6 +735,9 @@ TypeScript 编译检查
 - V0.10C 完成 Regression Run 对比自动化测试：前端可选择基准 Run 与目标 Run，读取两次详情并展示通过率变化、失败样本变化和样本级状态变化。
 - V0.10C 完成浏览器验收：本地验收账号创建两次 Regression Run 后，页面可选择基准/目标 Run 并展示 4 张样本变化卡；浏览器日志无 error/warn。
 - V0.10C 浏览器验收截图：`.scratch/v0.10c-regression-run-comparison.png`。
+- V0.10D 完成 Regression Run 趋势自动化测试：前端会根据最近多次 Run 计算最新通过率、较上次变化、平均通过率、最佳通过率和风险趋势点。
+- V0.10D 完成浏览器验收：本地验收会话打开评估中心后，趋势区展示 4 个指标、4 根趋势柱和风险标记；浏览器日志无 error/warn。
+- V0.10D 浏览器验收截图：`.scratch/v0.10d-regression-run-trend.png`。
 
 验证时没有发现浏览器控制台错误。
 

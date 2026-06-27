@@ -115,6 +115,24 @@ interface RegressionRunComparison {
   changes: RegressionRunComparisonChange[]
 }
 
+interface RegressionRunTrendPoint {
+  id: string
+  label: string
+  passRate: number
+  failedSamples: number
+  createdAt: string
+  isRisk: boolean
+}
+
+interface RegressionRunTrend {
+  latestPassRate: number
+  previousDelta: number
+  averagePassRate: number
+  bestPassRate: number
+  runCount: number
+  points: RegressionRunTrendPoint[]
+}
+
 function formatDelta(value: number) {
   return value > 0 ? `+${value}` : `${value}`
 }
@@ -126,6 +144,36 @@ function classifyRecordChange(baseRecord: EvaluationRecord | undefined, targetRe
   if (baseRecord?.status === 'passed' && targetRecord.status === 'failed') return '通过变失败'
   if (baseRecord?.status === 'failed' && targetRecord.status === 'failed') return '持续失败'
   return ''
+}
+
+function buildRegressionRunTrend(runs: RegressionRun[]): RegressionRunTrend | null {
+  if (runs.length < 2) return null
+
+  const points = [...runs]
+    .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime())
+    .slice(-8)
+    .map((run) => ({
+      id: run.id,
+      label: run.sampleSetName || '手动样本',
+      passRate: run.passRate,
+      failedSamples: run.failedSamples,
+      createdAt: run.createdAt,
+      isRisk: run.passRate < 70,
+    }))
+
+  const latest = points[points.length - 1]
+  const previous = points[points.length - 2]
+  const averagePassRate = Math.round(points.reduce((sum, point) => sum + point.passRate, 0) / points.length)
+  const bestPassRate = Math.max(...points.map((point) => point.passRate))
+
+  return {
+    latestPassRate: latest.passRate,
+    previousDelta: latest.passRate - previous.passRate,
+    averagePassRate,
+    bestPassRate,
+    runCount: points.length,
+    points,
+  }
 }
 
 function buildRegressionRunComparison(
@@ -288,6 +336,11 @@ export function Evaluations() {
     (regressionRunRubricFilter === 'all' || run.rubricId === regressionRunRubricFilter)
     && (regressionRunStatusFilter === 'all' || run.status === regressionRunStatusFilter)
   )), [regressionRunRubricFilter, regressionRunStatusFilter, regressionRuns])
+
+  const regressionRunTrend = useMemo(
+    () => buildRegressionRunTrend(filteredRegressionRuns),
+    [filteredRegressionRuns],
+  )
 
   const activeSelectedSamples = useMemo(
     () => selectedSampleSet?.samples.filter((sample) => sample.status === 'active') ?? [],
@@ -1019,6 +1072,54 @@ export function Evaluations() {
                 ))}
               </select>
             </label>
+          </div>
+        )}
+        {regressionRunTrend && (
+          <div className="regression-run-trend" role="region" aria-label="Regression Run Trend">
+            <header>
+              <div>
+                <span className="eyebrow">REGRESSION RUN TREND</span>
+                <h3>Regression Run Trend</h3>
+              </div>
+              <span className="status-pill">{regressionRunTrend.runCount} runs</span>
+            </header>
+            <div className="trend-metrics">
+              <div>
+                <span>最新通过率</span>
+                <strong>最新通过率 {regressionRunTrend.latestPassRate}%</strong>
+              </div>
+              <div>
+                <span>较上次</span>
+                <strong>较上次 {formatDelta(regressionRunTrend.previousDelta)}</strong>
+              </div>
+              <div>
+                <span>平均通过率</span>
+                <strong>平均通过率 {regressionRunTrend.averagePassRate}%</strong>
+              </div>
+              <div>
+                <span>最佳通过率</span>
+                <strong>最佳通过率 {regressionRunTrend.bestPassRate}%</strong>
+              </div>
+            </div>
+            <div className="trend-bars" aria-label="Regression Run pass rate trend">
+              {regressionRunTrend.points.map((point, index) => (
+                <article
+                  aria-label={`Regression Run ${point.id} pass rate ${point.passRate}%`}
+                  className={`trend-bar-card ${point.isRisk ? 'risk' : ''}`}
+                  key={point.id}
+                >
+                  <div className="trend-bar-shell">
+                    <span className="trend-bar-fill" style={{ height: `${Math.max(point.passRate, 4)}%` }} />
+                  </div>
+                  <div>
+                    <span className="mono">Run {index + 1}</span>
+                    <strong>{point.passRate}%</strong>
+                    <small>{point.failedSamples} failed</small>
+                    {point.isRisk && <em>风险</em>}
+                  </div>
+                </article>
+              ))}
+            </div>
           </div>
         )}
         {regressionRuns.length > 1 && (

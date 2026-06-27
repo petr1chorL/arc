@@ -1,0 +1,28 @@
+{
+  "ok": true,
+  "metricCount": 4,
+  "barCount": 4,
+  "riskCount": 4,
+  "consoleIssues": [],
+  "trendText": [
+    "REGRESSION RUN TREND",
+    "Regression Run Trend",
+    "4 runs",
+    "最新通过率",
+    "最新通过率 50%",
+    "较上次",
+    "较上次 +50",
+    "平均通过率",
+    "平均通过率 13%",
+    "最佳通过率",
+    "最佳通过率 50%",
+    "Run 1",
+    "0%",
+    "2 failed",
+    "风险",
+    "Run 2",
+    "0%",
+    "2 failed"
+  ],
+  "screenshot": ".scratch/v0.10d-regression-run-trend.png"
+}

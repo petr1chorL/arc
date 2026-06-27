@@ -993,4 +993,93 @@ describe('Evaluations page', () => {
     expect(within(comparison).getByText('sample-c')).toBeInTheDocument()
     expect(within(comparison).getByText('持续失败')).toBeInTheDocument()
   })
+
+  it('shows Regression Run trend across recent runs', async () => {
+    const runs = [
+      {
+        id: 'run-latest',
+        sampleSetId: 'sample-set-1',
+        sampleSetName: 'Launch Golden Set',
+        rubricId: rubricAssets[0].id,
+        rubricName: rubricAssets[0].name,
+        rubricVersion: 'v1.2',
+        status: 'completed',
+        totalSamples: 5,
+        passedSamples: 4,
+        failedSamples: 1,
+        passRate: 80,
+        evaluationIds: ['eval-latest'],
+        records: [],
+        createdBy: 'user-1',
+        createdAt: '2026-06-27T00:20:00Z',
+        completedAt: '2026-06-27T00:20:00Z',
+      },
+      {
+        id: 'run-middle',
+        sampleSetId: 'sample-set-1',
+        sampleSetName: 'Launch Golden Set',
+        rubricId: rubricAssets[0].id,
+        rubricName: rubricAssets[0].name,
+        rubricVersion: 'v1.1',
+        status: 'completed',
+        totalSamples: 5,
+        passedSamples: 3,
+        failedSamples: 2,
+        passRate: 60,
+        evaluationIds: ['eval-middle'],
+        records: [],
+        createdBy: 'user-1',
+        createdAt: '2026-06-27T00:10:00Z',
+        completedAt: '2026-06-27T00:10:00Z',
+      },
+      {
+        id: 'run-oldest',
+        sampleSetId: 'sample-set-1',
+        sampleSetName: 'Launch Golden Set',
+        rubricId: rubricAssets[0].id,
+        rubricName: rubricAssets[0].name,
+        rubricVersion: 'v1.0',
+        status: 'completed',
+        totalSamples: 5,
+        passedSamples: 2,
+        failedSamples: 3,
+        passRate: 40,
+        evaluationIds: ['eval-oldest'],
+        records: [],
+        createdBy: 'user-1',
+        createdAt: '2026-06-27T00:00:00Z',
+        completedAt: '2026-06-27T00:00:00Z',
+      },
+    ]
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      if (input === `/api/workspaces/${workspace.id}/evaluations/overview`) {
+        return response(overview)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/rubrics`) {
+        return response(rubricAssets)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/records`) {
+        return response([])
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/sample-sets`) {
+        return response([])
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/regression-runs`) {
+        return response(runs)
+      }
+      return response({ detail: 'not found' }, 404)
+    }))
+
+    renderPage()
+
+    const trend = await screen.findByRole('region', { name: 'Regression Run Trend' })
+    expect(within(trend).getByText('最新通过率 80%')).toBeInTheDocument()
+    expect(within(trend).getByText('较上次 +20')).toBeInTheDocument()
+    expect(within(trend).getByText('平均通过率 60%')).toBeInTheDocument()
+    expect(within(trend).getByText('最佳通过率 80%')).toBeInTheDocument()
+    expect(within(trend).getByText('3 runs')).toBeInTheDocument()
+    expect(within(trend).getByLabelText('Regression Run run-oldest pass rate 40%')).toBeInTheDocument()
+    expect(within(trend).getByLabelText('Regression Run run-middle pass rate 60%')).toBeInTheDocument()
+    expect(within(trend).getByLabelText('Regression Run run-latest pass rate 80%')).toBeInTheDocument()
+  })
 })

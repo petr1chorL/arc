@@ -2105,6 +2105,112 @@ kbd {
   box-shadow: var(--shadow-inset);
 }
 
+.regression-run-trend {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+  padding: 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.28);
+  box-shadow: var(--shadow-inset);
+}
+
+.regression-run-trend > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.regression-run-trend h3 {
+  margin: 4px 0 0;
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.trend-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.trend-metrics div {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.3);
+  box-shadow: var(--shadow-raised-sm);
+}
+
+.trend-metrics span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.trend-metrics strong {
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.trend-bars {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  align-items: end;
+  gap: 10px;
+}
+
+.trend-bar-card {
+  display: grid;
+  grid-template-rows: 112px auto;
+  gap: 8px;
+  min-width: 0;
+}
+
+.trend-bar-shell {
+  display: flex;
+  align-items: flex-end;
+  min-height: 112px;
+  border-radius: 12px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.32);
+  box-shadow: var(--shadow-inset);
+}
+
+.trend-bar-fill {
+  display: block;
+  width: 100%;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(96, 125, 181, 0.82), rgba(96, 125, 181, 0.48));
+  box-shadow: 0 10px 18px rgba(72, 92, 134, 0.22);
+}
+
+.trend-bar-card.risk .trend-bar-fill {
+  background: linear-gradient(180deg, rgba(231, 128, 98, 0.86), rgba(231, 128, 98, 0.48));
+}
+
+.trend-bar-card > div:last-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.trend-bar-card strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.trend-bar-card small,
+.trend-bar-card em {
+  color: var(--muted);
+  font-size: 10px;
+  font-style: normal;
+}
+
+.trend-bar-card em {
+  color: var(--danger);
+}
+
 .regression-run-comparison {
   display: grid;
   gap: 14px;
