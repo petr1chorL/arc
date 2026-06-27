@@ -5,6 +5,7 @@ import {
   ClipboardList,
   Clock3,
   Coins,
+  ListChecks,
   RefreshCw,
   Route,
   ShieldAlert,
@@ -14,6 +15,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import { listExecutionJobs } from '../api/execution'
 import {
   getCostUsageOverview,
   getHumanSlaOverview,
@@ -26,6 +28,7 @@ import { displayStatus } from '../domain/statusText'
 import type {
   CostUsageGroup,
   CostUsageOverview,
+  ExecutionJob,
   HumanSlaOverview,
   HumanSlaRisk,
   ObservabilityAlert,
@@ -53,6 +56,15 @@ function formatCost(value: number) {
 function formatTime(value: string | null) {
   if (!value) return '未完成'
   return new Date(value).toLocaleString('zh-CN')
+}
+
+function executionJobStatusLabel(status: string) {
+  return {
+    queued: '排队中',
+    running: '运行中',
+    succeeded: '已完成',
+    dead_letter: '死信',
+  }[status] ?? status
 }
 
 function runTitle(run: ObservabilityRunSummary) {
@@ -91,16 +103,19 @@ export function Observability() {
   const [detail, setDetail] = useState<ObservabilityRunDetail | null>(null)
   const [humanSla, setHumanSla] = useState<HumanSlaOverview | null>(null)
   const [costUsage, setCostUsage] = useState<CostUsageOverview | null>(null)
+  const [executionJobs, setExecutionJobs] = useState<ExecutionJob[]>([])
   const [reviewerId, setReviewerId] = useState('')
   const [groupId, setGroupId] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isDetailLoading, setIsDetailLoading] = useState(false)
   const [isHumanSlaLoading, setIsHumanSlaLoading] = useState(true)
   const [isCostUsageLoading, setIsCostUsageLoading] = useState(true)
+  const [isExecutionJobsLoading, setIsExecutionJobsLoading] = useState(true)
   const [error, setError] = useState('')
   const [detailError, setDetailError] = useState('')
   const [humanSlaError, setHumanSlaError] = useState('')
   const [costUsageError, setCostUsageError] = useState('')
+  const [executionJobsError, setExecutionJobsError] = useState('')
   const statusFilter = searchParams.get('status') || '全部'
   const workflowFilter = searchParams.get('workflow') || ''
   const riskFilter = searchParams.get('risk') || 'all'
@@ -204,6 +219,19 @@ export function Observability() {
     }
   }, [workspace.id])
 
+  const loadExecutionJobs = useCallback(async () => {
+    setIsExecutionJobsLoading(true)
+    setExecutionJobsError('')
+    try {
+      setExecutionJobs(await listExecutionJobs(workspace.id))
+    } catch (loadError) {
+      setExecutionJobs([])
+      setExecutionJobsError(loadError instanceof Error ? loadError.message : '队列任务加载失败')
+    } finally {
+      setIsExecutionJobsLoading(false)
+    }
+  }, [workspace.id])
+
   useEffect(() => {
     void loadOverview()
   }, [loadOverview])
@@ -215,6 +243,10 @@ export function Observability() {
   useEffect(() => {
     void loadCostUsage()
   }, [loadCostUsage])
+
+  useEffect(() => {
+    void loadExecutionJobs()
+  }, [loadExecutionJobs])
 
   useEffect(() => {
     if (!overview) return
@@ -293,6 +325,7 @@ export function Observability() {
             void loadOverview()
             void loadHumanSla()
             void loadCostUsage()
+            void loadExecutionJobs()
           }}
         >
           <RefreshCw size={15} />刷新
@@ -309,6 +342,12 @@ export function Observability() {
       </section>
 
       <AlertOutboxPanel alerts={filteredAlerts} />
+
+      <ExecutionQueuePanel
+        jobs={executionJobs}
+        isLoading={isExecutionJobsLoading}
+        error={executionJobsError}
+      />
 
       <HumanSlaPanel
         humanSla={humanSla}
@@ -451,6 +490,67 @@ export function Observability() {
         </section>
       </div>
     </div>
+  )
+}
+
+function ExecutionQueuePanel({
+  jobs,
+  isLoading,
+  error,
+}: {
+  jobs: ExecutionJob[]
+  isLoading: boolean
+  error: string
+}) {
+  const counts = jobs.reduce<Record<string, number>>((nextCounts, job) => {
+    nextCounts[job.status] = (nextCounts[job.status] ?? 0) + 1
+    return nextCounts
+  }, {})
+  const visibleJobs = jobs.slice(0, 6)
+
+  return (
+    <section className="panel execution-queue-panel">
+      <div className="panel-header">
+        <div>
+          <span className="section-kicker">EXECUTION QUEUE</span>
+          <h3>执行队列运营</h3>
+        </div>
+        <small>{jobs.length} 条任务</small>
+      </div>
+
+      {isLoading && <div className="table-state">正在加载执行队列...</div>}
+      {error && <div className="table-state error" role="alert">{error}</div>}
+      {!isLoading && !error && (
+        <>
+          <div className="execution-queue-metrics">
+            <MetricCard label="排队中" value={counts.queued ?? 0} icon={<ListChecks size={17} />} />
+            <MetricCard label="运行中" value={counts.running ?? 0} icon={<Route size={17} />} />
+            <MetricCard label="已完成" value={counts.succeeded ?? 0} icon={<ClipboardList size={17} />} />
+            <MetricCard label="死信" value={counts.dead_letter ?? 0} icon={<AlertTriangle size={17} />} tone="danger" />
+          </div>
+          {visibleJobs.length === 0
+            ? <p className="muted-copy">暂无执行队列任务。</p>
+            : (
+              <div className="execution-queue-list">
+                {visibleJobs.map((job) => (
+                  <article className={`execution-queue-item ${job.status}`} key={job.id}>
+                    <div>
+                      <strong>{executionJobStatusLabel(job.status)} · {job.jobType}</strong>
+                      <span>Run {job.runId.slice(0, 8)} / Workflow {job.workflowId?.slice(0, 8) ?? '无'}</span>
+                      {job.error && <p>{job.error}</p>}
+                    </div>
+                    <aside>
+                      <StatusBadge status={executionJobStatusLabel(job.status)} />
+                      <span>{job.attempts}/{job.maxAttempts} 次</span>
+                      <small>{job.lockedBy || '未锁定'} · {formatTime(job.lockedUntil)}</small>
+                    </aside>
+                  </article>
+                ))}
+              </div>
+            )}
+        </>
+      )}
+    </section>
   )
 }
 

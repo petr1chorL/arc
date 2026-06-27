@@ -23,6 +23,7 @@ from app.models import (
     AuditEventRecord,
     Base,
     EvaluationRecord,
+    ExecutionJobRecord,
     FeedbackCandidateRecord,
     GoldenSampleRecord,
     HumanReviewRecord,
@@ -60,6 +61,7 @@ from app.schemas import (
     EvaluationRecordRead,
     EvaluationOverviewRead,
     EvaluationRunCreate,
+    ExecutionJobRead,
     FeedbackCandidateRead,
     GoldenSampleConfirm,
     GoldenSampleRead,
@@ -1721,6 +1723,34 @@ def create_app(
         if run is None:
             raise HTTPException(status_code=404, detail="暂无待执行队列任务")
         return run_response(run, session)
+
+    @router.get("/execution-jobs", response_model=list[ExecutionJobRead])
+    def list_execution_jobs(
+        request: Request,
+        status_filter: str | None = Query(None, alias="status", max_length=32),
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> list[ExecutionJobRead]:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "run.read",
+            action="execution_job.list",
+            target_type="workspace",
+            target_id=context.workspace.id,
+            request=request,
+        )
+        statement = (
+            select(ExecutionJobRecord)
+            .where(ExecutionJobRecord.workspace_id == context.workspace.id)
+            .order_by(ExecutionJobRecord.created_at.desc())
+        )
+        if status_filter:
+            statement = statement.where(ExecutionJobRecord.status == status_filter)
+        return [
+            ExecutionJobRead.model_validate(job)
+            for job in session.scalars(statement).all()
+        ]
 
     @router.post("/execution-jobs/{job_id}/heartbeat")
     def heartbeat_execution_job(

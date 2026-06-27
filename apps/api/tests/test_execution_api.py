@@ -374,6 +374,54 @@ def test_execution_job_heartbeat_extends_active_lease(tmp_path):
         assert job.locked_until > utc_now().replace(tzinfo=None) + timedelta(minutes=4)
 
 
+def test_execution_jobs_list_supports_status_filter_and_operational_fields(tmp_path):
+    database_url = f"sqlite:///{tmp_path / 'async-jobs-list.db'}"
+    client, workspace_id = create_authenticated_client(database_url)
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(client, workspace_id, agent, version)
+
+    client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "List this queue job.", "asyncMode": True},
+        headers=csrf_headers(client),
+    )
+    with client.app.state.session_factory() as session:
+        job = session.scalar(select(ExecutionJobRecord))
+        job.status = "dead_letter"
+        job.attempts = 3
+        job.error = "Agent 执行失败，请稍后重试"
+        job.locked_by = "worker-a"
+        job.locked_until = utc_now() + timedelta(minutes=5)
+        job.last_heartbeat_at = utc_now()
+        job.dead_lettered_at = utc_now()
+        session.commit()
+        job_id = job.id
+
+    queued_response = client.get(
+        workspace_url(workspace_id, "/execution-jobs?status=queued"),
+    )
+    dead_letter_response = client.get(
+        workspace_url(workspace_id, "/execution-jobs?status=dead_letter"),
+    )
+
+    assert queued_response.status_code == 200
+    assert queued_response.json() == []
+    assert dead_letter_response.status_code == 200
+    jobs = dead_letter_response.json()
+    assert len(jobs) == 1
+    assert jobs[0]["id"] == job_id
+    assert jobs[0]["runId"]
+    assert jobs[0]["workflowId"] == workflow["id"]
+    assert jobs[0]["status"] == "dead_letter"
+    assert jobs[0]["attempts"] == 3
+    assert jobs[0]["maxAttempts"] == 3
+    assert jobs[0]["lockedBy"] == "worker-a"
+    assert jobs[0]["lockedUntil"]
+    assert jobs[0]["lastHeartbeatAt"]
+    assert jobs[0]["deadLetteredAt"]
+    assert jobs[0]["error"] == "Agent 执行失败，请稍后重试"
+
+
 def test_low_quality_output_creates_human_review(tmp_path):
     gateway = FakeGateway([FakeModelResult("short")])
     client, workspace_id = create_authenticated_client(

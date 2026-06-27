@@ -397,6 +397,31 @@ class RunRead(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
+class ExecutionJobRead(BaseModel):
+    id: str
+    workspace_id: str | None = Field(serialization_alias="workspaceId")
+    run_id: str = Field(serialization_alias="runId")
+    workflow_id: str | None = Field(serialization_alias="workflowId")
+    workflow_version: str | None = Field(serialization_alias="workflowVersion")
+    job_type: str = Field(serialization_alias="jobType")
+    status: str
+    input_text: str = Field(serialization_alias="input")
+    attempts: int
+    max_attempts: int = Field(serialization_alias="maxAttempts")
+    error: str
+    created_by: str = Field(serialization_alias="createdBy")
+    locked_by: str = Field(serialization_alias="lockedBy")
+    locked_until: datetime | None = Field(serialization_alias="lockedUntil")
+    last_heartbeat_at: datetime | None = Field(serialization_alias="lastHeartbeatAt")
+    next_attempt_at: datetime | None = Field(serialization_alias="nextAttemptAt")
+    created_at: datetime = Field(serialization_alias="createdAt")
+    started_at: datetime | None = Field(serialization_alias="startedAt")
+    completed_at: datetime | None = Field(serialization_alias="completedAt")
+    dead_lettered_at: datetime | None = Field(serialization_alias="deadLetteredAt")
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
 class ObservabilityTotalsRead(BaseModel):
     runs: int
     succeeded: int

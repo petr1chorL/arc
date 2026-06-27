@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   decideReview,
+  listExecutionJobs,
   listReviews,
   listRuns,
   runAgent,
@@ -93,5 +94,39 @@ describe('Execution API', () => {
       body: JSON.stringify({ decision: 'approve' }),
     })
     expect(new Headers(lastInit?.headers).get('Content-Type')).toBe('application/json')
+  })
+
+  it('loads execution jobs with an optional status filter', async () => {
+    const jobs = [{
+      id: 'job-1',
+      workspaceId: workspaceId,
+      runId: 'run-1',
+      workflowId: 'workflow-1',
+      workflowVersion: 'v1.0.0',
+      jobType: 'workflow_run',
+      status: 'dead_letter',
+      input: '执行流程',
+      attempts: 3,
+      maxAttempts: 3,
+      error: 'Agent 执行失败，请稍后重试',
+      createdBy: 'user-1',
+      lockedBy: 'worker-a',
+      lockedUntil: '2026-06-27T08:05:00Z',
+      lastHeartbeatAt: '2026-06-27T08:00:00Z',
+      nextAttemptAt: null,
+      createdAt: '2026-06-27T08:00:00Z',
+      startedAt: '2026-06-27T08:00:00Z',
+      completedAt: '2026-06-27T08:01:00Z',
+      deadLetteredAt: '2026-06-27T08:01:00Z',
+    }]
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(jobs), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(listExecutionJobs(workspaceId, 'dead_letter')).resolves.toEqual(jobs)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/workspaces/workspace-1/execution-jobs?status=dead_letter',
+      expect.objectContaining({ credentials: 'same-origin' }),
+    )
   })
 })

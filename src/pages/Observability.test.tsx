@@ -282,6 +282,50 @@ const emptyCostUsage = {
   byModel: [],
 }
 
+const executionJobs = [{
+  id: 'job-dead-letter',
+  workspaceId: 'workspace-1',
+  runId: 'run-failed',
+  workflowId: 'workflow-1',
+  workflowVersion: 'v1.0.0',
+  jobType: 'workflow_run',
+  status: 'dead_letter',
+  input: '拉取近 7 天评论',
+  attempts: 3,
+  maxAttempts: 3,
+  error: 'Agent 执行失败，请稍后重试',
+  createdBy: 'user-1',
+  lockedBy: 'worker-a',
+  lockedUntil: '2026-06-26T08:05:00Z',
+  lastHeartbeatAt: '2026-06-26T08:00:00Z',
+  nextAttemptAt: null,
+  createdAt: '2026-06-26T08:00:00Z',
+  startedAt: '2026-06-26T08:00:00Z',
+  completedAt: '2026-06-26T08:01:00Z',
+  deadLetteredAt: '2026-06-26T08:01:00Z',
+}, {
+  id: 'job-queued',
+  workspaceId: 'workspace-1',
+  runId: 'run-waiting',
+  workflowId: 'workflow-2',
+  workflowVersion: 'v1.0.0',
+  jobType: 'workflow_run',
+  status: 'queued',
+  input: '复核价格',
+  attempts: 1,
+  maxAttempts: 3,
+  error: '',
+  createdBy: 'user-1',
+  lockedBy: '',
+  lockedUntil: null,
+  lastHeartbeatAt: null,
+  nextAttemptAt: null,
+  createdAt: '2026-06-26T07:50:00Z',
+  startedAt: null,
+  completedAt: null,
+  deadLetteredAt: null,
+}]
+
 function LocationProbe() {
   const location = useLocation()
   return <output aria-label="当前筛选参数">{location.search}</output>
@@ -315,6 +359,9 @@ describe('Observability', () => {
       if (path === '/api/workspaces/workspace-1/observability/cost-usage') {
         return new Response(JSON.stringify(costUsage), { status: 200 })
       }
+      if (path === '/api/workspaces/workspace-1/execution-jobs') {
+        return new Response(JSON.stringify(executionJobs), { status: 200 })
+      }
       if (path === '/api/workspaces/workspace-1/observability/runs/run-failed') {
         return new Response(JSON.stringify(detail), { status: 200 })
       }
@@ -346,6 +393,10 @@ describe('Observability', () => {
     expect(screen.getByText('成本单价未配置')).toBeInTheDocument()
     expect(screen.getByText('新品研究流程')).toBeInTheDocument()
     expect(screen.getByText('deepseek-v4-pro')).toBeInTheDocument()
+    expect(await screen.findByText('执行队列运营')).toBeInTheDocument()
+    expect(screen.getByText('死信 · workflow_run')).toBeInTheDocument()
+    expect(screen.getByText('Agent 执行失败，请稍后重试')).toBeInTheDocument()
+    expect(screen.getByText('worker-a · 2026/6/26 16:05:00')).toBeInTheDocument()
     expect(screen.getByText('节点执行链路')).toBeInTheDocument()
     expect(screen.getByText('Trace ID')).toBeInTheDocument()
     expect(screen.getByText('trace-run-failed')).toBeInTheDocument()

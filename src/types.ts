@@ -247,6 +247,29 @@ export interface ExecutionRun {
   nodes: NodeExecution[]
 }
 
+export interface ExecutionJob {
+  id: string
+  workspaceId: string | null
+  runId: string
+  workflowId: string | null
+  workflowVersion: string | null
+  jobType: string
+  status: string
+  input: string
+  attempts: number
+  maxAttempts: number
+  error: string
+  createdBy: string
+  lockedBy: string
+  lockedUntil: string | null
+  lastHeartbeatAt: string | null
+  nextAttemptAt: string | null
+  createdAt: string
+  startedAt: string | null
+  completedAt: string | null
+  deadLetteredAt: string | null
+}
+
 export interface HumanReview {
   id: string
   runId: string

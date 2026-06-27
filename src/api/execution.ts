@@ -1,4 +1,4 @@
-import type { ExecutionRun, HumanReview } from '../types'
+import type { ExecutionJob, ExecutionRun, HumanReview } from '../types'
 import { apiFetch, readJson } from './http'
 
 export interface RunInput {
@@ -33,6 +33,15 @@ export async function runWorkflow(workspaceId: string, workflowId: string, input
 
 export async function listRuns(workspaceId: string): Promise<ExecutionRun[]> {
   return readJson<ExecutionRun[]>(await apiFetch(workspacePath(workspaceId, '/runs')))
+}
+
+export async function listExecutionJobs(workspaceId: string, status?: string): Promise<ExecutionJob[]> {
+  const params = new URLSearchParams()
+  if (status) params.set('status', status)
+  const query = params.toString()
+  return readJson<ExecutionJob[]>(
+    await apiFetch(workspacePath(workspaceId, `/execution-jobs${query ? `?${query}` : ''}`)),
+  )
 }
 
 export async function getRun(workspaceId: string, runId: string): Promise<ExecutionRun> {
