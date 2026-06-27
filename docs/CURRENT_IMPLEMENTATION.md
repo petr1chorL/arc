@@ -1,7 +1,7 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.16C Agent Tool / Skill 资产绑定
-> 上一阶段：V0.8F 轻量告警 / 通知 Outbox
+> 对应版本：V0.18A Workspace 审计日志中心
+> 上一阶段：V0.17B Tool / Skill 资产审计面板
 > 更新时间：2026-06-28
 
 ## 1. 当前版本是什么
@@ -1098,3 +1098,11 @@ V0.17B 将 V0.17A 的审计流接入前端资产库。`src/api/assetLibrary.ts` 
 资产卡片最多展示最近 3 条事件，包含 `eventType`、`outcome` 和原因/输出摘要/资产名等脱敏说明。创建、编辑、停用资产成功后会重新拉取该资产审计事件，避免用户操作完成后仍看不到最新变更。页面不展示 `apiKey`，审计接口失败时保持降级，不伪造成功事件。
 
 验收文档见 `docs/ACCEPTANCE_V0.17B.md`。
+
+## V0.18A Workspace 审计日志中心
+
+V0.18A 将 `/w/:workspaceSlug/settings/audit` 从占位页升级为 Workspace 级审计日志中心。后端新增 `GET /api/workspaces/{workspaceId}/audit-events`，从 `AuditEventRecord` 读取当前 Workspace 的审计事件，并使用 `audit.read` 权限控制；Workspace 管理员和组织管理员可读，viewer 读取返回 403。接口支持 `action`、`targetType`、`outcome` 和 `limit` 查询参数，响应包含动作、对象、结果、原因、操作者、请求 ID、Trace ID、时间和 metadata。
+
+前端新增 `src/api/audit.ts` 和 `src/pages/AuditLog.tsx`。审计日志页面展示事件时间线，支持按动作、对象类型和结果筛选，并对 metadata 中疑似密钥、Token、cookie、secret、password 或环境变量的字段做跳过展示。页面不显示 `apiKey` / `API Key`，也不提供导出、详情页、撤销或回滚操作。
+
+验收文档见 `docs/ACCEPTANCE_V0.18A.md`。

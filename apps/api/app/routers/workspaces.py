@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -10,6 +10,7 @@ from app.audit import AuditService
 from app.auth import AuthenticationService, normalize_email
 from app.config import Settings
 from app.models import (
+    AuditEventRecord,
     InvitationRecord,
     ReviewerRecord,
     UserRecord,
@@ -23,6 +24,7 @@ from app.schemas import (
     MembershipRoleUpdate,
     ReviewerQualificationRead,
     ReviewerQualificationUpdate,
+    WorkspaceAuditEventRead,
     WorkspaceCreate,
     WorkspaceMemberRead,
     WorkspaceRead,
@@ -285,6 +287,59 @@ def create_workspaces_router(
     ) -> WorkspaceRecord:
         context, _ = context_bundle
         return context.workspace
+
+    @router.get("/{workspace_id}/audit-events", response_model=list[WorkspaceAuditEventRead])
+    def list_workspace_audit_events(
+        workspace_id: str,
+        request: Request,
+        action: str | None = None,
+        target_type: str | None = Query(default=None, alias="targetType"),
+        outcome: str | None = None,
+        limit: int = Query(default=50, ge=1, le=200),
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> list[WorkspaceAuditEventRead]:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "audit.read",
+            action="audit_event.list",
+            target_type="workspace",
+            target_id=workspace_id,
+            request=request,
+        )
+        statement = select(AuditEventRecord).where(
+            AuditEventRecord.workspace_id == context.workspace.id,
+        )
+        if action:
+            statement = statement.where(AuditEventRecord.action == action)
+        if target_type:
+            statement = statement.where(AuditEventRecord.target_type == target_type)
+        if outcome:
+            statement = statement.where(AuditEventRecord.outcome == outcome)
+        records = list(
+            session.scalars(
+                statement.order_by(AuditEventRecord.created_at.desc(), AuditEventRecord.id.desc())
+                .limit(limit),
+            ),
+        )
+        return [
+            WorkspaceAuditEventRead(
+                id=record.id,
+                action=record.action or "",
+                target_type=record.target_type,
+                target_id=record.target_id,
+                outcome=record.outcome or "",
+                reason=record.reason,
+                actor_id=record.actor_user_id or record.actor_id,
+                request_id=record.request_id,
+                trace_id=record.trace_id,
+                span_id=record.span_id,
+                created_at=record.created_at,
+                metadata=record.event_metadata or {},
+            )
+            for record in records
+        ]
 
     @router.get("/{workspace_id}/members", response_model=list[WorkspaceMemberRead])
     def list_members(

@@ -208,6 +208,21 @@ export interface ToolSkillAssetAuditEvent {
   metadata: Record<string, unknown>
 }
 
+export interface WorkspaceAuditEvent {
+  id: string
+  action: string
+  targetType: string | null
+  targetId: string | null
+  outcome: string
+  reason: string
+  actorId: string | null
+  requestId: string | null
+  traceId: string
+  spanId: string | null
+  createdAt: string
+  metadata: Record<string, unknown>
+}
+
 export interface ModelProvider {
   id: string
   name: string

@@ -410,6 +410,23 @@ class ToolSkillAssetAuditEventRead(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class WorkspaceAuditEventRead(BaseModel):
+    id: str
+    action: str
+    target_type: str | None = Field(serialization_alias="targetType")
+    target_id: str | None = Field(serialization_alias="targetId")
+    outcome: str
+    reason: str
+    actor_id: str | None = Field(serialization_alias="actorId")
+    request_id: str | None = Field(serialization_alias="requestId")
+    trace_id: str = Field(serialization_alias="traceId")
+    span_id: str | None = Field(serialization_alias="spanId")
+    created_at: datetime = Field(serialization_alias="createdAt")
+    metadata: dict
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class ModelProviderCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     provider_type: Literal["openai-compatible", "anthropic-compatible"] = Field(

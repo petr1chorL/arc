@@ -508,6 +508,89 @@ def test_successful_asset_mutations_write_success_audit_events(workspace_context
         assert any(event.outcome == "success" for event in events)
 
 
+def test_workspace_admin_can_list_filtered_workspace_audit_events(workspace_context):
+    client: TestClient = workspace_context["client"]
+    session_factory = workspace_context["session_factory"]
+    workspace_a = workspace_context["workspaces"]["a"]
+    workspace_b = workspace_context["workspaces"]["b"]
+    created_at = datetime(2026, 6, 26, 10, 0, tzinfo=timezone.utc)
+
+    with session_factory() as session:
+        session.add_all([
+            AuditEventRecord(
+                workspace_id=workspace_a,
+                organization_id=None,
+                actor_user_id="actor-builder",
+                action="tool_skill_asset.update",
+                target_type="tool_skill_asset",
+                target_id="asset-a",
+                outcome="success",
+                request_id="req-asset-a",
+                event_metadata={"assetName": "价格查询 Tool", "changedFields": ["name"]},
+                reason="rename asset",
+                trace_id="trace-asset-a",
+                span_id="span-asset-a",
+                created_at=created_at,
+            ),
+            AuditEventRecord(
+                workspace_id=workspace_a,
+                organization_id=None,
+                actor_user_id="actor-builder",
+                action="agent.publish",
+                target_type="agent",
+                target_id="agent-a",
+                outcome="success",
+                request_id="req-agent-a",
+                event_metadata={"agentName": "竞品研究 Agent"},
+                created_at=created_at.replace(hour=9),
+            ),
+            AuditEventRecord(
+                workspace_id=workspace_b,
+                organization_id=None,
+                actor_user_id="actor-outsider",
+                action="tool_skill_asset.update",
+                target_type="tool_skill_asset",
+                target_id="asset-b",
+                outcome="success",
+                request_id="req-asset-b",
+                event_metadata={"assetName": "Other Workspace Tool"},
+                created_at=created_at.replace(hour=11),
+            ),
+        ])
+        session.commit()
+
+    login_client(client, email=workspace_context["users"]["workspace_admin"])
+    response = client.get(
+        workspace_url(
+            workspace_a,
+            "/audit-events?action=tool_skill_asset.update&targetType=tool_skill_asset&outcome=success&limit=10",
+        ),
+    )
+
+    assert response.status_code == 200
+    events = response.json()
+    assert len(events) == 1
+    assert events[0]["action"] == "tool_skill_asset.update"
+    assert events[0]["targetType"] == "tool_skill_asset"
+    assert events[0]["targetId"] == "asset-a"
+    assert events[0]["outcome"] == "success"
+    assert events[0]["actorId"] == "actor-builder"
+    assert events[0]["requestId"] == "req-asset-a"
+    assert events[0]["traceId"] == "trace-asset-a"
+    assert events[0]["metadata"]["assetName"] == "价格查询 Tool"
+    assert "createdAt" in events[0]
+
+
+def test_viewer_cannot_list_workspace_audit_events(workspace_context):
+    client: TestClient = workspace_context["client"]
+    workspace_id = workspace_context["workspaces"]["a"]
+
+    login_client(client, email=workspace_context["users"]["viewer"])
+    response = client.get(workspace_url(workspace_id, "/audit-events"))
+
+    assert response.status_code == 403
+
+
 def test_non_member_existing_workspace_returns_404_and_writes_denied_audit(workspace_context):
     client: TestClient = workspace_context["client"]
     session_factory = workspace_context["session_factory"]

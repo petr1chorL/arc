@@ -8,6 +8,7 @@ import { Layout } from './components/Layout'
 import { Agents } from './pages/Agents'
 import { AgentDetail } from './pages/AgentDetail'
 import { ActivateInvitation } from './pages/ActivateInvitation'
+import { AuditLog } from './pages/AuditLog'
 import { AssetLibrary } from './pages/AssetLibrary'
 import { Dashboard } from './pages/Dashboard'
 import { Evaluations } from './pages/Evaluations'
@@ -54,10 +55,6 @@ function LegacyWorkspaceRedirect({ suffix }: { suffix?: string }) {
   return <Navigate to={`/w/${workspace.slug}${normalized}`} replace />
 }
 
-function SettingsStub({ title }: { title: string }) {
-  return <div className="panel table-state">{title}将在后续任务中补齐。</div>
-}
-
 function App() {
   return (
     <AuthProvider>
@@ -87,7 +84,7 @@ function App() {
                 <Route path="settings/asset-library" element={<AssetLibrary />} />
                 <Route path="settings/members" element={<Members />} />
                 <Route path="settings/model-providers" element={<ModelProviders />} />
-                <Route path="settings/audit" element={<SettingsStub title="审计日志" />} />
+                <Route path="settings/audit" element={<AuditLog />} />
               </Route>
             </Route>
           </Route>
