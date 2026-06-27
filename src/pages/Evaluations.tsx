@@ -3,6 +3,7 @@ import {
   ArrowRight,
   Beaker,
   CheckCircle2,
+  FileText,
   FlaskConical,
   Plus,
   RefreshCw,
@@ -93,6 +94,7 @@ export function Evaluations() {
   const [evaluationRecords, setEvaluationRecords] = useState<EvaluationRecord[]>([])
   const [recordStatusFilter, setRecordStatusFilter] = useState('all')
   const [recordRubricFilter, setRecordRubricFilter] = useState('all')
+  const [selectedEvaluationRecord, setSelectedEvaluationRecord] = useState<EvaluationRecord | null>(null)
 
   const loadAssets = useCallback(async () => {
     setIsLoading(true)
@@ -408,6 +410,13 @@ export function Evaluations() {
                   ))}
                 </div>
                 <p>{record.rationale}</p>
+                <button
+                  className="button secondary"
+                  type="button"
+                  onClick={() => setSelectedEvaluationRecord(record)}
+                >
+                  <FileText size={14} />查看详情
+                </button>
               </article>
             ))}
           </div>
@@ -668,6 +677,99 @@ export function Evaluations() {
                 ))}
               </div>
             )}
+          </section>
+        </div>
+      )}
+
+      {selectedEvaluationRecord && (
+        <div className="dialog-backdrop">
+          <section
+            className="agent-dialog evaluation-detail-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="evaluation-detail-title"
+          >
+            <header>
+              <div>
+                <p className="eyebrow">EVALUATION DETAIL</p>
+                <h2 id="evaluation-detail-title">评估详情</h2>
+              </div>
+              <button
+                className="icon-button quiet"
+                type="button"
+                title="关闭"
+                onClick={() => setSelectedEvaluationRecord(null)}
+              >
+                <X size={18} />
+              </button>
+            </header>
+
+            <div className="evaluation-detail-summary">
+              <div>
+                <span>记录 ID</span>
+                <strong className="mono">{selectedEvaluationRecord.id}</strong>
+              </div>
+              <div>
+                <span>总分</span>
+                <strong>{selectedEvaluationRecord.score}</strong>
+              </div>
+              <div>
+                <span>状态</span>
+                <strong>{selectedEvaluationRecord.status}</strong>
+              </div>
+              <div>
+                <span>创建时间</span>
+                <strong>{selectedEvaluationRecord.createdAt}</strong>
+              </div>
+            </div>
+
+            <div className="evaluation-detail-grid">
+              <section className="evaluation-detail-section">
+                <span className="eyebrow">SUBJECT</span>
+                <h3>评估对象</h3>
+                <p>{selectedEvaluationRecord.subjectType}{selectedEvaluationRecord.subjectId ? ` / ${selectedEvaluationRecord.subjectId}` : ''}</p>
+              </section>
+              <section className="evaluation-detail-section">
+                <span className="eyebrow">RUBRIC SNAPSHOT</span>
+                <h3>Rubric 快照</h3>
+                <div className="evaluation-detail-facts">
+                  <span>名称</span>
+                  <strong>{selectedEvaluationRecord.rubricSnapshot.name} / {selectedEvaluationRecord.rubricVersion}</strong>
+                  <span>适用产出物</span>
+                  <strong>{selectedEvaluationRecord.rubricSnapshot.artifact}</strong>
+                  <span>硬性门禁</span>
+                  <strong>{selectedEvaluationRecord.rubricSnapshot.gate}</strong>
+                  <span>通过阈值</span>
+                  <strong>{selectedEvaluationRecord.rubricSnapshot.passScore}</strong>
+                </div>
+              </section>
+            </div>
+
+            <section className="evaluation-detail-section">
+              <span className="eyebrow">DIMENSION SCORES</span>
+              <h3>维度评分</h3>
+              <div className="evaluation-detail-dimensions">
+                {selectedEvaluationRecord.dimensionScores.map((dimension) => (
+                  <article key={dimension.name}>
+                    <strong>{dimension.name}</strong>
+                    <span>权重 {dimension.weight}%</span>
+                    <span>得分 {dimension.score}</span>
+                  </article>
+                ))}
+              </div>
+            </section>
+
+            <section className="evaluation-detail-section">
+              <span className="eyebrow">ARTIFACT TEXT</span>
+              <h3>待评估产出物</h3>
+              <p className="evaluation-detail-copy">{selectedEvaluationRecord.artifactText}</p>
+            </section>
+
+            <section className="evaluation-detail-section">
+              <span className="eyebrow">RATIONALE</span>
+              <h3>评分说明</h3>
+              <p>{selectedEvaluationRecord.rationale}</p>
+            </section>
           </section>
         </div>
       )}

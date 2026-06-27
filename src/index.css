@@ -1845,6 +1845,121 @@ kbd {
   font-size: 9px;
 }
 
+.evaluation-detail-dialog {
+  width: min(760px, calc(100vw - 32px));
+  max-height: min(86vh, 780px);
+  overflow: auto;
+}
+
+.evaluation-detail-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--soft-line);
+  box-shadow: var(--shadow-inset);
+}
+
+.evaluation-detail-summary > div {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.34);
+}
+
+.evaluation-detail-summary span,
+.evaluation-detail-section > span {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.evaluation-detail-summary strong {
+  color: var(--ink);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.evaluation-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: 12px;
+}
+
+.evaluation-detail-section {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.28);
+  box-shadow: var(--shadow-inset);
+}
+
+.evaluation-detail-section h3,
+.evaluation-detail-section p {
+  margin: 0;
+}
+
+.evaluation-detail-section h3 {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.evaluation-detail-section p {
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.evaluation-detail-facts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px 12px;
+}
+
+.evaluation-detail-facts span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.evaluation-detail-facts strong {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.evaluation-detail-dimensions {
+  display: grid;
+  gap: 8px;
+}
+
+.evaluation-detail-dimensions article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-out);
+}
+
+.evaluation-detail-dimensions strong {
+  color: var(--ink);
+}
+
+.evaluation-detail-dimensions span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.evaluation-detail-copy {
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-inset);
+  color: var(--ink) !important;
+  white-space: pre-wrap;
+}
+
 .members-page {
   display: grid;
   gap: 14px;
@@ -4069,6 +4184,13 @@ kbd {
   .evaluation-record-dimensions {
     min-width: 0;
     max-width: none;
+  }
+
+  .evaluation-detail-summary,
+  .evaluation-detail-grid,
+  .evaluation-detail-facts,
+  .evaluation-detail-dimensions article {
+    grid-template-columns: 1fr;
   }
 
   .observability-hero,

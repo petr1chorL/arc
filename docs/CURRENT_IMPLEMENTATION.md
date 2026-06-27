@@ -1,6 +1,6 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.9E 评估记录中心
+> 对应版本：V0.9F 评估记录详情
 > 上一阶段：V0.8F 轻量告警 / 通知 Outbox
 > 更新时间：2026-06-27
 
@@ -328,6 +328,7 @@ React Flow 节点/连线
 - 支持按 `passed` / `failed` 状态筛选评估记录。
 - 支持按 Rubric 筛选评估记录；历史记录引用的 Rubric 即使不在当前 Rubric 列表中，也会以记录快照名称出现在筛选项里。
 - Rubric 配置弹窗运行评估成功后，会把新记录即时插入评估记录列表顶部。
+- 支持查看 Evaluation 记录详情，展示评估对象、运行时 Rubric 快照、维度权重、维度得分、待评估产出物和评分说明。
 - 当前评分器为确定性评分器，用于验证评估链路；真实 LLM-as-a-Judge 尚未接入。
 
 后端 API：
@@ -644,7 +645,7 @@ TypeScript 编译检查
 已经完成：
 
 - `apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q`：后端全量测试通过。
-- `npm test -- --run`：27 个前端测试文件、86 项测试通过。
+- `npm test -- --run`：27 个前端测试文件、87 项测试通过。
 - `npm run lint`：Oxlint 通过。
 - `npm run build`：TypeScript 编译与 Vite 生产构建通过。
 - Human 节点发布前校验覆盖分配方式、会签人数和 SLA 参数。
@@ -673,6 +674,9 @@ TypeScript 编译检查
 - V0.9E 完成评估记录中心自动化测试：记录列表、状态筛选、Rubric 筛选和运行后即时插入均通过。
 - V0.9E 完成浏览器验收：临时账号运行一次 Rubric 评估后，历史记录即时出现；`failed` 筛选展示记录，`passed` 筛选展示空状态，Rubric 筛选恢复记录；浏览器日志无 error/warn。
 - V0.9E 浏览器验收截图：`.scratch/v0.9e-evaluation-history.png`。
+- V0.9F 完成评估详情自动化测试：点击“查看详情”后，弹窗展示记录 ID、待评估产出物、Rubric 快照、维度权重和维度得分。
+- V0.9F 完成浏览器验收：临时账号运行一次 Rubric 评估后打开详情弹窗，确认 Rubric 快照、维度评分、待评估产出物和评分说明可见；登录后页面控制台无 error/warn。
+- V0.9F 浏览器验收截图：`.scratch/v0.9f-evaluation-detail.png`。
 
 验证时没有发现浏览器控制台错误。
 

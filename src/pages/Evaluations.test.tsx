@@ -274,4 +274,47 @@ describe('Evaluations page', () => {
     await user.selectOptions(screen.getByLabelText('Rubric 筛选'), 'rubric-api-1')
     expect(screen.getByText('evaluation-pass')).toBeInTheDocument()
   })
+
+  it('opens an evaluation record detail dialog with artifact text and rubric snapshot', async () => {
+    const user = userEvent.setup()
+    const records = [{
+      id: 'evaluation-detail',
+      rubricId: rubricAssets[0].id,
+      rubricVersion: 'v1.0',
+      rubricSnapshot: rubricAssets[0],
+      subjectType: 'manual_artifact',
+      subjectId: 'artifact-detail',
+      artifactText: 'Detailed artifact text with evidence, tradeoffs, and next action.',
+      dimensionScores: [{ name: 'Accuracy', weight: 100, score: 91 }],
+      score: 91,
+      status: 'passed',
+      rationale: 'deterministic rubric evaluation',
+      createdAt: '2026-06-27T00:00:00Z',
+    }]
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      if (input === `/api/workspaces/${workspace.id}/evaluations/overview`) {
+        return response(overview)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/rubrics`) {
+        return response(rubricAssets)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/records`) {
+        return response(records)
+      }
+      return response({ detail: 'not found' }, 404)
+    }))
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: '查看详情' }))
+
+    const dialog = await screen.findByRole('dialog', { name: '评估详情' })
+    expect(within(dialog).getByText('evaluation-detail')).toBeInTheDocument()
+    expect(within(dialog).getByText('Detailed artifact text with evidence, tradeoffs, and next action.')).toBeInTheDocument()
+    expect(within(dialog).getByText('Rubric 快照')).toBeInTheDocument()
+    expect(within(dialog).getByText('必须绑定评估数据源')).toBeInTheDocument()
+    expect(within(dialog).getByText('Accuracy')).toBeInTheDocument()
+    expect(within(dialog).getByText('权重 100%')).toBeInTheDocument()
+    expect(within(dialog).getByText('得分 91')).toBeInTheDocument()
+  })
 })
