@@ -1,0 +1,11 @@
+{
+  "workspaceId": "e7251ad5-98dd-4619-ad67-26a09b1b69c4",
+  "baseRunId": "c300c0f4-d84a-4981-98bb-e5eb525418bd",
+  "targetRunId": "092456a0-90af-41b1-bffd-b31f486c87f1",
+  "basePassRate": 25,
+  "targetPassRate": 50,
+  "changeCardCount": 4,
+  "comparisonText": "REGRESSION RUN COMPARISON\nRegression Run Comparison\n\nc300c0f4-d84a-4981-98bb-e5eb525418bd\n092456a0-90af-41b1-bffd-b31f486c87f1\n\n通过率变化\n通过率变化 +25\n通过样本变化\n+1\n失败样本变化\n失败样本变化 -1\n总样本变化\n0\nv010c-sample-a\n失败变通过\n\nsource evidence owner risk next action acceptance criteria with complete detail that recovers the earlier weak sample\n\nfailed → passed\n43 → 95\n\ndeterministic rubric evaluation: score is based on artifact length and explicit quality signals; LLM judge is not enabled yet.\n\nv010c-sample-b\n通过变失败\n\nlost citation\n\npassed → failed\n99 → 46\n\ndeterministic rubric evaluation: score is based on artifact length and explicit quality signals; LLM judge is not enabled yet.\n\nv010c-sample-c\n持续失败\n\nweak\n\nfailed → failed\n43 → 43\n\ndeterministic rubric evaluation: score is based on artifact length and explicit quality signals; LLM judge is not enabled yet.\n\nv010c-sample-d\n失败变通过\n\nsource evidence owner risk next action acceptance criteria with complete reusable action plan and risk notes\n\nfailed → passed\n43 → 92\n\ndeterministic rubric evaluation: score is based on artifact length and explicit quality signals; LLM judge is not enabled yet.",
+  "logCount": 0,
+  "logs": []
+}

@@ -814,4 +814,183 @@ describe('Evaluations page', () => {
     expect(within(dialog).getByText('thin sample')).toBeInTheDocument()
     expect(within(dialog).getByText('missing evidence')).toBeInTheDocument()
   })
+
+  it('compares two Regression Runs and shows sample status changes', async () => {
+    const user = userEvent.setup()
+    const runs = [
+      {
+        id: 'run-target',
+        sampleSetId: 'sample-set-1',
+        sampleSetName: 'Launch Golden Set',
+        rubricId: rubricAssets[0].id,
+        rubricName: rubricAssets[0].name,
+        rubricVersion: 'v1.1',
+        status: 'completed',
+        totalSamples: 3,
+        passedSamples: 2,
+        failedSamples: 1,
+        passRate: 70,
+        evaluationIds: ['eval-a-target', 'eval-b-target', 'eval-c-target'],
+        records: [],
+        createdBy: 'user-1',
+        createdAt: '2026-06-27T00:10:00Z',
+        completedAt: '2026-06-27T00:10:00Z',
+      },
+      {
+        id: 'run-base',
+        sampleSetId: 'sample-set-1',
+        sampleSetName: 'Launch Golden Set',
+        rubricId: rubricAssets[0].id,
+        rubricName: rubricAssets[0].name,
+        rubricVersion: 'v1.0',
+        status: 'completed',
+        totalSamples: 3,
+        passedSamples: 1,
+        failedSamples: 2,
+        passRate: 40,
+        evaluationIds: ['eval-a-base', 'eval-b-base', 'eval-c-base'],
+        records: [],
+        createdBy: 'user-1',
+        createdAt: '2026-06-27T00:00:00Z',
+        completedAt: '2026-06-27T00:00:00Z',
+      },
+    ]
+    const detailBase = {
+      ...runs[1],
+      records: [
+        {
+          id: 'eval-a-base',
+          rubricId: rubricAssets[0].id,
+          rubricVersion: 'v1.0',
+          rubricSnapshot: rubricAssets[0],
+          subjectType: 'regression_run_sample',
+          subjectId: 'sample-a',
+          artifactText: 'sample-a old output',
+          dimensionScores: [{ name: 'Accuracy', weight: 100, score: 42 }],
+          score: 42,
+          status: 'failed',
+          rationale: 'missing evidence',
+          createdAt: '2026-06-27T00:00:00Z',
+        },
+        {
+          id: 'eval-b-base',
+          rubricId: rubricAssets[0].id,
+          rubricVersion: 'v1.0',
+          rubricSnapshot: rubricAssets[0],
+          subjectType: 'regression_run_sample',
+          subjectId: 'sample-b',
+          artifactText: 'sample-b old output',
+          dimensionScores: [{ name: 'Accuracy', weight: 100, score: 92 }],
+          score: 92,
+          status: 'passed',
+          rationale: 'strong evidence',
+          createdAt: '2026-06-27T00:01:00Z',
+        },
+        {
+          id: 'eval-c-base',
+          rubricId: rubricAssets[0].id,
+          rubricVersion: 'v1.0',
+          rubricSnapshot: rubricAssets[0],
+          subjectType: 'regression_run_sample',
+          subjectId: 'sample-c',
+          artifactText: 'sample-c old output',
+          dimensionScores: [{ name: 'Accuracy', weight: 100, score: 45 }],
+          score: 45,
+          status: 'failed',
+          rationale: 'thin reasoning',
+          createdAt: '2026-06-27T00:02:00Z',
+        },
+      ],
+    }
+    const detailTarget = {
+      ...runs[0],
+      records: [
+        {
+          id: 'eval-a-target',
+          rubricId: rubricAssets[0].id,
+          rubricVersion: 'v1.1',
+          rubricSnapshot: rubricAssets[0],
+          subjectType: 'regression_run_sample',
+          subjectId: 'sample-a',
+          artifactText: 'sample-a improved output',
+          dimensionScores: [{ name: 'Accuracy', weight: 100, score: 91 }],
+          score: 91,
+          status: 'passed',
+          rationale: 'evidence added',
+          createdAt: '2026-06-27T00:10:00Z',
+        },
+        {
+          id: 'eval-b-target',
+          rubricId: rubricAssets[0].id,
+          rubricVersion: 'v1.1',
+          rubricSnapshot: rubricAssets[0],
+          subjectType: 'regression_run_sample',
+          subjectId: 'sample-b',
+          artifactText: 'sample-b regressed output',
+          dimensionScores: [{ name: 'Accuracy', weight: 100, score: 40 }],
+          score: 40,
+          status: 'failed',
+          rationale: 'lost citation',
+          createdAt: '2026-06-27T00:11:00Z',
+        },
+        {
+          id: 'eval-c-target',
+          rubricId: rubricAssets[0].id,
+          rubricVersion: 'v1.1',
+          rubricSnapshot: rubricAssets[0],
+          subjectType: 'regression_run_sample',
+          subjectId: 'sample-c',
+          artifactText: 'sample-c still weak',
+          dimensionScores: [{ name: 'Accuracy', weight: 100, score: 44 }],
+          score: 44,
+          status: 'failed',
+          rationale: 'still lacks facts',
+          createdAt: '2026-06-27T00:12:00Z',
+        },
+      ],
+    }
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      if (input === `/api/workspaces/${workspace.id}/evaluations/overview`) {
+        return response(overview)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/rubrics`) {
+        return response(rubricAssets)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/records`) {
+        return response([])
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/sample-sets`) {
+        return response([])
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/regression-runs/run-base`) {
+        return response(detailBase)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/regression-runs/run-target`) {
+        return response(detailTarget)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/regression-runs`) {
+        return response(runs)
+      }
+      return response({ detail: 'not found' }, 404)
+    }))
+
+    renderPage()
+
+    expect(await screen.findByText('Regression Run History')).toBeInTheDocument()
+    await user.selectOptions(screen.getByLabelText('基准 Run'), 'run-base')
+    await user.selectOptions(screen.getByLabelText('目标 Run'), 'run-target')
+    await user.click(screen.getByRole('button', { name: '对比 Run' }))
+
+    const comparison = await screen.findByRole('region', { name: 'Regression Run Comparison' })
+    expect(within(comparison).getByText('run-base')).toBeInTheDocument()
+    expect(within(comparison).getByText('run-target')).toBeInTheDocument()
+    expect(within(comparison).getByText('通过率变化 +30')).toBeInTheDocument()
+    expect(within(comparison).getByText('失败样本变化 -1')).toBeInTheDocument()
+    expect(within(comparison).getByText('sample-a')).toBeInTheDocument()
+    expect(within(comparison).getByText('失败变通过')).toBeInTheDocument()
+    expect(within(comparison).getByText('sample-b')).toBeInTheDocument()
+    expect(within(comparison).getByText('通过变失败')).toBeInTheDocument()
+    expect(within(comparison).getByText('sample-c')).toBeInTheDocument()
+    expect(within(comparison).getByText('持续失败')).toBeInTheDocument()
+  })
 })

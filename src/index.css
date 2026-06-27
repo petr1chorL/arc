@@ -2080,6 +2080,129 @@ kbd {
   box-shadow: var(--shadow-inset);
 }
 
+.regression-run-comparison-controls {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.regression-run-comparison-controls label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.regression-run-comparison-controls select {
+  min-height: 38px;
+  border: 0;
+  border-radius: 12px;
+  padding: 0 12px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.34);
+  box-shadow: var(--shadow-inset);
+}
+
+.regression-run-comparison {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+  padding: 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.28);
+  box-shadow: var(--shadow-inset);
+}
+
+.regression-run-comparison > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.regression-run-comparison h3 {
+  margin: 4px 0 6px;
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.regression-run-comparison p {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.comparison-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.comparison-metrics div {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.3);
+  box-shadow: var(--shadow-raised-sm);
+}
+
+.comparison-metrics span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.comparison-metrics strong {
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.comparison-change-list {
+  display: grid;
+  gap: 10px;
+}
+
+.comparison-change-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.32);
+  box-shadow: var(--shadow-raised-sm);
+}
+
+.comparison-change-card h4 {
+  margin: 5px 0 4px;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.comparison-change-card p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.comparison-change-card > div:last-of-type {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.comparison-change-card strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
 .regression-run-card {
   align-items: stretch;
   padding: 16px;

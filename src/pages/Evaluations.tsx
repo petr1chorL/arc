@@ -94,6 +94,74 @@ function parseBatchSamples(input: string) {
     .filter(Boolean)
 }
 
+interface RegressionRunComparisonChange {
+  subjectId: string
+  label: string
+  baseStatus: string
+  targetStatus: string
+  baseScore: number | null
+  targetScore: number | null
+  targetText: string
+  rationale: string
+}
+
+interface RegressionRunComparison {
+  base: RegressionRun
+  target: RegressionRun
+  passRateDelta: number
+  totalSamplesDelta: number
+  passedSamplesDelta: number
+  failedSamplesDelta: number
+  changes: RegressionRunComparisonChange[]
+}
+
+function formatDelta(value: number) {
+  return value > 0 ? `+${value}` : `${value}`
+}
+
+function classifyRecordChange(baseRecord: EvaluationRecord | undefined, targetRecord: EvaluationRecord) {
+  if (!baseRecord && targetRecord.status === 'failed') return '新增失败'
+  if (!baseRecord && targetRecord.status === 'passed') return '新增通过'
+  if (baseRecord?.status === 'failed' && targetRecord.status === 'passed') return '失败变通过'
+  if (baseRecord?.status === 'passed' && targetRecord.status === 'failed') return '通过变失败'
+  if (baseRecord?.status === 'failed' && targetRecord.status === 'failed') return '持续失败'
+  return ''
+}
+
+function buildRegressionRunComparison(
+  base: RegressionRun,
+  target: RegressionRun,
+): RegressionRunComparison {
+  const baseRecords = new Map(base.records.map((record) => [record.subjectId ?? record.id, record]))
+  const changes: RegressionRunComparisonChange[] = []
+  for (const targetRecord of target.records) {
+    const subjectId = targetRecord.subjectId ?? targetRecord.id
+    const baseRecord = baseRecords.get(subjectId)
+    const label = classifyRecordChange(baseRecord, targetRecord)
+    if (!label) continue
+    changes.push({
+      subjectId,
+      label,
+      baseStatus: baseRecord?.status ?? 'missing',
+      targetStatus: targetRecord.status,
+      baseScore: baseRecord?.score ?? null,
+      targetScore: targetRecord.score ?? null,
+      targetText: targetRecord.artifactText,
+      rationale: targetRecord.rationale,
+    })
+  }
+
+  return {
+    base,
+    target,
+    passRateDelta: target.passRate - base.passRate,
+    totalSamplesDelta: target.totalSamples - base.totalSamples,
+    passedSamplesDelta: target.passedSamples - base.passedSamples,
+    failedSamplesDelta: target.failedSamples - base.failedSamples,
+    changes,
+  }
+}
+
 export function Evaluations() {
   const { workspace } = useWorkspace()
   const [overview, setOverview] = useState<EvaluationOverview>(emptyOverview)
@@ -139,6 +207,11 @@ export function Evaluations() {
   const [selectedRegressionRun, setSelectedRegressionRun] = useState<RegressionRun | null>(null)
   const [regressionRunError, setRegressionRunError] = useState('')
   const [isRegressionRunLoading, setIsRegressionRunLoading] = useState(false)
+  const [comparisonBaseRunId, setComparisonBaseRunId] = useState('')
+  const [comparisonTargetRunId, setComparisonTargetRunId] = useState('')
+  const [regressionRunComparison, setRegressionRunComparison] = useState<RegressionRunComparison | null>(null)
+  const [regressionRunComparisonError, setRegressionRunComparisonError] = useState('')
+  const [isRegressionRunComparisonLoading, setIsRegressionRunComparisonLoading] = useState(false)
 
   const loadAssets = useCallback(async () => {
     setIsLoading(true)
@@ -517,6 +590,28 @@ export function Evaluations() {
       setRegressionRunError(detailError instanceof Error ? detailError.message : 'Regression Run 详情加载失败')
     } finally {
       setIsRegressionRunLoading(false)
+    }
+  }
+
+  async function compareRegressionRuns() {
+    if (!comparisonBaseRunId || !comparisonTargetRunId || comparisonBaseRunId === comparisonTargetRunId) {
+      return
+    }
+    setIsRegressionRunComparisonLoading(true)
+    setRegressionRunComparisonError('')
+    try {
+      const [base, target] = await Promise.all([
+        getRegressionRun(workspace.id, comparisonBaseRunId),
+        getRegressionRun(workspace.id, comparisonTargetRunId),
+      ])
+      setRegressionRunComparison(buildRegressionRunComparison(base, target))
+    } catch (comparisonError) {
+      setRegressionRunComparison(null)
+      setRegressionRunComparisonError(
+        comparisonError instanceof Error ? comparisonError.message : 'Regression Run 对比失败',
+      )
+    } finally {
+      setIsRegressionRunComparisonLoading(false)
     }
   }
 
@@ -924,6 +1019,114 @@ export function Evaluations() {
                 ))}
               </select>
             </label>
+          </div>
+        )}
+        {regressionRuns.length > 1 && (
+          <div className="regression-run-comparison-controls">
+            <label>
+              基准 Run
+              <select
+                aria-label="基准 Run"
+                value={comparisonBaseRunId}
+                onChange={(event) => setComparisonBaseRunId(event.target.value)}
+              >
+                <option value="">选择基准 Run</option>
+                {regressionRuns.map((run) => (
+                  <option key={run.id} value={run.id}>
+                    {run.id} · {run.passRate}%
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              目标 Run
+              <select
+                aria-label="目标 Run"
+                value={comparisonTargetRunId}
+                onChange={(event) => setComparisonTargetRunId(event.target.value)}
+              >
+                <option value="">选择目标 Run</option>
+                {regressionRuns.map((run) => (
+                  <option key={run.id} value={run.id}>
+                    {run.id} · {run.passRate}%
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              className="button secondary"
+              type="button"
+              disabled={
+                isRegressionRunComparisonLoading
+                || !comparisonBaseRunId
+                || !comparisonTargetRunId
+                || comparisonBaseRunId === comparisonTargetRunId
+              }
+              onClick={() => void compareRegressionRuns()}
+            >
+              <ArrowRight size={14} />对比 Run
+            </button>
+          </div>
+        )}
+        {regressionRunComparisonError && (
+          <div className="inline-feedback error" role="alert">{regressionRunComparisonError}</div>
+        )}
+        {regressionRunComparison && (
+          <div className="regression-run-comparison" role="region" aria-label="Regression Run Comparison">
+            <header>
+              <div>
+                <span className="eyebrow">REGRESSION RUN COMPARISON</span>
+                <h3>Regression Run Comparison</h3>
+                <p>
+                  <span className="mono">{regressionRunComparison.base.id}</span>
+                  <ArrowRight size={13} />
+                  <span className="mono">{regressionRunComparison.target.id}</span>
+                </p>
+              </div>
+            </header>
+            <div className="comparison-metrics">
+              <div>
+                <span>通过率变化</span>
+                <strong>通过率变化 {formatDelta(regressionRunComparison.passRateDelta)}</strong>
+              </div>
+              <div>
+                <span>通过样本变化</span>
+                <strong>{formatDelta(regressionRunComparison.passedSamplesDelta)}</strong>
+              </div>
+              <div>
+                <span>失败样本变化</span>
+                <strong>失败样本变化 {formatDelta(regressionRunComparison.failedSamplesDelta)}</strong>
+              </div>
+              <div>
+                <span>总样本变化</span>
+                <strong>{formatDelta(regressionRunComparison.totalSamplesDelta)}</strong>
+              </div>
+            </div>
+            {regressionRunComparison.changes.length === 0 && (
+              <div className="table-state">两次 Run 暂无需要关注的样本状态变化。</div>
+            )}
+            {regressionRunComparison.changes.length > 0 && (
+              <div className="comparison-change-list">
+                {regressionRunComparison.changes.map((change) => (
+                  <article className="comparison-change-card" key={`${change.subjectId}-${change.label}`}>
+                    <div>
+                      <span className="mono">{change.subjectId}</span>
+                      <h4>{change.label}</h4>
+                      <p>{change.targetText}</p>
+                    </div>
+                    <div>
+                      <span className={`status-pill ${change.label === '失败变通过' ? 'success' : 'danger'}`}>
+                        {change.baseStatus} → {change.targetStatus}
+                      </span>
+                      <strong>
+                        {change.baseScore ?? '-'} → {change.targetScore ?? '-'}
+                      </strong>
+                    </div>
+                    <p>{change.rationale}</p>
+                  </article>
+                ))}
+              </div>
+            )}
           </div>
         )}
         {regressionRunError && <div className="inline-feedback error" role="alert">{regressionRunError}</div>}
