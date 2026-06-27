@@ -3513,6 +3513,29 @@ kbd {
   grid-column: 1 / -1;
 }
 
+.form-section-heading {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 2px;
+  padding-top: 4px;
+  color: var(--ink);
+  border-top: 1px solid rgba(142, 158, 188, 0.18);
+}
+
+.form-section-heading span {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.form-section-heading strong {
+  font-size: 13px;
+}
+
 .form-field textarea {
   width: 100%;
   padding: 10px 11px;

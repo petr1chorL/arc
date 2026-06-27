@@ -1,6 +1,6 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.13Q 运行中任务租约过期提示
+> 对应版本：V0.14A Agent 运行配置入口
 > 上一阶段：V0.8F 轻量告警 / 通知 Outbox
 > 更新时间：2026-06-27
 
@@ -15,6 +15,8 @@ Agent 资产页和工作流设计器已经接入 SQLAlchemy。Agent 支持草稿
 运行中心与人工审核工作台已切换到真实 API。模型调用通过可注入的 OpenAI-compatible ModelGateway 完成；自动化测试使用 FakeGateway，不依赖外部网络。
 
 Agent 执行已引入第一版 Runtime 合约：`app.agent_runtime` 负责统一 Agent 输入、输出、脱敏错误、Token、成本、评分、尝试次数、耗时和工具调用占位。Agent 直接测试运行与工作流 Agent 节点都通过 `ExecutionService.execute_agent` 调用该 Runtime，再映射到 `NodeRunRecord`。
+
+Agent 草稿已新增第一版运行配置入口：后端持久化 `modelProvider`、`modelBaseUrl`、`temperature` 和 `maxOutputTokens`，Agent 详情页可编辑这些非密钥字段，保存草稿和发布版本时会进入不可变 Agent 快照。API 不接收、不返回、不发布 `apiKey`；密钥仍只允许通过后端环境变量管理。当前运行时尚未按 Agent 级运行配置覆盖 ModelGateway，请勿把该能力描述为已完成 Provider 动态路由。
 
 Tool / Skill 已新增第一版 Workspace 级资产库后端：`tool_skill_assets` 表保存 `tool` 与 `skill` 两类资产，支持创建、列表查询、参数 Schema、状态、适配类型、适配配置和 Workspace 隔离。Agent 更新和发布时会校验所绑定的 Tools / Skills 必须是当前 Workspace 内已启用资产。`tool_skill_asset_invocations` 表提供调用日志查询能力，并已支持 HTTP Tool 测试调用写入成功或失败日志。
 
@@ -335,6 +337,7 @@ React Flow 节点/连线
 - 每条 Agent 显示明确的“编辑与发布”入口，点击 Agent 名称也可进入详情页。
 - 编辑名称、职责、负责人、模型和 System Prompt。
 - 配置 Tools 与 Skills。
+- 配置 Agent 级运行参数：模型 Provider、Base URL、温度和最大输出 Tokens。
 - 发布不可变 AgentVersion。
 - 查看版本历史。
 - 停用 Agent，并阻止继续编辑或发布。
@@ -346,6 +349,7 @@ React Flow 节点/连线
 - Tool / Skill 资产包含类型、名称、描述、参数 Schema、适配类型、适配配置、状态和创建信息。
 - Agent 只能绑定已存在且启用的 Tool / Skill 资产。
 - Agent 发布会重新校验资产可用性，禁用资产不会进入不可变版本快照。
+- Agent 发布快照包含非密钥运行配置；API 不保存或返回 `apiKey`。
 - Tool / Skill 调用日志支持 Workspace 级查询，并可按资产、Agent 和状态过滤。
 - HTTP Tool 支持后端测试调用，成功与失败都会写入调用日志。
 - 测试调用失败时返回脱敏错误，不暴露 provider 原始异常。
@@ -359,6 +363,7 @@ React Flow 节点/连线
 未实现：
 
 - 模型参数。
+- Agent 级运行配置尚未实际覆盖 ModelGateway 调用参数。
 - 真实 MCP Server client、session 管理和鉴权。
 - HTTP Tool 鉴权头、响应字段映射和更细粒度脱敏策略。
 - Agent 版本比较和回滚。
@@ -959,6 +964,11 @@ TypeScript 编译检查
 - V0.13Q 完成全量验证：显式测试文件列表运行 `npx vitest run @($files) --reporter verbose` 27 个测试文件、106 项通过；`npm run lint` 通过；`npm run build` 通过；`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 后端完整测试集通过；`git diff --check` 仅有 Windows 换行提示。
 - V0.13Q 完成浏览器验收：运行中队列任务卡显示“租约已过期”，打开详情后“队列排障建议”展示 Worker 租约过期和可接管提示；浏览器控制台新增 warning/error 为 0。
 - V0.13Q 浏览器验收截图：`.scratch/v0.13q-expired-lease-guidance.png`；验收结果：`.scratch/v0.13q-browser-result.json`。
+- V0.14A 完成 Agent 运行配置入口 RED/GREEN 测试：后端首次因 Agent 响应缺少 `modelProvider` 失败，随后可保存、读取和发布非密钥运行配置且响应/快照不包含 `apiKey`；前端首次因 Agent 详情页没有“运行配置”失败，随后可编辑并保存 Provider、Base URL、温度和最大输出 Tokens。
+- V0.14A 完成 focused 回归：`npx vitest run src/pages/AgentDetail.test.tsx src/components/AgentCreateDialog.test.tsx src/api/agents.test.ts --reporter verbose` 3 个测试文件、10 项通过；`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests/test_agents_api.py apps/api/tests/test_v07a_migrations.py -q` 11 项通过。
+- V0.14A 完成全量验证：显式测试文件列表运行 `npx vitest run @($files) --reporter verbose` 27 个测试文件、107 项通过；`npm run lint` 通过；`npm run build` 通过，保留既有 Vite chunk size warning；`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 后端完整测试集通过。
+- V0.14A 完成浏览器验收：Agent 详情页显示“运行配置”，保存 `openai-compatible`、`https://api.deepseek.com`、`0.4` 和 `1600` 后刷新仍可读回；浏览器控制台新增 warning/error 为 0。
+- V0.14A 浏览器验收截图：`.scratch/v0.14a-agent-runtime-config.png`；验收结果：`.scratch/v0.14a-browser-result.json`。
 
 验证时没有发现浏览器控制台错误。
 

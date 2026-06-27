@@ -40,6 +40,8 @@ export function AgentDetail() {
   const [form, setForm] = useState<UpdateAgentInput | null>(null)
   const [toolsText, setToolsText] = useState('')
   const [skillsText, setSkillsText] = useState('')
+  const [temperatureText, setTemperatureText] = useState('0.2')
+  const [maxOutputTokensText, setMaxOutputTokensText] = useState('2000')
   const [feedback, setFeedback] = useState('')
   const [error, setError] = useState('')
   const [isBusy, setIsBusy] = useState(false)
@@ -59,12 +61,18 @@ export function AgentDetail() {
         role: nextAgent.role,
         owner: nextAgent.owner,
         model: nextAgent.model,
+        modelProvider: nextAgent.modelProvider,
+        modelBaseUrl: nextAgent.modelBaseUrl,
+        temperature: nextAgent.temperature,
+        maxOutputTokens: nextAgent.maxOutputTokens,
         systemPrompt: nextAgent.systemPrompt,
         tools: nextAgent.tools,
         skills: nextAgent.skills,
       })
       setToolsText(joinValues(nextAgent.tools))
       setSkillsText(joinValues(nextAgent.skills))
+      setTemperatureText(String(nextAgent.temperature))
+      setMaxOutputTokensText(String(nextAgent.maxOutputTokens))
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Agent 加载失败')
     }
@@ -79,15 +87,23 @@ export function AgentDetail() {
     setFeedback('')
   }
 
+  function buildAgentUpdateInput(formInput: UpdateAgentInput): UpdateAgentInput {
+    return {
+      ...formInput,
+      temperature: Number(temperatureText),
+      maxOutputTokens: Number(maxOutputTokensText),
+      tools: splitValues(toolsText),
+      skills: splitValues(skillsText),
+    }
+  }
+
   async function saveDraft() {
     if (!form) return
     setIsBusy(true)
     setError('')
     try {
       const saved = await updateAgent(workspace.id, agentId, {
-        ...form,
-        tools: splitValues(toolsText),
-        skills: splitValues(skillsText),
+        ...buildAgentUpdateInput(form),
       })
       setAgent(saved)
       setFeedback('草稿已保存')
@@ -104,9 +120,7 @@ export function AgentDetail() {
     try {
       if (form) {
         await updateAgent(workspace.id, agentId, {
-          ...form,
-          tools: splitValues(toolsText),
-          skills: splitValues(skillsText),
+          ...buildAgentUpdateInput(form),
         })
       }
       const version = await publishAgent(workspace.id, agentId)
@@ -211,6 +225,11 @@ export function AgentDetail() {
             <label className="form-field full"><span>职责</span><textarea disabled={disabled} rows={3} value={form.role} onChange={(event) => updateField('role', event.target.value)} /></label>
             <label className="form-field"><span>模型</span><input disabled={disabled} value={form.model} onChange={(event) => updateField('model', event.target.value)} /></label>
             <label className="form-field"><span>当前发布版本</span><input readOnly value={agent.version} /></label>
+            <div className="form-section-heading"><span>RUNTIME</span><strong>运行配置</strong></div>
+            <label className="form-field"><span>模型 Provider</span><input disabled={disabled} value={form.modelProvider ?? ''} onChange={(event) => updateField('modelProvider', event.target.value)} /></label>
+            <label className="form-field"><span>Base URL</span><input disabled={disabled} value={form.modelBaseUrl ?? ''} onChange={(event) => updateField('modelBaseUrl', event.target.value)} placeholder="https://api.deepseek.com" /></label>
+            <label className="form-field"><span>温度</span><input disabled={disabled} inputMode="decimal" value={temperatureText} onChange={(event) => setTemperatureText(event.target.value)} /></label>
+            <label className="form-field"><span>最大输出 Tokens</span><input disabled={disabled} inputMode="numeric" value={maxOutputTokensText} onChange={(event) => setMaxOutputTokensText(event.target.value)} /></label>
             <label className="form-field full prompt-field">
               <span><Sparkles size={14} />System Prompt</span>
               <textarea disabled={disabled} rows={10} value={form.systemPrompt} onChange={(event) => updateField('systemPrompt', event.target.value)} placeholder="定义 Agent 的职责、约束、输出格式和质量要求" />

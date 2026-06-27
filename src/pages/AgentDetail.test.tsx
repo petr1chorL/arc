@@ -17,6 +17,10 @@ const agent = {
   role: '完成结构化研究',
   owner: '产品组',
   model: 'GPT-5',
+  modelProvider: 'openai-compatible',
+  modelBaseUrl: '',
+  temperature: 0.2,
+  maxOutputTokens: 2000,
   status: '调试中',
   version: 'v0.1.0',
   passRate: 0,
@@ -82,6 +86,60 @@ describe('AgentDetail', () => {
 
     await user.click(screen.getByRole('button', { name: '停用 Agent' }))
     expect(await screen.findByText('已停用')).toBeInTheDocument()
+  })
+
+  it('edits Agent runtime configuration without API keys', async () => {
+    const user = userEvent.setup()
+    const savedAgent = {
+      ...agent,
+      modelProvider: 'openai-compatible',
+      modelBaseUrl: 'https://api.deepseek.com',
+      temperature: 0.4,
+      maxOutputTokens: 1600,
+    }
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (init?.method === 'PATCH') {
+        return Promise.resolve(new Response(JSON.stringify(savedAgent), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify(agent), { status: 200 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <WorkspaceProvider workspace={workspace}>
+        <MemoryRouter initialEntries={['/w/ai-capability-center/agents/agent-1']}>
+          <Routes>
+            <Route path="/w/ai-capability-center/agents/:agentId" element={<AgentDetail />} />
+          </Routes>
+        </MemoryRouter>
+      </WorkspaceProvider>,
+    )
+
+    expect(await screen.findByText('运行配置')).toBeInTheDocument()
+    await user.clear(screen.getByLabelText('模型 Provider'))
+    await user.type(screen.getByLabelText('模型 Provider'), 'openai-compatible')
+    await user.clear(screen.getByLabelText('Base URL'))
+    await user.type(screen.getByLabelText('Base URL'), 'https://api.deepseek.com')
+    await user.clear(screen.getByLabelText('温度'))
+    await user.type(screen.getByLabelText('温度'), '0.4')
+    await user.clear(screen.getByLabelText('最大输出 Tokens'))
+    await user.type(screen.getByLabelText('最大输出 Tokens'), '1600')
+
+    await user.click(screen.getByRole('button', { name: '保存草稿' }))
+
+    const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH')
+    const patchBody = JSON.parse(patchCall?.[1]?.body as string)
+    expect(patchBody).toEqual(expect.objectContaining({
+      modelProvider: 'openai-compatible',
+      modelBaseUrl: 'https://api.deepseek.com',
+      temperature: 0.4,
+      maxOutputTokens: 1600,
+    }))
+    expect(patchBody).not.toHaveProperty('apiKey')
+    expect(await screen.findByRole('status')).toBeInTheDocument()
   })
 
   it('runs a published Agent and shows the persisted result', async () => {

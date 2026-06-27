@@ -169,8 +169,18 @@ class AgentCreate(BaseModel):
     role: str = Field(max_length=240)
     owner: str = Field(max_length=80)
     model: str = Field(max_length=80)
+    model_provider: str = Field(
+        default="openai-compatible",
+        alias="modelProvider",
+        max_length=80,
+    )
+    model_base_url: str = Field(default="", alias="modelBaseUrl", max_length=500)
+    temperature: float = Field(default=0.2, ge=0, le=2)
+    max_output_tokens: int = Field(default=2000, alias="maxOutputTokens", ge=1, le=200000)
 
-    @field_validator("name", "role", "owner", "model")
+    model_config = ConfigDict(populate_by_name=True)
+
+    @field_validator("name", "role", "owner", "model", "model_provider")
     @classmethod
     def reject_blank_values(cls, value: str) -> str:
         normalized = value.strip()
@@ -178,19 +188,33 @@ class AgentCreate(BaseModel):
             raise ValueError("字段不能为空")
         return normalized
 
+    @field_validator("model_base_url")
+    @classmethod
+    def strip_optional_model_base_url(cls, value: str) -> str:
+        return value.strip()
+
 
 class AgentUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=80)
     role: str | None = Field(default=None, max_length=240)
     owner: str | None = Field(default=None, max_length=80)
     model: str | None = Field(default=None, max_length=80)
+    model_provider: str | None = Field(default=None, alias="modelProvider", max_length=80)
+    model_base_url: str | None = Field(default=None, alias="modelBaseUrl", max_length=500)
+    temperature: float | None = Field(default=None, ge=0, le=2)
+    max_output_tokens: int | None = Field(
+        default=None,
+        alias="maxOutputTokens",
+        ge=1,
+        le=200000,
+    )
     system_prompt: str | None = Field(default=None, alias="systemPrompt", max_length=20000)
     tools: list[str] | None = None
     skills: list[str] | None = None
 
     model_config = ConfigDict(populate_by_name=True)
 
-    @field_validator("name", "role", "owner", "model")
+    @field_validator("name", "role", "owner", "model", "model_provider")
     @classmethod
     def reject_blank_values(cls, value: str | None) -> str | None:
         if value is None:
@@ -200,6 +224,13 @@ class AgentUpdate(BaseModel):
             raise ValueError("字段不能为空")
         return normalized
 
+    @field_validator("model_base_url")
+    @classmethod
+    def strip_optional_model_base_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        return value.strip()
+
 
 class AgentRead(BaseModel):
     id: str
@@ -207,6 +238,10 @@ class AgentRead(BaseModel):
     role: str
     owner: str
     model: str
+    model_provider: str = Field(serialization_alias="modelProvider")
+    model_base_url: str = Field(serialization_alias="modelBaseUrl")
+    temperature: float
+    max_output_tokens: int = Field(serialization_alias="maxOutputTokens")
     status: str
     version: str
     pass_rate: float = Field(serialization_alias="passRate")

@@ -8,7 +8,7 @@ interface AgentCreateDialogProps {
   onSubmit: (input: CreateAgentInput) => Promise<void>
 }
 
-type FieldName = keyof CreateAgentInput
+type FieldName = 'name' | 'role' | 'owner' | 'model'
 
 const emptyForm: CreateAgentInput = {
   name: '',

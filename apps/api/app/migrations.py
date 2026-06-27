@@ -642,6 +642,10 @@ def ensure_current_schema(engine: Engine) -> None:
         {
             "skills": "TEXT NOT NULL DEFAULT '[]'",
             "system_prompt": "TEXT NOT NULL DEFAULT ''",
+            "model_provider": "VARCHAR(80) NOT NULL DEFAULT 'openai-compatible'",
+            "model_base_url": "VARCHAR(500) NOT NULL DEFAULT ''",
+            "temperature": "FLOAT NOT NULL DEFAULT 0.2",
+            "max_output_tokens": "INTEGER NOT NULL DEFAULT 2000",
         },
     )
     ensure_columns(

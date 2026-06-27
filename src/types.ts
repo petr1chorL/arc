@@ -85,6 +85,10 @@ export interface Agent {
   role: string
   owner: string
   model: string
+  modelProvider: string
+  modelBaseUrl: string
+  temperature: number
+  maxOutputTokens: number
   status: AgentStatus
   version: string
   passRate: number

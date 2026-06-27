@@ -7,6 +7,10 @@ export interface CreateAgentInput {
   role: string
   owner: string
   model: string
+  modelProvider?: string
+  modelBaseUrl?: string
+  temperature?: number
+  maxOutputTokens?: number
 }
 
 export { ApiError as AgentApiError }
