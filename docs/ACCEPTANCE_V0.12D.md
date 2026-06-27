@@ -13,12 +13,12 @@ V0.12D 第一切片把评估中心从“只有确定性评分器”推进到“R
 - LLM Judge 结果会保存维度分、总分、状态、理由、模型和可复现输入快照。
 - 默认 `ModelJudgeGateway` 会通过现有 OpenAI-compatible `ModelGateway` 请求 Judge 模型，并解析 JSON 评分结果。
 - `ModelJudgeGateway` 会校验 Judge 返回的维度分结构，并在解析失败时重试。
+- Judge 输入快照和系统提示词包含 `judgePromptVersion=llm-judge-v1`。
 - 前端 Rubric 配置弹窗支持选择确定性评分器或 LLM Judge，并保存 Judge 模型。
 - 旧 SQLite 表会自动补 Rubric 与 Evaluation 新字段。
 
 ## 没有完成的内容
 
-- 更严格的 Judge Prompt 版本管理。
 - LLM Judge 的批量校准、一致性评估和成本统计。
 
 ## 自动化验收
@@ -48,7 +48,7 @@ apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests/test_judge_gateway.py
 预期结果：
 
 - 18 项通过。
-- 覆盖 ModelJudgeGateway JSON 解析、解析失败重试、维度分 schema 校验、评估中心和 OpenAI-compatible ModelGateway 回归。
+- 覆盖 ModelJudgeGateway JSON 解析、Prompt 版本记录、解析失败重试、维度分 schema 校验、评估中心和 OpenAI-compatible ModelGateway 回归。
 
 ```powershell
 npm test -- --run src/pages/Evaluations.test.tsx

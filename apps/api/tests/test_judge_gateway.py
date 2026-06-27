@@ -65,9 +65,11 @@ def test_model_judge_gateway_parses_structured_json_result():
     assert result.rationale == "Evidence is strong and actions are clear."
     assert result.model == "deepseek-v4-pro"
     assert result.input_snapshot["rubricVersion"] == "v1.0"
+    assert result.input_snapshot["judgePromptVersion"] == "llm-judge-v1"
     assert result.input_snapshot["artifactText"] == "Evidence-backed plan with owner and next action."
     assert gateway.calls[0]["model"] == "deepseek-v4-pro"
     assert "Return JSON only" in gateway.calls[0]["system_prompt"]
+    assert "llm-judge-v1" in gateway.calls[0]["system_prompt"]
 
 
 def test_model_judge_gateway_retries_invalid_json_payload_once():

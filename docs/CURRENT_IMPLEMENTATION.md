@@ -392,6 +392,7 @@ React Flow 节点/连线
 - `judgeType=llm` 的 Rubric 直接评估会通过可注入 Judge Gateway 执行。
 - 默认 `ModelJudgeGateway` 会构造 Judge 输入快照、调用 OpenAI-compatible ModelGateway，并解析 JSON 评分结果。
 - `ModelJudgeGateway` 会校验维度分 schema，并在 Judge 返回不可解析结果时重试。
+- `ModelJudgeGateway` 的 Judge 输入快照和系统提示词包含 `judgePromptVersion=llm-judge-v1`。
 - 展示 Evaluation 历史记录列表，包含记录 ID、Rubric 快照名称、评估对象、版本、维度分、总分、状态和评分说明。
 - 支持按 `passed` / `failed` 状态筛选评估记录。
 - 支持按 Rubric 筛选评估记录；历史记录引用的 Rubric 即使不在当前 Rubric 列表中，也会以记录快照名称出现在筛选项里。
@@ -466,7 +467,7 @@ POST /api/workspaces/{workspace_id}/evaluations/remediation-tasks/{task_id}/rete
 
 未实现：
 
-- 更严格的 LLM Judge Prompt 版本管理、校准和成本统计。
+- LLM Judge 校准和成本统计。
 - Golden Set 样本导入、导出、版本对比和停用。
 - 定时调度、后台队列、Run 取消、Run 重试和异步回归任务。
 - 评价一致性校准。
@@ -872,6 +873,7 @@ TypeScript 编译检查
 - V0.12D 完成 ModelJudgeGateway RED/GREEN 测试：首次因 `ModelJudgeGateway` 不存在失败，随后可通过 Fake ModelGateway 解析 JSON 评分结果。
 - V0.12D 完成 Judge 网关相关回归验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests/test_judge_gateway.py apps/api/tests/test_evaluations_api.py apps/api/tests/test_model_gateway.py -q`，18 项通过。
 - V0.12D 完成 Judge schema 与重试 RED/GREEN 测试：首次因 `max_attempts` 不存在失败，随后无效 JSON 可重试一次后成功，缺失维度权重会被拒绝。
+- V0.12D 完成 Judge Prompt 版本 RED/GREEN 测试：首次因 `judgePromptVersion` 缺失失败，随后输入快照和系统提示词均包含 `llm-judge-v1`。
 - V0.12D 完成 Rubric Judge 前端配置 RED/GREEN 测试：首次因页面缺少“评分器类型”控件失败，随后创建 LLM Judge Rubric 时可提交 `judgeType=llm` 与 `judgeModel`。
 - V0.12D 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 170 项通过；`npm test -- --run` 27 个测试文件、97 项测试通过；`npm run lint` 通过；`npm run build` 通过。
 - V0.12D 完成浏览器验收：评估中心 Rubric 弹窗中“评分器类型”控件唯一；默认隐藏 Judge 模型；切换为 LLM Judge 后模型输入出现并可填写 `deepseek-v4-pro`；浏览器控制台新增 error/warn 为 0。

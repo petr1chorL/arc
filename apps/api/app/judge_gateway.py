@@ -42,6 +42,8 @@ class DisabledJudgeGateway:
 
 
 class ModelJudgeGateway:
+    PROMPT_VERSION = "llm-judge-v1"
+
     def __init__(self, gateway: ModelGateway, max_attempts: int = 2):
         self.gateway = gateway
         self.max_attempts = max(1, max_attempts)
@@ -58,6 +60,7 @@ class ModelJudgeGateway:
         input_snapshot = {
             "rubricSnapshot": rubric_snapshot,
             "rubricVersion": rubric_version,
+            "judgePromptVersion": self.PROMPT_VERSION,
             "artifactText": artifact_text,
             "subjectType": subject_type,
             "subjectId": subject_id,
@@ -90,6 +93,7 @@ class ModelJudgeGateway:
     def _system_prompt() -> str:
         return (
             "You are an evaluation judge for enterprise AI workflow artifacts. "
+            f"Prompt version: {ModelJudgeGateway.PROMPT_VERSION}. "
             "Return JSON only with keys: dimensionScores, score, status, rationale. "
             "dimensionScores must contain name, weight, score. status must be passed or failed."
         )
