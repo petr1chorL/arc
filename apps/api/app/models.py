@@ -595,6 +595,20 @@ class RemediationTaskRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class RemediationTaskActivityRecord(Base):
+    __tablename__ = "remediation_task_activities"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    task_id: Mapped[str] = mapped_column(String(36), index=True)
+    kind: Mapped[str] = mapped_column(String(32))
+    body: Mapped[str] = mapped_column(Text)
+    attachment_refs: Mapped[list[str]] = mapped_column(JSON, default=list)
+    actor_user_id: Mapped[str] = mapped_column(String(36))
+    actor_display_name: Mapped[str] = mapped_column(String(160))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class RubricRecord(Base):
     __tablename__ = "rubrics"
     __table_args__ = (

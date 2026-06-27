@@ -17,6 +17,7 @@ import {
 import {
   createRegressionSample,
   createRegressionSampleSet,
+  createRemediationTaskActivity,
   createRemediationTask,
   createRegressionRun,
   createRubric,
@@ -202,6 +203,13 @@ function getDefaultRemediationDueDate() {
   const dueDate = new Date()
   dueDate.setDate(dueDate.getDate() + 7)
   return dueDate.toISOString()
+}
+
+function parseAttachmentRefs(value: string) {
+  return value
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
 }
 
 function classifyRecordChange(baseRecord: EvaluationRecord | undefined, targetRecord: EvaluationRecord) {
@@ -539,6 +547,8 @@ export function Evaluations() {
   const [remediationOwnerFilter, setRemediationOwnerFilter] = useState('all')
   const [remediationPriorityFilter, setRemediationPriorityFilter] = useState('all')
   const [remediationOverdueFilter, setRemediationOverdueFilter] = useState('all')
+  const [remediationCommentTextByTaskId, setRemediationCommentTextByTaskId] = useState<Record<string, string>>({})
+  const [remediationAttachmentRefsByTaskId, setRemediationAttachmentRefsByTaskId] = useState<Record<string, string>>({})
 
   const remediationTaskFilters = useMemo<RemediationTaskFilters>(() => ({
     owner: remediationOwnerFilter === 'all' ? undefined : remediationOwnerFilter,
@@ -1098,6 +1108,33 @@ export function Evaluations() {
       upsertRemediationTask(await updateRemediationTask(workspace.id, task.id, nextStatus))
     } catch (taskError) {
       setRemediationTaskError(taskError instanceof Error ? taskError.message : '修复任务更新失败')
+    } finally {
+      setRemediationTaskBusyId('')
+    }
+  }
+
+  async function submitTaskComment(task: RemediationTask) {
+    const body = (remediationCommentTextByTaskId[task.id] ?? '').trim()
+    if (!body) {
+      setRemediationTaskError('评论内容不能为空')
+      return
+    }
+    setRemediationTaskBusyId(task.id)
+    setRemediationTaskError('')
+    try {
+      const activity = await createRemediationTaskActivity(workspace.id, task.id, {
+        body,
+        attachmentRefs: parseAttachmentRefs(remediationAttachmentRefsByTaskId[task.id] ?? ''),
+      })
+      setRemediationTasks((current) => current.map((currentTask) => (
+        currentTask.id === task.id
+          ? { ...currentTask, activities: [...(currentTask.activities ?? []), activity] }
+          : currentTask
+      )))
+      setRemediationCommentTextByTaskId((current) => ({ ...current, [task.id]: '' }))
+      setRemediationAttachmentRefsByTaskId((current) => ({ ...current, [task.id]: '' }))
+    } catch (taskError) {
+      setRemediationTaskError(taskError instanceof Error ? taskError.message : '评论提交失败')
     } finally {
       setRemediationTaskBusyId('')
     }
@@ -1733,6 +1770,61 @@ export function Evaluations() {
                             发起复测
                           </button>
                         )}
+                      </div>
+                      <div className="remediation-activity-panel">
+                        <h5>处理时间线</h5>
+                        {(task.activities ?? []).length > 0 ? (
+                          <div className="remediation-activity-list">
+                            {task.activities.map((activity) => (
+                              <article className="remediation-activity-item" key={activity.id}>
+                                <div>
+                                  <span>{activity.kind === 'comment' ? '评论' : '处理记录'}</span>
+                                  <strong>{activity.actorDisplayName}</strong>
+                                  <time>{formatDateOnly(activity.createdAt)}</time>
+                                </div>
+                                <p>{activity.body}</p>
+                                {activity.attachmentRefs.map((attachmentRef) => (
+                                  <em key={attachmentRef}>附件 {attachmentRef}</em>
+                                ))}
+                              </article>
+                            ))}
+                          </div>
+                        ) : (
+                          <p>暂无处理记录</p>
+                        )}
+                        <div className="remediation-comment-form">
+                          <label>
+                            评论内容
+                            <textarea
+                              aria-label="评论内容"
+                              value={remediationCommentTextByTaskId[task.id] ?? ''}
+                              onChange={(event) => setRemediationCommentTextByTaskId((current) => ({
+                                ...current,
+                                [task.id]: event.target.value,
+                              }))}
+                            />
+                          </label>
+                          <label>
+                            附件引用
+                            <input
+                              aria-label="附件引用"
+                              value={remediationAttachmentRefsByTaskId[task.id] ?? ''}
+                              onChange={(event) => setRemediationAttachmentRefsByTaskId((current) => ({
+                                ...current,
+                                [task.id]: event.target.value,
+                              }))}
+                              placeholder="lark://doc/... 或 drive://artifact/..."
+                            />
+                          </label>
+                          <button
+                            className="button secondary small"
+                            type="button"
+                            disabled={remediationTaskBusyId === task.id}
+                            onClick={() => void submitTaskComment(task)}
+                          >
+                            提交评论
+                          </button>
+                        </div>
                       </div>
                       {task.retestRun && (
                         <div className="remediation-retest-result">

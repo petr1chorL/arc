@@ -2494,6 +2494,99 @@ kbd {
   overflow-wrap: anywhere;
 }
 
+.remediation-activity-panel {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.28);
+  box-shadow: var(--shadow-inset);
+}
+
+.remediation-activity-panel h5 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.remediation-activity-panel > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.remediation-activity-list {
+  display: grid;
+  gap: 8px;
+}
+
+.remediation-activity-item {
+  display: grid;
+  gap: 6px;
+  padding: 9px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.34);
+  box-shadow: var(--shadow-raised-sm);
+}
+
+.remediation-activity-item div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.remediation-activity-item span,
+.remediation-activity-item time,
+.remediation-activity-item em {
+  border-radius: 999px;
+  padding: 5px 7px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.38);
+  box-shadow: var(--shadow-inset);
+  font-size: 10px;
+  font-style: normal;
+  overflow-wrap: anywhere;
+}
+
+.remediation-activity-item strong {
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.remediation-comment-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.remediation-comment-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.remediation-comment-form input,
+.remediation-comment-form textarea {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.36);
+  box-shadow: var(--shadow-inset);
+  font: inherit;
+}
+
+.remediation-comment-form textarea {
+  min-height: 38px;
+  resize: vertical;
+}
+
 .remediation-retest-result {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto auto;

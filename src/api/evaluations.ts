@@ -1,6 +1,7 @@
 import type {
   EvaluationRecord,
   EvaluationOverview,
+  RemediationTaskActivity,
   RemediationTask,
   RegressionRun,
   RegressionSample,
@@ -57,6 +58,11 @@ export interface RemediationTaskFilters {
   owner?: string
   priority?: RemediationTask['priority']
   overdue?: boolean
+}
+
+export interface RemediationTaskActivityInput {
+  body: string
+  attachmentRefs: string[]
 }
 
 function workspacePath(workspaceId: string, path = '') {
@@ -178,6 +184,20 @@ export async function updateRemediationTask(
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: nextStatus }),
+    }),
+  )
+}
+
+export async function createRemediationTaskActivity(
+  workspaceId: string,
+  taskId: string,
+  input: RemediationTaskActivityInput,
+): Promise<RemediationTaskActivity> {
+  return readJson<RemediationTaskActivity>(
+    await apiFetch(workspacePath(workspaceId, `/remediation-tasks/${taskId}/activities`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
     }),
   )
 }

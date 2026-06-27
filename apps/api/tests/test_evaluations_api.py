@@ -352,6 +352,62 @@ def test_remediation_tasks_support_owner_due_date_and_filters(tmp_path):
     assert [item["title"] for item in overdue_only.json()] == ["修复 Evidence 偏低"]
 
 
+def test_remediation_task_activities_record_comments_and_status_changes(tmp_path):
+    client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'arc-one.db'}")
+    task = client.post(
+        workspace_url(workspace_id, "/evaluations/remediation-tasks"),
+        json={
+            "sourceRunId": "run-remediation-activity-1",
+            "clusterKey": "Evidence",
+            "title": "修复 Evidence 偏低",
+            "priority": "P1",
+            "sampleIds": ["sample-a"],
+            "action": "补齐证据",
+            "owner": "产品审核人",
+            "dueDate": "2099-01-01T00:00:00Z",
+        },
+        headers=csrf_headers(client),
+    ).json()
+
+    comment = client.post(
+        workspace_url(workspace_id, f"/evaluations/remediation-tasks/{task['id']}/activities"),
+        json={
+            "body": "已补充竞品来源和截图证据",
+            "attachmentRefs": ["lark://doc/evidence-note", "drive://artifact/screenshot-1"],
+        },
+        headers=csrf_headers(client),
+    )
+
+    assert comment.status_code == 201
+    created_comment = comment.json()
+    assert created_comment["kind"] == "comment"
+    assert created_comment["body"] == "已补充竞品来源和截图证据"
+    assert created_comment["attachmentRefs"] == ["lark://doc/evidence-note", "drive://artifact/screenshot-1"]
+    assert created_comment["actorDisplayName"] == "Organization Admin"
+
+    updated = client.patch(
+        workspace_url(workspace_id, f"/evaluations/remediation-tasks/{task['id']}"),
+        json={"status": "in_progress"},
+        headers=csrf_headers(client),
+    )
+
+    assert updated.status_code == 200
+    activities = updated.json()["activities"]
+    assert [activity["kind"] for activity in activities] == ["comment", "status_change"]
+    assert activities[0]["body"] == "已补充竞品来源和截图证据"
+    assert activities[1]["body"] == "状态变更：open -> in_progress"
+
+    listed = client.get(workspace_url(workspace_id, "/evaluations/remediation-tasks"))
+
+    assert listed.status_code == 200
+    listed_task = listed.json()[0]
+    assert listed_task["activities"][0]["attachmentRefs"] == [
+        "lark://doc/evidence-note",
+        "drive://artifact/screenshot-1",
+    ]
+    assert listed_task["activities"][1]["kind"] == "status_change"
+
+
 def test_completed_remediation_task_can_start_retest_run(tmp_path):
     client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'arc-one.db'}")
     rubric = client.post(

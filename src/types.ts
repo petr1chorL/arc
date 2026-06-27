@@ -435,6 +435,17 @@ export interface RegressionRun {
 
 export type RemediationTaskStatus = 'open' | 'in_progress' | 'done'
 
+export interface RemediationTaskActivity {
+  id: string
+  taskId: string
+  kind: 'comment' | 'status_change' | string
+  body: string
+  attachmentRefs: string[]
+  actorUserId: string
+  actorDisplayName: string
+  createdAt: string
+}
+
 export interface RemediationTask {
   id: string
   sourceRunId: string
@@ -447,6 +458,7 @@ export interface RemediationTask {
   owner: string | null
   dueDate: string | null
   isOverdue: boolean
+  activities: RemediationTaskActivity[]
   retestRunId: string | null
   retestRun: RegressionRun | null
   createdBy: string

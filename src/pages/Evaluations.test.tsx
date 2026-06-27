@@ -1252,6 +1252,16 @@ describe('Evaluations page', () => {
       sampleIds: string[]
       action: string
       status: string
+      activities: Array<{
+        id: string
+        taskId: string
+        kind: string
+        body: string
+        attachmentRefs: string[]
+        actorUserId: string
+        actorDisplayName: string
+        createdAt: string
+      }>
       retestRunId: string | null
       retestRun: unknown | null
       createdBy: string
@@ -1336,6 +1346,7 @@ describe('Evaluations page', () => {
             owner: '产品审核人',
             dueDate: '2024-01-01T00:00:00Z',
             isOverdue: true,
+            activities: [],
             status: 'open',
             retestRunId: null,
             retestRun: null,
@@ -1348,6 +1359,27 @@ describe('Evaluations page', () => {
           return response(created, 201)
         }
         return response(remediationTasks)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/remediation-tasks/remediation-task-1/activities`) {
+        const payload = JSON.parse(String(init?.body)) as {
+          body: string
+          attachmentRefs: string[]
+        }
+        const activity = {
+          id: 'activity-comment-1',
+          taskId: 'remediation-task-1',
+          kind: 'comment',
+          body: payload.body,
+          attachmentRefs: payload.attachmentRefs,
+          actorUserId: 'user-1',
+          actorDisplayName: 'Organization Admin',
+          createdAt: '2026-06-27T00:31:30Z',
+        }
+        remediationTasks[0] = {
+          ...remediationTasks[0],
+          activities: [...(remediationTasks[0].activities ?? []), activity],
+        }
+        return response(activity, 201)
       }
       if (input === `/api/workspaces/${workspace.id}/evaluations/remediation-tasks/remediation-task-1`) {
         const payload = JSON.parse(String(init?.body)) as { status: string }
@@ -1412,6 +1444,14 @@ describe('Evaluations page', () => {
     expect(within(taskList).getByText('负责人 产品审核人')).toBeInTheDocument()
     expect(within(taskList).getByText('截止 2024-01-01')).toBeInTheDocument()
     expect(within(taskList).getByText('已逾期')).toBeInTheDocument()
+    expect(within(taskList).getByText('处理时间线')).toBeInTheDocument()
+
+    await user.type(within(taskList).getByLabelText('评论内容'), '已补充竞品来源和截图证据')
+    await user.type(within(taskList).getByLabelText('附件引用'), 'lark://doc/evidence-note')
+    await user.click(within(taskList).getByRole('button', { name: '提交评论' }))
+    expect(await within(taskList).findByText('已补充竞品来源和截图证据')).toBeInTheDocument()
+    expect(within(taskList).getByText('附件 lark://doc/evidence-note')).toBeInTheDocument()
+    expect(within(taskList).getByText('Organization Admin')).toBeInTheDocument()
 
     await user.selectOptions(within(taskList).getByLabelText('负责人筛选'), '产品审核人')
     await user.selectOptions(within(taskList).getByLabelText('优先级筛选'), 'P1')

@@ -41,6 +41,7 @@ WORKSPACE_TABLES = (
     "regression_samples",
     "regression_runs",
     "remediation_tasks",
+    "remediation_task_activities",
     "rubrics",
     "rubric_versions",
     "evaluations",

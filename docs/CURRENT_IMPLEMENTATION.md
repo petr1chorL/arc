@@ -1,6 +1,6 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.11A 修复任务负责人、截止时间和优先级筛选
+> 对应版本：V0.11B 修复任务评论与处理记录
 > 上一阶段：V0.8F 轻量告警 / 通知 Outbox
 > 更新时间：2026-06-27
 
@@ -395,6 +395,10 @@ React Flow 节点/连线
 - 新创建的修复任务由前端带默认负责人和 7 天后截止时间，后端以当前用户作为负责人兜底。
 - `GET /remediation-tasks` 支持按 `owner`、`priority` 和 `overdue` 查询参数筛选。
 - `Remediation Tasks` 区域展示负责人筛选、优先级筛选和逾期筛选。
+- Remediation Task 支持处理活动记录，包含评论和状态变化。
+- `POST /remediation-tasks/{taskId}/activities` 可创建评论并保存附件引用。
+- 状态流转会自动写入 `status_change` 处理记录。
+- `Remediation Tasks` 任务卡展示处理时间线和评论提交表单。
 - 页面展示 `Evaluation Loop Board`，从失败原因组、Remediation Task、复测 Run 和未关闭风险派生闭环指标。
 - 闭环看板展示失败原因组数、修复任务数、未关闭风险数、已复测任务数、最近复测通过率和下一步建议。
 - V0.10J 看板为前端派生视图，不新增后端接口。
@@ -798,6 +802,10 @@ TypeScript 编译检查
 - V0.11A 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q`、`npm test -- --run`、`npm run lint`、`npm run build` 均通过。
 - V0.11A 完成真实浏览器验收：评估中心 `Remediation Tasks` 区域可见负责人筛选、优先级筛选、逾期筛选和任务卡运营字段，本次验证期间新增 console warning/error 为 0。
 - V0.11A 浏览器验收截图：`.scratch/v0.11a-remediation-ownership.png`；验收结果：`.scratch/v0.11a-browser-result.json`。
+- V0.11B 完成 focused 自动化测试：后端支持创建 Remediation Task 评论、保存附件引用、状态变化自动写入处理记录；前端任务卡展示处理时间线并支持提交评论。
+- V0.11B 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q`、`npm test -- --run`、`npm run lint`、`npm run build` 均通过。
+- V0.11B 完成真实浏览器验收：评估中心 `Remediation Tasks` 区域可见处理时间线和评论表单，提交评论后出现正文与附件引用，本次验证期间新增 console warning/error 为 0。
+- V0.11B 浏览器验收截图：`.scratch/v0.11b-remediation-activity.png`；验收结果：`.scratch/v0.11b-browser-result.json`。
 
 验证时没有发现浏览器控制台错误。
 

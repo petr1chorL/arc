@@ -902,6 +902,44 @@ class RemediationTaskUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class RemediationTaskActivityCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=4000)
+    attachment_refs: list[str] = Field(default_factory=list, alias="attachmentRefs", max_length=10)
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    @field_validator("body")
+    @classmethod
+    def reject_blank_body(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("body cannot be blank")
+        return normalized
+
+    @field_validator("attachment_refs")
+    @classmethod
+    def normalize_attachment_refs(cls, value: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for attachment_ref in value:
+            cleaned = attachment_ref.strip()
+            if cleaned and cleaned not in normalized:
+                normalized.append(cleaned[:500])
+        return normalized
+
+
+class RemediationTaskActivityRead(BaseModel):
+    id: str
+    task_id: str = Field(serialization_alias="taskId")
+    kind: str
+    body: str
+    attachment_refs: list[str] = Field(serialization_alias="attachmentRefs")
+    actor_user_id: str = Field(serialization_alias="actorUserId")
+    actor_display_name: str = Field(serialization_alias="actorDisplayName")
+    created_at: datetime = Field(serialization_alias="createdAt")
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
 class RemediationTaskRead(BaseModel):
     id: str
     source_run_id: str = Field(serialization_alias="sourceRunId")
@@ -916,6 +954,7 @@ class RemediationTaskRead(BaseModel):
     is_overdue: bool = Field(serialization_alias="isOverdue")
     retest_run_id: str | None = Field(default=None, serialization_alias="retestRunId")
     retest_run: RegressionRunRead | None = Field(default=None, serialization_alias="retestRun")
+    activities: list[RemediationTaskActivityRead] = Field(default_factory=list)
     created_by: str = Field(serialization_alias="createdBy")
     updated_by: str = Field(serialization_alias="updatedBy")
     created_at: datetime = Field(serialization_alias="createdAt")

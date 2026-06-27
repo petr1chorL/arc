@@ -31,6 +31,7 @@ from app.models import (
     RegressionRunRecord,
     RegressionSampleRecord,
     RegressionSampleSetRecord,
+    RemediationTaskActivityRecord,
     RemediationTaskRecord,
     ReviewerRecord,
     ReviewGroupRecord,
@@ -88,6 +89,8 @@ from app.schemas import (
     RegressionSampleSetCreate,
     RegressionSampleSetRead,
     RemediationTaskCreate,
+    RemediationTaskActivityCreate,
+    RemediationTaskActivityRead,
     RemediationTaskRead,
     RemediationTaskUpdate,
     ObservabilityTotalsRead,
@@ -1950,6 +1953,7 @@ def create_app(
     def remediation_task_to_read(
         task: RemediationTaskRecord,
         retest_run: dict | None = None,
+        activities: list[RemediationTaskActivityRecord] | None = None,
     ) -> dict:
         return {
             "id": task.id,
@@ -1965,11 +1969,70 @@ def create_app(
             "is_overdue": is_remediation_task_overdue(task),
             "retest_run_id": task.retest_run_id,
             "retest_run": retest_run,
+            "activities": [
+                remediation_task_activity_to_read(activity)
+                for activity in (activities or [])
+            ],
             "created_by": task.created_by,
             "updated_by": task.updated_by,
             "created_at": task.created_at,
             "updated_at": task.updated_at,
         }
+
+    def remediation_task_activity_to_read(activity: RemediationTaskActivityRecord) -> dict:
+        return {
+            "id": activity.id,
+            "task_id": activity.task_id,
+            "kind": activity.kind,
+            "body": activity.body,
+            "attachment_refs": activity.attachment_refs,
+            "actor_user_id": activity.actor_user_id,
+            "actor_display_name": activity.actor_display_name,
+            "created_at": activity.created_at,
+        }
+
+    def list_remediation_task_activities(
+        session: Session,
+        workspace_id: str,
+        task_ids: list[str],
+    ) -> dict[str, list[RemediationTaskActivityRecord]]:
+        if not task_ids:
+            return {}
+        activities = list(session.scalars(
+            select(RemediationTaskActivityRecord)
+            .where(
+                RemediationTaskActivityRecord.workspace_id == workspace_id,
+                RemediationTaskActivityRecord.task_id.in_(task_ids),
+            )
+            .order_by(RemediationTaskActivityRecord.created_at.asc()),
+        ))
+        grouped: dict[str, list[RemediationTaskActivityRecord]] = {}
+        for activity in activities:
+            grouped.setdefault(activity.task_id, []).append(activity)
+        return grouped
+
+    def create_remediation_task_activity(
+        *,
+        session: Session,
+        context: RequestContext,
+        task_id: str,
+        kind: str,
+        body: str,
+        attachment_refs: list[str] | None = None,
+    ) -> RemediationTaskActivityRecord:
+        activity = RemediationTaskActivityRecord(
+            workspace_id=context.workspace.id,
+            task_id=task_id,
+            kind=kind,
+            body=body,
+            attachment_refs=attachment_refs or [],
+            actor_user_id=context.user.id,
+            actor_display_name=context.user.display_name,
+            created_at=utc_now(),
+        )
+        session.add(activity)
+        session.flush()
+        return activity
 
     def is_remediation_task_overdue(task: RemediationTaskRecord) -> bool:
         if task.status == "done" or task.due_date is None:
@@ -2252,7 +2315,15 @@ def create_app(
         ))
         if overdue is not None:
             tasks = [task for task in tasks if is_remediation_task_overdue(task) is overdue]
-        return [remediation_task_to_read(task) for task in tasks]
+        activities_by_task_id = list_remediation_task_activities(
+            session,
+            context.workspace.id,
+            [task.id for task in tasks],
+        )
+        return [
+            remediation_task_to_read(task, activities=activities_by_task_id.get(task.id, []))
+            for task in tasks
+        ]
 
     @router.post(
         "/evaluations/remediation-tasks",
@@ -2316,6 +2387,57 @@ def create_app(
         session.refresh(task)
         return remediation_task_to_read(task)
 
+    @router.post(
+        "/evaluations/remediation-tasks/{task_id}/activities",
+        response_model=RemediationTaskActivityRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_remediation_task_comment(
+        task_id: str,
+        payload: RemediationTaskActivityCreate,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> dict:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "evaluation.run",
+            action="evaluation.remediation_task.comment",
+            target_type="remediation_task",
+            target_id=task_id,
+            request=request,
+        )
+        task = session.scalar(
+            select(RemediationTaskRecord).where(
+                RemediationTaskRecord.workspace_id == context.workspace.id,
+                RemediationTaskRecord.id == task_id,
+            ),
+        )
+        if task is None:
+            raise HTTPException(status_code=404, detail="remediation task not found")
+        activity = create_remediation_task_activity(
+            session=session,
+            context=context,
+            task_id=task.id,
+            kind="comment",
+            body=payload.body,
+            attachment_refs=payload.attachment_refs,
+        )
+        task.updated_by = context.user.id
+        task.updated_at = utc_now()
+        record_success(
+            session,
+            context,
+            action="evaluation.remediation_task.comment",
+            target_type="remediation_task",
+            target_id=task.id,
+            request=request,
+        )
+        session.commit()
+        session.refresh(activity)
+        return remediation_task_activity_to_read(activity)
+
     @router.patch(
         "/evaluations/remediation-tasks/{task_id}",
         response_model=RemediationTaskRead,
@@ -2344,9 +2466,18 @@ def create_app(
         )
         if task is None:
             raise HTTPException(status_code=404, detail="remediation task not found")
+        previous_status = task.status
         task.status = payload.status
         task.updated_by = context.user.id
         task.updated_at = utc_now()
+        if previous_status != payload.status:
+            create_remediation_task_activity(
+                session=session,
+                context=context,
+                task_id=task.id,
+                kind="status_change",
+                body=f"状态变更：{previous_status} -> {payload.status}",
+            )
         record_success(
             session,
             context,
@@ -2357,7 +2488,8 @@ def create_app(
         )
         session.commit()
         session.refresh(task)
-        return remediation_task_to_read(task)
+        activities = list_remediation_task_activities(session, context.workspace.id, [task.id])
+        return remediation_task_to_read(task, activities=activities.get(task.id, []))
 
     @router.post(
         "/evaluations/remediation-tasks/{task_id}/retest",
