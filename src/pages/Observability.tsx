@@ -15,7 +15,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { cancelExecutionJob, listExecutionJobs, requeueExecutionJob } from '../api/execution'
+import { cancelExecutionJob, getExecutionJob, listExecutionJobs, requeueExecutionJob } from '../api/execution'
 import {
   getCostUsageOverview,
   getHumanSlaOverview,
@@ -29,6 +29,7 @@ import type {
   CostUsageGroup,
   CostUsageOverview,
   ExecutionJob,
+  ExecutionJobDetail,
   HumanSlaOverview,
   HumanSlaRisk,
   ObservabilityAlert,
@@ -105,6 +106,7 @@ export function Observability() {
   const [humanSla, setHumanSla] = useState<HumanSlaOverview | null>(null)
   const [costUsage, setCostUsage] = useState<CostUsageOverview | null>(null)
   const [executionJobs, setExecutionJobs] = useState<ExecutionJob[]>([])
+  const [executionJobDetail, setExecutionJobDetail] = useState<ExecutionJobDetail | null>(null)
   const [reviewerId, setReviewerId] = useState('')
   const [groupId, setGroupId] = useState('')
   const [isLoading, setIsLoading] = useState(true)
@@ -112,12 +114,15 @@ export function Observability() {
   const [isHumanSlaLoading, setIsHumanSlaLoading] = useState(true)
   const [isCostUsageLoading, setIsCostUsageLoading] = useState(true)
   const [isExecutionJobsLoading, setIsExecutionJobsLoading] = useState(true)
+  const [isExecutionJobDetailLoading, setIsExecutionJobDetailLoading] = useState(false)
   const [queueActionJobId, setQueueActionJobId] = useState('')
+  const [detailJobId, setDetailJobId] = useState('')
   const [error, setError] = useState('')
   const [detailError, setDetailError] = useState('')
   const [humanSlaError, setHumanSlaError] = useState('')
   const [costUsageError, setCostUsageError] = useState('')
   const [executionJobsError, setExecutionJobsError] = useState('')
+  const [executionJobDetailError, setExecutionJobDetailError] = useState('')
   const [queueActionError, setQueueActionError] = useState('')
   const statusFilter = searchParams.get('status') || '全部'
   const workflowFilter = searchParams.get('workflow') || ''
@@ -261,6 +266,20 @@ export function Observability() {
     }
   }, [loadExecutionJobs, workspace.id])
 
+  const openExecutionJobDetail = useCallback(async (jobId: string) => {
+    setDetailJobId(jobId)
+    setExecutionJobDetailError('')
+    setIsExecutionJobDetailLoading(true)
+    try {
+      setExecutionJobDetail(await getExecutionJob(workspace.id, jobId))
+    } catch (loadError) {
+      setExecutionJobDetail(null)
+      setExecutionJobDetailError(loadError instanceof Error ? loadError.message : '队列任务详情加载失败')
+    } finally {
+      setIsExecutionJobDetailLoading(false)
+    }
+  }, [workspace.id])
+
   useEffect(() => {
     void loadOverview()
   }, [loadOverview])
@@ -378,11 +397,18 @@ export function Observability() {
         error={executionJobsError}
         actionError={queueActionError}
         actionJobId={queueActionJobId}
+        detailJobId={detailJobId}
+        detail={executionJobDetail}
+        isDetailLoading={isExecutionJobDetailLoading}
+        detailError={executionJobDetailError}
         onRequeue={(jobId) => {
           void requeueJob(jobId)
         }}
         onCancel={(jobId) => {
           void cancelJob(jobId)
+        }}
+        onOpenDetail={(jobId) => {
+          void openExecutionJobDetail(jobId)
         }}
       />
 
@@ -536,16 +562,26 @@ function ExecutionQueuePanel({
   error,
   actionError,
   actionJobId,
+  detailJobId,
+  detail,
+  isDetailLoading,
+  detailError,
   onRequeue,
   onCancel,
+  onOpenDetail,
 }: {
   jobs: ExecutionJob[]
   isLoading: boolean
   error: string
   actionError: string
   actionJobId: string
+  detailJobId: string
+  detail: ExecutionJobDetail | null
+  isDetailLoading: boolean
+  detailError: string
   onRequeue: (jobId: string) => void
   onCancel: (jobId: string) => void
+  onOpenDetail: (jobId: string) => void
 }) {
   const counts = jobs.reduce<Record<string, number>>((nextCounts, job) => {
     nextCounts[job.status] = (nextCounts[job.status] ?? 0) + 1
@@ -590,6 +626,14 @@ function ExecutionQueuePanel({
                       <StatusBadge status={executionJobStatusLabel(job.status)} />
                       <span>{job.attempts}/{job.maxAttempts} 次</span>
                       <small>{job.lockedBy || '未锁定'} · {formatTime(job.lockedUntil)}</small>
+                      <button
+                        className="button ghost compact"
+                        type="button"
+                        disabled={isDetailLoading && detailJobId === job.id}
+                        onClick={() => onOpenDetail(job.id)}
+                      >
+                        {isDetailLoading && detailJobId === job.id ? '加载中' : '查看详情'}
+                      </button>
                       {job.status === 'dead_letter' && (
                         <button
                           className="button ghost compact"
@@ -615,9 +659,104 @@ function ExecutionQueuePanel({
                 ))}
               </div>
             )}
+          {(isDetailLoading || detailError || detail) && (
+            <ExecutionJobDetailPanel
+              detail={detail}
+              isLoading={isDetailLoading}
+              error={detailError}
+            />
+          )}
         </>
       )}
     </section>
+  )
+}
+
+function ExecutionJobDetailPanel({
+  detail,
+  isLoading,
+  error,
+}: {
+  detail: ExecutionJobDetail | null
+  isLoading: boolean
+  error: string
+}) {
+  return (
+    <div className="execution-job-detail-panel">
+      <div className="panel-header">
+        <div>
+          <span className="section-kicker">QUEUE DETAIL</span>
+          <h3>队列任务详情</h3>
+        </div>
+        {detail && <StatusBadge status={executionJobStatusLabel(detail.status)} />}
+      </div>
+
+      {isLoading && <div className="table-state">正在加载队列任务详情...</div>}
+      {error && <div className="table-state error" role="alert">{error}</div>}
+      {!isLoading && !error && detail && (
+        <>
+          <div className="execution-job-detail-grid">
+            <div>
+              <span>Job ID</span>
+              <strong>{detail.id}</strong>
+            </div>
+            <div>
+              <span>Run ID</span>
+              <strong>{detail.runId}</strong>
+            </div>
+            <div>
+              <span>Workflow</span>
+              <strong>{detail.workflowId ?? '无'} / {detail.workflowVersion ?? '无版本'}</strong>
+            </div>
+            <div>
+              <span>尝试次数</span>
+              <strong>{detail.attempts}/{detail.maxAttempts}</strong>
+            </div>
+            <div>
+              <span>Worker 锁</span>
+              <strong>{detail.lockedBy || '未锁定'}</strong>
+            </div>
+            <div>
+              <span>租约到期</span>
+              <strong>{formatTime(detail.lockedUntil)}</strong>
+            </div>
+            <div>
+              <span>下次尝试</span>
+              <strong>{formatTime(detail.nextAttemptAt)}</strong>
+            </div>
+            <div>
+              <span>终态时间</span>
+              <strong>{formatTime(detail.deadLetteredAt ?? detail.canceledAt ?? detail.completedAt)}</strong>
+            </div>
+          </div>
+
+          {detail.error && (
+            <div className="execution-job-detail-error">
+              <span>失败原因</span>
+              <p>{detail.error}</p>
+            </div>
+          )}
+
+          <section className="execution-job-audit-section" aria-label="队列审计事件">
+            <h4>审计事件</h4>
+            {detail.auditEvents.length === 0
+              ? <p className="muted-copy">暂无关联审计事件。</p>
+              : (
+                <div className="execution-job-audit-list">
+                  {detail.auditEvents.map((event) => (
+                    <article key={event.id}>
+                      <strong>{event.action ?? 'unknown'} · {event.outcome ?? 'unknown'}</strong>
+                      <span>{event.beforeStatus || 'unknown'} → {event.afterStatus || 'unknown'}</span>
+                      <p>{event.reason || '未记录原因'}</p>
+                      <small>{event.actorUserId || event.requestId || '未知操作者'} · {formatTime(event.createdAt)}</small>
+                    </article>
+                  ))}
+                </div>
+              )}
+          </section>
+        </>
+      )}
+    </div>
   )
 }
 

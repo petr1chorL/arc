@@ -328,6 +328,23 @@ const executionJobs = [{
   canceledAt: null,
 }]
 
+const executionJobDetail = {
+  ...executionJobs[0],
+  auditEvents: [{
+    id: 'audit-requeue',
+    action: 'execution_job.requeue',
+    outcome: 'succeeded',
+    reason: '详情页验证重投审计',
+    beforeStatus: 'dead_letter',
+    afterStatus: 'queued',
+    runId: 'run-failed',
+    workflowId: 'workflow-1',
+    actorId: 'user-1',
+    actorEmail: 'admin@example.com',
+    createdAt: '2026-06-26T08:06:00Z',
+  }],
+}
+
 function LocationProbe() {
   const location = useLocation()
   return <output aria-label="当前筛选参数">{location.search}</output>
@@ -364,6 +381,9 @@ describe('Observability', () => {
       }
       if (path === '/api/workspaces/workspace-1/execution-jobs') {
         return new Response(JSON.stringify(executionJobs), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/execution-jobs/job-dead-letter') {
+        return new Response(JSON.stringify(executionJobDetail), { status: 200 })
       }
       if (path === '/api/workspaces/workspace-1/execution-jobs/job-dead-letter/requeue') {
         return new Response(JSON.stringify({
@@ -419,6 +439,16 @@ describe('Observability', () => {
     expect(screen.getByText('死信 · workflow_run')).toBeInTheDocument()
     expect(screen.getByText('Agent 执行失败，请稍后重试')).toBeInTheDocument()
     expect(screen.getByText('worker-a · 2026/6/26 16:05:00')).toBeInTheDocument()
+    await user.click(screen.getAllByRole('button', { name: '查看详情' })[0])
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/workspaces/workspace-1/execution-jobs/job-dead-letter',
+        expect.objectContaining({ credentials: 'same-origin' }),
+      )
+    })
+    expect(await screen.findByText('队列任务详情')).toBeInTheDocument()
+    expect(screen.getByText('详情页验证重投审计')).toBeInTheDocument()
+    expect(screen.getByText('dead_letter → queued')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '重新入队' }))
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(

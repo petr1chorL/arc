@@ -1,6 +1,6 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.13A 异步任务队列第一切片
+> 对应版本：V0.13M 队列任务详情面板
 > 上一阶段：V0.8F 轻量告警 / 通知 Outbox
 > 更新时间：2026-06-27
 
@@ -542,6 +542,8 @@ POST /api/workspaces/{workspace_id}/evaluations/remediation-tasks/{task_id}/rete
 - 模型单价未配置时明确提示“成本单价未配置”，不把 `$0.0000` 伪装成真实成本。
 - 执行队列运营区块展示 `execution_jobs` 的排队中、运行中、已完成和死信数量。
 - 队列任务卡展示状态、Run/Workflow 摘要、尝试次数、最大尝试次数、锁持有者、租约到期和错误原因。
+- 队列任务卡支持“查看详情”，点击后调用 `GET /execution-jobs/{jobId}` 并在当前观测页展开任务详情。
+- 队列任务详情展示 Job ID、Run ID、Workflow 版本、尝试次数、Worker 锁、租约、下次尝试、终态时间、失败原因和关联审计事件。
 - 死信任务卡展示“重新入队”按钮，点击后调用 requeue 接口并刷新队列。
 - 可取消队列任务卡展示“取消任务”按钮，点击后调用 cancel 接口并刷新队列。
 
@@ -554,6 +556,7 @@ GET /api/workspaces/{workspace_id}/observability/execution-events
 GET /api/workspaces/{workspace_id}/observability/human-sla
 GET /api/workspaces/{workspace_id}/observability/cost-usage
 GET /api/workspaces/{workspace_id}/execution-jobs
+GET /api/workspaces/{workspace_id}/execution-jobs/{job_id}
 POST /api/workspaces/{workspace_id}/execution-jobs/{job_id}/requeue
 POST /api/workspaces/{workspace_id}/execution-jobs/{job_id}/cancel
 ```
@@ -564,7 +567,7 @@ POST /api/workspaces/{workspace_id}/execution-jobs/{job_id}/cancel
 - 跨服务分布式 Trace 采集。
 - 外部主动告警通知发送器。
 - 预算审批、成本告警和成本治理详情页。
-- 操作系统级 worker 服务、独立队列运营详情页、批量重投、释放租约、重投原因审计和取消原因审计。
+- 操作系统级 worker 服务、独立队列运营详情页、批量重投、释放租约和实时事件推送。
 
 ## 10. 成员与权限
 
@@ -926,6 +929,12 @@ TypeScript 编译检查
 - V0.13L 完成队列任务详情 RED/GREEN 测试：首次因 `GET /execution-jobs/{jobId}` 返回 404 失败，随后接口返回 job 详情和关联 `execution_job.*` 审计事件；前端 `getExecutionJob` API wrapper 已补齐。
 - V0.13L 完成 focused 验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests/test_execution_api.py -q` 17 项通过；`npm test -- --run src/api/execution.test.ts` 1 个测试文件、6 项通过。
 - V0.13L 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 后端 185 项测试通过；`npm test -- --run` 27 个测试文件、102 项测试通过；`npm run lint` 通过；`npm run build` 通过；`git diff --check` 仅有 Windows 换行提示。
+- V0.13M 完成队列任务详情面板 RED/GREEN 测试：首次因观测页队列任务卡没有“查看详情”按钮失败，随后点击“查看详情”可请求单任务详情并展示审计原因和 `dead_letter → queued` 状态流转。
+- V0.13M 完成 focused 验证：`npm test -- --run src/pages/Observability.test.tsx` 1 个测试文件、6 项通过。
+- V0.13M 完成相关 focused 回归：`npm test -- --run src/pages/Observability.test.tsx src/api/execution.test.ts` 2 个测试文件、12 项通过。
+- V0.13M 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 后端完整测试集通过，当前 collect 为 184 项；`npm test -- --run` 27 个测试文件、102 项测试通过；`npm run lint` 通过；`npm run build` 通过；`git diff --check` 仅有 Windows 换行提示。
+- V0.13M 完成浏览器验收：观测页执行队列卡片显示“查看详情”，点击后详情面板展示 Job ID、失败原因、审计原因和 `dead_letter → queued` 状态流转；浏览器控制台新增 warning/error 为 0。
+- V0.13M 浏览器验收截图：`.scratch/v0.13m-execution-job-detail-panel.png`；验收结果：`.scratch/v0.13m-browser-result.json`。
 
 验证时没有发现浏览器控制台错误。
 
