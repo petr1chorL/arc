@@ -17,6 +17,7 @@ dependencies = [
 
 [project.scripts]
 arc-one-bootstrap = "app.bootstrap:main"
+arc-one-worker = "app.worker:main"
 
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.2,<4"]

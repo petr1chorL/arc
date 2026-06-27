@@ -98,6 +98,20 @@ cd apps\api
 npm run dev -- --host 127.0.0.1 --port 4173
 ```
 
+终端 3，启动异步执行 Worker：
+
+```powershell
+cd apps\api
+..\..\.venv\Scripts\python.exe -m app.worker --worker-id local-worker
+```
+
+只处理一次队列任务用于本地验收：
+
+```powershell
+cd apps\api
+..\..\.venv\Scripts\python.exe -m app.worker --worker-id local-worker --once
+```
+
 当前开发服务：
 
 ```text

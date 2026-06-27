@@ -1,10 +1,13 @@
 from collections.abc import Callable, Iterable
+import argparse
 from threading import Event
 from time import sleep
 
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.execution import ExecutionService
+from app.model_gateway import ModelGateway
+from app.models import WorkspaceRecord
 
 
 class ExecutionQueueWorker:
@@ -53,3 +56,59 @@ class ExecutionQueueWorker:
             processed = self.process_once()
             if processed == 0:
                 self.sleeper(self.poll_interval_seconds)
+
+
+def create_execution_queue_worker(
+    *,
+    database_url: str | None = None,
+    worker_id: str = "execution-worker",
+    poll_interval_seconds: float = 2.0,
+    model_gateway: ModelGateway | None = None,
+) -> ExecutionQueueWorker:
+    from app.main import create_app
+
+    app = create_app(database_url, model_gateway=model_gateway)
+    session_factory = app.state.session_factory
+    with session_factory() as session:
+        workspace_ids = list(
+            session.scalars(
+                WorkspaceRecord.__table__.select()
+                .with_only_columns(WorkspaceRecord.__table__.c.id)
+                .where(WorkspaceRecord.__table__.c.status == "active"),
+            ),
+        )
+    return ExecutionQueueWorker(
+        session_factory=session_factory,
+        execution_service=app.state.execution_service,
+        workspace_ids=workspace_ids,
+        worker_id=worker_id,
+        poll_interval_seconds=poll_interval_seconds,
+    )
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="Run ARC.ONE execution queue worker.")
+    parser.add_argument("--database-url", default=None)
+    parser.add_argument("--worker-id", default="execution-worker")
+    parser.add_argument("--poll-interval", type=float, default=2.0)
+    parser.add_argument("--once", action="store_true")
+    parser.add_argument("--until-idle", action="store_true")
+    args = parser.parse_args(argv)
+    worker = create_execution_queue_worker(
+        database_url=args.database_url,
+        worker_id=args.worker_id,
+        poll_interval_seconds=args.poll_interval,
+    )
+    if args.once:
+        processed = worker.process_once()
+        print(f"processed={processed}")
+        return
+    if args.until_idle:
+        processed = worker.process_until_idle()
+        print(f"processed={processed}")
+        return
+    worker.run_forever()
+
+
+if __name__ == "__main__":
+    main()

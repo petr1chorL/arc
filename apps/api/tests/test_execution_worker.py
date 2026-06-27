@@ -1,6 +1,6 @@
 from api_test_support import create_authenticated_client, csrf_headers, workspace_url
 from app.models import ExecutionJobRecord
-from app.worker import ExecutionQueueWorker
+from app.worker import ExecutionQueueWorker, create_execution_queue_worker
 from test_execution_api import (
     FakeGateway,
     FakeModelResult,
@@ -42,3 +42,30 @@ def test_execution_queue_worker_processes_queued_workflow_run(tmp_path):
     run_response = client.get(workspace_url(workspace_id, f"/runs/{run_id}"))
     assert run_response.status_code == 200
     assert run_response.json()["status"] == "已完成"
+
+
+def test_execution_queue_worker_factory_builds_worker_from_database_url(tmp_path):
+    gateway = FakeGateway([
+        FakeModelResult("The worker factory completed this workflow."),
+    ])
+    database_url = f"sqlite:///{tmp_path / 'execution-worker-factory.db'}"
+    client, workspace_id = create_authenticated_client(database_url, model_gateway=gateway)
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(client, workspace_id, agent, version)
+    client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Run this workflow from the worker factory.", "asyncMode": True},
+        headers=csrf_headers(client),
+    )
+
+    worker = create_execution_queue_worker(
+        database_url=database_url,
+        worker_id="factory-worker",
+        model_gateway=gateway,
+    )
+
+    assert worker.process_once() == 1
+    with client.app.state.session_factory() as session:
+        job = session.query(ExecutionJobRecord).one()
+        assert job.status == "succeeded"
+        assert job.locked_by == "factory-worker"
