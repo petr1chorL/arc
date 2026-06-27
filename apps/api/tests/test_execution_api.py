@@ -212,6 +212,85 @@ def test_async_workflow_run_enqueues_and_worker_processes_next_job(tmp_path):
         assert job.status == "succeeded"
 
 
+def test_async_execution_job_retries_failure_before_dead_letter(tmp_path):
+    gateway = FakeGateway([
+        RuntimeError("temporary outage"),
+        RuntimeError("temporary outage"),
+        FakeModelResult("The retry completed from the background worker."),
+    ])
+    database_url = f"sqlite:///{tmp_path / 'async-retry.db'}"
+    client, workspace_id = create_authenticated_client(database_url, model_gateway=gateway)
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(client, workspace_id, agent, version)
+
+    response = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Retry this workflow in the background.", "asyncMode": True},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 201
+    first_attempt = client.post(
+        workspace_url(workspace_id, "/execution-jobs/next"),
+        headers=csrf_headers(client),
+    )
+
+    assert first_attempt.status_code == 200
+    assert first_attempt.json()["status"] == "排队中"
+    with client.app.state.session_factory() as session:
+        job = session.scalar(select(ExecutionJobRecord))
+        assert job.status == "queued"
+        assert job.attempts == 1
+        assert job.error == "Agent 执行失败，请稍后重试"
+
+    second_attempt = client.post(
+        workspace_url(workspace_id, "/execution-jobs/next"),
+        headers=csrf_headers(client),
+    )
+
+    assert second_attempt.status_code == 200
+    assert second_attempt.json()["status"] == "已完成"
+    assert second_attempt.json()["output"].startswith("The retry completed")
+    with client.app.state.session_factory() as session:
+        job = session.scalar(select(ExecutionJobRecord))
+        assert job.status == "succeeded"
+        assert job.attempts == 2
+
+
+def test_async_execution_job_moves_to_dead_letter_after_max_attempts(tmp_path):
+    gateway = FakeGateway([
+        RuntimeError("model unavailable"),
+        RuntimeError("model unavailable"),
+        RuntimeError("model unavailable"),
+        RuntimeError("model unavailable"),
+        RuntimeError("model unavailable"),
+        RuntimeError("model unavailable"),
+    ])
+    database_url = f"sqlite:///{tmp_path / 'async-dead-letter.db'}"
+    client, workspace_id = create_authenticated_client(database_url, model_gateway=gateway)
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(client, workspace_id, agent, version)
+
+    client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Exhaust this workflow in the background.", "asyncMode": True},
+        headers=csrf_headers(client),
+    )
+
+    for _ in range(3):
+        response = client.post(
+            workspace_url(workspace_id, "/execution-jobs/next"),
+            headers=csrf_headers(client),
+        )
+        assert response.status_code == 200
+
+    with client.app.state.session_factory() as session:
+        job = session.scalar(select(ExecutionJobRecord))
+        assert job.status == "dead_letter"
+        assert job.attempts == 3
+        assert job.error == "Agent 执行失败，请稍后重试"
+
+
 def test_low_quality_output_creates_human_review(tmp_path):
     gateway = FakeGateway([FakeModelResult("short")])
     client, workspace_id = create_authenticated_client(

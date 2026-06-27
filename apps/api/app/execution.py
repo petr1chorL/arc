@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from time import perf_counter
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.agent_runtime import AgentRuntimeExecutor, AgentRuntimeRequest, quality_score
@@ -332,11 +332,16 @@ class ExecutionService:
         session: Session,
         workspace_id: str,
     ) -> WorkflowRunRecord | None:
+        now = utc_now()
         job = session.scalar(
             select(ExecutionJobRecord)
             .where(
                 ExecutionJobRecord.workspace_id == workspace_id,
                 ExecutionJobRecord.status == "queued",
+                or_(
+                    ExecutionJobRecord.next_attempt_at.is_(None),
+                    ExecutionJobRecord.next_attempt_at <= now,
+                ),
             )
             .order_by(ExecutionJobRecord.created_at.asc()),
         )
@@ -356,7 +361,8 @@ class ExecutionService:
             return None
         job.status = "running"
         job.attempts += 1
-        job.started_at = utc_now()
+        job.started_at = now
+        job.next_attempt_at = None
         run.status = "运行中"
         run.error = ""
         run.completed_at = None
@@ -368,20 +374,51 @@ class ExecutionService:
                 run=run,
                 snapshot=snapshot,
             )
-            job.status = "succeeded" if run.status != "失败" else "failed"
-            job.error = run.error
-            job.completed_at = utc_now()
+            if run.status == "失败":
+                self._retry_or_dead_letter_job(
+                    job=job,
+                    run=run,
+                    error=run.error,
+                )
+            else:
+                job.status = "succeeded"
+                job.error = ""
+                job.completed_at = utc_now()
             session.commit()
         except Exception:
-            job.status = "failed"
-            job.error = "后台执行失败，请稍后重试"
-            job.completed_at = utc_now()
-            run.status = "失败"
-            run.error = job.error
-            run.completed_at = utc_now()
+            self._retry_or_dead_letter_job(
+                job=job,
+                run=run,
+                error="后台执行失败，请稍后重试",
+            )
             session.commit()
         session.refresh(run)
         return run
+
+    @staticmethod
+    def _retry_or_dead_letter_job(
+        *,
+        job: ExecutionJobRecord,
+        run: WorkflowRunRecord,
+        error: str,
+    ) -> None:
+        now = utc_now()
+        job.error = error
+        if job.attempts >= job.max_attempts:
+            job.status = "dead_letter"
+            job.completed_at = now
+            job.dead_lettered_at = now
+            run.status = "失败"
+            run.error = error
+            run.completed_at = now
+            return
+        job.status = "queued"
+        job.next_attempt_at = now
+        job.completed_at = None
+        run.status = "排队中"
+        run.current_node = "等待重试"
+        run.error = error
+        run.completed_at = None
 
     def execute_workflow_from(
         self,

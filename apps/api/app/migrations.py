@@ -702,6 +702,15 @@ def ensure_current_schema(engine: Engine) -> None:
         )
     ensure_columns(
         engine,
+        "execution_jobs",
+        {
+            "max_attempts": "INTEGER NOT NULL DEFAULT 3",
+            "next_attempt_at": "DATETIME",
+            "dead_lettered_at": "DATETIME",
+        },
+    )
+    ensure_columns(
+        engine,
         "reviewers",
         {"user_id": "VARCHAR(36)"},
     )
