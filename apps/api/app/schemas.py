@@ -423,6 +423,17 @@ class ExecutionJobRead(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
+class ExecutionJobOperationRequest(BaseModel):
+    reason: str = Field(default="", max_length=1000)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_reason(cls, value: str) -> str:
+        return value.strip()
+
+
 class ObservabilityTotalsRead(BaseModel):
     runs: int
     succeeded: int

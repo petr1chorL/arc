@@ -61,6 +61,7 @@ from app.schemas import (
     EvaluationRecordRead,
     EvaluationOverviewRead,
     EvaluationRunCreate,
+    ExecutionJobOperationRequest,
     ExecutionJobRead,
     FeedbackCandidateRead,
     GoldenSampleConfirm,
@@ -1789,6 +1790,7 @@ def create_app(
     def requeue_execution_job(
         job_id: str,
         request: Request,
+        operation: ExecutionJobOperationRequest | None = None,
         context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
     ) -> ExecutionJobRead:
         context, session = context_bundle
@@ -1801,6 +1803,14 @@ def create_app(
             target_id=job_id,
             request=request,
         )
+        before_job = session.scalar(
+            select(ExecutionJobRecord).where(
+                ExecutionJobRecord.id == job_id,
+                ExecutionJobRecord.workspace_id == context.workspace.id,
+            ),
+        )
+        before_status = before_job.status if before_job is not None else ""
+        before_attempts = before_job.attempts if before_job is not None else 0
         job = execution_service.requeue_execution_job(
             session=session,
             workspace_id=context.workspace.id,
@@ -1808,12 +1818,32 @@ def create_app(
         )
         if job is None:
             raise HTTPException(status_code=404, detail="死信队列任务不存在")
+        event = audit_service.record(
+            session,
+            actor=authorization_service.actor_from_context(context),
+            action="execution_job.requeue",
+            target_type="execution_job",
+            target_id=job.id,
+            outcome="success",
+            request=request,
+        )
+        event.before_status = before_status
+        event.after_status = job.status
+        event.reason = operation.reason if operation else "手动重新入队"
+        event.payload = {
+            "runId": job.run_id,
+            "workflowId": job.workflow_id,
+            "attemptsBefore": before_attempts,
+            "attemptsAfter": job.attempts,
+        }
+        session.commit()
         return ExecutionJobRead.model_validate(job)
 
     @router.post("/execution-jobs/{job_id}/cancel", response_model=ExecutionJobRead)
     def cancel_execution_job(
         job_id: str,
         request: Request,
+        operation: ExecutionJobOperationRequest | None = None,
         context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
     ) -> ExecutionJobRead:
         context, session = context_bundle
@@ -1826,6 +1856,14 @@ def create_app(
             target_id=job_id,
             request=request,
         )
+        before_job = session.scalar(
+            select(ExecutionJobRecord).where(
+                ExecutionJobRecord.id == job_id,
+                ExecutionJobRecord.workspace_id == context.workspace.id,
+            ),
+        )
+        before_status = before_job.status if before_job is not None else ""
+        before_attempts = before_job.attempts if before_job is not None else 0
         job = execution_service.cancel_execution_job(
             session=session,
             workspace_id=context.workspace.id,
@@ -1833,6 +1871,25 @@ def create_app(
         )
         if job is None:
             raise HTTPException(status_code=404, detail="可取消队列任务不存在")
+        event = audit_service.record(
+            session,
+            actor=authorization_service.actor_from_context(context),
+            action="execution_job.cancel",
+            target_type="execution_job",
+            target_id=job.id,
+            outcome="success",
+            request=request,
+        )
+        event.before_status = before_status
+        event.after_status = job.status
+        event.reason = operation.reason if operation else "用户取消执行"
+        event.payload = {
+            "runId": job.run_id,
+            "workflowId": job.workflow_id,
+            "attemptsBefore": before_attempts,
+            "attemptsAfter": job.attempts,
+        }
+        session.commit()
         return ExecutionJobRead.model_validate(job)
 
     @router.get("/runs", response_model=list[RunRead])

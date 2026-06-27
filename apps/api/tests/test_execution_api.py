@@ -506,6 +506,7 @@ def test_dead_letter_execution_job_can_be_requeued(tmp_path):
 
     requeue_response = client.post(
         workspace_url(workspace_id, f"/execution-jobs/{job_id}/requeue"),
+        json={"reason": "人工确认模型恢复，重新入队"},
         headers=csrf_headers(client),
     )
 
@@ -521,6 +522,22 @@ def test_dead_letter_execution_job_can_be_requeued(tmp_path):
         run = session.get(WorkflowRunRecord, run_id)
         assert run.status == "排队中"
         assert run.current_node == "等待重投"
+        event = session.scalar(
+            select(AuditEventRecord).where(
+                AuditEventRecord.action == "execution_job.requeue",
+                AuditEventRecord.target_id == job_id,
+                AuditEventRecord.outcome == "success",
+            ),
+        )
+        assert event is not None
+        assert event.workspace_id == workspace_id
+        assert event.target_type == "execution_job"
+        assert event.before_status == "dead_letter"
+        assert event.after_status == "queued"
+        assert event.reason == "人工确认模型恢复，重新入队"
+        assert event.payload["runId"] == run_id
+        assert event.payload["attemptsBefore"] == 3
+        assert event.payload["attemptsAfter"] == 0
 
 
 def test_execution_job_can_be_canceled_before_worker_claims_it(tmp_path):
@@ -544,6 +561,7 @@ def test_execution_job_can_be_canceled_before_worker_claims_it(tmp_path):
 
     cancel_response = client.post(
         workspace_url(workspace_id, f"/execution-jobs/{job_id}/cancel"),
+        json={"reason": "业务方取消本次运行"},
         headers=csrf_headers(client),
     )
 
@@ -566,6 +584,21 @@ def test_execution_job_can_be_canceled_before_worker_claims_it(tmp_path):
         run = session.get(WorkflowRunRecord, run_id)
         assert run.status == "已取消"
         assert run.current_node == "已取消"
+        event = session.scalar(
+            select(AuditEventRecord).where(
+                AuditEventRecord.action == "execution_job.cancel",
+                AuditEventRecord.target_id == job_id,
+                AuditEventRecord.outcome == "success",
+            ),
+        )
+        assert event is not None
+        assert event.workspace_id == workspace_id
+        assert event.target_type == "execution_job"
+        assert event.before_status == "queued"
+        assert event.after_status == "canceled"
+        assert event.reason == "业务方取消本次运行"
+        assert event.payload["runId"] == run_id
+        assert event.payload["attemptsBefore"] == 0
 
 
 def test_low_quality_output_creates_human_review(tmp_path):
