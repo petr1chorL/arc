@@ -144,6 +144,46 @@ def test_agent_test_run_records_model_usage_and_output(tmp_path):
     assert gateway.calls[0]["system_prompt"].startswith("Respond clearly")
 
 
+def test_agent_test_run_passes_published_runtime_config_to_gateway(tmp_path):
+    gateway = FakeGateway([FakeModelResult("This is a configured runtime response for the test run.")])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'execution.db'}",
+        model_gateway=gateway,
+    )
+    agent, _ = create_published_agent(client, workspace_id)
+    client.patch(
+        workspace_url(workspace_id, f"/agents/{agent['id']}"),
+        json={
+            "model": "deepseek-v4-pro",
+            "modelProvider": "openai-compatible",
+            "modelBaseUrl": "https://api.deepseek.com",
+            "temperature": 0.4,
+            "maxOutputTokens": 1600,
+        },
+        headers=csrf_headers(client),
+    )
+    version = client.post(
+        workspace_url(workspace_id, f"/agents/{agent['id']}/publish"),
+        headers=csrf_headers(client),
+    ).json()
+
+    response = client.post(
+        workspace_url(workspace_id, f"/agents/{agent['id']}/test-runs"),
+        json={"input": "Summarize the customer issue.", "version": version["version"]},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 201
+    assert gateway.calls[0]["system_prompt"].startswith("Respond clearly")
+    assert gateway.calls[0]["user_input"].startswith("Summarize the customer issue.")
+    assert gateway.calls[0]["model"] == "deepseek-v4-pro"
+    assert gateway.calls[0]["model_provider_id"] is None
+    assert gateway.calls[0]["model_provider"] == "openai-compatible"
+    assert gateway.calls[0]["model_base_url"] == "https://api.deepseek.com"
+    assert gateway.calls[0]["temperature"] == 0.4
+    assert gateway.calls[0]["max_output_tokens"] == 1600
+
+
 def test_workflow_run_retries_and_persists_node_timeline(tmp_path):
     gateway = FakeGateway([
         RuntimeError("temporary provider failure"),

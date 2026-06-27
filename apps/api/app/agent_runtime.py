@@ -25,6 +25,11 @@ class AgentRuntimeRequest:
     input_text: str
     system_prompt: str
     model: str
+    model_provider_id: str | None = None
+    model_provider: str = "openai-compatible"
+    model_base_url: str = ""
+    temperature: float = 0.2
+    max_output_tokens: int = 2000
     tools: list[str] = field(default_factory=list)
     skills: list[str] = field(default_factory=list)
 
@@ -70,6 +75,11 @@ class AgentRuntimeExecutor:
                     system_prompt=request.system_prompt,
                     user_input=request.input_text,
                     model=request.model,
+                    model_provider_id=request.model_provider_id,
+                    model_provider=request.model_provider,
+                    model_base_url=request.model_base_url,
+                    temperature=request.temperature,
+                    max_output_tokens=request.max_output_tokens,
                 )
                 total_tokens = model_result.prompt_tokens + model_result.completion_tokens
                 return AgentRuntimeResult(

@@ -67,6 +67,11 @@ def test_agent_runtime_returns_structured_success_result():
         "system_prompt": "Respond clearly.",
         "user_input": "Summarize the request.",
         "model": "configured-model",
+        "model_provider_id": None,
+        "model_provider": "openai-compatible",
+        "model_base_url": "",
+        "temperature": 0.2,
+        "max_output_tokens": 2000,
     }]
 
 

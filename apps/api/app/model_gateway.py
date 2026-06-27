@@ -25,6 +25,11 @@ class ModelGateway(Protocol):
         system_prompt: str,
         user_input: str,
         model: str,
+        model_provider_id: str | None = None,
+        model_provider: str = "openai-compatible",
+        model_base_url: str = "",
+        temperature: float = 0.2,
+        max_output_tokens: int = 2000,
     ) -> ModelResult:
         ...
 
@@ -39,13 +44,19 @@ class OpenAICompatibleGateway:
         system_prompt: str,
         user_input: str,
         model: str,
+        model_provider_id: str | None = None,
+        model_provider: str = "openai-compatible",
+        model_base_url: str = "",
+        temperature: float = 0.2,
+        max_output_tokens: int = 2000,
     ) -> ModelResult:
-        if not self.settings.model_api_key or not self.settings.model_base_url:
+        effective_base_url = model_base_url.strip() or self.settings.model_base_url
+        if not self.settings.model_api_key or not effective_base_url:
             raise ModelGatewayError("模型服务未配置")
         resolved_model = self.settings.model_default_model or model
         if not resolved_model:
             raise ModelGatewayError("模型名称未配置")
-        endpoint = f"{self.settings.model_base_url.rstrip('/')}/chat/completions"
+        endpoint = f"{effective_base_url.rstrip('/')}/chat/completions"
         try:
             response = httpx.post(
                 endpoint,
@@ -59,7 +70,8 @@ class OpenAICompatibleGateway:
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_input},
                     ],
-                    "temperature": 0.2,
+                    "temperature": temperature,
+                    "max_tokens": max_output_tokens,
                 },
                 timeout=self.settings.model_timeout_seconds,
             )

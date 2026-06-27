@@ -1,6 +1,6 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.14C Agent 绑定模型 Provider 资产
+> 对应版本：V0.14D Runtime 使用 Agent 运行配置
 > 上一阶段：V0.8F 轻量告警 / 通知 Outbox
 > 更新时间：2026-06-27
 
@@ -16,9 +16,9 @@ Agent 资产页和工作流设计器已经接入 SQLAlchemy。Agent 支持草稿
 
 Agent 执行已引入第一版 Runtime 合约：`app.agent_runtime` 负责统一 Agent 输入、输出、脱敏错误、Token、成本、评分、尝试次数、耗时和工具调用占位。Agent 直接测试运行与工作流 Agent 节点都通过 `ExecutionService.execute_agent` 调用该 Runtime，再映射到 `NodeRunRecord`。
 
-Agent 草稿已新增第一版运行配置入口：后端持久化 `modelProvider`、`modelBaseUrl`、`temperature` 和 `maxOutputTokens`，Agent 详情页可编辑这些非密钥字段，保存草稿和发布版本时会进入不可变 Agent 快照。API 不接收、不返回、不发布 `apiKey`；密钥仍只允许通过后端环境变量管理。当前运行时尚未按 Agent 级运行配置覆盖 ModelGateway，请勿把该能力描述为已完成 Provider 动态路由。
+Agent 草稿已新增第一版运行配置入口：后端持久化 `modelProvider`、`modelBaseUrl`、`temperature` 和 `maxOutputTokens`，Agent 详情页可编辑这些非密钥字段，保存草稿和发布版本时会进入不可变 Agent 快照。Agent 直接运行和工作流 Agent 节点执行时，会把已发布快照里的模型、Provider ID、Provider 类型、Base URL、温度和最大输出 Tokens 传入 Agent Runtime，并由 OpenAI-compatible ModelGateway 使用 Base URL、温度和最大输出 Tokens 覆盖默认请求参数。API 不接收、不返回、不发布 `apiKey`；密钥仍只允许通过后端环境变量管理。
 
-模型 Provider 已新增第一版 Workspace 级资产入口：`model_providers` 表保存 Provider 名称、类型、Base URL、默认模型、`secretRef` 和状态；前端“模型 Provider”页面可创建 Provider、查看列表并测试连接。Provider API 忽略误传的 `apiKey`，不保存、不返回、不在列表或连接测试中泄露密钥；连接测试当前只检查 `secretRef` 指向的后端环境变量是否存在。Agent 草稿可通过下拉框绑定当前 Workspace 的 Provider 资产，保存后会固化 `modelProviderId`，并同步 Provider 类型、Base URL 和默认模型；发布 Agent 版本时这些字段会进入不可变快照。ModelGateway 尚未按 Provider 资产进行动态路由。
+模型 Provider 已新增第一版 Workspace 级资产入口：`model_providers` 表保存 Provider 名称、类型、Base URL、默认模型、`secretRef` 和状态；前端“模型 Provider”页面可创建 Provider、查看列表并测试连接。Provider API 忽略误传的 `apiKey`，不保存、不返回、不在列表或连接测试中泄露密钥；连接测试当前只检查 `secretRef` 指向的后端环境变量是否存在。Agent 草稿可通过下拉框绑定当前 Workspace 的 Provider 资产，保存后会固化 `modelProviderId`，并同步 Provider 类型、Base URL 和默认模型；发布 Agent 版本时这些字段会进入不可变快照。当前 Runtime 已使用 Provider 的非密钥配置字段，但尚未按 Provider 的 `secretRef` 动态解析不同 API Key。
 
 Tool / Skill 已新增第一版 Workspace 级资产库后端：`tool_skill_assets` 表保存 `tool` 与 `skill` 两类资产，支持创建、列表查询、参数 Schema、状态、适配类型、适配配置和 Workspace 隔离。Agent 更新和发布时会校验所绑定的 Tools / Skills 必须是当前 Workspace 内已启用资产。`tool_skill_asset_invocations` 表提供调用日志查询能力，并已支持 HTTP Tool 测试调用写入成功或失败日志。
 
@@ -349,6 +349,7 @@ React Flow 节点/连线
 - 展示运行状态、产出、Token、得分和耗时。
 - Agent Runtime 已统一直接测试运行和工作流 Agent 节点的执行协议。
 - Runtime Result 包含输出、错误、模型、Token、成本、评分、尝试次数、耗时和 `tool_calls` 占位。
+- Agent Runtime 会把已发布快照中的 Base URL、温度和最大输出 Tokens 传给 ModelGateway。
 - Tool / Skill 资产库后端支持创建和列表查询 Workspace 级工具资产。
 - Tool / Skill 资产包含类型、名称、描述、参数 Schema、适配类型、适配配置、状态和创建信息。
 - Agent 只能绑定已存在且启用的 Tool / Skill 资产。
@@ -369,7 +370,7 @@ React Flow 节点/连线
 
 - 模型参数。
 - Agent 级运行配置尚未实际覆盖 ModelGateway 调用参数。
-- Provider 资产尚未参与真实模型调用路由。
+- Provider 的 `secretRef` 尚未参与真实模型调用路由，当前仍使用全局模型 API Key。
 - 真实 MCP Server client、session 管理和鉴权。
 - HTTP Tool 鉴权头、响应字段映射和更细粒度脱敏策略。
 - Agent 版本比较和回滚。
@@ -985,6 +986,9 @@ TypeScript 编译检查
 - V0.14C 完成全量验证：显式测试文件列表运行 `npx vitest run @($files) --reporter verbose` 29 个测试文件、111 项通过；`npm run lint` 通过；`npm run build` 通过，保留既有 Vite chunk size warning；`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 后端完整测试集 187 项通过。
 - V0.14C 完成浏览器验收：Agent 详情页显示“模型 Provider”下拉框，选择 `DeepSeek V0.14B 验收 1782582819415` 并保存草稿后刷新仍保持选中，`Base URL` 为 `https://api.deepseek.com`，模型为 `deepseek-v4-pro`；浏览器控制台新增 warning/error 为 0。
 - V0.14C 浏览器验收截图：`.scratch/v0.14c-agent-provider-binding.png`；验收结果：`.scratch/v0.14c-browser-result.json`。
+- V0.14D 完成 Runtime 使用 Agent 运行配置 RED/GREEN 测试：首次因 FakeGateway 调用缺少 `model_provider_id` 失败，随后 Agent 直接运行会把发布快照中的模型、Provider ID、Provider 类型、Base URL、温度和最大输出 Tokens 传入 ModelGateway。
+- V0.14D 完成 focused 回归：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests/test_agent_runtime.py apps/api/tests/test_model_gateway.py -q` 3 项通过；`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests/test_execution_api.py::test_agent_test_run_records_model_usage_and_output apps/api/tests/test_execution_api.py::test_agent_test_run_passes_published_runtime_config_to_gateway -q` 2 项通过。
+- V0.14D 完成后端全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 后端完整测试集 188 项通过；`git diff --check` 通过，仅有 Windows 换行提示。
 
 验证时没有发现浏览器控制台错误。
 
