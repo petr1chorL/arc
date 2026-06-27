@@ -1,6 +1,6 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.8E 失败原因分类与排障建议
+> 对应版本：V0.8F 轻量告警 / 通知 Outbox
 > 更新时间：2026-06-27
 
 ## 1. 当前版本是什么
@@ -363,6 +363,8 @@ GET /api/workspaces/{workspace_id}/evaluations/overview
 - 运行概览与详情返回失败原因分类、失败原因标签和排障建议。
 - 运行观测页支持按失败原因筛选，并通过 URL query `failure` 同步。
 - 风险卡片、最近运行列表和运行详情会展示失败原因；详情处理建议区展示具体排障建议。
+- 运行观测概览返回 `alerts`，包含由运行风险投影出的页面内告警和已有 NotificationOutbox SLA 通知。
+- 运行观测页展示“告警 Outbox”面板，告警会跟随当前运行筛选条件变化。
 - 旧运行数据在读取观测详情时会懒回填轻量 Trace/Span 字段。
 - 审计事件会挂到同一 Trace，并尽量关联到对应 Human Task 节点 Span。
 - 详情展示当前处理建议、输入/结果、节点执行链路、人工审核任务和审计事件。
@@ -388,7 +390,7 @@ GET /api/workspaces/{workspace_id}/observability/cost-usage
 
 - 外部观测栈接入。
 - 跨服务分布式 Trace 采集。
-- 主动告警通知。
+- 外部主动告警通知发送器。
 - 预算审批、成本告警和成本治理详情页。
 
 ## 10. 成员与权限
@@ -628,6 +630,7 @@ TypeScript 编译检查
 - V0.8B 完成运行观测筛选测试：运行状态、工作流名称、风险等级可从 URL 初始化，筛选变更和选中运行会同步 URL query。
 - V0.8D 完成 Trace 骨架测试：运行详情返回 Trace ID、节点 Span、父 Span 和审计事件 Span 关联，旧 SQLite 表可补列。
 - V0.8E 完成失败原因分类测试：概览与详情返回 `failureCategory`、`failureCategoryLabel` 和 `troubleshootingHint`，观测页支持失败原因筛选和 URL query 同步。
+- V0.8F 完成轻量告警 Outbox 测试：观测概览返回 `alerts`，观测页展示告警 Outbox，告警随运行筛选条件变化；不发送外部通知。
 - V0.8A 完成人工 SLA 运营浏览器验收：SLA 区块、Reviewer/审核组筛选器和 `/reviews?taskId=...` 跳转链接可见，浏览器日志无 error/warn。
 - V0.8C 完成成本与模型调用浏览器验收：区块、未配置单价提示、按工作流聚合和按模型聚合可见，浏览器日志无 error/warn。
 - V0.9A 完成评估资产概览浏览器验收：真实 API 概览区块、空状态和 Rubric 卡片可见，浏览器日志无 error/warn。

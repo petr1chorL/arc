@@ -346,6 +346,44 @@ def test_observability_classifies_failure_category_and_hint(tmp_path):
     assert detail_body["troubleshootingHint"] == failed_summary["troubleshootingHint"]
 
 
+def test_observability_overview_returns_alert_outbox(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'observability-alert-outbox.db'}",
+    )
+    failed = create_run(
+        client,
+        workspace_id,
+        name="Amazon 评论采集",
+        status="失败",
+        current_node="数据连接器",
+        duration_ms=1800,
+        started_offset_minutes=-15,
+        error="Amazon 数据连接器鉴权超时",
+        prompt_tokens=50,
+        completion_tokens=0,
+        cost_usd=0.02,
+    )
+
+    response = client.get(workspace_url(workspace_id, "/observability/overview"))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["alerts"][0] == {
+        "id": f"alert-{failed.id}-connector_auth_timeout",
+        "eventKey": f"run:{failed.id}:connector_auth_timeout",
+        "eventType": "run_failure",
+        "severity": "critical",
+        "channel": "in_app",
+        "status": "pending",
+        "title": "Amazon 评论采集",
+        "message": "连接器鉴权超时 · Amazon 数据连接器鉴权超时",
+        "runId": failed.id,
+        "humanTaskId": None,
+        "nextAction": "检查连接器凭证、权限范围和上游接口响应时间，必要时刷新授权后重跑失败节点。",
+        "createdAt": failed.started_at.isoformat(),
+    }
+
+
 def test_observability_run_detail_includes_nodes_and_human_tasks(tmp_path):
     client, workspace_id = create_authenticated_client(
         f"sqlite:///{tmp_path / 'observability-detail.db'}",

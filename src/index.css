@@ -3190,6 +3190,69 @@ kbd {
   color: var(--red);
 }
 
+.observability-alert-outbox {
+  padding: 0;
+}
+
+.observability-alert-outbox .panel-header {
+  padding: 18px 20px 12px;
+}
+
+.observability-alert-outbox .panel-header small {
+  color: var(--muted);
+  font: 700 11px var(--font);
+}
+
+.observability-alert-list {
+  display: grid;
+  gap: 10px;
+  padding: 0 16px 16px;
+}
+
+.observability-alert-item {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) minmax(180px, 260px);
+  gap: 12px;
+  align-items: start;
+  padding: 14px;
+  border: 1px solid rgba(142, 158, 188, 0.24);
+  border-radius: 16px;
+  background: rgba(247, 250, 255, 0.72);
+  box-shadow: var(--shadow-in);
+}
+
+.observability-alert-item strong,
+.observability-alert-item p,
+.observability-alert-item em,
+.observability-alert-item small {
+  overflow-wrap: anywhere;
+}
+
+.observability-alert-item p {
+  margin: 5px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.observability-alert-item em {
+  color: var(--blue);
+  font: 700 10px var(--mono);
+  font-style: normal;
+}
+
+.observability-alert-item aside {
+  display: grid;
+  justify-items: end;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: right;
+}
+
+.observability-alert-item aside small {
+  line-height: 1.45;
+}
+
 .observability-layout {
   display: grid;
   grid-template-columns: 380px minmax(0, 1fr);
@@ -3539,6 +3602,16 @@ kbd {
 @media (max-width: 860px) {
   .observability-filter-bar {
     grid-template-columns: 1fr;
+  }
+
+  .observability-alert-item {
+    grid-template-columns: 12px minmax(0, 1fr);
+  }
+
+  .observability-alert-item aside {
+    grid-column: 2;
+    justify-items: start;
+    text-align: left;
   }
 }
 

@@ -30,6 +30,20 @@ const overview = {
     message: '澶辫触 · 数据清洗 Agent',
     nextAction: '查看失败节点和错误信息',
   }],
+  alerts: [{
+    id: 'alert-run-failed-connector_auth_timeout',
+    eventKey: 'run:run-failed:connector_auth_timeout',
+    eventType: 'run_failure',
+    severity: 'critical',
+    channel: 'in_app',
+    status: 'pending',
+    title: 'Amazon 评论分析',
+    message: '连接器鉴权超时 · Amazon 数据连接器鉴权超时',
+    runId: 'run-failed',
+    humanTaskId: null,
+    nextAction: '检查连接器凭证、权限范围和上游接口响应时间，必要时刷新授权后重跑失败节点。',
+    createdAt: '2026-06-26T08:00:00Z',
+  }],
   recentRuns: [{
     id: 'run-failed',
     workflowName: 'Amazon 评论分析',
@@ -272,7 +286,10 @@ describe('Observability', () => {
     expect(screen.getAllByText('Amazon 评论分析').length).toBeGreaterThanOrEqual(1)
     expect(await screen.findByText('Amazon 数据连接器鉴权超时')).toBeInTheDocument()
     expect(screen.getAllByText('连接器鉴权超时').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText('检查连接器凭证、权限范围和上游接口响应时间，必要时刷新授权后重跑失败节点。')).toBeInTheDocument()
+    expect(screen.getAllByText('检查连接器凭证、权限范围和上游接口响应时间，必要时刷新授权后重跑失败节点。').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText('告警 Outbox')).toBeInTheDocument()
+    expect(screen.getByText('run_failure')).toBeInTheDocument()
+    expect(screen.getByText('连接器鉴权超时 · Amazon 数据连接器鉴权超时')).toBeInTheDocument()
     expect(await screen.findByText('人工 SLA 运营')).toBeInTheDocument()
     expect(screen.getByText('活跃任务')).toBeInTheDocument()
     expect(screen.getByText('已逾期审核')).toBeInTheDocument()
@@ -442,6 +459,7 @@ describe('Observability', () => {
           totalCostUsd: 0,
         },
         risks: [],
+        alerts: [],
         recentRuns: [],
       }), { status: 200 })
     }))

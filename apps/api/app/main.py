@@ -26,6 +26,7 @@ from app.models import (
     HumanReviewRecord,
     HumanTaskRecord,
     NodeRunRecord,
+    NotificationOutboxRecord,
     ReviewerRecord,
     ReviewGroupRecord,
     WorkspaceRecord,
@@ -56,6 +57,7 @@ from app.schemas import (
     HumanTaskTransfer,
     NodeRunRead,
     ObservabilityAuditEventRead,
+    ObservabilityAlertRead,
     ObservabilityCostUsageGroupRead,
     ObservabilityCostUsageRead,
     ObservabilityCostUsageTotalsRead,
@@ -400,6 +402,73 @@ def create_app(
             message=f"{run.status} · {run.current_node or '未知节点'}",
             next_action=observability_next_action(run),
         )
+
+    def observability_alert_event_type(run: WorkflowRunRecord, failure_category: str) -> str:
+        if failure_category == "human_review_blocked":
+            return "human_review_blocked"
+        if failure_category == "resume_failed":
+            return "resume_failed"
+        if run.status in {"失败", "澶辫触"}:
+            return "run_failure"
+        return "run_attention"
+
+    def observability_alerts(
+        session: Session,
+        workspace_id: str,
+        sorted_runs: list[WorkflowRunRecord],
+    ) -> list[ObservabilityAlertRead]:
+        alerts: list[ObservabilityAlertRead] = []
+        for run in sorted_runs:
+            priority = observability_priority(run)[1]
+            if priority == "normal":
+                continue
+            failure_category, failure_label, troubleshooting_hint = observability_failure_classification(run)
+            alerts.append(ObservabilityAlertRead(
+                id=f"alert-{run.id}-{failure_category}",
+                event_key=f"run:{run.id}:{failure_category}",
+                event_type=observability_alert_event_type(run, failure_category),
+                severity=priority,
+                channel="in_app",
+                status="pending",
+                title=run.name,
+                message=f"{failure_label} · {run.error or run.current_node or '暂无错误详情'}",
+                run_id=run.id,
+                human_task_id=None,
+                next_action=troubleshooting_hint,
+                created_at=run.started_at,
+            ))
+
+        notifications = list(session.scalars(
+            select(NotificationOutboxRecord)
+            .where(NotificationOutboxRecord.workspace_id == workspace_id)
+            .order_by(NotificationOutboxRecord.created_at.desc()),
+        ))
+        task_ids = {notification.human_task_id for notification in notifications}
+        tasks_by_id = {
+            task.id: task
+            for task in session.scalars(
+                select(HumanTaskRecord).where(HumanTaskRecord.id.in_(task_ids)),
+            )
+        } if task_ids else {}
+        for notification in notifications:
+            task = tasks_by_id.get(notification.human_task_id)
+            run_id = task.workflow_run_id if task else None
+            is_critical = notification.event_type == "escalated"
+            alerts.append(ObservabilityAlertRead(
+                id=f"notification-{notification.id}",
+                event_key=notification.event_key,
+                event_type=notification.event_type,
+                severity="critical" if is_critical else "warning",
+                channel="in_app",
+                status=notification.status,
+                title=task.title if task else "人工任务通知",
+                message=f"{notification.event_type} · {notification.recipient_type}:{notification.recipient_id}",
+                run_id=run_id,
+                human_task_id=notification.human_task_id,
+                next_action="进入人工审核页处理该通知",
+                created_at=notification.created_at,
+            ))
+        return alerts[:20]
 
     def human_sla_severity(task: HumanTaskRecord) -> str | None:
         if task.status in {"恢复失败", "鎭㈠澶辫触"}:
@@ -1080,6 +1149,7 @@ def create_app(
         return ObservabilityOverviewRead(
             totals=totals,
             risks=risks[:10],
+            alerts=observability_alerts(session, context.workspace.id, sorted_runs),
             recent_runs=[observability_summary(run) for run in sorted_runs[:20]],
         )
 

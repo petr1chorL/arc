@@ -376,9 +376,27 @@ class ObservabilityRiskRead(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class ObservabilityAlertRead(BaseModel):
+    id: str
+    event_key: str = Field(serialization_alias="eventKey")
+    event_type: str = Field(serialization_alias="eventType")
+    severity: Literal["critical", "warning"]
+    channel: str
+    status: str
+    title: str
+    message: str
+    run_id: str | None = Field(serialization_alias="runId")
+    human_task_id: str | None = Field(serialization_alias="humanTaskId")
+    next_action: str = Field(serialization_alias="nextAction")
+    created_at: datetime = Field(serialization_alias="createdAt")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class ObservabilityOverviewRead(BaseModel):
     totals: ObservabilityTotalsRead
     risks: list[ObservabilityRiskRead]
+    alerts: list[ObservabilityAlertRead]
     recent_runs: list[ObservabilityRunSummaryRead] = Field(serialization_alias="recentRuns")
 
     model_config = ConfigDict(populate_by_name=True)

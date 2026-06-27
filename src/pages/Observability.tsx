@@ -28,6 +28,7 @@ import type {
   CostUsageOverview,
   HumanSlaOverview,
   HumanSlaRisk,
+  ObservabilityAlert,
   ObservabilityOverview,
   ObservabilityRisk,
   ObservabilityRunDetail,
@@ -153,6 +154,12 @@ export function Observability() {
       && (riskFilter === 'all' || risk.severity === riskFilter)
     ))
   }, [filteredRuns, overview, riskFilter])
+
+  const filteredAlerts = useMemo(() => {
+    if (!overview) return []
+    const visibleRunIds = new Set(filteredRuns.map((run) => run.id))
+    return (overview.alerts ?? []).filter((alert) => !alert.runId || visibleRunIds.has(alert.runId))
+  }, [filteredRuns, overview])
 
   const loadOverview = useCallback(async () => {
     setIsLoading(true)
@@ -299,6 +306,8 @@ export function Observability() {
         <MetricCard label="平均耗时" value={formatDuration(overview.totals.averageDurationMs)} icon={<Clock3 size={17} />} />
         <MetricCard label="模型成本" value={formatCost(overview.totals.totalCostUsd)} icon={<Coins size={17} />} />
       </section>
+
+      <AlertOutboxPanel alerts={filteredAlerts} />
 
       <HumanSlaPanel
         humanSla={humanSla}
@@ -483,6 +492,42 @@ function CostUsagePanel({
           </div>
         </>
       )}
+    </section>
+  )
+}
+
+function AlertOutboxPanel({ alerts }: { alerts: ObservabilityAlert[] }) {
+  return (
+    <section className="panel observability-alert-outbox">
+      <div className="panel-header">
+        <div>
+          <span className="section-kicker">ALERT OUTBOX</span>
+          <h3>告警 Outbox</h3>
+        </div>
+        <small>{alerts.length} 条待处理</small>
+      </div>
+
+      {alerts.length === 0
+        ? <p className="muted-copy">暂无待处理告警。</p>
+        : (
+          <div className="observability-alert-list">
+            {alerts.map((alert) => (
+              <article className={`observability-alert-item ${alert.severity}`} key={alert.id}>
+                <span className={`risk-dot ${alert.severity}`} />
+                <div>
+                  <strong>{alert.title}</strong>
+                  <p>{alert.message}</p>
+                  <em>{alert.eventType}</em>
+                </div>
+                <aside>
+                  <StatusBadge status={alert.severity === 'critical' ? '高' : '中'} />
+                  <span>{alert.channel} / {alert.status}</span>
+                  <small>{alert.nextAction}</small>
+                </aside>
+              </article>
+            ))}
+          </div>
+        )}
     </section>
   )
 }

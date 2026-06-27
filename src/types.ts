@@ -426,9 +426,25 @@ export interface ObservabilityRisk {
   nextAction: string
 }
 
+export interface ObservabilityAlert {
+  id: string
+  eventKey: string
+  eventType: string
+  severity: 'critical' | 'warning'
+  channel: string
+  status: string
+  title: string
+  message: string
+  runId: string | null
+  humanTaskId: string | null
+  nextAction: string
+  createdAt: string
+}
+
 export interface ObservabilityOverview {
   totals: ObservabilityTotals
   risks: ObservabilityRisk[]
+  alerts: ObservabilityAlert[]
   recentRuns: ObservabilityRunSummary[]
 }
 
