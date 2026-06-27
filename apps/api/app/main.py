@@ -199,12 +199,13 @@ def create_app(
     authorization_service = AuthorizationService(audit_service)
     context_service = RequestContextService(authentication_service, settings, audit_service)
     human_task_service = HumanTaskService(human_task_clock)
+    tool_runtime = ToolRuntimeExecutor(tool_gateway or DisabledHttpToolGateway())
     execution_service = ExecutionService(
         model_gateway or OpenAICompatibleGateway(settings),
         settings,
         human_task_service,
+        tool_runtime=tool_runtime,
     )
-    tool_runtime = ToolRuntimeExecutor(tool_gateway or DisabledHttpToolGateway())
     workflow_resume_service = WorkflowResumeService(
         execution_service,
         human_task_service,

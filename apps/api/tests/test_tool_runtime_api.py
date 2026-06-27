@@ -5,6 +5,27 @@ from app.tool_runtime import ToolRuntimeGatewayError, ToolRuntimeGatewayResult
 
 
 @dataclass
+class FakeModelResult:
+    content: str
+    model: str = "fake-model"
+    prompt_tokens: int = 12
+    completion_tokens: int = 8
+
+
+class FakeModelGateway:
+    def __init__(self, results: list[FakeModelResult | Exception]):
+        self.results = results
+        self.calls: list[dict] = []
+
+    def complete(self, **request):
+        self.calls.append(request)
+        result = self.results.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+
+@dataclass
 class FakeHttpToolGateway:
     results: list[ToolRuntimeGatewayResult | Exception]
 
@@ -41,6 +62,39 @@ def create_http_tool(client, workspace_id: str, *, name: str = "价格查询") -
     )
     assert response.status_code == 201
     return response.json()
+
+
+def create_agent_bound_to_tool(
+    client,
+    workspace_id: str,
+    *,
+    tool_name: str,
+) -> tuple[dict, dict]:
+    agent = client.post(
+        workspace_url(workspace_id, "/agents"),
+        json={
+            "name": "工具调用 Agent",
+            "role": "Use available tools before answering.",
+            "owner": "Platform Team",
+            "model": "configured-model",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    update = client.patch(
+        workspace_url(workspace_id, f"/agents/{agent['id']}"),
+        json={
+            "systemPrompt": "Call the configured tool and answer with evidence.",
+            "tools": [tool_name],
+        },
+        headers=csrf_headers(client),
+    )
+    assert update.status_code == 200
+    version = client.post(
+        workspace_url(workspace_id, f"/agents/{agent['id']}/publish"),
+        headers=csrf_headers(client),
+    )
+    assert version.status_code == 201
+    return agent, version.json()
 
 
 def test_http_tool_test_invocation_writes_success_log(tmp_path):
@@ -118,3 +172,45 @@ def test_non_http_tool_cannot_be_test_invoked(tmp_path):
 
     assert response.status_code == 422
     assert response.json()["detail"] == "仅 HTTP Tool 支持测试调用"
+
+
+def test_agent_test_run_writes_http_tool_invocation_with_run_context(tmp_path):
+    tool_gateway = FakeHttpToolGateway([
+        ToolRuntimeGatewayResult(output_summary="price=199", raw_output={"price": 199}),
+    ])
+    model_gateway = FakeModelGateway([
+        FakeModelResult("The answer uses the price tool evidence and is long enough."),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'agent-http-tool-runtime.db'}",
+        model_gateway=model_gateway,
+        tool_gateway=tool_gateway,
+    )
+    tool = create_http_tool(client, workspace_id)
+    agent, version = create_agent_bound_to_tool(
+        client,
+        workspace_id,
+        tool_name=tool["name"],
+    )
+
+    response = client.post(
+        workspace_url(workspace_id, f"/agents/{agent['id']}/test-runs"),
+        json={"input": "Lookup SKU A001", "version": version["version"]},
+        headers=csrf_headers(client),
+    )
+    logs = client.get(
+        workspace_url(workspace_id, f"/asset-library/invocations?assetId={tool['id']}"),
+    ).json()
+
+    assert response.status_code == 201
+    assert logs[0]["status"] == "succeeded"
+    assert logs[0]["agentId"] == agent["id"]
+    assert logs[0]["agentVersion"] == version["version"]
+    assert logs[0]["runId"] == response.json()["id"]
+    assert logs[0]["nodeRunId"] == response.json()["nodes"][0]["id"]
+    assert logs[0]["inputSummary"] == '{"input": "Lookup SKU A001"}'
+    assert logs[0]["outputSummary"] == "price=199"
+    assert tool_gateway.calls == [{
+        "config": {"method": "POST", "url": "https://internal.example.test/price"},
+        "parameters": {"input": "Lookup SKU A001"},
+    }]

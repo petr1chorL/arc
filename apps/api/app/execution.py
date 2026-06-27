@@ -19,10 +19,13 @@ from app.models import (
     NodeRunRecord,
     ResumeRequestRecord,
     ReviewDecisionRecord,
+    ToolSkillAssetInvocationRecord,
+    ToolSkillAssetRecord,
     WorkflowRunRecord,
     WorkflowVersionRecord,
     utc_now,
 )
+from app.tool_runtime import DisabledHttpToolGateway, ToolRuntimeExecutor
 
 
 @dataclass
@@ -38,10 +41,12 @@ class ExecutionService:
         gateway: ModelGateway,
         settings: Settings,
         human_task_service: HumanTaskService,
+        tool_runtime: ToolRuntimeExecutor | None = None,
     ):
         self.gateway = gateway
         self.settings = settings
         self.human_task_service = human_task_service
+        self.tool_runtime = tool_runtime or ToolRuntimeExecutor(DisabledHttpToolGateway())
         self.agent_runtime = AgentRuntimeExecutor(
             gateway=gateway,
             cost_calculator=self.calculate_cost,
@@ -95,6 +100,16 @@ class ExecutionService:
         )
         session.add(node_run)
         session.flush()
+        tool_call_summaries = self._invoke_bound_http_tools(
+            session=session,
+            run=run,
+            node_run=node_run,
+            agent_id=agent_id,
+            agent_version=agent_version,
+            tool_names=snapshot.get("tools", []),
+            input_text=input_text,
+        )
+        runtime_input = self._input_with_tool_summaries(input_text, tool_call_summaries)
         result = self.agent_runtime.execute(
             AgentRuntimeRequest(
                 workspace_id=run.workspace_id,
@@ -103,7 +118,7 @@ class ExecutionService:
                 node_name=node_name,
                 agent_id=agent_id,
                 agent_version=agent_version,
-                input_text=input_text,
+                input_text=runtime_input,
                 system_prompt=effective_prompt,
                 model=snapshot.get("model", ""),
                 tools=snapshot.get("tools", []),
@@ -124,6 +139,73 @@ class ExecutionService:
         node_run.completed_at = utc_now()
         node_run.duration_ms = result.duration_ms
         return node_run
+
+    def _invoke_bound_http_tools(
+        self,
+        *,
+        session: Session,
+        run: WorkflowRunRecord,
+        node_run: NodeRunRecord,
+        agent_id: str,
+        agent_version: str,
+        tool_names: list[str],
+        input_text: str,
+    ) -> list[dict[str, str]]:
+        if not tool_names:
+            return []
+        assets = list(session.scalars(
+            select(ToolSkillAssetRecord).where(
+                ToolSkillAssetRecord.workspace_id == run.workspace_id,
+                ToolSkillAssetRecord.asset_type == "tool",
+                ToolSkillAssetRecord.status == "active",
+                ToolSkillAssetRecord.adapter_type == "http",
+                ToolSkillAssetRecord.name.in_(tool_names),
+            ),
+        ))
+        summaries: list[dict[str, str]] = []
+        for asset in assets:
+            runtime_result = self.tool_runtime.execute_http(
+                config=asset.adapter_config,
+                parameters={"input": input_text},
+            )
+            record = ToolSkillAssetInvocationRecord(
+                workspace_id=run.workspace_id,
+                asset_id=asset.id,
+                asset_type=asset.asset_type,
+                asset_name=asset.name,
+                agent_id=agent_id,
+                agent_version=agent_version,
+                run_id=run.id,
+                node_run_id=node_run.id,
+                status=runtime_result.status,
+                input_summary=runtime_result.input_summary,
+                output_summary=runtime_result.output_summary,
+                error=runtime_result.error,
+                duration_ms=runtime_result.duration_ms,
+                created_at=utc_now(),
+            )
+            session.add(record)
+            session.flush()
+            summaries.append({
+                "assetName": asset.name,
+                "status": runtime_result.status,
+                "outputSummary": runtime_result.output_summary,
+                "error": runtime_result.error,
+            })
+        return summaries
+
+    @staticmethod
+    def _input_with_tool_summaries(
+        input_text: str,
+        tool_call_summaries: list[dict[str, str]],
+    ) -> str:
+        if not tool_call_summaries:
+            return input_text
+        lines = ["", "", "工具调用结果："]
+        for item in tool_call_summaries:
+            summary = item["outputSummary"] or item["error"]
+            lines.append(f"- {item['assetName']}（{item['status']}）：{summary}")
+        return input_text + "\n".join(lines)
 
     def run_agent_version(
         self,
