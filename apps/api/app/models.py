@@ -183,6 +183,29 @@ class AgentVersionRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class ToolSkillAssetRecord(Base):
+    __tablename__ = "tool_skill_assets"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "asset_type",
+            "name",
+            name="uq_tool_skill_asset_workspace_type_name",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str] = mapped_column(String(36), index=True)
+    asset_type: Mapped[str] = mapped_column(String(20), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(Text, default="")
+    parameter_schema: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(20), default="active")
+    created_by: Mapped[str] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class WorkflowRecord(Base):
     __tablename__ = "workflows"
 

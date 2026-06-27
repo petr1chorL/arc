@@ -220,6 +220,40 @@ class AgentRead(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
+ToolSkillAssetType = Literal["tool", "skill"]
+
+
+class ToolSkillAssetCreate(BaseModel):
+    asset_type: ToolSkillAssetType = Field(alias="assetType")
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=2000)
+    parameter_schema: dict = Field(default_factory=dict, alias="parameterSchema")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    @field_validator("name")
+    @classmethod
+    def reject_blank_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("资产名称不能为空")
+        return normalized
+
+
+class ToolSkillAssetRead(BaseModel):
+    id: str
+    asset_type: ToolSkillAssetType = Field(serialization_alias="assetType")
+    name: str
+    description: str
+    parameter_schema: dict = Field(serialization_alias="parameterSchema")
+    status: str
+    created_by: str = Field(serialization_alias="createdBy")
+    created_at: datetime = Field(serialization_alias="createdAt")
+    updated_at: datetime = Field(serialization_alias="updatedAt")
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
 class VersionRead(BaseModel):
     id: str
     version: str

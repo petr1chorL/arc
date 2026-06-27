@@ -37,6 +37,7 @@ from app.models import (
     ReviewGroupRecord,
     RubricRecord,
     RubricVersionRecord,
+    ToolSkillAssetRecord,
     WorkspaceRecord,
     WorkflowRecord,
     WorkflowRunRecord,
@@ -103,6 +104,8 @@ from app.schemas import (
     RubricWrite,
     RunCreate,
     RunRead,
+    ToolSkillAssetCreate,
+    ToolSkillAssetRead,
     ValidationResult,
     VersionRead,
     WorkflowCreate,
@@ -1126,6 +1129,82 @@ def create_app(
             request=request,
         )
         return run_response(run, session)
+
+    @router.get("/asset-library", response_model=list[ToolSkillAssetRead])
+    def list_tool_skill_assets(
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> list[ToolSkillAssetRecord]:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "asset.read",
+            action="tool_skill_asset.list",
+            target_type="workspace",
+            target_id=context.workspace.id,
+            request=request,
+        )
+        statement = (
+            select(ToolSkillAssetRecord)
+            .where(ToolSkillAssetRecord.workspace_id == context.workspace.id)
+            .order_by(ToolSkillAssetRecord.created_at.desc())
+        )
+        return list(session.scalars(statement))
+
+    @router.post(
+        "/asset-library",
+        response_model=ToolSkillAssetRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_tool_skill_asset(
+        payload: ToolSkillAssetCreate,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> ToolSkillAssetRecord:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "agent.write",
+            action="tool_skill_asset.create",
+            target_type="tool_skill_asset",
+            target_id=None,
+            request=request,
+        )
+        existing = session.scalar(
+            select(ToolSkillAssetRecord).where(
+                ToolSkillAssetRecord.workspace_id == context.workspace.id,
+                ToolSkillAssetRecord.asset_type == payload.asset_type,
+                ToolSkillAssetRecord.name == payload.name,
+            ),
+        )
+        if existing is not None:
+            raise HTTPException(status_code=409, detail="资产名称已存在")
+        now = utc_now()
+        record = ToolSkillAssetRecord(
+            workspace_id=context.workspace.id,
+            asset_type=payload.asset_type,
+            name=payload.name,
+            description=payload.description,
+            parameter_schema=payload.parameter_schema,
+            created_by=context.user.id,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(record)
+        session.flush()
+        record_success(
+            session,
+            context,
+            action="tool_skill_asset.create",
+            target_type="tool_skill_asset",
+            target_id=record.id,
+            request=request,
+        )
+        session.commit()
+        session.refresh(record)
+        return record
 
     @router.get("/workflows", response_model=list[WorkflowRead])
     def list_workflows(
