@@ -1632,6 +1632,69 @@ kbd {
   margin-top: 4px;
 }
 
+.rubric-dialog {
+  width: min(720px, 100%);
+}
+
+.rubric-dimension-editor {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.28);
+  box-shadow: var(--shadow-inset);
+}
+
+.rubric-dimension-header,
+.rubric-dimension-row,
+.rubric-version-list article {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.rubric-dimension-row {
+  grid-template-columns: minmax(0, 1fr) 120px auto;
+}
+
+.rubric-dimension-row .button {
+  align-self: end;
+}
+
+.success-text { color: var(--teal); }
+.danger-text { color: var(--red); }
+
+.danger-button {
+  color: var(--red);
+}
+
+.rubric-version-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--soft-line);
+}
+
+.rubric-version-list p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.rubric-version-list article {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.22);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.rubric-version-list article strong {
+  color: var(--ink);
+}
+
 .members-page {
   display: grid;
   gap: 14px;

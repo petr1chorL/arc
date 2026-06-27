@@ -531,6 +531,17 @@ class RubricRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class RubricVersionRecord(Base):
+    __tablename__ = "rubric_versions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    rubric_id: Mapped[str] = mapped_column(String(36), index=True)
+    version: Mapped[str] = mapped_column(String(32))
+    snapshot: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class HumanReviewRecord(Base):
     __tablename__ = "human_reviews"
 

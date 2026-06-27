@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class LoginCreate(BaseModel):
@@ -758,6 +758,44 @@ class RubricDimensionRead(BaseModel):
     weight: int
 
 
+class RubricDimensionWrite(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    weight: int = Field(ge=1, le=100)
+
+    @field_validator("name")
+    @classmethod
+    def reject_blank_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("维度名称不能为空")
+        return normalized
+
+
+class RubricWrite(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    artifact: str = Field(min_length=1, max_length=160)
+    dimensions: list[RubricDimensionWrite] = Field(min_length=1)
+    gate: str = Field(min_length=1, max_length=4000)
+    pass_score: int = Field(alias="passScore", ge=0, le=100)
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    @field_validator("name", "artifact", "gate")
+    @classmethod
+    def reject_blank_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("字段不能为空")
+        return normalized
+
+    @model_validator(mode="after")
+    def require_weight_total(self) -> "RubricWrite":
+        total = sum(dimension.weight for dimension in self.dimensions)
+        if total != 100:
+            raise ValueError("维度权重合计必须等于 100")
+        return self
+
+
 class RubricRead(BaseModel):
     id: str
     name: str
@@ -767,5 +805,14 @@ class RubricRead(BaseModel):
     pass_score: int = Field(serialization_alias="passScore")
     version: str
     status: str
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class RubricVersionRead(BaseModel):
+    id: str
+    version: str
+    snapshot: RubricRead
+    created_at: datetime = Field(serialization_alias="createdAt")
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)

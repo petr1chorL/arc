@@ -11,6 +11,8 @@ export type WorkspaceCapability =
   | 'agent.publish'
   | 'workflow.write'
   | 'workflow.publish'
+  | 'rubric.write'
+  | 'rubric.publish'
   | 'asset.deactivate'
   | 'member.manage'
   | 'reviewer.manage'
@@ -144,6 +146,8 @@ export interface Rubric {
   version: string
   status?: string
 }
+
+export type RubricVersion = AssetVersion<Rubric>
 
 export interface WorkflowRun {
   id: string

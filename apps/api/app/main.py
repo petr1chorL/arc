@@ -30,6 +30,7 @@ from app.models import (
     ReviewerRecord,
     ReviewGroupRecord,
     RubricRecord,
+    RubricVersionRecord,
     WorkspaceRecord,
     WorkflowRecord,
     WorkflowRunRecord,
@@ -78,6 +79,8 @@ from app.schemas import (
     ReviewGroupRead,
     ReviewDecision,
     RubricRead,
+    RubricVersionRead,
+    RubricWrite,
     RunCreate,
     RunRead,
     ValidationResult,
@@ -262,6 +265,29 @@ def create_app(
 
     def agent_snapshot(record: AgentRecord) -> dict:
         return AgentRead.model_validate(record).model_dump(by_alias=True, mode="json")
+
+    def find_rubric(workspace_id: str, rubric_id: str, session: Session) -> RubricRecord:
+        rubric = session.scalar(
+            select(RubricRecord).where(
+                RubricRecord.id == rubric_id,
+                RubricRecord.workspace_id == workspace_id,
+            ),
+        )
+        if rubric is None:
+            raise HTTPException(status_code=404, detail="评分量规不存在")
+        return rubric
+
+    def rubric_snapshot(record: RubricRecord) -> dict:
+        return RubricRead.model_validate(record).model_dump(mode="json")
+
+    def next_rubric_version(session: Session, workspace_id: str, rubric_id: str) -> str:
+        count = session.scalar(
+            select(func.count()).select_from(RubricVersionRecord).where(
+                RubricVersionRecord.workspace_id == workspace_id,
+                RubricVersionRecord.rubric_id == rubric_id,
+            ),
+        ) or 0
+        return next_version(count)
 
     def find_workflow(workspace_id: str, workflow_id: str, session: Session) -> WorkflowRecord:
         workflow = session.scalar(
@@ -1803,6 +1829,203 @@ def create_app(
             .where(RubricRecord.workspace_id == context.workspace.id)
             .order_by(RubricRecord.sort_order.asc(), RubricRecord.created_at.asc()),
         ))
+
+    @router.post(
+        "/evaluations/rubrics",
+        response_model=RubricRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_evaluation_rubric(
+        payload: RubricWrite,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> RubricRecord:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "rubric.write",
+            action="evaluation.rubric.create",
+            target_type="rubric",
+            target_id=None,
+            request=request,
+        )
+        sort_order = session.scalar(
+            select(func.max(RubricRecord.sort_order))
+            .where(RubricRecord.workspace_id == context.workspace.id),
+        ) or 0
+        now = utc_now()
+        record = RubricRecord(
+            workspace_id=context.workspace.id,
+            name=payload.name,
+            artifact=payload.artifact,
+            dimensions=[dimension.model_dump() for dimension in payload.dimensions],
+            gate=payload.gate,
+            pass_score=payload.pass_score,
+            version="v0.1.0",
+            status="draft",
+            sort_order=sort_order + 1,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(record)
+        session.flush()
+        record_success(
+            session,
+            context,
+            action="evaluation.rubric.create",
+            target_type="rubric",
+            target_id=record.id,
+            request=request,
+        )
+        session.commit()
+        session.refresh(record)
+        return record
+
+    @router.patch("/evaluations/rubrics/{rubric_id}", response_model=RubricRead)
+    def update_evaluation_rubric(
+        rubric_id: str,
+        payload: RubricWrite,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> RubricRecord:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "rubric.write",
+            action="evaluation.rubric.update",
+            target_type="rubric",
+            target_id=rubric_id,
+            request=request,
+        )
+        record = find_rubric(context.workspace.id, rubric_id, session)
+        if record.status == "disabled":
+            raise HTTPException(status_code=409, detail="已停用评分量规不允许编辑")
+        record.name = payload.name
+        record.artifact = payload.artifact
+        record.dimensions = [dimension.model_dump() for dimension in payload.dimensions]
+        record.gate = payload.gate
+        record.pass_score = payload.pass_score
+        record.updated_at = utc_now()
+        record_success(
+            session,
+            context,
+            action="evaluation.rubric.update",
+            target_type="rubric",
+            target_id=record.id,
+            request=request,
+        )
+        session.commit()
+        session.refresh(record)
+        return record
+
+    @router.get(
+        "/evaluations/rubrics/{rubric_id}/versions",
+        response_model=list[RubricVersionRead],
+    )
+    def list_evaluation_rubric_versions(
+        rubric_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> list[RubricVersionRecord]:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "asset.read",
+            action="evaluation.rubric.version.list",
+            target_type="rubric",
+            target_id=rubric_id,
+            request=request,
+        )
+        find_rubric(context.workspace.id, rubric_id, session)
+        return list(session.scalars(
+            select(RubricVersionRecord)
+            .where(
+                RubricVersionRecord.workspace_id == context.workspace.id,
+                RubricVersionRecord.rubric_id == rubric_id,
+            )
+            .order_by(RubricVersionRecord.created_at.desc()),
+        ))
+
+    @router.post(
+        "/evaluations/rubrics/{rubric_id}/publish",
+        response_model=RubricVersionRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def publish_evaluation_rubric(
+        rubric_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> RubricVersionRecord:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "rubric.publish",
+            action="evaluation.rubric.publish",
+            target_type="rubric",
+            target_id=rubric_id,
+            request=request,
+        )
+        record = find_rubric(context.workspace.id, rubric_id, session)
+        if record.status == "disabled":
+            raise HTTPException(status_code=409, detail="已停用评分量规不允许发布")
+        version = next_rubric_version(session, context.workspace.id, rubric_id)
+        record.version = version
+        record.status = "active"
+        record.updated_at = utc_now()
+        published = RubricVersionRecord(
+            workspace_id=context.workspace.id,
+            rubric_id=rubric_id,
+            version=version,
+            snapshot=rubric_snapshot(record),
+        )
+        session.add(published)
+        session.flush()
+        record_success(
+            session,
+            context,
+            action="evaluation.rubric.publish",
+            target_type="rubric",
+            target_id=record.id,
+            request=request,
+        )
+        session.commit()
+        session.refresh(published)
+        return published
+
+    @router.post("/evaluations/rubrics/{rubric_id}/deactivate", response_model=RubricRead)
+    def deactivate_evaluation_rubric(
+        rubric_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> RubricRecord:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "asset.deactivate",
+            action="evaluation.rubric.deactivate",
+            target_type="rubric",
+            target_id=rubric_id,
+            request=request,
+        )
+        record = find_rubric(context.workspace.id, rubric_id, session)
+        record.status = "disabled"
+        record.updated_at = utc_now()
+        record_success(
+            session,
+            context,
+            action="evaluation.rubric.deactivate",
+            target_type="rubric",
+            target_id=record.id,
+            request=request,
+        )
+        session.commit()
+        session.refresh(record)
+        return record
 
     @router.get(
         "/feedback-candidates/{candidate_id}",

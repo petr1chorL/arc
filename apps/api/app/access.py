@@ -30,6 +30,8 @@ CAPABILITY_MIN_ROLE = {
     "run.execute": "operator",
     "agent.write": "builder",
     "agent.publish": "builder",
+    "rubric.write": "builder",
+    "rubric.publish": "builder",
     "workflow.write": "builder",
     "workflow.publish": "builder",
     "asset.deactivate": "workspace_admin",

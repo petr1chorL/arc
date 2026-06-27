@@ -38,6 +38,7 @@ WORKSPACE_TABLES = (
     "feedback_candidates",
     "golden_samples",
     "rubrics",
+    "rubric_versions",
     "human_reviews",
 )
 DEFAULT_WORKSPACE_FALLBACK_TABLES = tuple(

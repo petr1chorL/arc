@@ -16,6 +16,8 @@ const minimumRole: Record<WorkspaceCapability, WorkspaceRole> = {
   'agent.publish': 'builder',
   'workflow.write': 'builder',
   'workflow.publish': 'builder',
+  'rubric.write': 'builder',
+  'rubric.publish': 'builder',
   'asset.deactivate': 'workspace_admin',
   'member.manage': 'workspace_admin',
   'reviewer.manage': 'workspace_admin',
