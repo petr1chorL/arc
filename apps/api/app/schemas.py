@@ -434,6 +434,27 @@ class ExecutionJobOperationRequest(BaseModel):
         return value.strip()
 
 
+class ExecutionJobAuditEventRead(BaseModel):
+    id: str
+    action: str | None
+    outcome: str | None
+    reason: str
+    before_status: str = Field(serialization_alias="beforeStatus")
+    after_status: str = Field(serialization_alias="afterStatus")
+    payload: dict
+    actor_user_id: str | None = Field(serialization_alias="actorUserId")
+    request_id: str | None = Field(serialization_alias="requestId")
+    created_at: datetime = Field(serialization_alias="createdAt")
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class ExecutionJobDetailRead(ExecutionJobRead):
+    audit_events: list[ExecutionJobAuditEventRead] = Field(serialization_alias="auditEvents")
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
 class ObservabilityTotalsRead(BaseModel):
     runs: int
     succeeded: int

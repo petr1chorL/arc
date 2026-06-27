@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   cancelExecutionJob,
   decideReview,
+  getExecutionJob,
   listExecutionJobs,
   listReviews,
   listRuns,
@@ -129,6 +130,53 @@ describe('Execution API', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/workspaces/workspace-1/execution-jobs?status=dead_letter',
+      expect.objectContaining({ credentials: 'same-origin' }),
+    )
+  })
+
+  it('loads execution job detail with audit events', async () => {
+    const detail = {
+      id: 'job-1',
+      workspaceId: workspaceId,
+      runId: 'run-1',
+      workflowId: 'workflow-1',
+      workflowVersion: 'v1.0.0',
+      jobType: 'workflow_run',
+      status: 'queued',
+      input: '执行流程',
+      attempts: 0,
+      maxAttempts: 3,
+      error: '',
+      createdBy: 'user-1',
+      lockedBy: '',
+      lockedUntil: null,
+      lastHeartbeatAt: null,
+      nextAttemptAt: '2026-06-27T08:05:00Z',
+      createdAt: '2026-06-27T08:00:00Z',
+      startedAt: null,
+      completedAt: null,
+      deadLetteredAt: null,
+      canceledAt: null,
+      auditEvents: [{
+        id: 'audit-1',
+        action: 'execution_job.requeue',
+        outcome: 'success',
+        reason: '详情页验证重投审计',
+        beforeStatus: 'dead_letter',
+        afterStatus: 'queued',
+        payload: { runId: 'run-1' },
+        actorUserId: 'user-1',
+        requestId: 'req-1',
+        createdAt: '2026-06-27T08:02:00Z',
+      }],
+    }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(detail), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(getExecutionJob(workspaceId, 'job-1')).resolves.toEqual(detail)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/workspaces/workspace-1/execution-jobs/job-1',
       expect.objectContaining({ credentials: 'same-origin' }),
     )
   })

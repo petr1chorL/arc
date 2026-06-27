@@ -61,6 +61,7 @@ from app.schemas import (
     EvaluationRecordRead,
     EvaluationOverviewRead,
     EvaluationRunCreate,
+    ExecutionJobDetailRead,
     ExecutionJobOperationRequest,
     ExecutionJobRead,
     FeedbackCandidateRead,
@@ -1753,6 +1754,47 @@ def create_app(
             ExecutionJobRead.model_validate(job)
             for job in session.scalars(statement).all()
         ]
+
+    @router.get("/execution-jobs/{job_id}", response_model=ExecutionJobDetailRead)
+    def get_execution_job(
+        job_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> ExecutionJobDetailRead:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "run.read",
+            action="execution_job.read",
+            target_type="execution_job",
+            target_id=job_id,
+            request=request,
+        )
+        job = session.scalar(
+            select(ExecutionJobRecord).where(
+                ExecutionJobRecord.id == job_id,
+                ExecutionJobRecord.workspace_id == context.workspace.id,
+            ),
+        )
+        if job is None:
+            raise HTTPException(status_code=404, detail="队列任务不存在")
+        audit_events = list(
+            session.scalars(
+                select(AuditEventRecord)
+                .where(
+                    AuditEventRecord.workspace_id == context.workspace.id,
+                    AuditEventRecord.target_type == "execution_job",
+                    AuditEventRecord.target_id == job_id,
+                )
+                .order_by(AuditEventRecord.created_at.asc(), AuditEventRecord.id.asc()),
+            ),
+        )
+        payload = ExecutionJobRead.model_validate(job).model_dump(by_alias=False)
+        return ExecutionJobDetailRead.model_validate({
+            **payload,
+            "audit_events": audit_events,
+        })
 
     @router.post("/execution-jobs/{job_id}/heartbeat")
     def heartbeat_execution_job(

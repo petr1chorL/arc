@@ -271,6 +271,23 @@ export interface ExecutionJob {
   canceledAt: string | null
 }
 
+export interface ExecutionJobAuditEvent {
+  id: string
+  action: string | null
+  outcome: string | null
+  reason: string
+  beforeStatus: string
+  afterStatus: string
+  payload: Record<string, unknown>
+  actorUserId: string | null
+  requestId: string | null
+  createdAt: string
+}
+
+export interface ExecutionJobDetail extends ExecutionJob {
+  auditEvents: ExecutionJobAuditEvent[]
+}
+
 export interface HumanReview {
   id: string
   runId: string

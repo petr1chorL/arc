@@ -601,6 +601,50 @@ def test_execution_job_can_be_canceled_before_worker_claims_it(tmp_path):
         assert event.payload["attemptsBefore"] == 0
 
 
+def test_execution_job_detail_includes_operation_audit_events(tmp_path):
+    database_url = f"sqlite:///{tmp_path / 'async-job-detail.db'}"
+    client, workspace_id = create_authenticated_client(database_url)
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(client, workspace_id, agent, version)
+
+    run_response = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Inspect this queued workflow.", "asyncMode": True},
+        headers=csrf_headers(client),
+    )
+    run_id = run_response.json()["id"]
+    with client.app.state.session_factory() as session:
+        job = session.scalar(select(ExecutionJobRecord))
+        job.status = "dead_letter"
+        job.attempts = 3
+        job.error = "Agent 执行失败，请稍后重试"
+        job.dead_lettered_at = utc_now()
+        run = session.get(WorkflowRunRecord, run_id)
+        run.status = "失败"
+        session.commit()
+        job_id = job.id
+
+    client.post(
+        workspace_url(workspace_id, f"/execution-jobs/{job_id}/requeue"),
+        json={"reason": "详情页验证重投审计"},
+        headers=csrf_headers(client),
+    )
+    detail_response = client.get(
+        workspace_url(workspace_id, f"/execution-jobs/{job_id}"),
+    )
+
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert detail["id"] == job_id
+    assert detail["runId"] == run_id
+    assert detail["status"] == "queued"
+    assert detail["auditEvents"][0]["action"] == "execution_job.requeue"
+    assert detail["auditEvents"][0]["reason"] == "详情页验证重投审计"
+    assert detail["auditEvents"][0]["beforeStatus"] == "dead_letter"
+    assert detail["auditEvents"][0]["afterStatus"] == "queued"
+    assert detail["auditEvents"][0]["payload"]["runId"] == run_id
+
+
 def test_low_quality_output_creates_human_review(tmp_path):
     gateway = FakeGateway([FakeModelResult("short")])
     client, workspace_id = create_authenticated_client(
