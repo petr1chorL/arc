@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from api_test_support import create_authenticated_client, csrf_headers, workspace_url
-from app.models import AuditEventRecord
+from app.models import AuditEventRecord, ExecutionJobRecord
 
 
 @dataclass
@@ -167,6 +167,49 @@ def test_workflow_run_retries_and_persists_node_timeline(tmp_path):
     ).json()
     assert persisted["output"] == run["output"]
     assert len(persisted["nodes"]) == 3
+
+
+def test_async_workflow_run_enqueues_and_worker_processes_next_job(tmp_path):
+    gateway = FakeGateway([
+        FakeModelResult("The queued workflow completed from the background worker."),
+    ])
+    database_url = f"sqlite:///{tmp_path / 'async-execution.db'}"
+    client, workspace_id = create_authenticated_client(database_url, model_gateway=gateway)
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(client, workspace_id, agent, version)
+
+    response = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Run this workflow in the background.", "asyncMode": True},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 201
+    queued_run = response.json()
+    assert queued_run["status"] == "排队中"
+    assert queued_run["nodes"] == []
+    assert gateway.calls == []
+    with client.app.state.session_factory() as session:
+        job = session.scalar(select(ExecutionJobRecord))
+        assert job is not None
+        assert job.status == "queued"
+        assert job.run_id == queued_run["id"]
+
+    worker_response = client.post(
+        workspace_url(workspace_id, "/execution-jobs/next"),
+        headers=csrf_headers(client),
+    )
+
+    assert worker_response.status_code == 200
+    processed_run = worker_response.json()
+    assert processed_run["id"] == queued_run["id"]
+    assert processed_run["status"] == "已完成"
+    assert processed_run["output"].startswith("The queued workflow completed")
+    assert len(processed_run["nodes"]) == 3
+    assert len(gateway.calls) == 1
+    with client.app.state.session_factory() as session:
+        job = session.scalar(select(ExecutionJobRecord))
+        assert job.status == "succeeded"
 
 
 def test_low_quality_output_creates_human_review(tmp_path):

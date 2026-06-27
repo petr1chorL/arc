@@ -281,6 +281,25 @@ class WorkflowRunRecord(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class ExecutionJobRecord(Base):
+    __tablename__ = "execution_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    run_id: Mapped[str] = mapped_column(String(36), index=True)
+    workflow_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    workflow_version: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    job_type: Mapped[str] = mapped_column(String(32), default="workflow_run")
+    status: Mapped[str] = mapped_column(String(32), default="queued", index=True)
+    input_text: Mapped[str] = mapped_column(Text, default="")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[str] = mapped_column(String(36), default="system")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class NodeRunRecord(Base):
     __tablename__ = "node_runs"
 

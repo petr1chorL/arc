@@ -338,6 +338,9 @@ class ValidationResult(BaseModel):
 class RunCreate(BaseModel):
     input: str = Field(min_length=1, max_length=50000)
     version: str | None = None
+    async_mode: bool = Field(default=False, alias="asyncMode")
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ReviewDecision(BaseModel):

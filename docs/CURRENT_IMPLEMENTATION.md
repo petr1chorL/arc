@@ -1,6 +1,6 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.12D LLM-as-a-Judge 第一切片
+> 对应版本：V0.13A 异步任务队列第一切片
 > 上一阶段：V0.8F 轻量告警 / 通知 Outbox
 > 更新时间：2026-06-27
 
@@ -21,6 +21,8 @@ Tool / Skill 已新增第一版 Workspace 级资产库后端：`tool_skill_asset
 HTTP Tool 适配当前采用可注入 `HttpToolGateway`。自动化测试可使用 Fake Gateway；默认运行时使用 `HttpxToolGateway`，只有 `TOOL_HTTP_ALLOWED_HOSTS` 配置了目标 host 时才允许 GET / POST 外联，超时由 `TOOL_HTTP_TIMEOUT_SECONDS` 控制。MCP Tool 当前支持可注入 `McpToolGateway` 的测试调用骨架，默认不连接真实 MCP Server。Agent 直接测试运行和工作流 Agent 节点执行时，会调用已绑定的 HTTP Tool 并写入带 Agent、Run 和 NodeRun 上下文的调用日志。运行观测详情会把 Tool 调用日志派生成 `tool_skill_invocation` 执行事件，并关联到对应 NodeRun Span。
 
 评估中心已引入第一版 LLM-as-a-Judge 后端合约：Rubric 可声明 `judgeType=deterministic` 或 `judgeType=llm`，并记录 `judgeModel`。Evaluation 记录保存 `evaluatorType`、`evaluatorModel` 和 `evaluatorInput`，用于复现评分输入。当前 LLM Judge 通过可注入 `JudgeGateway` 执行；默认 `ModelJudgeGateway` 使用现有 OpenAI-compatible `ModelGateway` 请求模型并解析 JSON 评分结果，自动化测试使用 Fake Gateway，不依赖外部网络。
+
+工作流执行新增异步队列第一切片：`RunCreate.asyncMode=true` 时会创建状态为 `排队中` 的 Run 与 `execution_jobs` 队列任务，不立即调用模型；`POST /execution-jobs/next` 可领取当前 Workspace 下一条 `queued` job 并执行，执行完成后回写 Run、NodeRun 和 job 状态。默认 `asyncMode=false` 的同步执行路径保持不变。
 
 当前已使用 DeepSeek OpenAI-compatible API 完成真实成功调用验证：Base URL 为 `https://api.deepseek.com`，模型为 `deepseek-v4-pro`。真实 API Key 仅保存在被 Git 忽略的本地 `apps/api/.env` 中。模型单价环境变量尚未配置，因此运行中心的成本暂显示为 `$0.000000`，Token 统计不受影响。
 
@@ -470,7 +472,8 @@ POST /api/workspaces/{workspace_id}/evaluations/remediation-tasks/{task_id}/rete
 
 - 更深层的 LLM Judge 一致性评估和成本统计。
 - Golden Set 样本导入、导出、版本对比和停用。
-- 定时调度、后台队列、Run 取消、Run 重试和异步回归任务。
+- 定时调度、常驻后台 worker、Run 取消、Run 重试和异步回归任务。
+- 多 worker 租约、心跳、失败重试退避、最大重试次数和死信队列。
 - 评价一致性校准。
 - 修复任务的负责人、截止时间、评论、通知、自动复测和复测失败自动重开。
 
@@ -763,14 +766,14 @@ TypeScript 编译检查
 - SQLAlchemy。
 - SQLite，支持通过 `DATABASE_URL` 切换 PostgreSQL。
 
-当前仍未引入后台任务队列和外部通知 SDK。
+当前已引入轻量 `execution_jobs` 队列骨架，但仍未引入常驻后台 worker、租约/心跳、失败重试退避、死信队列和外部通知 SDK。
 
 ## 17. 当前版本验证记录
 
 已经完成：
 
 - `apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q`：后端全量测试通过。
-- `npm test -- --run`：27 个前端测试文件、95 项测试通过。
+- `npm test -- --run`：27 个前端测试文件、98 项测试通过。
 - `npm run lint`：Oxlint 通过。
 - `npm run build`：TypeScript 编译与 Vite 生产构建通过。
 - Human 节点发布前校验覆盖分配方式、会签人数和 SLA 参数。
@@ -879,6 +882,9 @@ TypeScript 编译检查
 - V0.12D 完成 LLM Judge 校准概览 RED/GREEN 测试：首次因页面缺少“LLM Judge 校准”失败，随后页面可从两条 LLM Judge 记录展示 2 条样本、50% 通过率、模型和 Prompt 版本。
 - V0.12D 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 170 项通过；`npm test -- --run` 27 个测试文件、98 项测试通过；`npm run lint` 通过；`npm run build` 通过。
 - V0.12D 完成浏览器验收：评估中心 Rubric 弹窗中“评分器类型”控件唯一；默认隐藏 Judge 模型；切换为 LLM Judge 后模型输入出现并可填写 `deepseek-v4-pro`；浏览器控制台新增 error/warn 为 0。
+- V0.13A 完成异步队列 RED/GREEN 测试：首次因 `ExecutionJobRecord` 不存在失败，随后 `asyncMode=true` 可创建 `排队中` Run 与 `queued` job，不立即调用模型，`POST /execution-jobs/next` 可领取并执行为 `已完成`。
+- V0.13A 完成执行相关回归验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests/test_execution_api.py apps/api/tests/test_human_workflow_execution.py apps/api/tests/test_human_task_api.py apps/api/tests/test_observability_api.py -q`，42 项通过。
+- V0.13A 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 后端 172 项通过；`npm test -- --run` 27 个测试文件、98 项测试通过；`npm run lint` 通过；`npm run build` 通过。
 
 验证时没有发现浏览器控制台错误。
 
@@ -890,15 +896,11 @@ TypeScript 编译检查
 
 1. V0.7 增加登录、用户身份、组织与 RBAC，将 Reviewer 绑定真实账号。
 2. 增加工作流输入输出映射、并行汇聚、条件路由和子流程契约。
-3. 增加异步执行、主动终止、实时事件推送，并评估 Temporal Signal/Update。
+3. 继续 V0.13 执行系统生产化：补常驻后台 worker、租约/心跳、失败重试退避、死信队列、主动终止和实时事件推送，并评估 Temporal Signal/Update。
 4. 将 Rubric、Golden Sample、评价器和回归任务接入真实评估闭环。
 5. 增加 NotificationOutbox 消费器和飞书通知适配器。
 6. 在具备 Docker 的环境验证 PostgreSQL Compose 与数据库迁移流程。
 
-完整版本路线和开源工具说明见：
+完整版本路线、开源工具说明和从当前版本到 V1.0 的逐步落地清单见：
 
 [项目建设蓝图](PROJECT_MASTER_PLAN.md)
-
-从当前版本到 V1.0 的逐步落地清单见：
-
-[V1.0 落地路线图](PROJECT_ROADMAP_TO_V1.md)

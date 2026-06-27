@@ -14,6 +14,7 @@ from app.models import (
     AgentVersionRecord,
     ArtifactRecord,
     ArtifactVersionRecord,
+    ExecutionJobRecord,
     HumanTaskRecord,
     HumanReviewRecord,
     NodeRunRecord,
@@ -282,6 +283,105 @@ class ExecutionService:
             run=run,
             snapshot=snapshot,
         )
+
+    def enqueue_workflow_version(
+        self,
+        *,
+        session: Session,
+        workflow_id: str,
+        workflow_version: str,
+        input_text: str,
+        created_by: str,
+    ) -> WorkflowRunRecord:
+        version = session.scalar(
+            select(WorkflowVersionRecord).where(
+                WorkflowVersionRecord.workflow_id == workflow_id,
+                WorkflowVersionRecord.version == workflow_version,
+            ),
+        )
+        if version is None:
+            raise RuntimeError("已发布工作流版本不存在")
+        snapshot = version.snapshot
+        run = WorkflowRunRecord(
+            workspace_id=version.workspace_id,
+            kind="workflow",
+            name=snapshot["name"],
+            workflow_id=workflow_id,
+            workflow_version=workflow_version,
+            status="排队中",
+            input_text=input_text,
+            current_node="等待调度",
+        )
+        session.add(run)
+        session.flush()
+        session.add(ExecutionJobRecord(
+            workspace_id=version.workspace_id,
+            run_id=run.id,
+            workflow_id=workflow_id,
+            workflow_version=workflow_version,
+            input_text=input_text,
+            created_by=created_by,
+        ))
+        session.commit()
+        session.refresh(run)
+        return run
+
+    def process_next_execution_job(
+        self,
+        *,
+        session: Session,
+        workspace_id: str,
+    ) -> WorkflowRunRecord | None:
+        job = session.scalar(
+            select(ExecutionJobRecord)
+            .where(
+                ExecutionJobRecord.workspace_id == workspace_id,
+                ExecutionJobRecord.status == "queued",
+            )
+            .order_by(ExecutionJobRecord.created_at.asc()),
+        )
+        if job is None:
+            return None
+        run = session.scalar(
+            select(WorkflowRunRecord).where(
+                WorkflowRunRecord.id == job.run_id,
+                WorkflowRunRecord.workspace_id == workspace_id,
+            ),
+        )
+        if run is None:
+            job.status = "failed"
+            job.error = "工作流运行记录不存在"
+            job.completed_at = utc_now()
+            session.commit()
+            return None
+        job.status = "running"
+        job.attempts += 1
+        job.started_at = utc_now()
+        run.status = "运行中"
+        run.error = ""
+        run.completed_at = None
+        session.commit()
+        try:
+            snapshot = self.workflow_snapshot(session, run)
+            self.execute_workflow_from(
+                session=session,
+                run=run,
+                snapshot=snapshot,
+            )
+            job.status = "succeeded" if run.status != "失败" else "failed"
+            job.error = run.error
+            job.completed_at = utc_now()
+            session.commit()
+        except Exception:
+            job.status = "failed"
+            job.error = "后台执行失败，请稍后重试"
+            job.completed_at = utc_now()
+            run.status = "失败"
+            run.error = job.error
+            run.completed_at = utc_now()
+            session.commit()
+        session.refresh(run)
+        return run
 
     def execute_workflow_from(
         self,

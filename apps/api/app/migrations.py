@@ -23,6 +23,7 @@ WORKSPACE_TABLES = (
     "workflows",
     "workflow_versions",
     "workflow_runs",
+    "execution_jobs",
     "node_runs",
     "artifacts",
     "artifact_versions",

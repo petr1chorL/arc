@@ -1670,12 +1670,21 @@ def create_app(
         if version == "鏈彂甯?":
             raise HTTPException(status_code=422, detail="请先发布工作流版本")
         try:
-            run = execution_service.run_workflow_version(
-                session=session,
-                workflow_id=workflow_id,
-                workflow_version=version,
-                input_text=payload.input,
-            )
+            if payload.async_mode:
+                run = execution_service.enqueue_workflow_version(
+                    session=session,
+                    workflow_id=workflow_id,
+                    workflow_version=version,
+                    input_text=payload.input,
+                    created_by=context.user.id,
+                )
+            else:
+                run = execution_service.run_workflow_version(
+                    session=session,
+                    workflow_id=workflow_id,
+                    workflow_version=version,
+                    input_text=payload.input,
+                )
         except RuntimeError as error:
             raise HTTPException(status_code=422, detail=str(error)) from None
         record_success(
@@ -1686,6 +1695,29 @@ def create_app(
             target_id=workflow_id,
             request=request,
         )
+        return run_response(run, session)
+
+    @router.post("/execution-jobs/next", response_model=RunRead)
+    def process_next_execution_job(
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> RunRead:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "run.execute",
+            action="execution_job.process_next",
+            target_type="workspace",
+            target_id=context.workspace.id,
+            request=request,
+        )
+        run = execution_service.process_next_execution_job(
+            session=session,
+            workspace_id=context.workspace.id,
+        )
+        if run is None:
+            raise HTTPException(status_code=404, detail="暂无待执行队列任务")
         return run_response(run, session)
 
     @router.get("/runs", response_model=list[RunRead])
