@@ -1749,6 +1749,102 @@ kbd {
   font-size: 10px;
 }
 
+.evaluation-records {
+  padding: 22px;
+  border: 0;
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  box-shadow: var(--shadow-raised-sm);
+}
+
+.evaluation-records > header,
+.evaluation-record-filters,
+.evaluation-record-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.evaluation-record-filters {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.evaluation-record-filters label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.evaluation-record-filters select {
+  min-width: 132px;
+  border: 0;
+  border-radius: 9px;
+  padding: 9px 10px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-inset);
+  font-size: 10px;
+}
+
+.evaluation-record-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.evaluation-record-card {
+  align-items: stretch;
+  padding: 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.24);
+  box-shadow: var(--shadow-inset);
+}
+
+.evaluation-record-card h3 {
+  margin: 5px 0 3px;
+  font-size: 13px;
+}
+
+.evaluation-record-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.evaluation-record-score {
+  display: grid;
+  justify-items: end;
+  align-content: center;
+  gap: 6px;
+  min-width: 86px;
+}
+
+.evaluation-record-score strong {
+  color: var(--ink);
+  font-size: 24px;
+}
+
+.evaluation-record-dimensions {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  gap: 6px;
+  min-width: 180px;
+  max-width: 280px;
+}
+
+.evaluation-record-dimensions span {
+  border-radius: 999px;
+  padding: 5px 8px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.28);
+  font-size: 9px;
+}
+
 .members-page {
   display: grid;
   gap: 14px;
@@ -3950,6 +4046,31 @@ kbd {
 }
 
 @media (max-width: 760px) {
+  .evaluation-records > header,
+  .evaluation-record-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .evaluation-record-filters {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .evaluation-record-filters label,
+  .evaluation-record-filters select {
+    width: 100%;
+  }
+
+  .evaluation-record-score {
+    justify-items: start;
+  }
+
+  .evaluation-record-dimensions {
+    min-width: 0;
+    max-width: none;
+  }
+
   .observability-hero,
   .observability-detail-header {
     align-items: flex-start;

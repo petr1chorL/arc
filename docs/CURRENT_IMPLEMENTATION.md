@@ -1,6 +1,6 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.9D Rubric 评估运行
+> 对应版本：V0.9E 评估记录中心
 > 上一阶段：V0.8F 轻量告警 / 通知 Outbox
 > 更新时间：2026-06-27
 
@@ -324,6 +324,10 @@ React Flow 节点/连线
 - 前端校验必填字段、分数范围和维度权重合计。
 - 在 Rubric 配置弹窗中运行一次评估。
 - 保存 Evaluation 记录，包含 Rubric 快照、维度分、总分和 passed/failed 状态。
+- 展示 Evaluation 历史记录列表，包含记录 ID、Rubric 快照名称、评估对象、版本、维度分、总分、状态和评分说明。
+- 支持按 `passed` / `failed` 状态筛选评估记录。
+- 支持按 Rubric 筛选评估记录；历史记录引用的 Rubric 即使不在当前 Rubric 列表中，也会以记录快照名称出现在筛选项里。
+- Rubric 配置弹窗运行评估成功后，会把新记录即时插入评估记录列表顶部。
 - 当前评分器为确定性评分器，用于验证评估链路；真实 LLM-as-a-Judge 尚未接入。
 
 后端 API：
@@ -640,7 +644,7 @@ TypeScript 编译检查
 已经完成：
 
 - `apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q`：后端全量测试通过。
-- `npm test -- --run`：25 个前端测试文件、71 项测试通过。
+- `npm test -- --run`：27 个前端测试文件、86 项测试通过。
 - `npm run lint`：Oxlint 通过。
 - `npm run build`：TypeScript 编译与 Vite 生产构建通过。
 - Human 节点发布前校验覆盖分配方式、会签人数和 SLA 参数。
@@ -666,6 +670,9 @@ TypeScript 编译检查
 - V0.8A 完成人工 SLA 运营浏览器验收：SLA 区块、Reviewer/审核组筛选器和 `/reviews?taskId=...` 跳转链接可见，浏览器日志无 error/warn。
 - V0.8C 完成成本与模型调用浏览器验收：区块、未配置单价提示、按工作流聚合和按模型聚合可见，浏览器日志无 error/warn。
 - V0.9A 完成评估资产概览浏览器验收：真实 API 概览区块、空状态和 Rubric 卡片可见，浏览器日志无 error/warn。
+- V0.9E 完成评估记录中心自动化测试：记录列表、状态筛选、Rubric 筛选和运行后即时插入均通过。
+- V0.9E 完成浏览器验收：临时账号运行一次 Rubric 评估后，历史记录即时出现；`failed` 筛选展示记录，`passed` 筛选展示空状态，Rubric 筛选恢复记录；浏览器日志无 error/warn。
+- V0.9E 浏览器验收截图：`.scratch/v0.9e-evaluation-history.png`。
 
 验证时没有发现浏览器控制台错误。
 

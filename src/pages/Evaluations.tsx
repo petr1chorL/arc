@@ -19,6 +19,7 @@ import {
   evaluateRubric,
   getEvaluationOverview,
   getRubrics,
+  listEvaluationRecords,
   listRubricVersions,
   publishRubric,
   updateRubric,
@@ -89,17 +90,22 @@ export function Evaluations() {
   const [evaluationResult, setEvaluationResult] = useState<EvaluationRecord | null>(null)
   const [evaluationError, setEvaluationError] = useState('')
   const [isEvaluating, setIsEvaluating] = useState(false)
+  const [evaluationRecords, setEvaluationRecords] = useState<EvaluationRecord[]>([])
+  const [recordStatusFilter, setRecordStatusFilter] = useState('all')
+  const [recordRubricFilter, setRecordRubricFilter] = useState('all')
 
   const loadAssets = useCallback(async () => {
     setIsLoading(true)
     setError('')
     try {
-      const [nextOverview, nextRubrics] = await Promise.all([
+      const [nextOverview, nextRubrics, nextRecords] = await Promise.all([
         getEvaluationOverview(workspace.id),
         getRubrics(workspace.id),
+        listEvaluationRecords(workspace.id),
       ])
       setOverview(nextOverview)
       setRubrics(nextRubrics)
+      setEvaluationRecords(nextRecords)
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : '评估资产加载失败')
     } finally {
@@ -115,6 +121,22 @@ export function Evaluations() {
     () => form.dimensions.reduce((sum, dimension) => sum + dimension.weight, 0),
     [form.dimensions],
   )
+
+  const filteredEvaluationRecords = useMemo(() => evaluationRecords.filter((record) => (
+    (recordStatusFilter === 'all' || record.status === recordStatusFilter)
+    && (recordRubricFilter === 'all' || record.rubricId === recordRubricFilter)
+  )), [evaluationRecords, recordRubricFilter, recordStatusFilter])
+
+  const recordRubricOptions = useMemo(() => {
+    const knownRubricIds = new Set(rubrics.map((rubric) => rubric.id))
+    const unknownRecordRubrics = new Map<string, string>()
+    for (const record of evaluationRecords) {
+      if (!knownRubricIds.has(record.rubricId)) {
+        unknownRecordRubrics.set(record.rubricId, record.rubricSnapshot.name)
+      }
+    }
+    return Array.from(unknownRecordRubrics, ([id, name]) => ({ id, name }))
+  }, [evaluationRecords, rubrics])
 
   function openCreateDialog() {
     setIsRubricDialogOpen(true)
@@ -258,6 +280,10 @@ export function Evaluations() {
         subjectId: null,
       })
       setEvaluationResult(result)
+      setEvaluationRecords((current) => [
+        result,
+        ...current.filter((record) => record.id !== result.id),
+      ])
     } catch (runError) {
       setEvaluationError(runError instanceof Error ? runError.message : '运行评估失败')
     } finally {
@@ -314,6 +340,74 @@ export function Evaluations() {
                   <span className={`status-pill ${candidate.status === '已确认' ? 'success' : ''}`}>{candidate.status}</span>
                   {candidate.tags.map((tag) => <span key={tag}>{tag}</span>)}
                 </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="panel evaluation-records">
+        <header>
+          <div>
+            <span className="eyebrow">EVALUATION HISTORY</span>
+            <h2>评估记录</h2>
+          </div>
+          <div className="evaluation-record-filters">
+            <label>
+              状态筛选
+              <select
+                aria-label="状态筛选"
+                value={recordStatusFilter}
+                onChange={(event) => setRecordStatusFilter(event.target.value)}
+              >
+                <option value="all">全部状态</option>
+                <option value="passed">passed</option>
+                <option value="failed">failed</option>
+              </select>
+            </label>
+            <label>
+              Rubric 筛选
+              <select
+                aria-label="Rubric 筛选"
+                value={recordRubricFilter}
+                onChange={(event) => setRecordRubricFilter(event.target.value)}
+              >
+                <option value="all">全部 Rubric</option>
+                {rubrics.map((rubric) => (
+                  <option key={rubric.id} value={rubric.id}>{rubric.name}</option>
+                ))}
+                {recordRubricOptions.map((rubric) => (
+                  <option key={rubric.id} value={rubric.id}>{rubric.name}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </header>
+        {evaluationRecords.length === 0 && (
+          <div className="table-state">暂无评估记录。打开任意 Rubric 配置弹窗运行一次评估后，会在这里沉淀历史。</div>
+        )}
+        {evaluationRecords.length > 0 && filteredEvaluationRecords.length === 0 && (
+          <div className="table-state">当前筛选条件下暂无评估记录。</div>
+        )}
+        {filteredEvaluationRecords.length > 0 && (
+          <div className="evaluation-record-list">
+            {filteredEvaluationRecords.map((record) => (
+              <article className="evaluation-record-card" key={record.id}>
+                <div>
+                  <span className="mono">{record.id}</span>
+                  <h3>{record.rubricSnapshot.name}</h3>
+                  <p>{record.subjectType}{record.subjectId ? ` / ${record.subjectId}` : ''} / {record.rubricVersion}</p>
+                </div>
+                <div className="evaluation-record-score">
+                  <strong>{record.score}</strong>
+                  <span className={`status-pill ${record.status === 'passed' ? 'success' : 'danger'}`}>{record.status}</span>
+                </div>
+                <div className="evaluation-record-dimensions">
+                  {record.dimensionScores.map((dimension) => (
+                    <span key={`${record.id}-${dimension.name}`}>{dimension.name} {dimension.score}</span>
+                  ))}
+                </div>
+                <p>{record.rationale}</p>
               </article>
             ))}
           </div>

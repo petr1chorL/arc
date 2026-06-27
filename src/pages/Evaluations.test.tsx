@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -75,6 +75,9 @@ describe('Evaluations page', () => {
       if (input === `/api/workspaces/${workspace.id}/evaluations/rubrics`) {
         return response(rubricAssets)
       }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/records`) {
+        return response([])
+      }
       return response({ detail: 'not found' }, 404)
     }))
 
@@ -84,7 +87,7 @@ describe('Evaluations page', () => {
     expect(await screen.findByText('专家修改为更可靠的输出')).toBeInTheDocument()
     expect(screen.getByText('accuracy')).toBeInTheDocument()
     expect(screen.getByText('evidence')).toBeInTheDocument()
-    expect(await screen.findByText('API 持久化 Rubric')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'API 持久化 Rubric' })).toBeInTheDocument()
     expect(screen.getByText((_, element) => (
       element?.textContent === '适用产出物：真实接口产出物'
     ))).toBeInTheDocument()
@@ -113,6 +116,9 @@ describe('Evaluations page', () => {
       }
       if (input === `/api/workspaces/${workspace.id}/evaluations/rubrics`) {
         return response(rubricAssets)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/records`) {
+        return response([])
       }
       return response({ detail: 'not found' }, 404)
     })
@@ -145,7 +151,7 @@ describe('Evaluations page', () => {
     await user.type(screen.getByLabelText('维度 1 权重'), '100')
     await user.click(screen.getByRole('button', { name: '保存评分量规' }))
 
-    expect(await screen.findByText('新品机会评分')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '新品机会评分' })).toBeInTheDocument()
     expect(screen.getByText((_, element) => (
       element?.textContent === '适用产出物：机会评估表'
     ))).toBeInTheDocument()
@@ -177,6 +183,9 @@ describe('Evaluations page', () => {
       if (input === `/api/workspaces/${workspace.id}/evaluations/rubrics`) {
         return response(rubricAssets)
       }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/records`) {
+        return response([])
+      }
       if (input === `/api/workspaces/${workspace.id}/evaluations/rubrics/${rubricAssets[0].id}/versions`) {
         return response([])
       }
@@ -197,11 +206,72 @@ describe('Evaluations page', () => {
     await user.type(screen.getByLabelText('待评估产出物'), evaluationRecord.artifactText)
     await user.click(screen.getByRole('button', { name: '运行评估' }))
 
-    expect(await screen.findByText('总分 88')).toBeInTheDocument()
-    expect(screen.getByText('passed')).toBeInTheDocument()
+    const resultCard = (await screen.findByText('总分 88')).closest('.rubric-evaluation-result')
+    expect(resultCard).not.toBeNull()
+    expect(within(resultCard as HTMLElement).getByText('deterministic rubric evaluation')).toBeInTheDocument()
+    expect(screen.getByText('evaluation-1')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith(
       `/api/workspaces/${workspace.id}/evaluations/rubrics/${rubricAssets[0].id}/evaluate`,
       expect.objectContaining({ method: 'POST' }),
     )
+  })
+
+  it('shows evaluation records and filters them by status and rubric', async () => {
+    const user = userEvent.setup()
+    const records = [
+      {
+        id: 'evaluation-pass',
+        rubricId: rubricAssets[0].id,
+        rubricVersion: 'v1.0',
+        rubricSnapshot: rubricAssets[0],
+        subjectType: 'manual_artifact',
+        subjectId: 'artifact-pass',
+        artifactText: 'Passed artifact with evidence and next actions.',
+        dimensionScores: [{ name: 'Accuracy', weight: 100, score: 91 }],
+        score: 91,
+        status: 'passed',
+        rationale: 'deterministic rubric evaluation',
+        createdAt: '2026-06-27T00:00:00Z',
+      },
+      {
+        id: 'evaluation-fail',
+        rubricId: 'rubric-other',
+        rubricVersion: 'v1.0',
+        rubricSnapshot: { ...rubricAssets[0], id: 'rubric-other', name: 'Other Rubric' },
+        subjectType: 'manual_artifact',
+        subjectId: 'artifact-fail',
+        artifactText: 'Failed artifact.',
+        dimensionScores: [{ name: 'Accuracy', weight: 100, score: 42 }],
+        score: 42,
+        status: 'failed',
+        rationale: 'deterministic rubric evaluation',
+        createdAt: '2026-06-27T00:05:00Z',
+      },
+    ]
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      if (input === `/api/workspaces/${workspace.id}/evaluations/overview`) {
+        return response(overview)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/rubrics`) {
+        return response(rubricAssets)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/records`) {
+        return response(records)
+      }
+      return response({ detail: 'not found' }, 404)
+    }))
+
+    renderPage()
+
+    expect(await screen.findByText('评估记录')).toBeInTheDocument()
+    expect(screen.getByText('evaluation-pass')).toBeInTheDocument()
+    expect(screen.getByText('evaluation-fail')).toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText('状态筛选'), 'passed')
+    expect(screen.getByText('evaluation-pass')).toBeInTheDocument()
+    expect(screen.queryByText('evaluation-fail')).not.toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText('Rubric 筛选'), 'rubric-api-1')
+    expect(screen.getByText('evaluation-pass')).toBeInTheDocument()
   })
 })
