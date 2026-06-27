@@ -43,6 +43,18 @@ def create_published_agent(
         },
         headers=csrf_headers(client),
     ).json()
+    for asset_type, asset_name in (("tool", "Web Search"), ("skill", "Reasoning")):
+        asset_response = client.post(
+            workspace_url(workspace_id, "/asset-library"),
+            json={
+                "assetType": asset_type,
+                "name": asset_name,
+                "description": f"{asset_type} asset",
+                "parameterSchema": {"type": "object"},
+            },
+            headers=csrf_headers(client),
+        )
+        assert asset_response.status_code == 201
     client.patch(
         workspace_url(workspace_id, f"/agents/{agent['id']}"),
         json={

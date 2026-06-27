@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from api_test_support import create_authenticated_client, csrf_headers, workspace_url
+from app.models import ToolSkillAssetRecord
 
 
 def create_agent(client: TestClient, workspace_id: str) -> dict:
@@ -21,6 +22,8 @@ def create_agent(client: TestClient, workspace_id: str) -> dict:
 def test_agent_draft_can_be_edited_and_published_as_immutable_versions(tmp_path):
     client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'agents.db'}")
     agent = create_agent(client, workspace_id)
+    create_tool_skill_asset(client, workspace_id, asset_type="tool", name="Web Search")
+    create_tool_skill_asset(client, workspace_id, asset_type="skill", name="绔炲搧鍒嗘瀽")
 
     update_response = client.patch(
         workspace_url(workspace_id, f"/agents/{agent['id']}"),
@@ -85,3 +88,94 @@ def test_deactivated_agent_cannot_be_edited_or_published(tmp_path):
         workspace_url(workspace_id, f"/agents/{agent['id']}/publish"),
         headers=csrf_headers(client),
     ).status_code == 409
+
+
+def create_tool_skill_asset(
+    client: TestClient,
+    workspace_id: str,
+    *,
+    asset_type: str,
+    name: str,
+) -> dict:
+    response = client.post(
+        workspace_url(workspace_id, "/asset-library"),
+        json={
+            "assetType": asset_type,
+            "name": name,
+            "description": f"{asset_type} asset",
+            "parameterSchema": {"type": "object"},
+        },
+        headers=csrf_headers(client),
+    )
+    assert response.status_code == 201
+    return response.json()
+
+
+def test_agent_can_only_bind_existing_active_tool_and_skill_assets(tmp_path):
+    client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'agent-assets.db'}")
+    agent = create_agent(client, workspace_id)
+    create_tool_skill_asset(client, workspace_id, asset_type="tool", name="飞书搜索")
+    create_tool_skill_asset(client, workspace_id, asset_type="skill", name="竞品分析")
+
+    valid = client.patch(
+        workspace_url(workspace_id, f"/agents/{agent['id']}"),
+        json={
+            "tools": ["飞书搜索"],
+            "skills": ["竞品分析"],
+        },
+        headers=csrf_headers(client),
+    )
+    invalid_tool = client.patch(
+        workspace_url(workspace_id, f"/agents/{agent['id']}"),
+        json={
+            "tools": ["不存在的工具"],
+        },
+        headers=csrf_headers(client),
+    )
+    invalid_skill = client.patch(
+        workspace_url(workspace_id, f"/agents/{agent['id']}"),
+        json={
+            "skills": ["不存在的技能"],
+        },
+        headers=csrf_headers(client),
+    )
+
+    assert valid.status_code == 200
+    assert valid.json()["tools"] == ["飞书搜索"]
+    assert valid.json()["skills"] == ["竞品分析"]
+    assert invalid_tool.status_code == 422
+    assert invalid_tool.json()["detail"] == "未授权或不可用的 Tool：不存在的工具"
+    assert invalid_skill.status_code == 422
+    assert invalid_skill.json()["detail"] == "未授权或不可用的 Skill：不存在的技能"
+
+
+def test_agent_publish_revalidates_bound_tool_and_skill_assets(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'agent-assets-publish.db'}",
+    )
+    agent = create_agent(client, workspace_id)
+    tool = create_tool_skill_asset(client, workspace_id, asset_type="tool", name="飞书搜索")
+    create_tool_skill_asset(client, workspace_id, asset_type="skill", name="竞品分析")
+    update = client.patch(
+        workspace_url(workspace_id, f"/agents/{agent['id']}"),
+        json={
+            "tools": ["飞书搜索"],
+            "skills": ["竞品分析"],
+        },
+        headers=csrf_headers(client),
+    )
+    assert update.status_code == 200
+
+    with client.app.state.session_factory() as session:
+        tool_record = session.get(ToolSkillAssetRecord, tool["id"])
+        assert tool_record is not None
+        tool_record.status = "disabled"
+        session.commit()
+
+    publish = client.post(
+        workspace_url(workspace_id, f"/agents/{agent['id']}/publish"),
+        headers=csrf_headers(client),
+    )
+
+    assert publish.status_code == 422
+    assert publish.json()["detail"] == "未授权或不可用的 Tool：飞书搜索"

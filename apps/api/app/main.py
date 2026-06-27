@@ -286,6 +286,32 @@ def create_app(
             raise HTTPException(status_code=404, detail="Agent 不存在")
         return agent
 
+    def ensure_agent_assets_available(
+        session: Session,
+        *,
+        workspace_id: str,
+        tools: list[str],
+        skills: list[str],
+    ) -> None:
+        for asset_type, names, label in (
+            ("tool", tools, "Tool"),
+            ("skill", skills, "Skill"),
+        ):
+            for name in names:
+                asset = session.scalar(
+                    select(ToolSkillAssetRecord).where(
+                        ToolSkillAssetRecord.workspace_id == workspace_id,
+                        ToolSkillAssetRecord.asset_type == asset_type,
+                        ToolSkillAssetRecord.name == name,
+                        ToolSkillAssetRecord.status == "active",
+                    ),
+                )
+                if asset is None:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"未授权或不可用的 {label}：{name}",
+                    )
+
     def agent_snapshot(record: AgentRecord) -> dict:
         return AgentRead.model_validate(record).model_dump(by_alias=True, mode="json")
 
@@ -960,7 +986,14 @@ def create_app(
         record = find_agent(context.workspace.id, agent_id, session)
         if record.status == "宸插仠鐢?":
             raise HTTPException(status_code=409, detail="宸插仠鐢?Agent 不允许编辑")
-        for field, value in payload.model_dump(exclude_unset=True).items():
+        updates = payload.model_dump(exclude_unset=True)
+        ensure_agent_assets_available(
+            session,
+            workspace_id=context.workspace.id,
+            tools=updates.get("tools", record.tools),
+            skills=updates.get("skills", record.skills),
+        )
+        for field, value in updates.items():
             setattr(record, field, value)
         record.updated_at = utc_now()
         record_success(
@@ -1025,6 +1058,12 @@ def create_app(
         record = find_agent(context.workspace.id, agent_id, session)
         if record.status == "宸插仠鐢?":
             raise HTTPException(status_code=409, detail="宸插仠鐢?Agent 不允许发布")
+        ensure_agent_assets_available(
+            session,
+            workspace_id=context.workspace.id,
+            tools=record.tools,
+            skills=record.skills,
+        )
         count = session.scalar(
             select(func.count()).select_from(AgentVersionRecord).where(
                 AgentVersionRecord.agent_id == agent_id,
