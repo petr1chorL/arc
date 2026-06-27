@@ -56,6 +56,8 @@ def test_create_agent_persists_and_lists_complete_contract(tmp_path):
         "maxOutputTokens": 2000,
         "tools": [],
         "skills": [],
+        "toolAssetRefs": [],
+        "skillAssetRefs": [],
         "systemPrompt": "",
         "createdAt": created["createdAt"],
         "updatedAt": created["updatedAt"],

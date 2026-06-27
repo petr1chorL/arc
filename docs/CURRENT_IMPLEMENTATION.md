@@ -1066,3 +1066,11 @@ V0.16C 验证证据：AgentDetail focused 1 个文件 5 项测试通过；fronte
 完整版本路线、开源工具说明和从当前版本到 V1.0 的逐步落地清单见：
 
 [项目建设蓝图](PROJECT_MASTER_PLAN.md)
+
+## V0.16D Tool / Skill 稳定资产引用与发布快照冻结
+
+V0.16D 在 V0.16C 的 Agent 资产绑定能力之上，补充后端稳定引用层。Agent 继续保留 `tools` / `skills` 名称数组以兼容现有前端和执行链路，同时新增 `toolAssetRefs` / `skillAssetRefs`，保存资产 ID、资产类型、资产名称、状态和适配器类型。
+
+Agent 草稿保存时，后端会校验 Tool / Skill 仍是当前 Workspace 内 active 资产，并同步写入稳定引用。Agent 发布时，版本 `snapshot` 会冻结这些引用，避免后续资产改名影响历史版本追踪。Tool / Skill 影响面接口现在优先按资产 ID 匹配草稿 Agent 与发布版本；旧数据仍按名称数组兜底。
+
+本版不改变前端绑定交互，不改变运行时 Tool 调用协议。验收文档见 `docs/ACCEPTANCE_V0.16D.md`。

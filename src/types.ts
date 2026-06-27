@@ -97,9 +97,19 @@ export interface Agent {
   runs: number
   tools: string[]
   skills: string[]
+  toolAssetRefs?: AgentAssetRef[]
+  skillAssetRefs?: AgentAssetRef[]
   systemPrompt: string
   createdAt: string
   updatedAt: string
+}
+
+export interface AgentAssetRef {
+  assetId: string
+  assetType: 'tool' | 'skill'
+  assetName: string
+  status: string
+  adapterType: ToolSkillAdapterType
 }
 
 export interface AssetVersion<TSnapshot = Record<string, unknown>> {

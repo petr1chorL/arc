@@ -234,6 +234,16 @@ class AgentUpdate(BaseModel):
         return value.strip()
 
 
+class AgentAssetRefRead(BaseModel):
+    asset_id: str = Field(validation_alias="assetId", serialization_alias="assetId")
+    asset_type: str = Field(validation_alias="assetType", serialization_alias="assetType")
+    asset_name: str = Field(validation_alias="assetName", serialization_alias="assetName")
+    status: str
+    adapter_type: str = Field(validation_alias="adapterType", serialization_alias="adapterType")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class AgentRead(BaseModel):
     id: str
     name: str
@@ -251,6 +261,14 @@ class AgentRead(BaseModel):
     runs: int
     tools: list[str]
     skills: list[str]
+    tool_asset_refs: list[AgentAssetRefRead] = Field(
+        default_factory=list,
+        serialization_alias="toolAssetRefs",
+    )
+    skill_asset_refs: list[AgentAssetRefRead] = Field(
+        default_factory=list,
+        serialization_alias="skillAssetRefs",
+    )
     system_prompt: str = Field(serialization_alias="systemPrompt")
     created_at: datetime = Field(serialization_alias="createdAt")
     updated_at: datetime = Field(serialization_alias="updatedAt")

@@ -287,3 +287,56 @@ def test_tool_skill_asset_impact_lists_draft_agents_and_published_versions(tmp_p
     assert skill_impact.json()["assetType"] == "skill"
     assert skill_impact.json()["totals"] == {"draftAgents": 1, "publishedVersions": 1}
     assert "apiKey" not in tool_impact.text
+
+
+def test_tool_skill_asset_impact_survives_asset_rename_with_stable_refs(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'tool-skill-assets-stable-refs.db'}",
+    )
+    tool = create_asset(client, workspace_id, name="stable-search")
+    agent = client.post(
+        workspace_url(workspace_id, "/agents"),
+        json={
+            "name": "Stable Ref Agent",
+            "role": "Draft and published versions depend on a stable Tool ref.",
+            "owner": "Platform Team",
+            "model": "configured-model",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    updated = client.patch(
+        workspace_url(workspace_id, f"/agents/{agent['id']}"),
+        json={"tools": ["stable-search"]},
+        headers=csrf_headers(client),
+    )
+    published = client.post(
+        workspace_url(workspace_id, f"/agents/{agent['id']}/publish"),
+        headers=csrf_headers(client),
+    )
+
+    rename = client.patch(
+        workspace_url(workspace_id, f"/asset-library/{tool['id']}"),
+        json={"name": "stable-search-v2"},
+        headers=csrf_headers(client),
+    )
+    impact = client.get(workspace_url(workspace_id, f"/asset-library/{tool['id']}/impact"))
+
+    assert updated.status_code == 200
+    assert updated.json()["toolAssetRefs"] == [
+        {
+            "assetId": tool["id"],
+            "assetType": "tool",
+            "assetName": "stable-search",
+            "status": "active",
+            "adapterType": "manual",
+        },
+    ]
+    assert published.status_code == 201
+    assert published.json()["snapshot"]["toolAssetRefs"] == updated.json()["toolAssetRefs"]
+    assert rename.status_code == 200
+    assert impact.status_code == 200
+    assert impact.json()["assetName"] == "stable-search-v2"
+    assert impact.json()["totals"] == {"draftAgents": 1, "publishedVersions": 1}
+    assert impact.json()["draftAgents"][0]["agentId"] == agent["id"]
+    assert impact.json()["publishedVersions"][0]["agentId"] == agent["id"]
+    assert "apiKey" not in impact.text

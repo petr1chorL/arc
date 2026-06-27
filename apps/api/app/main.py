@@ -353,6 +353,40 @@ def create_app(
                         detail=f"未授权或不可用的 {label}：{name}",
                     )
 
+    def tool_skill_asset_ref(asset: ToolSkillAssetRecord) -> dict:
+        return {
+            "assetId": asset.id,
+            "assetType": asset.asset_type,
+            "assetName": asset.name,
+            "status": asset.status,
+            "adapterType": asset.adapter_type,
+        }
+
+    def resolve_agent_asset_refs(
+        session: Session,
+        *,
+        workspace_id: str,
+        tools: list[str],
+        skills: list[str],
+    ) -> tuple[list[dict], list[dict]]:
+        refs_by_type: dict[str, list[dict]] = {"tool": [], "skill": []}
+        for asset_type, names in (("tool", tools), ("skill", skills)):
+            for name in names:
+                asset = session.scalar(
+                    select(ToolSkillAssetRecord).where(
+                        ToolSkillAssetRecord.workspace_id == workspace_id,
+                        ToolSkillAssetRecord.asset_type == asset_type,
+                        ToolSkillAssetRecord.name == name,
+                        ToolSkillAssetRecord.status == "active",
+                    ),
+                )
+                if asset is not None:
+                    refs_by_type[asset_type].append(tool_skill_asset_ref(asset))
+        return refs_by_type["tool"], refs_by_type["skill"]
+
+    def asset_ref_matches(refs: list[dict], asset: ToolSkillAssetRecord) -> bool:
+        return any(isinstance(ref, dict) and ref.get("assetId") == asset.id for ref in refs)
+
     def resolve_model_provider(
         session: Session,
         *,
@@ -1192,12 +1226,22 @@ def create_app(
                     provider_id=provider_id,
                 ),
             )
+        effective_tools = updates.get("tools", record.tools)
+        effective_skills = updates.get("skills", record.skills)
         ensure_agent_assets_available(
             session,
             workspace_id=context.workspace.id,
-            tools=updates.get("tools", record.tools),
-            skills=updates.get("skills", record.skills),
+            tools=effective_tools,
+            skills=effective_skills,
         )
+        tool_asset_refs, skill_asset_refs = resolve_agent_asset_refs(
+            session,
+            workspace_id=context.workspace.id,
+            tools=effective_tools,
+            skills=effective_skills,
+        )
+        updates["tool_asset_refs"] = tool_asset_refs
+        updates["skill_asset_refs"] = skill_asset_refs
         for field, value in updates.items():
             setattr(record, field, value)
         record.updated_at = utc_now()
@@ -1269,6 +1313,14 @@ def create_app(
             tools=record.tools,
             skills=record.skills,
         )
+        tool_asset_refs, skill_asset_refs = resolve_agent_asset_refs(
+            session,
+            workspace_id=context.workspace.id,
+            tools=record.tools,
+            skills=record.skills,
+        )
+        record.tool_asset_refs = tool_asset_refs
+        record.skill_asset_refs = skill_asset_refs
         count = session.scalar(
             select(func.count()).select_from(AgentVersionRecord).where(
                 AgentVersionRecord.agent_id == agent_id,
@@ -1601,6 +1653,8 @@ def create_app(
             asset_id=asset_id,
         )
         field_name = "tools" if asset.asset_type == "tool" else "skills"
+        ref_field_name = "tool_asset_refs" if asset.asset_type == "tool" else "skill_asset_refs"
+        snapshot_ref_field_name = "toolAssetRefs" if asset.asset_type == "tool" else "skillAssetRefs"
         draft_agents = [
             agent
             for agent in session.scalars(
@@ -1608,7 +1662,8 @@ def create_app(
                 .where(AgentRecord.workspace_id == context.workspace.id)
                 .order_by(AgentRecord.updated_at.desc()),
             )
-            if asset.name in (getattr(agent, field_name) or [])
+            if asset_ref_matches(getattr(agent, ref_field_name) or [], asset)
+            or asset.name in (getattr(agent, field_name) or [])
         ]
         version_records = list(session.scalars(
             select(AgentVersionRecord)
@@ -1618,7 +1673,8 @@ def create_app(
         published_versions = [
             version
             for version in version_records
-            if asset.name in (version.snapshot.get(field_name) or [])
+            if asset_ref_matches(version.snapshot.get(snapshot_ref_field_name) or [], asset)
+            or asset.name in (version.snapshot.get(field_name) or [])
         ]
         return ToolSkillAssetImpactRead(
             asset_id=asset.id,

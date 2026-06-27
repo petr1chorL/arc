@@ -172,6 +172,8 @@ class AgentRecord(Base):
     runs: Mapped[int] = mapped_column(Integer, default=0)
     tools: Mapped[list[str]] = mapped_column(JSON, default=list)
     skills: Mapped[list[str]] = mapped_column(JSON, default=list)
+    tool_asset_refs: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    skill_asset_refs: Mapped[list[dict]] = mapped_column(JSON, default=list)
     system_prompt: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

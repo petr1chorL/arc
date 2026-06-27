@@ -759,5 +759,13 @@ def ensure_current_schema(engine: Engine) -> None:
             "adapter_config": "JSON NOT NULL DEFAULT '{}'",
         },
     )
+    ensure_columns(
+        engine,
+        "agents",
+        {
+            "tool_asset_refs": "JSON NOT NULL DEFAULT '[]'",
+            "skill_asset_refs": "JSON NOT NULL DEFAULT '[]'",
+        },
+    )
     ensure_audit_event_platform_schema(engine)
     backfill_v07a_workspace(engine)
