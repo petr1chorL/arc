@@ -1315,5 +1315,11 @@ describe('Evaluations page', () => {
     expect(within(summary).getByText('1 sample')).toBeInTheDocument()
     expect(within(summary).getByText('sample-evidence-a')).toBeInTheDocument()
     expect(within(summary).getByText('sample-actionability')).toBeInTheDocument()
+
+    const queue = await screen.findByRole('region', { name: 'Failure Remediation Queue' })
+    expect(within(queue).getByText('P1')).toBeInTheDocument()
+    expect(within(queue).getByText('修复 Evidence 偏低')).toBeInTheDocument()
+    expect(within(queue).getByText('复测 2 条代表样本')).toBeInTheDocument()
+    expect(within(queue).getByText('sample-evidence-a')).toBeInTheDocument()
   })
 })

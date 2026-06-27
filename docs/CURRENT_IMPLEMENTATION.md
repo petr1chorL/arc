@@ -1,6 +1,6 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.10F 失败样本聚类与原因摘要
+> 对应版本：V0.10G 失败原因修复队列
 > 上一阶段：V0.8F 轻量告警 / 通知 Outbox
 > 更新时间：2026-06-27
 
@@ -370,6 +370,8 @@ React Flow 节点/连线
 - 洞察卡会展示质量下滑、质量风险、轻微回落、质量改善或质量稳定，并同步展示最新通过率、较上次变化和风险 Run 数。
 - `Regression Run Trend` 内展示 `Failure Pattern Summary`，基于当前筛选后的最新 Run 失败记录按最低评分维度聚类。
 - 失败原因摘要展示最新失败样本数、原因组、样本数、平均分、最低分、代表样本 ID 和处理建议。
+- `Failure Pattern Summary` 下方展示 `Failure Remediation Queue`，把失败原因组转成按优先级排序的修复项。
+- 修复队列展示优先级、修复标题、样本数、最低分、建议动作、代表样本 ID 和复测提示；当前仅为前端确定性队列，不持久化为任务。
 - 当前评分器为确定性评分器，用于验证评估链路；真实 LLM-as-a-Judge 尚未接入。
 
 后端 API：
@@ -748,6 +750,9 @@ TypeScript 编译检查
 - V0.10F 完成失败样本聚类自动化测试：最新 Run 中 3 条失败样本会按最低评分维度聚合为 Evidence 与 Actionability 两个原因组。
 - V0.10F 完成真实浏览器验收：本地验收会话登录后创建 Regression Sample Set、运行 Regression Run，并在评估中心看到 `Failure Pattern Summary` 与 1 个失败原因聚类卡。
 - V0.10F 浏览器验收截图：`.scratch/v0.10f-failure-pattern-summary.png`；验收结果：`.scratch/v0.10f-browser-result.json`。
+- V0.10G 完成失败原因修复队列自动化测试：失败原因组会生成 `Failure Remediation Queue`，展示优先级、修复标题、复测提示和代表样本 ID。
+- V0.10G 完成真实浏览器验收：本地验收会话登录后创建 Regression Sample Set、运行 Regression Run，并在评估中心看到 `Failure Remediation Queue` 与 1 个修复项。
+- V0.10G 浏览器验收截图：`.scratch/v0.10g-failure-remediation-queue.png`；验收结果：`.scratch/v0.10g-browser-result.json`。
 
 验证时没有发现浏览器控制台错误。
 

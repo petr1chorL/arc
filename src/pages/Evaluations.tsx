@@ -159,6 +159,17 @@ interface FailurePatternSummary {
   clusters: FailurePatternCluster[]
 }
 
+interface RemediationQueueItem {
+  id: string
+  priority: 'P0' | 'P1' | 'P2'
+  title: string
+  sampleCount: number
+  weakestScore: number
+  sampleIds: string[]
+  action: string
+  retestLabel: string
+}
+
 function formatDelta(value: number) {
   return value > 0 ? `+${value}` : `${value}`
 }
@@ -309,6 +320,39 @@ function buildFailurePatternSummary(latestRun: RegressionRun | null): FailurePat
       .sort((left, right) => right.count - left.count || left.averageScore - right.averageScore)
       .slice(0, 3),
   }
+}
+
+function getRemediationPriority(cluster: FailurePatternCluster): RemediationQueueItem['priority'] {
+  if (cluster.count >= 3) return 'P0'
+  if (cluster.count >= 2 || cluster.weakestScore < 60) return 'P1'
+  return 'P2'
+}
+
+function buildRemediationQueue(summary: FailurePatternSummary | null): RemediationQueueItem[] {
+  if (!summary) return []
+
+  const priorityRank: Record<RemediationQueueItem['priority'], number> = {
+    P0: 0,
+    P1: 1,
+    P2: 2,
+  }
+
+  return summary.clusters
+    .map((cluster) => ({
+      id: cluster.key,
+      priority: getRemediationPriority(cluster),
+      title: `修复 ${cluster.title}`,
+      sampleCount: cluster.count,
+      weakestScore: cluster.weakestScore,
+      sampleIds: cluster.sampleIds,
+      action: cluster.recommendation,
+      retestLabel: `复测 ${cluster.count} 条代表样本`,
+    }))
+    .sort((left, right) => (
+      priorityRank[left.priority] - priorityRank[right.priority]
+      || right.sampleCount - left.sampleCount
+      || left.weakestScore - right.weakestScore
+    ))
 }
 
 function buildRegressionRunComparison(
@@ -524,6 +568,11 @@ export function Evaluations() {
   const failurePatternSummary = useMemo(
     () => buildFailurePatternSummary(latestRegressionRunForPatterns),
     [latestRegressionRunForPatterns],
+  )
+
+  const remediationQueue = useMemo(
+    () => buildRemediationQueue(failurePatternSummary),
+    [failurePatternSummary],
   )
 
   const activeSelectedSamples = useMemo(
@@ -1321,6 +1370,39 @@ export function Evaluations() {
                         ))}
                       </div>
                       <p>{cluster.recommendation}</p>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            )}
+            {remediationQueue.length > 0 && (
+              <div className="remediation-queue" role="region" aria-label="Failure Remediation Queue">
+                <header>
+                  <div>
+                    <span className="eyebrow">REMEDIATION QUEUE</span>
+                    <h4>Failure Remediation Queue</h4>
+                  </div>
+                  <span className="status-pill">{remediationQueue.length} 个修复项</span>
+                </header>
+                <div className="remediation-item-list">
+                  {remediationQueue.map((item) => (
+                    <article className="remediation-item-card" key={item.id}>
+                      <div className="remediation-item-heading">
+                        <span className={`remediation-priority ${item.priority.toLowerCase()}`}>
+                          {item.priority}
+                        </span>
+                        <div>
+                          <h5>{item.title}</h5>
+                          <p>{item.sampleCount} samples · 最低分 {item.weakestScore}</p>
+                        </div>
+                      </div>
+                      <p>{item.action}</p>
+                      <div className="remediation-samples">
+                        {item.sampleIds.map((sampleId) => (
+                          <span className="mono" key={sampleId}>{sampleId}</span>
+                        ))}
+                      </div>
+                      <span className="remediation-retest">{item.retestLabel}</span>
                     </article>
                   ))}
                 </div>

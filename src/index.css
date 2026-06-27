@@ -2270,6 +2270,114 @@ kbd {
   overflow-wrap: anywhere;
 }
 
+.remediation-queue {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.24);
+  box-shadow: var(--shadow-inset);
+}
+
+.remediation-queue > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.remediation-queue h4 {
+  margin: 4px 0 0;
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.remediation-item-list {
+  display: grid;
+  gap: 10px;
+}
+
+.remediation-item-card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.36);
+  box-shadow: var(--shadow-raised-sm);
+}
+
+.remediation-item-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.remediation-item-heading h5 {
+  margin: 0 0 4px;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.remediation-item-heading p,
+.remediation-item-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.remediation-priority {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 6px 8px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.38);
+  box-shadow: var(--shadow-inset);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.remediation-priority.p0 {
+  color: #9a3412;
+  background: rgba(255, 231, 213, 0.72);
+}
+
+.remediation-priority.p1 {
+  color: #3b5b91;
+  background: rgba(223, 232, 255, 0.82);
+}
+
+.remediation-priority.p2 {
+  color: #487062;
+  background: rgba(218, 242, 233, 0.82);
+}
+
+.remediation-samples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.remediation-samples span,
+.remediation-retest {
+  max-width: 100%;
+  border-radius: 999px;
+  padding: 6px 8px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.32);
+  box-shadow: var(--shadow-inset);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.remediation-retest {
+  justify-self: start;
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+
 .trend-metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
