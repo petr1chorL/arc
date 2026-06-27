@@ -24,6 +24,14 @@ const provider = {
   updatedAt: '2026-06-28T00:00:00Z',
 }
 
+const targetProvider = {
+  ...provider,
+  id: 'provider-2',
+  name: 'DeepSeek 目标',
+  defaultModel: 'deepseek-v4-pro',
+  secretRef: 'TARGET_PROVIDER_KEY',
+}
+
 function renderPage() {
   return render(
     <WorkspaceProvider workspace={workspace}>
@@ -154,5 +162,83 @@ describe('ModelProviders page', () => {
     expect(screen.getByText('草稿依赖 Agent')).toBeInTheDocument()
     expect(screen.getByText('版本依赖 Agent v1.0.0')).toBeInTheDocument()
     expect(screen.queryByText('apiKey')).not.toBeInTheDocument()
+  })
+
+  it('migrates draft Agents to another Provider from the card', async () => {
+    const user = userEvent.setup()
+    const initialImpact = {
+      providerId: provider.id,
+      totals: { draftAgents: 1, publishedVersions: 0 },
+      draftAgents: [
+        { agentId: 'agent-1', agentName: '迁移 Agent', status: '调试中', version: 'draft' },
+      ],
+      publishedVersions: [],
+    }
+    const targetImpact = {
+      providerId: targetProvider.id,
+      totals: { draftAgents: 0, publishedVersions: 0 },
+      draftAgents: [],
+      publishedVersions: [],
+    }
+    const sourceAfterMigration = {
+      ...initialImpact,
+      totals: { draftAgents: 0, publishedVersions: 0 },
+      draftAgents: [],
+    }
+    const targetAfterMigration = {
+      ...targetImpact,
+      totals: { draftAgents: 1, publishedVersions: 0 },
+      draftAgents: initialImpact.draftAgents,
+    }
+    let migrated = false
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
+      if (url === `/api/workspaces/${workspace.id}/model-providers` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([provider, targetProvider]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/model-providers/${provider.id}/impact`) {
+        return Promise.resolve(new Response(JSON.stringify(migrated ? sourceAfterMigration : initialImpact), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/model-providers/${targetProvider.id}/impact`) {
+        return Promise.resolve(new Response(JSON.stringify(migrated ? targetAfterMigration : targetImpact), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/model-providers/${provider.id}/migrate-drafts`) {
+        migrated = true
+        return Promise.resolve(new Response(JSON.stringify({
+          sourceProviderId: provider.id,
+          targetProviderId: targetProvider.id,
+          migratedCount: 1,
+          migratedAgents: [
+            {
+              agentId: 'agent-1',
+              agentName: '迁移 Agent',
+              previousModel: 'legacy-model',
+              nextModel: 'deepseek-v4-pro',
+            },
+          ],
+        }), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify({ detail: 'not found' }), { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage()
+
+    expect(await screen.findByText('草稿 Agent 1')).toBeInTheDocument()
+    await user.selectOptions(screen.getByLabelText('迁移目标 DeepSeek 生产'), targetProvider.id)
+    await user.type(screen.getByLabelText('迁移原因 DeepSeek 生产'), '切换到生产 Provider')
+    await user.click(screen.getByRole('button', { name: '迁移草稿 DeepSeek 生产' }))
+
+    expect(await screen.findByText('已迁移 1 个 Agent 草稿')).toBeInTheDocument()
+    const migrationCall = fetchMock.mock.calls.find(([input]) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
+      return url === `/api/workspaces/${workspace.id}/model-providers/${provider.id}/migrate-drafts`
+    })
+    const body = JSON.parse(String(migrationCall?.[1]?.body))
+    expect(body).toEqual({
+      targetProviderId: targetProvider.id,
+      reason: '切换到生产 Provider',
+    })
+    expect(body).not.toHaveProperty('apiKey')
   })
 })

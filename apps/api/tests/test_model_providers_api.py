@@ -180,3 +180,140 @@ def test_model_provider_impact_lists_bound_drafts_and_published_versions(tmp_pat
         },
     ]
     assert "apiKey" not in response.text
+
+
+def test_model_provider_migrates_draft_agents_without_rewriting_published_versions(tmp_path):
+    database_url = f"sqlite:///{tmp_path / 'model-provider-migration.db'}"
+    client, workspace_id = create_authenticated_client(database_url)
+    source_provider = client.post(
+        workspace_url(workspace_id, "/model-providers"),
+        json={
+            "name": "DeepSeek Legacy",
+            "providerType": "openai-compatible",
+            "baseUrl": "https://api.legacy.example.com",
+            "defaultModel": "legacy-model",
+            "secretRef": "LEGACY_PROVIDER_KEY",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    target_provider = client.post(
+        workspace_url(workspace_id, "/model-providers"),
+        json={
+            "name": "DeepSeek Target",
+            "providerType": "openai-compatible",
+            "baseUrl": "https://api.deepseek.com",
+            "defaultModel": "deepseek-v4-pro",
+            "secretRef": "TARGET_PROVIDER_KEY",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    draft_agent = client.post(
+        workspace_url(workspace_id, "/agents"),
+        json={
+            "name": "待迁移草稿 Agent",
+            "role": "Mutable draft bound to the legacy Provider.",
+            "owner": "Platform Team",
+            "model": "placeholder-model",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    client.patch(
+        workspace_url(workspace_id, f"/agents/{draft_agent['id']}"),
+        json={"modelProviderId": source_provider["id"]},
+        headers=csrf_headers(client),
+    )
+    versioned_agent = client.post(
+        workspace_url(workspace_id, "/agents"),
+        json={
+            "name": "已发布迁移 Agent",
+            "role": "Mutable draft has a published source snapshot.",
+            "owner": "Platform Team",
+            "model": "placeholder-model",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    client.patch(
+        workspace_url(workspace_id, f"/agents/{versioned_agent['id']}"),
+        json={"modelProviderId": source_provider["id"]},
+        headers=csrf_headers(client),
+    )
+    published = client.post(
+        workspace_url(workspace_id, f"/agents/{versioned_agent['id']}/publish"),
+        headers=csrf_headers(client),
+    ).json()
+
+    response = client.post(
+        workspace_url(workspace_id, f"/model-providers/{source_provider['id']}/migrate-drafts"),
+        json={
+            "targetProviderId": target_provider["id"],
+            "reason": "V0.15C test migration before Provider retirement.",
+        },
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["sourceProviderId"] == source_provider["id"]
+    assert result["targetProviderId"] == target_provider["id"]
+    assert result["migratedCount"] == 2
+    assert {item["agentName"] for item in result["migratedAgents"]} == {"待迁移草稿 Agent", "已发布迁移 Agent"}
+    assert "apiKey" not in response.text
+
+    updated_agent = client.get(workspace_url(workspace_id, f"/agents/{draft_agent['id']}")).json()
+    assert updated_agent["modelProviderId"] == target_provider["id"]
+    assert updated_agent["modelBaseUrl"] == "https://api.deepseek.com"
+    assert updated_agent["model"] == "deepseek-v4-pro"
+
+    source_impact = client.get(
+        workspace_url(workspace_id, f"/model-providers/{source_provider['id']}/impact"),
+    ).json()
+    target_impact = client.get(
+        workspace_url(workspace_id, f"/model-providers/{target_provider['id']}/impact"),
+    ).json()
+    assert source_impact["totals"] == {"draftAgents": 0, "publishedVersions": 1}
+    assert target_impact["totals"]["draftAgents"] == 2
+    assert published["snapshot"]["modelProviderId"] == source_provider["id"]
+    assert source_impact["publishedVersions"][0]["versionId"] == published["id"]
+
+
+def test_model_provider_migration_rejects_disabled_target_provider(tmp_path):
+    database_url = f"sqlite:///{tmp_path / 'model-provider-migration-disabled.db'}"
+    client, workspace_id = create_authenticated_client(database_url)
+    source_provider = client.post(
+        workspace_url(workspace_id, "/model-providers"),
+        json={
+            "name": "DeepSeek Source",
+            "providerType": "openai-compatible",
+            "baseUrl": "https://api.source.example.com",
+            "defaultModel": "source-model",
+            "secretRef": "SOURCE_PROVIDER_KEY",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    disabled_target = client.post(
+        workspace_url(workspace_id, "/model-providers"),
+        json={
+            "name": "DeepSeek Disabled Target",
+            "providerType": "openai-compatible",
+            "baseUrl": "https://api.disabled.example.com",
+            "defaultModel": "disabled-model",
+            "secretRef": "DISABLED_PROVIDER_KEY",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    client.post(
+        workspace_url(workspace_id, f"/model-providers/{disabled_target['id']}/deactivate"),
+        headers=csrf_headers(client),
+    )
+
+    response = client.post(
+        workspace_url(workspace_id, f"/model-providers/{source_provider['id']}/migrate-drafts"),
+        json={
+            "targetProviderId": disabled_target["id"],
+            "reason": "Disabled target must be rejected.",
+        },
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "模型 Provider 已停用"

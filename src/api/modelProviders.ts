@@ -1,4 +1,11 @@
-import type { ModelProvider, ModelProviderConnectivity, ModelProviderImpact, ModelProviderType } from '../types'
+import type {
+  ModelProvider,
+  ModelProviderConnectivity,
+  ModelProviderDraftMigration,
+  ModelProviderDraftMigrationInput,
+  ModelProviderImpact,
+  ModelProviderType,
+} from '../types'
 import { apiFetch, readJson } from './http'
 
 export interface CreateModelProviderInput {
@@ -64,5 +71,17 @@ export async function deactivateModelProvider(
 ): Promise<ModelProvider> {
   return readJson<ModelProvider>(await apiFetch(workspacePath(workspaceId, `/${providerId}/deactivate`), {
     method: 'POST',
+  }))
+}
+
+export async function migrateModelProviderDrafts(
+  workspaceId: string,
+  providerId: string,
+  input: ModelProviderDraftMigrationInput,
+): Promise<ModelProviderDraftMigration> {
+  return readJson<ModelProviderDraftMigration>(await apiFetch(workspacePath(workspaceId, `/${providerId}/migrate-drafts`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
   }))
 }

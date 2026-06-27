@@ -4,6 +4,7 @@ import {
   deactivateModelProvider,
   getModelProviderImpact,
   listModelProviders,
+  migrateModelProviderDrafts,
   testModelProviderConnection,
   updateModelProvider,
 } from './modelProviders'
@@ -148,5 +149,42 @@ describe('Model Provider API', () => {
       }),
     )
     expect(JSON.stringify(impact)).not.toContain('apiKey')
+  })
+
+  it('migrates Provider draft Agents with an operation reason', async () => {
+    const migration = {
+      sourceProviderId: 'provider-1',
+      targetProviderId: 'provider-2',
+      migratedCount: 1,
+      migratedAgents: [
+        {
+          agentId: 'agent-1',
+          agentName: '迁移 Agent',
+          previousModel: 'legacy-model',
+          nextModel: 'deepseek-v4-pro',
+        },
+      ],
+    }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(migration), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(migrateModelProviderDrafts(workspaceId, 'provider-1', {
+      targetProviderId: 'provider-2',
+      reason: '切换到生产 Provider',
+    })).resolves.toEqual(migration)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/workspaces/workspace-1/model-providers/provider-1/migrate-drafts',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'same-origin',
+      }),
+    )
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body))
+    expect(body).toEqual({
+      targetProviderId: 'provider-2',
+      reason: '切换到生产 Provider',
+    })
+    expect(body).not.toHaveProperty('apiKey')
   })
 })

@@ -424,6 +424,39 @@ class ModelProviderImpactRead(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class ModelProviderDraftMigrationCreate(BaseModel):
+    target_provider_id: str = Field(alias="targetProviderId", min_length=1, max_length=36)
+    reason: str = Field(min_length=1, max_length=1000)
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    @field_validator("target_provider_id", "reason")
+    @classmethod
+    def reject_blank_migration_values(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("字段不能为空")
+        return normalized
+
+
+class ModelProviderMigratedAgentRead(BaseModel):
+    agent_id: str = Field(serialization_alias="agentId")
+    agent_name: str = Field(serialization_alias="agentName")
+    previous_model: str = Field(serialization_alias="previousModel")
+    next_model: str = Field(serialization_alias="nextModel")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ModelProviderDraftMigrationRead(BaseModel):
+    source_provider_id: str = Field(serialization_alias="sourceProviderId")
+    target_provider_id: str = Field(serialization_alias="targetProviderId")
+    migrated_count: int = Field(serialization_alias="migratedCount")
+    migrated_agents: list[ModelProviderMigratedAgentRead] = Field(serialization_alias="migratedAgents")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class VersionRead(BaseModel):
     id: str
     version: str

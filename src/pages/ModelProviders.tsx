@@ -1,10 +1,11 @@
 import { Check, KeyRound, PlugZap, Plus, ShieldOff } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   createModelProvider,
   deactivateModelProvider,
   getModelProviderImpact,
   listModelProviders,
+  migrateModelProviderDrafts,
   testModelProviderConnection,
   updateModelProvider,
   type CreateModelProviderInput,
@@ -20,6 +21,11 @@ const initialForm: CreateModelProviderInput = {
   secretRef: '',
 }
 
+interface MigrationFormState {
+  targetProviderId: string
+  reason: string
+}
+
 export function ModelProviders() {
   const { workspace } = useWorkspace()
   const [providers, setProviders] = useState<ModelProvider[]>([])
@@ -30,29 +36,32 @@ export function ModelProviders() {
   const [impactByProviderId, setImpactByProviderId] = useState<Record<string, ModelProviderImpact>>({})
   const [editingProviderId, setEditingProviderId] = useState('')
   const [editForm, setEditForm] = useState<CreateModelProviderInput>(initialForm)
+  const [migrationForms, setMigrationForms] = useState<Record<string, MigrationFormState>>({})
   const [isBusy, setIsBusy] = useState(false)
+
+  const loadProviderImpacts = useCallback(async (loadedProviders: ModelProvider[]) => {
+    const impacts = await Promise.all(loadedProviders.map(async (provider) => {
+      try {
+        return await getModelProviderImpact(workspace.id, provider.id)
+      } catch {
+        return undefined
+      }
+    }))
+    setImpactByProviderId(Object.fromEntries(
+      impacts
+        .filter((impact): impact is ModelProviderImpact => Boolean(impact))
+        .map((impact) => [impact.providerId, impact]),
+    ))
+  }, [workspace.id])
 
   useEffect(() => {
     void listModelProviders(workspace.id)
       .then((loadedProviders) => {
         setProviders(loadedProviders)
-        return Promise.all(loadedProviders.map(async (provider) => {
-          try {
-            return await getModelProviderImpact(workspace.id, provider.id)
-          } catch {
-            return undefined
-          }
-        }))
-      })
-      .then((impacts) => {
-        setImpactByProviderId(Object.fromEntries(
-          impacts
-            .filter((impact): impact is ModelProviderImpact => Boolean(impact))
-            .map((impact) => [impact.providerId, impact]),
-        ))
+        return loadProviderImpacts(loadedProviders)
       })
       .catch((loadError) => setError(loadError instanceof Error ? loadError.message : '模型 Provider 加载失败'))
-  }, [workspace.id])
+  }, [loadProviderImpacts, workspace.id])
 
   function updateField<TField extends keyof CreateModelProviderInput>(
     field: TField,
@@ -120,6 +129,23 @@ export function ModelProviders() {
     setError('')
   }
 
+  function updateMigrationForm(
+    providerId: string,
+    field: keyof MigrationFormState,
+    value: string,
+  ) {
+    setMigrationForms((current) => ({
+      ...current,
+      [providerId]: {
+        targetProviderId: current[providerId]?.targetProviderId ?? '',
+        reason: current[providerId]?.reason ?? '',
+        [field]: value,
+      },
+    }))
+    setFeedback('')
+    setError('')
+  }
+
   async function saveProvider(provider: ModelProvider) {
     setIsBusy(true)
     setError('')
@@ -150,6 +176,36 @@ export function ModelProviders() {
       setFeedback('Provider 已停用')
     } catch (deactivateError) {
       setError(deactivateError instanceof Error ? deactivateError.message : 'Provider 停用失败')
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  async function migrateDraftAgents(provider: ModelProvider) {
+    const migrationForm = migrationForms[provider.id] ?? { targetProviderId: '', reason: '' }
+    const targetProviderId = migrationForm.targetProviderId.trim()
+    const reason = migrationForm.reason.trim()
+    if (!targetProviderId) {
+      setError('请选择迁移目标 Provider')
+      return
+    }
+    if (!reason) {
+      setError('请填写迁移原因')
+      return
+    }
+
+    setIsBusy(true)
+    setError('')
+    try {
+      const result = await migrateModelProviderDrafts(workspace.id, provider.id, { targetProviderId, reason })
+      setFeedback(`已迁移 ${result.migratedCount} 个 Agent 草稿`)
+      setMigrationForms((current) => ({
+        ...current,
+        [provider.id]: { targetProviderId, reason: '' },
+      }))
+      await loadProviderImpacts(providers)
+    } catch (migrationError) {
+      setError(migrationError instanceof Error ? migrationError.message : 'Agent 草稿迁移失败')
     } finally {
       setIsBusy(false)
     }
@@ -214,6 +270,10 @@ export function ModelProviders() {
             const connectivity = connectivityByProviderId[provider.id]
             const impact = impactByProviderId[provider.id]
             const isEditing = editingProviderId === provider.id
+            const migrationForm = migrationForms[provider.id] ?? { targetProviderId: '', reason: '' }
+            const migrationTargets = providers.filter((candidate) => (
+              candidate.id !== provider.id && candidate.status !== 'disabled'
+            ))
             return (
               <article className="provider-card" key={provider.id}>
                 {isEditing ? (
@@ -256,6 +316,45 @@ export function ModelProviders() {
                     ) : (
                       <p>暂无 Agent 依赖</p>
                     )}
+                  </div>
+                )}
+                {migrationTargets.length > 0 && (
+                  <div className="provider-migration-form">
+                    <div>
+                      <strong>草稿迁移</strong>
+                      <span>只迁移当前 Agent 草稿，已发布版本快照保持不变。</span>
+                    </div>
+                    <label className="form-field">
+                      <span>迁移目标</span>
+                      <select
+                        aria-label={`迁移目标 ${provider.name}`}
+                        value={migrationForm.targetProviderId}
+                        onChange={(event) => updateMigrationForm(provider.id, 'targetProviderId', event.target.value)}
+                      >
+                        <option value="">选择目标 Provider</option>
+                        {migrationTargets.map((target) => (
+                          <option key={target.id} value={target.id}>{target.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="form-field migration-reason-field">
+                      <span>迁移原因</span>
+                      <textarea
+                        aria-label={`迁移原因 ${provider.name}`}
+                        value={migrationForm.reason}
+                        onChange={(event) => updateMigrationForm(provider.id, 'reason', event.target.value)}
+                        placeholder="例如：切换到生产 Provider"
+                        rows={2}
+                      />
+                    </label>
+                    <button
+                      className="button secondary compact"
+                      disabled={isBusy}
+                      onClick={() => void migrateDraftAgents(provider)}
+                      aria-label={`迁移草稿 ${provider.name}`}
+                    >
+                      迁移草稿
+                    </button>
                   </div>
                 )}
                 <div className="provider-card-actions">

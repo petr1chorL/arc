@@ -1,6 +1,6 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.15B Provider 影响面视图
+> 对应版本：V0.15C Provider 草稿迁移
 > 上一阶段：V0.8F 轻量告警 / 通知 Outbox
 > 更新时间：2026-06-28
 
@@ -1007,7 +1007,13 @@ TypeScript 编译检查
 验证时没有发现浏览器控制台错误。
 
 当前机器 Docker CLI 可用但 Docker Desktop daemon 未运行，`docker compose build api execution-worker` 因无法连接 Docker API 未完成；API/Worker 容器运行和跨数据库正式迁移工具尚未进行容器验证。V0.6 的轻量增量迁移仅针对默认 SQLite。
+## V0.15C Provider 草稿迁移补充
 
+V0.15C 在 V0.15B Provider 影响面视图之上，新增 Provider 草稿迁移能力：运营人员可以在模型 Provider 页面选择目标 Provider、填写迁移原因，并把绑定源 Provider 的当前 Agent 草稿批量迁移到目标 Provider。迁移只更新当前 Agent 草稿记录中的 `modelProviderId`、Provider 类型、Base URL 和默认模型，不改写已发布 AgentVersion 快照。
+
+后端新增 `POST /api/workspaces/{workspaceId}/model-providers/{sourceProviderId}/migrate-drafts`。接口会校验目标 Provider 必须存在且未停用，拒绝源目标相同，并把迁移原因、目标 Provider 和迁移 Agent 列表写入审计 metadata。前端新增 `migrateModelProviderDrafts` API wrapper、Provider 卡片内迁移表单、迁移成功反馈和 Provider impact 刷新。
+
+V0.15C 验证证据：focused frontend 2 个文件 9 项测试通过；focused backend 31 项测试通过；full frontend 29 个文件 117 项测试通过；full backend 测试通过；`npm run lint` 无警告通过；`npm run build` 通过并保留既有 Vite chunk-size warning。浏览器验收创建源/目标 Provider，将 Agent `test` 绑定到源 Provider 后迁移到目标 Provider，Agent 详情页确认选中目标 Provider，console error 为 0。证据文件：`.scratch/v0.15c-provider-migration.png`、`.scratch/v0.15c-browser-result.json`。
 ## 18. 下一步代码改造
 
 建议按以下顺序改造当前代码：

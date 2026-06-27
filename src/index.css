@@ -3661,6 +3661,35 @@ kbd {
   font-size: 0.86rem;
 }
 
+.provider-migration-form {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(180px, 1.1fr) minmax(220px, 1.4fr) auto;
+  align-items: end;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  background: rgba(235, 240, 248, 0.72);
+  box-shadow: inset 2px 2px 5px rgba(141, 156, 184, 0.18), inset -2px -2px 5px rgba(255, 255, 255, 0.74);
+}
+
+.provider-migration-form > div {
+  align-self: center;
+}
+
+.provider-migration-form strong {
+  margin-bottom: 3px;
+}
+
+.provider-migration-form .form-field {
+  gap: 5px;
+}
+
+.provider-migration-form .button {
+  min-height: 38px;
+  white-space: nowrap;
+}
+
 .provider-card-actions {
   display: flex;
   flex-wrap: wrap;

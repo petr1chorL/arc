@@ -78,8 +78,11 @@ from app.schemas import (
     ModelProviderConnectivityRead,
     ModelProviderCreate,
     ModelProviderDraftAgentImpactRead,
+    ModelProviderDraftMigrationCreate,
+    ModelProviderDraftMigrationRead,
     ModelProviderImpactRead,
     ModelProviderImpactTotalsRead,
+    ModelProviderMigratedAgentRead,
     ModelProviderRead,
     ModelProviderUpdate,
     ModelProviderVersionImpactRead,
@@ -294,6 +297,7 @@ def create_app(
         target_type: str,
         target_id: str | None,
         request: Request,
+        metadata: dict | None = None,
     ) -> None:
         audit_service.record(
             session,
@@ -303,6 +307,7 @@ def create_app(
             target_id=target_id,
             outcome="success",
             request=request,
+            metadata=metadata,
         )
 
     def find_agent(workspace_id: str, agent_id: str, session: Session) -> AgentRecord:
@@ -1684,6 +1689,78 @@ def create_app(
                 )
                 for version in published_versions
             ],
+        )
+
+    @router.post("/model-providers/{provider_id}/migrate-drafts", response_model=ModelProviderDraftMigrationRead)
+    def migrate_model_provider_drafts(
+        provider_id: str,
+        payload: ModelProviderDraftMigrationCreate,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> ModelProviderDraftMigrationRead:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "agent.write",
+            action="model_provider.migrate_drafts",
+            target_type="model_provider",
+            target_id=provider_id,
+            request=request,
+        )
+        source_provider = find_model_provider(
+            session,
+            workspace_id=context.workspace.id,
+            provider_id=provider_id,
+        )
+        if payload.target_provider_id == source_provider.id:
+            raise HTTPException(status_code=422, detail="目标 Provider 不能与源 Provider 相同")
+        target_provider = resolve_model_provider(
+            session,
+            workspace_id=context.workspace.id,
+            provider_id=payload.target_provider_id,
+        )
+        agents = list(session.scalars(
+            select(AgentRecord)
+            .where(
+                AgentRecord.workspace_id == context.workspace.id,
+                AgentRecord.model_provider_id == source_provider.id,
+            )
+            .order_by(AgentRecord.updated_at.desc()),
+        ))
+        migrated_agents: list[ModelProviderMigratedAgentRead] = []
+        for agent in agents:
+            previous_model = agent.model
+            agent.model_provider_id = target_provider.id
+            agent.model_provider = target_provider.provider_type
+            agent.model_base_url = target_provider.base_url
+            agent.model = target_provider.default_model
+            agent.updated_at = utc_now()
+            migrated_agents.append(ModelProviderMigratedAgentRead(
+                agent_id=agent.id,
+                agent_name=agent.name,
+                previous_model=previous_model,
+                next_model=target_provider.default_model,
+            ))
+        record_success(
+            session,
+            context,
+            action="model_provider.migrate_drafts",
+            target_type="model_provider",
+            target_id=source_provider.id,
+            request=request,
+            metadata={
+                "targetProviderId": target_provider.id,
+                "reason": payload.reason,
+                "migratedAgentIds": [agent.agent_id for agent in migrated_agents],
+            },
+        )
+        session.commit()
+        return ModelProviderDraftMigrationRead(
+            source_provider_id=source_provider.id,
+            target_provider_id=target_provider.id,
+            migrated_count=len(migrated_agents),
+            migrated_agents=migrated_agents,
         )
 
     @router.post(

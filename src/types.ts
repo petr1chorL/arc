@@ -155,6 +155,25 @@ export interface ModelProviderImpact {
   publishedVersions: ModelProviderVersionImpact[]
 }
 
+export interface ModelProviderDraftMigrationInput {
+  targetProviderId: string
+  reason: string
+}
+
+export interface ModelProviderMigratedAgent {
+  agentId: string
+  agentName: string
+  previousModel: string
+  nextModel: string
+}
+
+export interface ModelProviderDraftMigration {
+  sourceProviderId: string
+  targetProviderId: string
+  migratedCount: number
+  migratedAgents: ModelProviderMigratedAgent[]
+}
+
 export interface WorkflowNodeContract {
   id: string
   type: string
