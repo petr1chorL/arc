@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -299,6 +299,42 @@ describe('Members page', () => {
     })
     expect(qualificationListener).toHaveBeenCalledTimes(1)
     window.removeEventListener('reviewer-qualifications-updated', qualificationListener)
+  })
+
+  it('shows permission impact before saving a role upgrade or downgrade', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
+      if (url === `/api/workspaces/${workspace.id}/members` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify(members), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/permissions/matrix` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify(permissionMatrix), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }))
+      }
+      return Promise.reject(new Error(`Unhandled request: ${String(url)}`))
+    }))
+
+    renderPage()
+
+    const roleSelect = await screen.findByLabelText('builder@example.com 的角色')
+    expect(screen.queryByLabelText('builder@example.com 角色变更影响')).not.toBeInTheDocument()
+
+    await user.selectOptions(roleSelect, 'workspace_admin')
+    const upgradeImpact = screen.getByLabelText('builder@example.com 角色变更影响')
+    expect(within(upgradeImpact).getByText('新增权限')).toBeInTheDocument()
+    expect(within(upgradeImpact).getByText('读取审计')).toBeInTheDocument()
+    expect(within(upgradeImpact).getByText('高风险')).toBeInTheDocument()
+
+    await user.selectOptions(roleSelect, 'viewer')
+    const downgradeImpact = screen.getByLabelText('builder@example.com 角色变更影响')
+    expect(within(downgradeImpact).getByText('移除权限')).toBeInTheDocument()
+    expect(within(downgradeImpact).getByText('编辑 Agent')).toBeInTheDocument()
   })
 
   it('shows server conflict reasons for resend and updates membership state for disable and enable', async () => {

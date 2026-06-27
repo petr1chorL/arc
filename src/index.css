@@ -3117,6 +3117,12 @@ kbd {
   gap: 8px;
 }
 
+.members-role-stack {
+  display: grid;
+  min-width: 260px;
+  gap: 8px;
+}
+
 .members-current-reviewer {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -3311,6 +3317,66 @@ kbd {
   background: var(--surface);
   color: var(--ink);
   box-shadow: var(--shadow-inset);
+}
+
+.role-change-impact {
+  display: grid;
+  gap: 7px;
+  max-width: 340px;
+  border: 1px solid rgba(111, 136, 185, 0.18);
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: linear-gradient(145deg, rgba(248, 251, 255, 0.86), rgba(226, 232, 244, 0.72));
+  color: var(--ink);
+  box-shadow: 5px 5px 14px rgba(126, 143, 168, 0.18), -5px -5px 12px rgba(255, 255, 255, 0.72);
+}
+
+.role-change-impact-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #596b93;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.role-change-impact-row {
+  display: grid;
+  gap: 5px;
+}
+
+.role-change-impact-row > span {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.role-change-impact-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.role-change-impact-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: fit-content;
+  border-radius: 999px;
+  padding: 4px 7px;
+  background: rgba(255, 255, 255, 0.55);
+  color: #54627b;
+  font-size: 9px;
+  box-shadow: var(--shadow-inset);
+}
+
+.role-change-impact-chip.high-risk {
+  background: rgba(255, 239, 230, 0.82);
+  color: #a45332;
+}
+
+.role-change-impact-chip em {
+  font-style: normal;
+  color: #c05f35;
 }
 
 .topbar-user {

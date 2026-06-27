@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Copy, MailPlus, RefreshCcw, ShieldCheck, UserCog } from 'lucide-react'
+import { AlertTriangle, Copy, MailPlus, RefreshCcw, ShieldCheck, UserCog } from 'lucide-react'
 import {
   disableMember,
   disableUser,
@@ -17,7 +17,7 @@ import {
 } from '../api/members'
 import { useAuth } from '../auth/authContext'
 import { useWorkspace } from '../auth/workspaceContextState'
-import type { WorkspaceMember, WorkspacePermissionMatrix, WorkspaceRole } from '../types'
+import type { PermissionCapability, WorkspaceMember, WorkspacePermissionMatrix, WorkspaceRole } from '../types'
 
 const roleOptions: Array<{ value: WorkspaceRole; label: string }> = [
   { value: 'viewer', label: 'viewer' },
@@ -28,6 +28,14 @@ const roleOptions: Array<{ value: WorkspaceRole; label: string }> = [
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const reviewerQualificationsUpdatedEvent = 'reviewer-qualifications-updated'
+const highRiskCapabilityKeys = new Set([
+  'audit.read',
+  'audit.export',
+  'member.manage',
+  'workspace.manage',
+  'asset.deactivate',
+  'reviewer.manage',
+])
 
 function broadcastReviewerQualificationsUpdated(workspaceId: string) {
   window.dispatchEvent(new CustomEvent(reviewerQualificationsUpdatedEvent, {
@@ -49,6 +57,89 @@ function qualificationLabel(member: WorkspaceMember) {
   if (!member.reviewer) return '未授予'
   if (!member.reviewer.isActive) return '已撤销'
   return member.reviewer.isExpert ? `${member.reviewer.role} · 专家` : member.reviewer.role
+}
+
+function capabilitiesForRole(matrix: WorkspacePermissionMatrix, role: WorkspaceRole) {
+  const roleRow = matrix.matrix.find((row) => row.role === role)
+  return new Set(Object.entries(roleRow?.capabilities ?? {})
+    .filter(([, enabled]) => enabled)
+    .map(([key]) => key))
+}
+
+function roleChangeImpact(
+  matrix: WorkspacePermissionMatrix,
+  currentRole: WorkspaceRole,
+  nextRole: WorkspaceRole,
+) {
+  if (currentRole === nextRole) {
+    return null
+  }
+  const currentCapabilities = capabilitiesForRole(matrix, currentRole)
+  const nextCapabilities = capabilitiesForRole(matrix, nextRole)
+  return {
+    added: matrix.capabilities.filter((capability) => (
+      nextCapabilities.has(capability.key) && !currentCapabilities.has(capability.key)
+    )),
+    removed: matrix.capabilities.filter((capability) => (
+      currentCapabilities.has(capability.key) && !nextCapabilities.has(capability.key)
+    )),
+  }
+}
+
+function RoleCapabilityList({
+  capabilities,
+  label,
+}: {
+  capabilities: PermissionCapability[]
+  label: string
+}) {
+  if (capabilities.length === 0) return null
+  return (
+    <div className="role-change-impact-row">
+      <span>{label}</span>
+      <div className="role-change-impact-chips">
+        {capabilities.map((capability) => {
+          const isHighRisk = highRiskCapabilityKeys.has(capability.key)
+          return (
+            <span
+              className={`role-change-impact-chip ${isHighRisk ? 'high-risk' : ''}`}
+              key={capability.key}
+            >
+              {capability.label}
+              {isHighRisk && <em>高风险</em>}
+            </span>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function RoleChangeImpact({
+  currentRole,
+  email,
+  matrix,
+  nextRole,
+}: {
+  currentRole: WorkspaceRole
+  email: string
+  matrix: WorkspacePermissionMatrix | null
+  nextRole: WorkspaceRole
+}) {
+  if (!matrix) return null
+  const impact = roleChangeImpact(matrix, currentRole, nextRole)
+  if (!impact) return null
+
+  return (
+    <div className="role-change-impact" aria-label={`${email} 角色变更影响`}>
+      <div className="role-change-impact-title">
+        <AlertTriangle size={13} />
+        <strong>角色变更影响</strong>
+      </div>
+      <RoleCapabilityList label="新增权限" capabilities={impact.added} />
+      <RoleCapabilityList label="移除权限" capabilities={impact.removed} />
+    </div>
+  )
 }
 
 export function Members() {
@@ -464,22 +555,30 @@ export function Members() {
                   </div>
                 </td>
                 <td>
-                  <div className="members-role-cell">
-                    <select
-                      aria-label={`${member.email} 的角色`}
-                      value={draftRoles[member.userId] ?? member.role}
-                      onChange={(event) => {
-                        setDraftRoles((current) => ({
-                          ...current,
-                          [member.userId]: event.target.value as WorkspaceRole,
-                        }))
-                      }}
-                    >
-                      {roleOptions.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
-                    <span className="status-chip neutral">{member.role}</span>
+                  <div className="members-role-stack">
+                    <div className="members-role-cell">
+                      <select
+                        aria-label={`${member.email} 的角色`}
+                        value={draftRoles[member.userId] ?? member.role}
+                        onChange={(event) => {
+                          setDraftRoles((current) => ({
+                            ...current,
+                            [member.userId]: event.target.value as WorkspaceRole,
+                          }))
+                        }}
+                      >
+                        {roleOptions.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                      <span className="status-chip neutral">{member.role}</span>
+                    </div>
+                    <RoleChangeImpact
+                      currentRole={member.role}
+                      email={member.email}
+                      matrix={permissionMatrix}
+                      nextRole={draftRoles[member.userId] ?? member.role}
+                    />
                   </div>
                 </td>
                 <td>
