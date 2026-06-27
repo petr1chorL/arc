@@ -1,6 +1,6 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.12C HTTP Tool 执行链路后端切片
+> 对应版本：V0.12D LLM-as-a-Judge 第一切片
 > 上一阶段：V0.8F 轻量告警 / 通知 Outbox
 > 更新时间：2026-06-27
 
@@ -19,6 +19,8 @@ Agent 执行已引入第一版 Runtime 合约：`app.agent_runtime` 负责统一
 Tool / Skill 已新增第一版 Workspace 级资产库后端：`tool_skill_assets` 表保存 `tool` 与 `skill` 两类资产，支持创建、列表查询、参数 Schema、状态、适配类型、适配配置和 Workspace 隔离。Agent 更新和发布时会校验所绑定的 Tools / Skills 必须是当前 Workspace 内已启用资产。`tool_skill_asset_invocations` 表提供调用日志查询能力，并已支持 HTTP Tool 测试调用写入成功或失败日志。
 
 HTTP Tool 适配当前采用可注入 `HttpToolGateway`。自动化测试可使用 Fake Gateway；默认运行时使用 `HttpxToolGateway`，只有 `TOOL_HTTP_ALLOWED_HOSTS` 配置了目标 host 时才允许 GET / POST 外联，超时由 `TOOL_HTTP_TIMEOUT_SECONDS` 控制。MCP Tool 当前支持可注入 `McpToolGateway` 的测试调用骨架，默认不连接真实 MCP Server。Agent 直接测试运行和工作流 Agent 节点执行时，会调用已绑定的 HTTP Tool 并写入带 Agent、Run 和 NodeRun 上下文的调用日志。运行观测详情会把 Tool 调用日志派生成 `tool_skill_invocation` 执行事件，并关联到对应 NodeRun Span。
+
+评估中心已引入第一版 LLM-as-a-Judge 后端合约：Rubric 可声明 `judgeType=deterministic` 或 `judgeType=llm`，并记录 `judgeModel`。Evaluation 记录保存 `evaluatorType`、`evaluatorModel` 和 `evaluatorInput`，用于复现评分输入。当前 LLM Judge 通过可注入 `JudgeGateway` 执行，自动化测试使用 Fake Gateway；默认不会主动调用模型。
 
 当前已使用 DeepSeek OpenAI-compatible API 完成真实成功调用验证：Base URL 为 `https://api.deepseek.com`，模型为 `deepseek-v4-pro`。真实 API Key 仅保存在被 Git 忽略的本地 `apps/api/.env` 中。模型单价环境变量尚未配置，因此运行中心的成本暂显示为 `$0.000000`，Token 统计不受影响。
 
@@ -373,6 +375,8 @@ React Flow 节点/连线
 - 从 FastAPI 读取 Workspace 级 Rubric 卡片。
 - 评分维度和权重。
 - 硬性门禁。
+- Rubric 支持 `judgeType=deterministic` 和 `judgeType=llm`。
+- Rubric 支持记录 `judgeModel`。
 - 当前 workspace 首次访问时会播种 3 个默认 Rubric，后续访问不会重复创建。
 - 自动流转阈值。
 - 新建 Rubric 草稿。
@@ -383,6 +387,8 @@ React Flow 节点/连线
 - 前端校验必填字段、分数范围和维度权重合计。
 - 在 Rubric 配置弹窗中运行一次评估。
 - 保存 Evaluation 记录，包含 Rubric 快照、维度分、总分和 passed/failed 状态。
+- Evaluation 记录包含实际评分器类型、模型和可复现输入快照。
+- `judgeType=llm` 的 Rubric 直接评估会通过可注入 Judge Gateway 执行。
 - 展示 Evaluation 历史记录列表，包含记录 ID、Rubric 快照名称、评估对象、版本、维度分、总分、状态和评分说明。
 - 支持按 `passed` / `failed` 状态筛选评估记录。
 - 支持按 Rubric 筛选评估记录；历史记录引用的 Rubric 即使不在当前 Rubric 列表中，也会以记录快照名称出现在筛选项里。
@@ -429,7 +435,7 @@ React Flow 节点/连线
 - 页面展示 `Evaluation Loop Board`，从失败原因组、Remediation Task、复测 Run 和未关闭风险派生闭环指标。
 - 闭环看板展示失败原因组数、修复任务数、未关闭风险数、已复测任务数、最近复测通过率和下一步建议。
 - V0.10J 看板为前端派生视图，不新增后端接口。
-- 当前评分器为确定性评分器，用于验证评估链路；真实 LLM-as-a-Judge 尚未接入。
+- 当前确定性评分器仍为默认评分器；LLM Judge 已有可注入网关合约，但真实 Prompt、JSON 解析和 ModelGateway 接入尚未完成。
 
 后端 API：
 
@@ -457,7 +463,7 @@ POST /api/workspaces/{workspace_id}/evaluations/remediation-tasks/{task_id}/rete
 
 未实现：
 
-- LLM-as-a-Judge。
+- 真实 LLM Judge Prompt 模板、JSON 解析、重试和成本统计。
 - Golden Set 样本导入、导出、版本对比和停用。
 - 定时调度、后台队列、Run 取消、Run 重试和异步回归任务。
 - 评价一致性校准。
@@ -858,6 +864,9 @@ TypeScript 编译检查
 - V0.12C 完成 MCP 测试调用 RED/GREEN 测试：首次因路由不支持 MCP 和测试客户端不支持 `mcp_gateway` 失败，随后 MCP Tool 测试调用可通过可注入网关写入调用日志。
 - V0.12C 完成相关回归验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests/test_tool_runtime_api.py apps/api/tests/test_agent_runtime.py apps/api/tests/test_execution_api.py apps/api/tests/test_agent_lifecycle_api.py apps/api/tests/test_tool_skill_assets_api.py apps/api/tests/test_tool_skill_invocation_logs_api.py -q`，23 项通过。
 - V0.12C 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 166 项通过；`npm test -- --run` 27 个测试文件、96 项测试通过；`npm run lint` 通过；`npm run build` 通过。
+- V0.12D 完成 LLM Judge RED/GREEN 测试：首次因 `app.judge_gateway` 不存在失败，随后 `judgeType=llm` 的 Rubric 可通过 Fake Judge Gateway 生成 Evaluation，并记录 evaluator 类型、模型和输入快照。
+- V0.12D 完成评估中心回归验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests/test_evaluations_api.py -q`，14 项通过。
+- V0.12D 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 167 项通过；`npm test -- --run` 27 个测试文件、96 项测试通过；`npm run lint` 通过；`npm run build` 通过。
 
 验证时没有发现浏览器控制台错误。
 

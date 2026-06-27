@@ -17,6 +17,8 @@ export interface RubricInput {
   dimensions: { name: string; weight: number }[]
   gate: string
   passScore: number
+  judgeType?: 'deterministic' | 'llm'
+  judgeModel?: string
 }
 
 export interface RubricEvaluationInput {

@@ -667,6 +667,8 @@ class RubricRecord(Base):
     dimensions: Mapped[list[dict]] = mapped_column(JSON, default=list)
     gate: Mapped[str] = mapped_column(Text)
     pass_score: Mapped[int] = mapped_column(Integer)
+    judge_type: Mapped[str] = mapped_column(String(32), default="deterministic")
+    judge_model: Mapped[str] = mapped_column(String(120), default="")
     version: Mapped[str] = mapped_column(String(32))
     status: Mapped[str] = mapped_column(String(32), default="active")
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
@@ -700,6 +702,9 @@ class EvaluationRecord(Base):
     score: Mapped[int] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(32))
     rationale: Mapped[str] = mapped_column(Text)
+    evaluator_type: Mapped[str] = mapped_column(String(32), default="deterministic")
+    evaluator_model: Mapped[str] = mapped_column(String(120), default="")
+    evaluator_input: Mapped[dict] = mapped_column(JSON, default=dict)
     created_by: Mapped[str] = mapped_column(String(36))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 

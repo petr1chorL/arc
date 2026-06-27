@@ -98,6 +98,8 @@ export const rubrics: Rubric[] = [
     ],
     gate: '来源完整率 = 100%，竞品数量 ≥ 5',
     passScore: 85,
+    judgeType: 'deterministic',
+    judgeModel: '',
     version: 'v2.1',
   },
   {
@@ -113,6 +115,8 @@ export const rubrics: Rubric[] = [
     ],
     gate: '每条结论至少关联 3 条原始证据',
     passScore: 80,
+    judgeType: 'deterministic',
+    judgeModel: '',
     version: 'v1.6',
   },
   {
@@ -128,6 +132,8 @@ export const rubrics: Rubric[] = [
     ],
     gate: '关键指标、目标用户、成本边界均不得为空',
     passScore: 88,
+    judgeType: 'deterministic',
+    judgeModel: '',
     version: 'v0.9',
   },
 ]

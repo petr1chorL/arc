@@ -144,6 +144,8 @@ export interface Rubric {
   dimensions: { name: string; weight: number }[]
   gate: string
   passScore: number
+  judgeType: 'deterministic' | 'llm'
+  judgeModel: string
   version: string
   status?: string
 }
@@ -168,6 +170,9 @@ export interface EvaluationRecord {
   score: number
   status: string
   rationale: string
+  evaluatorType: string
+  evaluatorModel: string
+  evaluatorInput: Record<string, unknown>
   createdAt: string
 }
 

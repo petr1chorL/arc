@@ -707,7 +707,20 @@ def ensure_current_schema(engine: Engine) -> None:
     ensure_columns(
         engine,
         "rubrics",
-        {"sort_order": "INTEGER NOT NULL DEFAULT 0"},
+        {
+            "sort_order": "INTEGER NOT NULL DEFAULT 0",
+            "judge_type": "VARCHAR(32) NOT NULL DEFAULT 'deterministic'",
+            "judge_model": "VARCHAR(120) NOT NULL DEFAULT ''",
+        },
+    )
+    ensure_columns(
+        engine,
+        "evaluations",
+        {
+            "evaluator_type": "VARCHAR(32) NOT NULL DEFAULT 'deterministic'",
+            "evaluator_model": "VARCHAR(120) NOT NULL DEFAULT ''",
+            "evaluator_input": "JSON NOT NULL DEFAULT '{}'",
+        },
     )
     ensure_columns(
         engine,

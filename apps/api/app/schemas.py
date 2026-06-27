@@ -1113,6 +1113,8 @@ class RubricWrite(BaseModel):
     dimensions: list[RubricDimensionWrite] = Field(min_length=1)
     gate: str = Field(min_length=1, max_length=4000)
     pass_score: int = Field(alias="passScore", ge=0, le=100)
+    judge_type: Literal["deterministic", "llm"] = Field(default="deterministic", alias="judgeType")
+    judge_model: str = Field(default="", alias="judgeModel", max_length=120)
 
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
@@ -1139,6 +1141,8 @@ class RubricRead(BaseModel):
     dimensions: list[RubricDimensionRead]
     gate: str
     pass_score: int = Field(serialization_alias="passScore")
+    judge_type: Literal["deterministic", "llm"] = Field(serialization_alias="judgeType")
+    judge_model: str = Field(serialization_alias="judgeModel")
     version: str
     status: str
 
@@ -1196,6 +1200,9 @@ class EvaluationRecordRead(BaseModel):
     score: int
     status: str
     rationale: str
+    evaluator_type: str = Field(serialization_alias="evaluatorType")
+    evaluator_model: str = Field(serialization_alias="evaluatorModel")
+    evaluator_input: dict = Field(serialization_alias="evaluatorInput")
     created_at: datetime = Field(serialization_alias="createdAt")
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)

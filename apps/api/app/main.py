@@ -14,6 +14,7 @@ from app.database import create_database, session_scope
 from app.domain import next_version, validate_workflow
 from app.execution import ExecutionService, WorkflowResumeService
 from app.human_tasks import HumanTaskConflict, HumanTaskPermission, HumanTaskService, HumanTaskValidation
+from app.judge_gateway import DisabledJudgeGateway, JudgeGateway
 from app.migrations import ensure_current_schema
 from app.model_gateway import ModelGateway, OpenAICompatibleGateway
 from app.models import (
@@ -176,6 +177,7 @@ def create_app(
     auth_clock: Callable[[], datetime] = utc_now,
     tool_gateway: HttpToolGateway | None = None,
     mcp_gateway: McpToolGateway | None = None,
+    judge_gateway: JudgeGateway | None = None,
 ) -> FastAPI:
     settings = Settings()
     resolved_database_url = database_url or settings.database_url
@@ -200,6 +202,7 @@ def create_app(
     authorization_service = AuthorizationService(audit_service)
     context_service = RequestContextService(authentication_service, settings, audit_service)
     human_task_service = HumanTaskService(human_task_clock)
+    resolved_judge_gateway = judge_gateway or DisabledJudgeGateway()
     tool_runtime = ToolRuntimeExecutor(
         http_gateway=tool_gateway or HttpxToolGateway(settings),
         mcp_gateway=mcp_gateway,
@@ -394,7 +397,38 @@ def create_app(
     def evaluate_with_rubric_snapshot(
         snapshot: dict,
         artifact_text: str,
-    ) -> tuple[list[dict], int, str, str]:
+        *,
+        rubric_version: str,
+        subject_type: str,
+        subject_id: str | None,
+    ) -> tuple[list[dict], int, str, str, str, str, dict]:
+        judge_type = snapshot.get("judgeType", snapshot.get("judge_type", "deterministic"))
+        if judge_type == "llm":
+            judge_snapshot = {
+                **snapshot,
+                "passScore": snapshot.get("passScore", snapshot.get("pass_score")),
+                "judgeType": "llm",
+                "judgeModel": snapshot.get("judgeModel", snapshot.get("judge_model", "")),
+            }
+            try:
+                result = resolved_judge_gateway.evaluate(
+                    rubric_snapshot=judge_snapshot,
+                    rubric_version=rubric_version,
+                    artifact_text=artifact_text,
+                    subject_type=subject_type,
+                    subject_id=subject_id,
+                )
+            except RuntimeError as error:
+                raise HTTPException(status_code=422, detail=str(error)) from None
+            return (
+                result.dimension_scores,
+                result.score,
+                result.status,
+                result.rationale,
+                "llm",
+                result.model,
+                result.input_snapshot,
+            )
         dimension_base_score = deterministic_dimension_score(artifact_text)
         dimension_scores = [
             {
@@ -419,7 +453,20 @@ def create_app(
             "deterministic rubric evaluation: score is based on artifact "
             "length and explicit quality signals; LLM judge is not enabled yet."
         )
-        return dimension_scores, weighted_score, status_value, rationale
+        return (
+            dimension_scores,
+            weighted_score,
+            status_value,
+            rationale,
+            "deterministic",
+            "",
+            {
+                "artifactText": artifact_text,
+                "rubricVersion": rubric_version,
+                "subjectType": subject_type,
+                "subjectId": subject_id,
+            },
+        )
 
     def find_workflow(workspace_id: str, workflow_id: str, session: Session) -> WorkflowRecord:
         workflow = session.scalar(
@@ -2624,9 +2671,20 @@ def create_app(
     ) -> tuple[RegressionRunRecord, list[EvaluationRecord]]:
         records: list[EvaluationRecord] = []
         for sample in batch_samples:
-            dimension_scores, score, status_value, rationale = evaluate_with_rubric_snapshot(
+            (
+                dimension_scores,
+                score,
+                status_value,
+                rationale,
+                evaluator_type,
+                evaluator_model,
+                evaluator_input,
+            ) = evaluate_with_rubric_snapshot(
                 snapshot,
                 sample["input"],
+                rubric_version=rubric_version,
+                subject_type="regression_run_sample",
+                subject_id=sample["id"],
             )
             record = EvaluationRecord(
                 workspace_id=context.workspace.id,
@@ -2640,6 +2698,9 @@ def create_app(
                 score=score,
                 status=status_value,
                 rationale=rationale,
+                evaluator_type=evaluator_type,
+                evaluator_model=evaluator_model,
+                evaluator_input=evaluator_input,
                 created_by=context.user.id,
             )
             session.add(record)
@@ -3406,6 +3467,8 @@ def create_app(
             dimensions=[dimension.model_dump() for dimension in payload.dimensions],
             gate=payload.gate,
             pass_score=payload.pass_score,
+            judge_type=payload.judge_type,
+            judge_model=payload.judge_model,
             version="v0.1.0",
             status="draft",
             sort_order=sort_order + 1,
@@ -3451,6 +3514,8 @@ def create_app(
         record.dimensions = [dimension.model_dump() for dimension in payload.dimensions]
         record.gate = payload.gate
         record.pass_score = payload.pass_score
+        record.judge_type = payload.judge_type
+        record.judge_model = payload.judge_model
         record.updated_at = utc_now()
         record_success(
             session,
@@ -3621,9 +3686,20 @@ def create_app(
             context.workspace.id,
             rubric,
         )
-        dimension_scores, score, status_value, rationale = evaluate_with_rubric_snapshot(
+        (
+            dimension_scores,
+            score,
+            status_value,
+            rationale,
+            evaluator_type,
+            evaluator_model,
+            evaluator_input,
+        ) = evaluate_with_rubric_snapshot(
             snapshot,
             payload.artifact_text,
+            rubric_version=rubric_version,
+            subject_type=payload.subject_type,
+            subject_id=payload.subject_id,
         )
         record = EvaluationRecord(
             workspace_id=context.workspace.id,
@@ -3637,6 +3713,9 @@ def create_app(
             score=score,
             status=status_value,
             rationale=rationale,
+            evaluator_type=evaluator_type,
+            evaluator_model=evaluator_model,
+            evaluator_input=evaluator_input,
             created_by=context.user.id,
         )
         session.add(record)

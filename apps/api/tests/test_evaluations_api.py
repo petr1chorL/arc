@@ -1,4 +1,15 @@
 from api_test_support import create_authenticated_client, csrf_headers, workspace_url
+from app.judge_gateway import JudgeGatewayResult
+
+
+class FakeJudgeGateway:
+    def __init__(self, results: list[JudgeGatewayResult]):
+        self.results = results
+        self.calls: list[dict] = []
+
+    def evaluate(self, **request) -> JudgeGatewayResult:
+        self.calls.append(request)
+        return self.results.pop(0)
 
 
 def test_regression_sample_sets_can_be_created_and_listed(tmp_path):
@@ -227,6 +238,8 @@ def test_evaluation_rubrics_are_workspace_assets_without_duplicate_seed(tmp_path
         ],
         "gate": "来源完整率 = 100%，竞品数量 >= 5",
         "passScore": 85,
+        "judgeType": "deterministic",
+        "judgeModel": "",
         "version": "v2.1",
         "status": "active",
     }
@@ -668,6 +681,76 @@ def test_published_rubric_can_evaluate_artifact_and_list_records(tmp_path):
     records = client.get(workspace_url(workspace_id, "/evaluations/records"))
     assert records.status_code == 200
     assert records.json()[0]["id"] == record["id"]
+
+
+def test_llm_judge_rubric_evaluation_records_model_and_input_snapshot(tmp_path):
+    gateway = FakeJudgeGateway([
+        JudgeGatewayResult(
+            dimension_scores=[
+                {"name": "Evidence", "weight": 60, "score": 91},
+                {"name": "Actionability", "weight": 40, "score": 83},
+            ],
+            score=88,
+            status="passed",
+            rationale="llm judge: evidence is strong and actions are clear.",
+            model="deepseek-v4-pro",
+            input_snapshot={
+                "artifactText": "Evidence-backed plan with owner and next action.",
+                "rubricVersion": "v1.0",
+            },
+        ),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'llm-judge.db'}",
+        judge_gateway=gateway,
+    )
+    rubric = client.post(
+        workspace_url(workspace_id, "/evaluations/rubrics"),
+        json={
+            "name": "LLM Judge Rubric",
+            "artifact": "Launch plan",
+            "dimensions": [
+                {"name": "Evidence", "weight": 60},
+                {"name": "Actionability", "weight": 40},
+            ],
+            "gate": "Must include evidence and next actions",
+            "passScore": 80,
+            "judgeType": "llm",
+            "judgeModel": "deepseek-v4-pro",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    published = client.post(
+        workspace_url(workspace_id, f"/evaluations/rubrics/{rubric['id']}/publish"),
+        headers=csrf_headers(client),
+    ).json()
+
+    evaluated = client.post(
+        workspace_url(workspace_id, f"/evaluations/rubrics/{rubric['id']}/evaluate"),
+        json={
+            "artifactText": "Evidence-backed plan with owner and next action.",
+            "subjectType": "manual",
+            "subjectId": "llm-sample-1",
+        },
+        headers=csrf_headers(client),
+    )
+
+    assert evaluated.status_code == 201
+    record = evaluated.json()
+    assert record["score"] == 88
+    assert record["status"] == "passed"
+    assert record["rationale"].startswith("llm judge")
+    assert record["evaluatorType"] == "llm"
+    assert record["evaluatorModel"] == "deepseek-v4-pro"
+    assert record["evaluatorInput"]["artifactText"] == (
+        "Evidence-backed plan with owner and next action."
+    )
+    assert record["dimensionScores"] == [
+        {"name": "Evidence", "weight": 60, "score": 91},
+        {"name": "Actionability", "weight": 40, "score": 83},
+    ]
+    assert gateway.calls[0]["rubric_snapshot"]["judgeType"] == "llm"
+    assert gateway.calls[0]["rubric_version"] == published["version"]
 
 
 def test_draft_or_disabled_rubric_cannot_run_evaluation(tmp_path):
