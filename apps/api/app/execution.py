@@ -477,6 +477,46 @@ class ExecutionService:
         session.refresh(job)
         return job
 
+    def cancel_execution_job(
+        self,
+        *,
+        session: Session,
+        workspace_id: str,
+        job_id: str,
+    ) -> ExecutionJobRecord | None:
+        job = session.scalar(
+            select(ExecutionJobRecord).where(
+                ExecutionJobRecord.id == job_id,
+                ExecutionJobRecord.workspace_id == workspace_id,
+                ExecutionJobRecord.status.in_(("queued", "running", "dead_letter")),
+            ),
+        )
+        if job is None:
+            return None
+        run = session.scalar(
+            select(WorkflowRunRecord).where(
+                WorkflowRunRecord.id == job.run_id,
+                WorkflowRunRecord.workspace_id == workspace_id,
+            ),
+        )
+        now = utc_now()
+        job.status = "canceled"
+        job.error = "用户取消执行"
+        job.locked_by = ""
+        job.locked_until = None
+        job.last_heartbeat_at = None
+        job.next_attempt_at = None
+        job.completed_at = now
+        job.canceled_at = now
+        if run is not None:
+            run.status = "已取消"
+            run.current_node = "已取消"
+            run.error = job.error
+            run.completed_at = now
+        session.commit()
+        session.refresh(job)
+        return job
+
     @staticmethod
     def _retry_or_dead_letter_job(
         *,

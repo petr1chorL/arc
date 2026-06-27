@@ -4724,7 +4724,7 @@ kbd {
 
 .execution-queue-metrics {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   border-top: 1px solid rgba(142, 158, 188, 0.18);
   border-bottom: 1px solid rgba(142, 158, 188, 0.18);
 }

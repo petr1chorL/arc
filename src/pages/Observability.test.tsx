@@ -303,6 +303,7 @@ const executionJobs = [{
   startedAt: '2026-06-26T08:00:00Z',
   completedAt: '2026-06-26T08:01:00Z',
   deadLetteredAt: '2026-06-26T08:01:00Z',
+  canceledAt: null,
 }, {
   id: 'job-queued',
   workspaceId: 'workspace-1',
@@ -324,6 +325,7 @@ const executionJobs = [{
   startedAt: null,
   completedAt: null,
   deadLetteredAt: null,
+  canceledAt: null,
 }]
 
 function LocationProbe() {
@@ -374,6 +376,14 @@ describe('Observability', () => {
           deadLetteredAt: null,
         }), { status: 200 })
       }
+      if (path === '/api/workspaces/workspace-1/execution-jobs/job-queued/cancel') {
+        return new Response(JSON.stringify({
+          ...executionJobs[1],
+          status: 'canceled',
+          error: '用户取消执行',
+          canceledAt: '2026-06-26T08:10:00Z',
+        }), { status: 200 })
+      }
       if (path === '/api/workspaces/workspace-1/observability/runs/run-failed') {
         return new Response(JSON.stringify(detail), { status: 200 })
       }
@@ -413,6 +423,14 @@ describe('Observability', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         '/api/workspaces/workspace-1/execution-jobs/job-dead-letter/requeue',
+        expect.objectContaining({ method: 'POST' }),
+      )
+    })
+    const cancelButtons = screen.getAllByRole('button', { name: '取消任务' })
+    await user.click(cancelButtons[cancelButtons.length - 1])
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/workspaces/workspace-1/execution-jobs/job-queued/cancel',
         expect.objectContaining({ method: 'POST' }),
       )
     })

@@ -468,6 +468,51 @@ def test_dead_letter_execution_job_can_be_requeued(tmp_path):
         assert run.current_node == "等待重投"
 
 
+def test_execution_job_can_be_canceled_before_worker_claims_it(tmp_path):
+    gateway = FakeGateway([
+        FakeModelResult("This should not run after cancellation."),
+    ])
+    database_url = f"sqlite:///{tmp_path / 'async-cancel.db'}"
+    client, workspace_id = create_authenticated_client(database_url, model_gateway=gateway)
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(client, workspace_id, agent, version)
+
+    run_response = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Cancel this workflow before it runs.", "asyncMode": True},
+        headers=csrf_headers(client),
+    )
+    run_id = run_response.json()["id"]
+    with client.app.state.session_factory() as session:
+        job = session.scalar(select(ExecutionJobRecord))
+        job_id = job.id
+
+    cancel_response = client.post(
+        workspace_url(workspace_id, f"/execution-jobs/{job_id}/cancel"),
+        headers=csrf_headers(client),
+    )
+
+    assert cancel_response.status_code == 200
+    canceled = cancel_response.json()
+    assert canceled["status"] == "canceled"
+    assert canceled["error"] == "用户取消执行"
+    assert canceled["lockedBy"] == ""
+    assert canceled["lockedUntil"] is None
+    assert canceled["canceledAt"]
+
+    next_response = client.post(
+        workspace_url(workspace_id, "/execution-jobs/next"),
+        headers=csrf_headers(client),
+    )
+
+    assert next_response.status_code == 404
+    assert gateway.calls == []
+    with client.app.state.session_factory() as session:
+        run = session.get(WorkflowRunRecord, run_id)
+        assert run.status == "已取消"
+        assert run.current_node == "已取消"
+
+
 def test_low_quality_output_creates_human_review(tmp_path):
     gateway = FakeGateway([FakeModelResult("short")])
     client, workspace_id = create_authenticated_client(

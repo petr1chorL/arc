@@ -710,6 +710,7 @@ def ensure_current_schema(engine: Engine) -> None:
             "last_heartbeat_at": "DATETIME",
             "next_attempt_at": "DATETIME",
             "dead_lettered_at": "DATETIME",
+            "canceled_at": "DATETIME",
         },
     )
     ensure_columns(

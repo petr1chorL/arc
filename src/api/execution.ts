@@ -50,6 +50,12 @@ export async function requeueExecutionJob(workspaceId: string, jobId: string): P
   }))
 }
 
+export async function cancelExecutionJob(workspaceId: string, jobId: string): Promise<ExecutionJob> {
+  return readJson<ExecutionJob>(await apiFetch(workspacePath(workspaceId, `/execution-jobs/${jobId}/cancel`), {
+    method: 'POST',
+  }))
+}
+
 export async function getRun(workspaceId: string, runId: string): Promise<ExecutionRun> {
   return readJson<ExecutionRun>(await apiFetch(workspacePath(workspaceId, `/runs/${runId}`)))
 }

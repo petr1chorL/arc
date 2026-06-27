@@ -268,6 +268,7 @@ export interface ExecutionJob {
   startedAt: string | null
   completedAt: string | null
   deadLetteredAt: string | null
+  canceledAt: string | null
 }
 
 export interface HumanReview {

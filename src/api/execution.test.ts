@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  cancelExecutionJob,
   decideReview,
   listExecutionJobs,
   listReviews,
@@ -119,6 +120,7 @@ describe('Execution API', () => {
       startedAt: '2026-06-27T08:00:00Z',
       completedAt: '2026-06-27T08:01:00Z',
       deadLetteredAt: '2026-06-27T08:01:00Z',
+      canceledAt: null,
     }]
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(jobs), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
@@ -153,6 +155,7 @@ describe('Execution API', () => {
       startedAt: '2026-06-27T08:00:00Z',
       completedAt: null,
       deadLetteredAt: null,
+      canceledAt: null,
     }
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(job), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
@@ -161,6 +164,44 @@ describe('Execution API', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/workspaces/workspace-1/execution-jobs/job-1/requeue',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'same-origin',
+      }),
+    )
+  })
+
+  it('cancels an execution job', async () => {
+    const job = {
+      id: 'job-1',
+      workspaceId: workspaceId,
+      runId: 'run-1',
+      workflowId: 'workflow-1',
+      workflowVersion: 'v1.0.0',
+      jobType: 'workflow_run',
+      status: 'canceled',
+      input: '执行流程',
+      attempts: 0,
+      maxAttempts: 3,
+      error: '用户取消执行',
+      createdBy: 'user-1',
+      lockedBy: '',
+      lockedUntil: null,
+      lastHeartbeatAt: null,
+      nextAttemptAt: null,
+      createdAt: '2026-06-27T08:00:00Z',
+      startedAt: null,
+      completedAt: '2026-06-27T08:01:00Z',
+      deadLetteredAt: null,
+      canceledAt: '2026-06-27T08:01:00Z',
+    }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(job), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(cancelExecutionJob(workspaceId, 'job-1')).resolves.toEqual(job)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/workspaces/workspace-1/execution-jobs/job-1/cancel',
       expect.objectContaining({
         method: 'POST',
         credentials: 'same-origin',

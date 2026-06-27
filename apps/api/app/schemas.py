@@ -418,6 +418,7 @@ class ExecutionJobRead(BaseModel):
     started_at: datetime | None = Field(serialization_alias="startedAt")
     completed_at: datetime | None = Field(serialization_alias="completedAt")
     dead_lettered_at: datetime | None = Field(serialization_alias="deadLetteredAt")
+    canceled_at: datetime | None = Field(serialization_alias="canceledAt")
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 

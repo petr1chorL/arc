@@ -15,7 +15,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { listExecutionJobs, requeueExecutionJob } from '../api/execution'
+import { cancelExecutionJob, listExecutionJobs, requeueExecutionJob } from '../api/execution'
 import {
   getCostUsageOverview,
   getHumanSlaOverview,
@@ -64,6 +64,7 @@ function executionJobStatusLabel(status: string) {
     running: '运行中',
     succeeded: '已完成',
     dead_letter: '死信',
+    canceled: '已取消',
   }[status] ?? status
 }
 
@@ -247,6 +248,19 @@ export function Observability() {
     }
   }, [loadExecutionJobs, workspace.id])
 
+  const cancelJob = useCallback(async (jobId: string) => {
+    setQueueActionJobId(jobId)
+    setQueueActionError('')
+    try {
+      await cancelExecutionJob(workspace.id, jobId)
+      await loadExecutionJobs()
+    } catch (actionError) {
+      setQueueActionError(actionError instanceof Error ? actionError.message : '取消任务失败')
+    } finally {
+      setQueueActionJobId('')
+    }
+  }, [loadExecutionJobs, workspace.id])
+
   useEffect(() => {
     void loadOverview()
   }, [loadOverview])
@@ -366,6 +380,9 @@ export function Observability() {
         actionJobId={queueActionJobId}
         onRequeue={(jobId) => {
           void requeueJob(jobId)
+        }}
+        onCancel={(jobId) => {
+          void cancelJob(jobId)
         }}
       />
 
@@ -520,6 +537,7 @@ function ExecutionQueuePanel({
   actionError,
   actionJobId,
   onRequeue,
+  onCancel,
 }: {
   jobs: ExecutionJob[]
   isLoading: boolean
@@ -527,6 +545,7 @@ function ExecutionQueuePanel({
   actionError: string
   actionJobId: string
   onRequeue: (jobId: string) => void
+  onCancel: (jobId: string) => void
 }) {
   const counts = jobs.reduce<Record<string, number>>((nextCounts, job) => {
     nextCounts[job.status] = (nextCounts[job.status] ?? 0) + 1
@@ -554,6 +573,7 @@ function ExecutionQueuePanel({
             <MetricCard label="运行中" value={counts.running ?? 0} icon={<Route size={17} />} />
             <MetricCard label="已完成" value={counts.succeeded ?? 0} icon={<ClipboardList size={17} />} />
             <MetricCard label="死信" value={counts.dead_letter ?? 0} icon={<AlertTriangle size={17} />} tone="danger" />
+            <MetricCard label="已取消" value={counts.canceled ?? 0} icon={<TimerReset size={17} />} />
           </div>
           {visibleJobs.length === 0
             ? <p className="muted-copy">暂无执行队列任务。</p>
@@ -578,6 +598,16 @@ function ExecutionQueuePanel({
                           onClick={() => onRequeue(job.id)}
                         >
                           {actionJobId === job.id ? '处理中' : '重新入队'}
+                        </button>
+                      )}
+                      {!['succeeded', 'canceled'].includes(job.status) && (
+                        <button
+                          className="button ghost compact"
+                          type="button"
+                          disabled={actionJobId === job.id}
+                          onClick={() => onCancel(job.id)}
+                        >
+                          {actionJobId === job.id ? '处理中' : '取消任务'}
                         </button>
                       )}
                     </aside>
