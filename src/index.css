@@ -6198,6 +6198,13 @@ kbd {
   box-shadow: var(--shadow-out);
 }
 
+.trace-link-card.active,
+.observability-node.selected-trace-target {
+  border-color: rgba(103, 129, 182, 0.48);
+  background: linear-gradient(145deg, rgba(249, 252, 255, 0.98), rgba(223, 232, 248, 0.82));
+  box-shadow: 9px 9px 18px rgba(172, 184, 205, 0.42), -9px -9px 18px rgba(255, 255, 255, 0.88);
+}
+
 .trace-link-card.root {
   border-color: rgba(111, 136, 185, 0.2);
   background: linear-gradient(145deg, rgba(248, 251, 255, 0.92), rgba(229, 236, 247, 0.72));
@@ -6240,6 +6247,11 @@ kbd {
   color: #596b93;
   font: 800 10px var(--mono);
   box-shadow: var(--shadow-inset);
+}
+
+.trace-link-jump {
+  grid-column: 1 / -1;
+  justify-self: start;
 }
 
 .observability-audit em {

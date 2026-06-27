@@ -1270,6 +1270,13 @@ function RunTroubleshooting({
   auditHref: string
 }) {
   const resultText = detail.output || detail.error || '本次运行暂无产出或错误信息。'
+  const [activeSpanId, setActiveSpanId] = useState('')
+
+  const scrollToTraceTarget = useCallback((spanId: string) => {
+    setActiveSpanId(spanId)
+    const targetId = spanId === 'root' ? 'trace-target-root' : `trace-target-${spanId}`
+    document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [])
 
   return (
     <>
@@ -1311,7 +1318,11 @@ function RunTroubleshooting({
         <div><span>结果</span><p>{resultText}</p></div>
       </section>
 
-      <TraceLinkMap detail={detail} />
+      <TraceLinkMap
+        detail={detail}
+        activeSpanId={activeSpanId}
+        onSelectSpan={scrollToTraceTarget}
+      />
 
       <ExecutionEventStream events={detail.executionEvents ?? []} />
 
@@ -1320,7 +1331,12 @@ function RunTroubleshooting({
         {detail.nodes.length === 0
           ? <p className="muted-copy">暂无节点明细。</p>
           : detail.nodes.map((node) => (
-            <article className="observability-node" key={node.id}>
+            <article
+              aria-label={`节点 Span ${node.spanId}`}
+              className={`observability-node ${activeSpanId === node.spanId ? 'selected-trace-target' : ''}`}
+              id={`trace-target-${node.spanId}`}
+              key={node.id}
+            >
               <div>
                 <strong>{node.nodeName}</strong>
                 <span>{node.nodeType} / 尝试 {node.attempts} 次 / {formatDuration(node.durationMs)}</span>
@@ -1365,7 +1381,15 @@ function RunTroubleshooting({
   )
 }
 
-function TraceLinkMap({ detail }: { detail: ObservabilityRunDetail }) {
+function TraceLinkMap({
+  detail,
+  activeSpanId,
+  onSelectSpan,
+}: {
+  detail: ObservabilityRunDetail
+  activeSpanId: string
+  onSelectSpan: (spanId: string) => void
+}) {
   const spans = buildTraceLinkMap(detail)
 
   return (
@@ -1373,7 +1397,11 @@ function TraceLinkMap({ detail }: { detail: ObservabilityRunDetail }) {
       <h4>Trace 链路索引</h4>
       <div className="trace-link-list">
         {spans.map((span) => (
-          <article className={`trace-link-card ${span.node ? '' : 'root'}`} key={span.spanId}>
+          <article
+            aria-label={span.node ? `Trace 卡片 Span ${span.spanId}` : 'Trace 卡片 root'}
+            className={`trace-link-card ${span.node ? '' : 'root'} ${activeSpanId === span.spanId ? 'active' : ''}`}
+            key={span.spanId}
+          >
             <div className="trace-link-card-main">
               {span.node ? (
                 <>
@@ -1395,6 +1423,14 @@ function TraceLinkMap({ detail }: { detail: ObservabilityRunDetail }) {
               <span>人工任务 {span.humanTasks.length}</span>
               <span>审计事件 {span.auditEvents.length}</span>
             </div>
+            <button
+              aria-label={span.node ? `定位 Span ${span.spanId}` : '定位 root 运行级事件'}
+              className="button ghost compact trace-link-jump"
+              type="button"
+              onClick={() => onSelectSpan(span.spanId)}
+            >
+              定位
+            </button>
           </article>
         ))}
       </div>
@@ -1404,7 +1440,11 @@ function TraceLinkMap({ detail }: { detail: ObservabilityRunDetail }) {
 
 function ExecutionEventStream({ events }: { events: ObservabilityExecutionEvent[] }) {
   return (
-    <section className="observability-section execution-event-stream" aria-label="执行事件流">
+    <section
+      className="observability-section execution-event-stream"
+      aria-label="执行事件流"
+      id="trace-target-root"
+    >
       <h4>执行事件流</h4>
       {events.length === 0
         ? <p className="muted-copy">暂无统一执行事件。</p>

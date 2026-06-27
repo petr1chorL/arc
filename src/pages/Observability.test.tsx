@@ -478,6 +478,7 @@ describe('Observability', () => {
     expect(screen.getByText('Trace 链路索引')).toBeInTheDocument()
     expect(screen.getByText('root 运行级事件')).toBeInTheDocument()
     expect(screen.getAllByText('Span span-agent').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByRole('button', { name: '定位 Span span-agent' })).toBeInTheDocument()
     expect(screen.getAllByText('事件 1').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('Span span-human').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('人工任务 1')).toBeInTheDocument()
@@ -496,6 +497,46 @@ describe('Observability', () => {
     expect(screen.getByText('human_task · human_task_created')).toBeInTheDocument()
     expect(screen.getByText('audit_event · human_task_created')).toBeInTheDocument()
     expect(screen.getAllByText('Trace trace-run-failed').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('uses the trace link map to locate and highlight a span detail', async () => {
+    const user = userEvent.setup()
+    const scrollIntoView = vi.fn()
+    const originalScrollIntoView = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scrollIntoView
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
+      if (path === '/api/workspaces/workspace-1/observability/overview') {
+        return new Response(JSON.stringify(overview), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/observability/human-sla') {
+        return new Response(JSON.stringify(humanSla), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/observability/cost-usage') {
+        return new Response(JSON.stringify(costUsage), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/execution-jobs') {
+        return new Response(JSON.stringify(executionJobs), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/observability/runs/run-failed') {
+        return new Response(JSON.stringify(detail), { status: 200 })
+      }
+      throw new Error(`Unexpected fetch: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    try {
+      renderPage()
+
+      await screen.findByText('Trace 链路索引')
+      await user.click(screen.getByRole('button', { name: '定位 Span span-agent' }))
+
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
+      expect(screen.getByLabelText('节点 Span span-agent')).toHaveClass('selected-trace-target')
+      expect(screen.getByLabelText('Trace 卡片 Span span-agent')).toHaveClass('active')
+    } finally {
+      Element.prototype.scrollIntoView = originalScrollIntoView
+    }
   })
 
   it('filters execution queue jobs by selected status', async () => {
