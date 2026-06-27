@@ -125,6 +125,7 @@ from app.schemas import (
     RubricWrite,
     RunCreate,
     RunRead,
+    ToolSkillAssetAuditEventRead,
     ToolSkillAssetCreate,
     ToolSkillAssetDraftAgentImpactRead,
     ToolSkillAssetImpactRead,
@@ -1703,6 +1704,92 @@ def create_app(
                 for version in published_versions
             ],
         )
+
+    @router.get("/asset-library/{asset_id}/audit-events", response_model=list[ToolSkillAssetAuditEventRead])
+    def get_tool_skill_asset_audit_events(
+        asset_id: str,
+        request: Request,
+        limit: int = Query(20, ge=1, le=100),
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> list[ToolSkillAssetAuditEventRead]:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "audit.read",
+            action="tool_skill_asset.audit_events",
+            target_type="tool_skill_asset",
+            target_id=asset_id,
+            request=request,
+        )
+        asset = find_tool_skill_asset(
+            session,
+            workspace_id=context.workspace.id,
+            asset_id=asset_id,
+        )
+        audit_records = list(session.scalars(
+            select(AuditEventRecord)
+            .where(
+                AuditEventRecord.workspace_id == context.workspace.id,
+                AuditEventRecord.target_type == "tool_skill_asset",
+                AuditEventRecord.target_id == asset.id,
+            )
+            .order_by(AuditEventRecord.created_at.desc(), AuditEventRecord.id.desc())
+            .limit(limit),
+        ))
+        invocation_records = list(session.scalars(
+            select(ToolSkillAssetInvocationRecord)
+            .where(
+                ToolSkillAssetInvocationRecord.workspace_id == context.workspace.id,
+                ToolSkillAssetInvocationRecord.asset_id == asset.id,
+            )
+            .order_by(ToolSkillAssetInvocationRecord.created_at.desc(), ToolSkillAssetInvocationRecord.id.desc())
+            .limit(limit),
+        ))
+        events = [
+            ToolSkillAssetAuditEventRead(
+                id=event.id,
+                event_type=event.action or event.event_type or "",
+                target_type=event.target_type or "",
+                target_id=event.target_id or "",
+                outcome=event.outcome or "",
+                reason=event.reason or str((event.event_metadata or {}).get("reason", "")),
+                actor_id=event.actor_user_id or event.actor_id,
+                created_at=event.created_at,
+                metadata=event.event_metadata or {},
+            )
+            for event in audit_records
+        ]
+        events.extend(
+            ToolSkillAssetAuditEventRead(
+                id=invocation.id,
+                event_type="tool_skill_asset.invocation",
+                target_type="tool_skill_asset_invocation",
+                target_id=invocation.id,
+                outcome=invocation.status,
+                reason=invocation.error,
+                actor_id=None,
+                created_at=invocation.created_at,
+                metadata={
+                    "assetId": invocation.asset_id,
+                    "assetType": invocation.asset_type,
+                    "assetName": invocation.asset_name,
+                    "agentId": invocation.agent_id,
+                    "agentVersion": invocation.agent_version,
+                    "runId": invocation.run_id,
+                    "nodeRunId": invocation.node_run_id,
+                    "inputSummary": invocation.input_summary,
+                    "outputSummary": invocation.output_summary,
+                    "durationMs": invocation.duration_ms,
+                },
+            )
+            for invocation in invocation_records
+        )
+        return sorted(
+            events,
+            key=lambda event: (event.created_at, event.id),
+            reverse=True,
+        )[:limit]
 
     @router.get("/model-providers", response_model=list[ModelProviderRead])
     def list_model_providers(

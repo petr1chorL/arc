@@ -1082,3 +1082,11 @@ V0.16E 将 V0.16D 的 `toolAssetRefs` 接入 Agent 运行时。`WorkflowExecutio
 因此，Tool 在 Agent 发布后改名，不会破坏已发布版本对该 HTTP Tool 的调用。Tool 调用日志仍记录当前资产 ID、当前资产名称、Agent ID、Agent version、Run ID 和 Node Run ID。Prompt 中展示的 Tool / Skill 名称优先使用发布快照中的引用名称，降低运行时上下文漂移。本版不新增前端 UI，也不实现 Agent 运行时自动 MCP Tool 调用。
 
 验收文档见 `docs/ACCEPTANCE_V0.16E.md`。
+
+## V0.17A Tool / Skill 资产审计流
+
+V0.17A 新增 `GET /api/workspaces/{workspaceId}/asset-library/{assetId}/audit-events`。接口使用 `audit.read` 权限控制，按资产 ID 聚合平台审计事件与 Tool 运行时调用记录。
+
+平台审计事件包括 `tool_skill_asset.create`、`tool_skill_asset.update`、`tool_skill_asset.deactivate`、`tool_skill_asset.test_invoke` 等资产生命周期操作。运行时调用记录会映射为 `tool_skill_asset.invocation`，metadata 包含 `assetId`、`assetName`、`agentId`、`agentVersion`、`runId`、`nodeRunId`、输入摘要、输出摘要与耗时。
+
+本版不新增前端审计面板，也不提供一键回滚。验收文档见 `docs/ACCEPTANCE_V0.17A.md`。

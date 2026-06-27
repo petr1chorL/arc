@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
@@ -11,6 +12,43 @@ from api_test_support import (
 )
 from app.models import UserRecord, WorkspaceMembershipRecord, WorkspaceRecord
 from app.security import SecurityService
+from app.tool_runtime import ToolRuntimeGatewayResult
+
+
+@dataclass
+class FakeModelResult:
+    content: str
+    model: str = "fake-model"
+    prompt_tokens: int = 12
+    completion_tokens: int = 8
+
+
+class FakeModelGateway:
+    def __init__(self, results: list[FakeModelResult | Exception]):
+        self.results = results
+        self.calls: list[dict] = []
+
+    def complete(self, **request):
+        self.calls.append(request)
+        result = self.results.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+
+@dataclass
+class FakeHttpToolGateway:
+    results: list[ToolRuntimeGatewayResult | Exception]
+
+    def __post_init__(self):
+        self.calls: list[dict] = []
+
+    def execute(self, *, config: dict, parameters: dict) -> ToolRuntimeGatewayResult:
+        self.calls.append({"config": config, "parameters": parameters})
+        result = self.results.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
 
 
 def create_asset(client: TestClient, workspace_id: str, name: str = "飞书搜索") -> dict:
@@ -24,6 +62,26 @@ def create_asset(client: TestClient, workspace_id: str, name: str = "飞书搜�
                 "type": "object",
                 "properties": {"query": {"type": "string"}},
                 "required": ["query"],
+            },
+        },
+        headers=csrf_headers(client),
+    )
+    assert response.status_code == 201
+    return response.json()
+
+
+def create_http_asset(client: TestClient, workspace_id: str, name: str = "价格查询") -> dict:
+    response = client.post(
+        workspace_url(workspace_id, "/asset-library"),
+        json={
+            "assetType": "tool",
+            "name": name,
+            "description": "Query price data",
+            "parameterSchema": {"type": "object"},
+            "adapterType": "http",
+            "adapterConfig": {
+                "method": "POST",
+                "url": "https://internal.example.test/price",
             },
         },
         headers=csrf_headers(client),
@@ -148,6 +206,47 @@ def test_viewer_cannot_create_tool_skill_asset(tmp_path):
         },
         headers=csrf_headers(client),
     )
+
+    assert response.status_code == 403
+
+
+def test_viewer_cannot_read_tool_skill_asset_audit_events(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'tool-skill-assets-audit-viewer.db'}",
+    )
+    asset = create_asset(client, workspace_id)
+    security = SecurityService()
+    now = datetime(2026, 6, 26, 9, 0, tzinfo=timezone.utc)
+    with client.app.state.session_factory() as session:
+        workspace = session.get(WorkspaceRecord, workspace_id)
+        assert workspace is not None
+        viewer = UserRecord(
+            organization_id=workspace.organization_id,
+            email="audit-viewer@example.com",
+            normalized_email="audit-viewer@example.com",
+            display_name="Audit Viewer",
+            password_hash=security.hash_password("Viewer Password 42!"),
+            status="active",
+            password_changed_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(viewer)
+        session.flush()
+        session.add(WorkspaceMembershipRecord(
+            workspace_id=workspace_id,
+            user_id=viewer.id,
+            role="viewer",
+            status="active",
+            activated_at=now,
+            created_at=now,
+            updated_at=now,
+        ))
+        session.commit()
+
+    client.cookies.clear()
+    login_client(client, email="audit-viewer@example.com", password="Viewer Password 42!")
+    response = client.get(workspace_url(workspace_id, f"/asset-library/{asset['id']}/audit-events"))
 
     assert response.status_code == 403
 
@@ -340,3 +439,76 @@ def test_tool_skill_asset_impact_survives_asset_rename_with_stable_refs(tmp_path
     assert impact.json()["draftAgents"][0]["agentId"] == agent["id"]
     assert impact.json()["publishedVersions"][0]["agentId"] == agent["id"]
     assert "apiKey" not in impact.text
+
+
+def test_tool_skill_asset_audit_events_include_lifecycle_and_runtime_invocations(tmp_path):
+    tool_gateway = FakeHttpToolGateway([
+        ToolRuntimeGatewayResult(output_summary="price=199", raw_output={"price": 199}),
+    ])
+    model_gateway = FakeModelGateway([
+        FakeModelResult("The answer uses the audited tool evidence and is long enough."),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'tool-skill-asset-audit-stream.db'}",
+        model_gateway=model_gateway,
+        tool_gateway=tool_gateway,
+    )
+    tool = create_http_asset(client, workspace_id)
+    update = client.patch(
+        workspace_url(workspace_id, f"/asset-library/{tool['id']}"),
+        json={
+            "name": "价格查询 V2",
+            "description": "Query audited price data",
+        },
+        headers=csrf_headers(client),
+    )
+    agent = client.post(
+        workspace_url(workspace_id, "/agents"),
+        json={
+            "name": "Tool Audit Agent",
+            "role": "Use audited tools.",
+            "owner": "Platform Team",
+            "model": "configured-model",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    client.patch(
+        workspace_url(workspace_id, f"/agents/{agent['id']}"),
+        json={"tools": ["价格查询 V2"]},
+        headers=csrf_headers(client),
+    )
+    version = client.post(
+        workspace_url(workspace_id, f"/agents/{agent['id']}/publish"),
+        headers=csrf_headers(client),
+    ).json()
+    run = client.post(
+        workspace_url(workspace_id, f"/agents/{agent['id']}/test-runs"),
+        json={"input": "Lookup SKU A001", "version": version["version"]},
+        headers=csrf_headers(client),
+    ).json()
+    deactivated = client.post(
+        workspace_url(workspace_id, f"/asset-library/{tool['id']}/deactivate"),
+        headers=csrf_headers(client),
+    )
+
+    response = client.get(
+        workspace_url(workspace_id, f"/asset-library/{tool['id']}/audit-events"),
+    )
+
+    assert update.status_code == 200
+    assert deactivated.status_code == 200
+    assert response.status_code == 200
+    events = response.json()
+    event_types = [event["eventType"] for event in events]
+    assert "tool_skill_asset.create" in event_types
+    assert "tool_skill_asset.update" in event_types
+    assert "tool_skill_asset.deactivate" in event_types
+    assert "tool_skill_asset.invocation" in event_types
+    invocation_event = next(event for event in events if event["eventType"] == "tool_skill_asset.invocation")
+    assert invocation_event["targetType"] == "tool_skill_asset_invocation"
+    assert invocation_event["outcome"] == "succeeded"
+    assert invocation_event["metadata"]["assetId"] == tool["id"]
+    assert invocation_event["metadata"]["agentId"] == agent["id"]
+    assert invocation_event["metadata"]["agentVersion"] == version["version"]
+    assert invocation_event["metadata"]["runId"] == run["id"]
+    assert "apiKey" not in response.text
