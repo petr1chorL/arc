@@ -161,4 +161,73 @@ describe('AssetLibrary page', () => {
       expect(calls.some((call) => call.url.endsWith(`/asset-library/invocations?assetId=${createdAsset.id}`))).toBe(true)
     })
   })
+
+  it('edits deactivates and shows Tool Skill impact', async () => {
+    const user = userEvent.setup()
+    const updatedAsset = {
+      ...asset,
+      name: '飞书搜索 V2',
+      description: 'Updated search contract',
+      parameterSchema: { type: 'object', required: ['keyword'] },
+      adapterConfig: { method: 'POST', url: 'https://internal.example.test/search' },
+    }
+    const disabledAsset = { ...updatedAsset, status: 'disabled' }
+    const impact = {
+      assetId: asset.id,
+      assetType: 'tool',
+      assetName: asset.name,
+      totals: { draftAgents: 1, publishedVersions: 1 },
+      draftAgents: [{ agentId: 'agent-1', agentName: '草稿工具 Agent', status: '调试中', version: 'draft' }],
+      publishedVersions: [{ agentId: 'agent-2', agentName: '版本工具 Agent', versionId: 'version-1', version: 'v1.0.0' }],
+    }
+    const calls: Array<{ url: string; init?: RequestInit }> = []
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
+      calls.push({ url, init })
+      if (url === `/api/workspaces/${workspace.id}/asset-library` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([asset]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/asset-library/invocations` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/asset-library/${asset.id}/impact`) {
+        return Promise.resolve(new Response(JSON.stringify(impact), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/asset-library/${asset.id}` && init?.method === 'PATCH') {
+        return Promise.resolve(new Response(JSON.stringify(updatedAsset), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/asset-library/${asset.id}/deactivate`) {
+        return Promise.resolve(new Response(JSON.stringify(disabledAsset), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify({ detail: 'not found' }), { status: 404 }))
+    }))
+
+    renderPage()
+
+    expect(await screen.findByText('草稿 Agent 1')).toBeInTheDocument()
+    expect(screen.getByText('已发布版本 1')).toBeInTheDocument()
+    expect(screen.getByText('草稿工具 Agent')).toBeInTheDocument()
+    expect(screen.getByText('版本工具 Agent v1.0.0')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '编辑 价格查询' }))
+    await user.clear(screen.getByLabelText('编辑资产名称'))
+    await user.type(screen.getByLabelText('编辑资产名称'), '飞书搜索 V2')
+    await user.clear(screen.getByLabelText('编辑描述'))
+    await user.type(screen.getByLabelText('编辑描述'), 'Updated search contract')
+    fireEvent.change(screen.getByLabelText('编辑参数 Schema JSON'), {
+      target: { value: JSON.stringify(updatedAsset.parameterSchema) },
+    })
+    fireEvent.change(screen.getByLabelText('编辑适配配置 JSON'), {
+      target: { value: JSON.stringify(updatedAsset.adapterConfig) },
+    })
+    await user.click(screen.getByRole('button', { name: '保存 价格查询' }))
+
+    expect(await screen.findByText('飞书搜索 V2')).toBeInTheDocument()
+    const updateCall = calls.find((call) => call.url === `/api/workspaces/${workspace.id}/asset-library/${asset.id}` && call.init?.method === 'PATCH')
+    expect(updateCall?.init?.body).not.toContain('apiKey')
+
+    await user.click(screen.getByRole('button', { name: '停用 飞书搜索 V2' }))
+    expect(await screen.findByText('tool · http · disabled')).toBeInTheDocument()
+    expect(screen.queryByText('apiKey')).not.toBeInTheDocument()
+  })
 })

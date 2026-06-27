@@ -1,6 +1,8 @@
 import type {
   ToolSkillAsset,
   ToolSkillAssetCreateInput,
+  ToolSkillAssetImpact,
+  ToolSkillAssetUpdateInput,
   ToolSkillInvocation,
   ToolSkillTestInvocationInput,
 } from '../types'
@@ -35,6 +37,34 @@ export async function testToolSkillAsset(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   }))
+}
+
+export async function updateToolSkillAsset(
+  workspaceId: string,
+  assetId: string,
+  input: ToolSkillAssetUpdateInput,
+): Promise<ToolSkillAsset> {
+  return readJson<ToolSkillAsset>(await apiFetch(workspacePath(workspaceId, `/${assetId}`), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  }))
+}
+
+export async function deactivateToolSkillAsset(
+  workspaceId: string,
+  assetId: string,
+): Promise<ToolSkillAsset> {
+  return readJson<ToolSkillAsset>(await apiFetch(workspacePath(workspaceId, `/${assetId}/deactivate`), {
+    method: 'POST',
+  }))
+}
+
+export async function getToolSkillAssetImpact(
+  workspaceId: string,
+  assetId: string,
+): Promise<ToolSkillAssetImpact> {
+  return readJson<ToolSkillAssetImpact>(await apiFetch(workspacePath(workspaceId, `/${assetId}/impact`)))
 }
 
 export async function listToolSkillInvocations(

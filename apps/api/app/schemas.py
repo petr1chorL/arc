@@ -281,6 +281,26 @@ class ToolSkillAssetCreate(BaseModel):
         return normalized
 
 
+class ToolSkillAssetUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=2000)
+    parameter_schema: dict | None = Field(default=None, alias="parameterSchema")
+    adapter_type: ToolSkillAdapterType | None = Field(default=None, alias="adapterType")
+    adapter_config: dict | None = Field(default=None, alias="adapterConfig")
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    @field_validator("name")
+    @classmethod
+    def reject_blank_update_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("资产名称不能为空")
+        return normalized
+
+
 class ToolSkillAssetRead(BaseModel):
     id: str
     asset_type: ToolSkillAssetType = Field(serialization_alias="assetType")
@@ -295,6 +315,42 @@ class ToolSkillAssetRead(BaseModel):
     updated_at: datetime = Field(serialization_alias="updatedAt")
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class ToolSkillAssetDraftAgentImpactRead(BaseModel):
+    agent_id: str = Field(serialization_alias="agentId")
+    agent_name: str = Field(serialization_alias="agentName")
+    status: str
+    version: str
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ToolSkillAssetVersionImpactRead(BaseModel):
+    agent_id: str = Field(serialization_alias="agentId")
+    agent_name: str = Field(serialization_alias="agentName")
+    version_id: str = Field(serialization_alias="versionId")
+    version: str
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ToolSkillAssetImpactTotalsRead(BaseModel):
+    draft_agents: int = Field(serialization_alias="draftAgents")
+    published_versions: int = Field(serialization_alias="publishedVersions")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ToolSkillAssetImpactRead(BaseModel):
+    asset_id: str = Field(serialization_alias="assetId")
+    asset_type: ToolSkillAssetType = Field(serialization_alias="assetType")
+    asset_name: str = Field(serialization_alias="assetName")
+    totals: ToolSkillAssetImpactTotalsRead
+    draft_agents: list[ToolSkillAssetDraftAgentImpactRead] = Field(serialization_alias="draftAgents")
+    published_versions: list[ToolSkillAssetVersionImpactRead] = Field(serialization_alias="publishedVersions")
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ToolSkillTestInvocationCreate(BaseModel):

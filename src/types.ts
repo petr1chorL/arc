@@ -137,6 +137,8 @@ export interface ToolSkillAssetCreateInput {
   adapterConfig: Record<string, unknown>
 }
 
+export type ToolSkillAssetUpdateInput = Partial<Omit<ToolSkillAssetCreateInput, 'assetType'>>
+
 export interface ToolSkillTestInvocationInput {
   parameters: Record<string, unknown>
 }
@@ -156,6 +158,32 @@ export interface ToolSkillInvocation {
   error: string
   durationMs: number
   createdAt: string
+}
+
+export interface ToolSkillAssetDraftAgentImpact {
+  agentId: string
+  agentName: string
+  status: string
+  version: string
+}
+
+export interface ToolSkillAssetVersionImpact {
+  agentId: string
+  agentName: string
+  versionId: string
+  version: string
+}
+
+export interface ToolSkillAssetImpact {
+  assetId: string
+  assetType: ToolSkillAssetType
+  assetName: string
+  totals: {
+    draftAgents: number
+    publishedVersions: number
+  }
+  draftAgents: ToolSkillAssetDraftAgentImpact[]
+  publishedVersions: ToolSkillAssetVersionImpact[]
 }
 
 export interface ModelProvider {

@@ -150,3 +150,140 @@ def test_viewer_cannot_create_tool_skill_asset(tmp_path):
     )
 
     assert response.status_code == 403
+
+
+def test_update_and_deactivate_tool_skill_asset_blocks_new_agent_binding(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'tool-skill-assets-lifecycle.db'}",
+    )
+    asset = create_asset(client, workspace_id)
+
+    update = client.patch(
+        workspace_url(workspace_id, f"/asset-library/{asset['id']}"),
+        json={
+            "name": "飞书搜索 V2",
+            "description": "Search Feishu documents with a safer contract",
+            "parameterSchema": {
+                "type": "object",
+                "properties": {"keyword": {"type": "string"}},
+                "required": ["keyword"],
+            },
+            "adapterType": "http",
+            "adapterConfig": {
+                "method": "POST",
+                "url": "https://internal.example.test/search",
+            },
+        },
+        headers=csrf_headers(client),
+    )
+    deactivated = client.post(
+        workspace_url(workspace_id, f"/asset-library/{asset['id']}/deactivate"),
+        headers=csrf_headers(client),
+    )
+    agent = client.post(
+        workspace_url(workspace_id, "/agents"),
+        json={
+            "name": "工具治理 Agent",
+            "role": "Use governed tools.",
+            "owner": "Platform Team",
+            "model": "configured-model",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    bind_disabled = client.patch(
+        workspace_url(workspace_id, f"/agents/{agent['id']}"),
+        json={"tools": ["飞书搜索 V2"]},
+        headers=csrf_headers(client),
+    )
+
+    assert update.status_code == 200
+    assert update.json()["name"] == "飞书搜索 V2"
+    assert update.json()["description"] == "Search Feishu documents with a safer contract"
+    assert update.json()["parameterSchema"]["required"] == ["keyword"]
+    assert update.json()["adapterType"] == "http"
+    assert update.json()["adapterConfig"]["method"] == "POST"
+    assert deactivated.status_code == 200
+    assert deactivated.json()["status"] == "disabled"
+    assert bind_disabled.status_code == 422
+    assert bind_disabled.json()["detail"] == "未授权或不可用的 Tool：飞书搜索 V2"
+    assert "apiKey" not in update.text
+    assert "apiKey" not in deactivated.text
+
+
+def test_tool_skill_asset_impact_lists_draft_agents_and_published_versions(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'tool-skill-assets-impact.db'}",
+    )
+    tool = create_asset(client, workspace_id, name="飞书搜索")
+    skill = client.post(
+        workspace_url(workspace_id, "/asset-library"),
+        json={
+            "assetType": "skill",
+            "name": "竞品分析",
+            "description": "Analyze competitors",
+            "parameterSchema": {"type": "object"},
+        },
+        headers=csrf_headers(client),
+    ).json()
+    draft_agent = client.post(
+        workspace_url(workspace_id, "/agents"),
+        json={
+            "name": "草稿工具 Agent",
+            "role": "Draft depends on the Tool.",
+            "owner": "Platform Team",
+            "model": "configured-model",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    client.patch(
+        workspace_url(workspace_id, f"/agents/{draft_agent['id']}"),
+        json={"tools": ["飞书搜索"]},
+        headers=csrf_headers(client),
+    )
+    versioned_agent = client.post(
+        workspace_url(workspace_id, "/agents"),
+        json={
+            "name": "版本工具 Agent",
+            "role": "Published with Tool and Skill snapshots.",
+            "owner": "Platform Team",
+            "model": "configured-model",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    client.patch(
+        workspace_url(workspace_id, f"/agents/{versioned_agent['id']}"),
+        json={"tools": ["飞书搜索"], "skills": ["竞品分析"]},
+        headers=csrf_headers(client),
+    )
+    published = client.post(
+        workspace_url(workspace_id, f"/agents/{versioned_agent['id']}/publish"),
+        headers=csrf_headers(client),
+    ).json()
+    client.post(
+        workspace_url(workspace_id, f"/asset-library/{tool['id']}/deactivate"),
+        headers=csrf_headers(client),
+    )
+
+    tool_impact = client.get(workspace_url(workspace_id, f"/asset-library/{tool['id']}/impact"))
+    skill_impact = client.get(workspace_url(workspace_id, f"/asset-library/{skill['id']}/impact"))
+
+    assert tool_impact.status_code == 200
+    impact = tool_impact.json()
+    assert impact["assetId"] == tool["id"]
+    assert impact["assetType"] == "tool"
+    assert impact["assetName"] == "飞书搜索"
+    assert impact["totals"] == {"draftAgents": 2, "publishedVersions": 1}
+    assert {item["agentName"] for item in impact["draftAgents"]} == {"草稿工具 Agent", "版本工具 Agent"}
+    assert impact["publishedVersions"] == [
+        {
+            "agentId": versioned_agent["id"],
+            "agentName": "版本工具 Agent",
+            "versionId": published["id"],
+            "version": published["version"],
+        },
+    ]
+    assert "飞书搜索" in published["snapshot"]["tools"]
+    assert skill_impact.status_code == 200
+    assert skill_impact.json()["assetType"] == "skill"
+    assert skill_impact.json()["totals"] == {"draftAgents": 1, "publishedVersions": 1}
+    assert "apiKey" not in tool_impact.text

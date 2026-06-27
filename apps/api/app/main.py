@@ -126,8 +126,13 @@ from app.schemas import (
     RunCreate,
     RunRead,
     ToolSkillAssetCreate,
+    ToolSkillAssetDraftAgentImpactRead,
+    ToolSkillAssetImpactRead,
+    ToolSkillAssetImpactTotalsRead,
     ToolSkillAssetInvocationRead,
     ToolSkillAssetRead,
+    ToolSkillAssetUpdate,
+    ToolSkillAssetVersionImpactRead,
     ToolSkillTestInvocationCreate,
     ValidationResult,
     VersionRead,
@@ -390,6 +395,22 @@ def create_app(
         if provider is None:
             raise HTTPException(status_code=404, detail="模型 Provider 不存在")
         return provider
+
+    def find_tool_skill_asset(
+        session: Session,
+        *,
+        workspace_id: str,
+        asset_id: str,
+    ) -> ToolSkillAssetRecord:
+        asset = session.scalar(
+            select(ToolSkillAssetRecord).where(
+                ToolSkillAssetRecord.id == asset_id,
+                ToolSkillAssetRecord.workspace_id == workspace_id,
+            ),
+        )
+        if asset is None:
+            raise HTTPException(status_code=404, detail="Tool / Skill 资产不存在")
+        return asset
 
     def agent_snapshot(record: AgentRecord) -> dict:
         return AgentRead.model_validate(record).model_dump(by_alias=True, mode="json")
@@ -1467,6 +1488,165 @@ def create_app(
         session.commit()
         session.refresh(record)
         return record
+
+    @router.patch("/asset-library/{asset_id}", response_model=ToolSkillAssetRead)
+    def update_tool_skill_asset(
+        asset_id: str,
+        payload: ToolSkillAssetUpdate,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> ToolSkillAssetRecord:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "agent.write",
+            action="tool_skill_asset.update",
+            target_type="tool_skill_asset",
+            target_id=asset_id,
+            request=request,
+        )
+        asset = find_tool_skill_asset(
+            session,
+            workspace_id=context.workspace.id,
+            asset_id=asset_id,
+        )
+        if payload.name is not None and payload.name != asset.name:
+            existing = session.scalar(
+                select(ToolSkillAssetRecord).where(
+                    ToolSkillAssetRecord.workspace_id == context.workspace.id,
+                    ToolSkillAssetRecord.asset_type == asset.asset_type,
+                    ToolSkillAssetRecord.name == payload.name,
+                    ToolSkillAssetRecord.id != asset.id,
+                ),
+            )
+            if existing is not None:
+                raise HTTPException(status_code=409, detail="资产名称已存在")
+            asset.name = payload.name
+        if payload.description is not None:
+            asset.description = payload.description
+        if payload.parameter_schema is not None:
+            asset.parameter_schema = payload.parameter_schema
+        if payload.adapter_type is not None:
+            asset.adapter_type = payload.adapter_type
+        if payload.adapter_config is not None:
+            asset.adapter_config = payload.adapter_config
+        asset.updated_at = utc_now()
+        record_success(
+            session,
+            context,
+            action="tool_skill_asset.update",
+            target_type="tool_skill_asset",
+            target_id=asset.id,
+            request=request,
+        )
+        session.commit()
+        session.refresh(asset)
+        return asset
+
+    @router.post("/asset-library/{asset_id}/deactivate", response_model=ToolSkillAssetRead)
+    def deactivate_tool_skill_asset(
+        asset_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> ToolSkillAssetRecord:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "asset.deactivate",
+            action="tool_skill_asset.deactivate",
+            target_type="tool_skill_asset",
+            target_id=asset_id,
+            request=request,
+        )
+        asset = find_tool_skill_asset(
+            session,
+            workspace_id=context.workspace.id,
+            asset_id=asset_id,
+        )
+        asset.status = "disabled"
+        asset.updated_at = utc_now()
+        record_success(
+            session,
+            context,
+            action="tool_skill_asset.deactivate",
+            target_type="tool_skill_asset",
+            target_id=asset.id,
+            request=request,
+        )
+        session.commit()
+        session.refresh(asset)
+        return asset
+
+    @router.get("/asset-library/{asset_id}/impact", response_model=ToolSkillAssetImpactRead)
+    def get_tool_skill_asset_impact(
+        asset_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> ToolSkillAssetImpactRead:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "asset.read",
+            action="tool_skill_asset.impact",
+            target_type="tool_skill_asset",
+            target_id=asset_id,
+            request=request,
+        )
+        asset = find_tool_skill_asset(
+            session,
+            workspace_id=context.workspace.id,
+            asset_id=asset_id,
+        )
+        field_name = "tools" if asset.asset_type == "tool" else "skills"
+        draft_agents = [
+            agent
+            for agent in session.scalars(
+                select(AgentRecord)
+                .where(AgentRecord.workspace_id == context.workspace.id)
+                .order_by(AgentRecord.updated_at.desc()),
+            )
+            if asset.name in (getattr(agent, field_name) or [])
+        ]
+        version_records = list(session.scalars(
+            select(AgentVersionRecord)
+            .where(AgentVersionRecord.workspace_id == context.workspace.id)
+            .order_by(AgentVersionRecord.created_at.desc()),
+        ))
+        published_versions = [
+            version
+            for version in version_records
+            if asset.name in (version.snapshot.get(field_name) or [])
+        ]
+        return ToolSkillAssetImpactRead(
+            asset_id=asset.id,
+            asset_type=asset.asset_type,
+            asset_name=asset.name,
+            totals=ToolSkillAssetImpactTotalsRead(
+                draft_agents=len(draft_agents),
+                published_versions=len(published_versions),
+            ),
+            draft_agents=[
+                ToolSkillAssetDraftAgentImpactRead(
+                    agent_id=agent.id,
+                    agent_name=agent.name,
+                    status=agent.status,
+                    version=agent.version,
+                )
+                for agent in draft_agents
+            ],
+            published_versions=[
+                ToolSkillAssetVersionImpactRead(
+                    agent_id=str(version.snapshot.get("id", version.agent_id)),
+                    agent_name=str(version.snapshot.get("name", "")),
+                    version_id=version.id,
+                    version=version.version,
+                )
+                for version in published_versions
+            ],
+        )
 
     @router.get("/model-providers", response_model=list[ModelProviderRead])
     def list_model_providers(
