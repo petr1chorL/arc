@@ -14,7 +14,7 @@ from app.database import create_database, session_scope
 from app.domain import next_version, validate_workflow
 from app.execution import ExecutionService, WorkflowResumeService
 from app.human_tasks import HumanTaskConflict, HumanTaskPermission, HumanTaskService, HumanTaskValidation
-from app.judge_gateway import DisabledJudgeGateway, JudgeGateway
+from app.judge_gateway import JudgeGateway, ModelJudgeGateway
 from app.migrations import ensure_current_schema
 from app.model_gateway import ModelGateway, OpenAICompatibleGateway
 from app.models import (
@@ -202,13 +202,14 @@ def create_app(
     authorization_service = AuthorizationService(audit_service)
     context_service = RequestContextService(authentication_service, settings, audit_service)
     human_task_service = HumanTaskService(human_task_clock)
-    resolved_judge_gateway = judge_gateway or DisabledJudgeGateway()
+    resolved_model_gateway = model_gateway or OpenAICompatibleGateway(settings)
+    resolved_judge_gateway = judge_gateway or ModelJudgeGateway(resolved_model_gateway)
     tool_runtime = ToolRuntimeExecutor(
         http_gateway=tool_gateway or HttpxToolGateway(settings),
         mcp_gateway=mcp_gateway,
     )
     execution_service = ExecutionService(
-        model_gateway or OpenAICompatibleGateway(settings),
+        resolved_model_gateway,
         settings,
         human_task_service,
         tool_runtime=tool_runtime,

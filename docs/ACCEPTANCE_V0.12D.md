@@ -11,12 +11,12 @@ V0.12D 第一切片把评估中心从“只有确定性评分器”推进到“R
 - Evaluation 记录新增 `evaluatorType`、`evaluatorModel` 和 `evaluatorInput`。
 - `judgeType=llm` 的 Rubric 在直接评估时调用可注入 `JudgeGateway`。
 - LLM Judge 结果会保存维度分、总分、状态、理由、模型和可复现输入快照。
+- 默认 `ModelJudgeGateway` 会通过现有 OpenAI-compatible `ModelGateway` 请求 Judge 模型，并解析 JSON 评分结果。
 - 旧 SQLite 表会自动补 Rubric 与 Evaluation 新字段。
 
 ## 没有完成的内容
 
-- 真实 LLM Judge Prompt 模板、JSON 解析和重试。
-- Judge Gateway 与现有 OpenAI-compatible ModelGateway 的正式接入。
+- 更严格的 Judge Prompt 版本管理、JSON schema 校验和解析失败重试。
 - LLM Judge 的批量校准、一致性评估和成本统计。
 - 前端 Rubric 配置弹窗中的 Judge 类型选择控件。
 
@@ -41,6 +41,15 @@ apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests/test_evaluations_api.
 - 覆盖评估中心 Rubric、直评、回归任务、修复任务和 LLM Judge 第一切片。
 
 ```powershell
+apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests/test_judge_gateway.py apps/api/tests/test_evaluations_api.py apps/api/tests/test_model_gateway.py -q
+```
+
+预期结果：
+
+- 16 项通过。
+- 覆盖 ModelJudgeGateway JSON 解析、评估中心和 OpenAI-compatible ModelGateway 回归。
+
+```powershell
 apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q
 npm test -- --run
 npm run lint
@@ -49,7 +58,7 @@ npm run build
 
 预期结果：
 
-- 后端全量 167 项通过。
+- 后端全量 168 项通过。
 - 前端 27 个测试文件、96 项测试通过。
 - Oxlint 通过。
 - TypeScript 编译与 Vite 生产构建通过。

@@ -20,7 +20,7 @@ Tool / Skill 已新增第一版 Workspace 级资产库后端：`tool_skill_asset
 
 HTTP Tool 适配当前采用可注入 `HttpToolGateway`。自动化测试可使用 Fake Gateway；默认运行时使用 `HttpxToolGateway`，只有 `TOOL_HTTP_ALLOWED_HOSTS` 配置了目标 host 时才允许 GET / POST 外联，超时由 `TOOL_HTTP_TIMEOUT_SECONDS` 控制。MCP Tool 当前支持可注入 `McpToolGateway` 的测试调用骨架，默认不连接真实 MCP Server。Agent 直接测试运行和工作流 Agent 节点执行时，会调用已绑定的 HTTP Tool 并写入带 Agent、Run 和 NodeRun 上下文的调用日志。运行观测详情会把 Tool 调用日志派生成 `tool_skill_invocation` 执行事件，并关联到对应 NodeRun Span。
 
-评估中心已引入第一版 LLM-as-a-Judge 后端合约：Rubric 可声明 `judgeType=deterministic` 或 `judgeType=llm`，并记录 `judgeModel`。Evaluation 记录保存 `evaluatorType`、`evaluatorModel` 和 `evaluatorInput`，用于复现评分输入。当前 LLM Judge 通过可注入 `JudgeGateway` 执行，自动化测试使用 Fake Gateway；默认不会主动调用模型。
+评估中心已引入第一版 LLM-as-a-Judge 后端合约：Rubric 可声明 `judgeType=deterministic` 或 `judgeType=llm`，并记录 `judgeModel`。Evaluation 记录保存 `evaluatorType`、`evaluatorModel` 和 `evaluatorInput`，用于复现评分输入。当前 LLM Judge 通过可注入 `JudgeGateway` 执行；默认 `ModelJudgeGateway` 使用现有 OpenAI-compatible `ModelGateway` 请求模型并解析 JSON 评分结果，自动化测试使用 Fake Gateway，不依赖外部网络。
 
 当前已使用 DeepSeek OpenAI-compatible API 完成真实成功调用验证：Base URL 为 `https://api.deepseek.com`，模型为 `deepseek-v4-pro`。真实 API Key 仅保存在被 Git 忽略的本地 `apps/api/.env` 中。模型单价环境变量尚未配置，因此运行中心的成本暂显示为 `$0.000000`，Token 统计不受影响。
 
@@ -389,6 +389,7 @@ React Flow 节点/连线
 - 保存 Evaluation 记录，包含 Rubric 快照、维度分、总分和 passed/failed 状态。
 - Evaluation 记录包含实际评分器类型、模型和可复现输入快照。
 - `judgeType=llm` 的 Rubric 直接评估会通过可注入 Judge Gateway 执行。
+- 默认 `ModelJudgeGateway` 会构造 Judge 输入快照、调用 OpenAI-compatible ModelGateway，并解析 JSON 评分结果。
 - 展示 Evaluation 历史记录列表，包含记录 ID、Rubric 快照名称、评估对象、版本、维度分、总分、状态和评分说明。
 - 支持按 `passed` / `failed` 状态筛选评估记录。
 - 支持按 Rubric 筛选评估记录；历史记录引用的 Rubric 即使不在当前 Rubric 列表中，也会以记录快照名称出现在筛选项里。
@@ -435,7 +436,7 @@ React Flow 节点/连线
 - 页面展示 `Evaluation Loop Board`，从失败原因组、Remediation Task、复测 Run 和未关闭风险派生闭环指标。
 - 闭环看板展示失败原因组数、修复任务数、未关闭风险数、已复测任务数、最近复测通过率和下一步建议。
 - V0.10J 看板为前端派生视图，不新增后端接口。
-- 当前确定性评分器仍为默认评分器；LLM Judge 已有可注入网关合约，但真实 Prompt、JSON 解析和 ModelGateway 接入尚未完成。
+- 当前确定性评分器仍为默认评分器；LLM Judge 已有可注入网关合约和 ModelGateway JSON 解析骨架。
 
 后端 API：
 
@@ -463,7 +464,7 @@ POST /api/workspaces/{workspace_id}/evaluations/remediation-tasks/{task_id}/rete
 
 未实现：
 
-- 真实 LLM Judge Prompt 模板、JSON 解析、重试和成本统计。
+- 更严格的 LLM Judge Prompt 版本管理、JSON schema 校验、解析失败重试和成本统计。
 - Golden Set 样本导入、导出、版本对比和停用。
 - 定时调度、后台队列、Run 取消、Run 重试和异步回归任务。
 - 评价一致性校准。
@@ -866,7 +867,9 @@ TypeScript 编译检查
 - V0.12C 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 166 项通过；`npm test -- --run` 27 个测试文件、96 项测试通过；`npm run lint` 通过；`npm run build` 通过。
 - V0.12D 完成 LLM Judge RED/GREEN 测试：首次因 `app.judge_gateway` 不存在失败，随后 `judgeType=llm` 的 Rubric 可通过 Fake Judge Gateway 生成 Evaluation，并记录 evaluator 类型、模型和输入快照。
 - V0.12D 完成评估中心回归验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests/test_evaluations_api.py -q`，14 项通过。
-- V0.12D 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 167 项通过；`npm test -- --run` 27 个测试文件、96 项测试通过；`npm run lint` 通过；`npm run build` 通过。
+- V0.12D 完成 ModelJudgeGateway RED/GREEN 测试：首次因 `ModelJudgeGateway` 不存在失败，随后可通过 Fake ModelGateway 解析 JSON 评分结果。
+- V0.12D 完成 Judge 网关相关回归验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests/test_judge_gateway.py apps/api/tests/test_evaluations_api.py apps/api/tests/test_model_gateway.py -q`，16 项通过。
+- V0.12D 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q` 168 项通过；`npm test -- --run` 27 个测试文件、96 项测试通过；`npm run lint` 通过；`npm run build` 通过。
 
 验证时没有发现浏览器控制台错误。
 
