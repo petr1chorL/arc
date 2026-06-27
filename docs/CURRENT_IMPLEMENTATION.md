@@ -1,6 +1,6 @@
 # ARC.ONE 当前版本实现说明
 
-> 对应版本：V0.11D 执行事件流
+> 对应版本：V0.12A Agent Runtime 抽象
 > 上一阶段：V0.8F 轻量告警 / 通知 Outbox
 > 更新时间：2026-06-27
 
@@ -13,6 +13,8 @@ Agent 资产页和工作流设计器已经接入 SQLAlchemy。Agent 支持草稿
 运行实例、节点运行、不可变产出物版本和正式 Human Task 已持久化。工作流在 Human 节点暂停，能够经过认领、会签、人工决策后继续、重跑或终止。人工修改会保存 Diff 并形成反馈候选，专家确认后可沉淀为 Golden Sample。
 
 运行中心与人工审核工作台已切换到真实 API。模型调用通过可注入的 OpenAI-compatible ModelGateway 完成；自动化测试使用 FakeGateway，不依赖外部网络。
+
+Agent 执行已引入第一版 Runtime 合约：`app.agent_runtime` 负责统一 Agent 输入、输出、脱敏错误、Token、成本、评分、尝试次数、耗时和工具调用占位。Agent 直接测试运行与工作流 Agent 节点都通过 `ExecutionService.execute_agent` 调用该 Runtime，再映射到 `NodeRunRecord`。
 
 当前已使用 DeepSeek OpenAI-compatible API 完成真实成功调用验证：Base URL 为 `https://api.deepseek.com`，模型为 `deepseek-v4-pro`。真实 API Key 仅保存在被 Git 忽略的本地 `apps/api/.env` 中。模型单价环境变量尚未配置，因此运行中心的成本暂显示为 `$0.000000`，Token 统计不受影响。
 
@@ -330,11 +332,14 @@ React Flow 节点/连线
 - 停用 Agent，并阻止继续编辑或发布。
 - 运行已发布 Agent 版本。
 - 展示运行状态、产出、Token、得分和耗时。
+- Agent Runtime 已统一直接测试运行和工作流 Agent 节点的执行协议。
+- Runtime Result 包含输出、错误、模型、Token、成本、评分、尝试次数、耗时和 `tool_calls` 占位。
 
 未实现：
 
 - 模型参数。
 - Tool/Skill 的独立资产库和权限契约。
+- Runtime 工具调用真实执行；当前 `tool_calls` 为空列表占位。
 - Agent 版本比较和回滚。
 - 聚合后的真实运行统计。
 
@@ -822,6 +827,9 @@ TypeScript 编译检查
 - V0.11D 完成全量验证：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q`、`npm test -- --run`、`npm run lint`、`npm run build` 均通过。
 - V0.11D 完成真实浏览器验收：运行观测详情可见“执行事件流”，包含 workflow/node/human/audit 事件、Trace 与 Span；本次新起点后 console warning/error 为 0。
 - V0.11D 浏览器验收截图：`.scratch/v0.11d-execution-event-stream.png`；验收结果：`.scratch/v0.11d-browser-result.json`。
+- V0.12A 完成 Runtime RED/GREEN 测试：`test_agent_runtime.py` 首次因 `app.agent_runtime` 不存在失败，随后 Runtime 成功与失败测试通过。
+- V0.12A focused 验证通过：Runtime 两条测试、Agent 直接测试运行和工作流 Agent 节点运行共 4 条通过。
+- V0.12A 后端全量验证通过：`apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -q`。
 
 验证时没有发现浏览器控制台错误。
 

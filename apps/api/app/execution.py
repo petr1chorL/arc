@@ -5,6 +5,7 @@ from time import perf_counter
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.agent_runtime import AgentRuntimeExecutor, AgentRuntimeRequest, quality_score
 from app.config import Settings
 from app.domain import topological_order
 from app.human_tasks import HumanTaskService
@@ -31,15 +32,6 @@ class ExecutionTotals:
     cost_usd: float = 0
 
 
-def quality_score(output: str) -> int:
-    length = len(output.strip())
-    if length == 0:
-        return 0
-    if length < 20:
-        return 50
-    return 100
-
-
 class ExecutionService:
     def __init__(
         self,
@@ -50,6 +42,10 @@ class ExecutionService:
         self.gateway = gateway
         self.settings = settings
         self.human_task_service = human_task_service
+        self.agent_runtime = AgentRuntimeExecutor(
+            gateway=gateway,
+            cost_calculator=self.calculate_cost,
+        )
 
     def calculate_cost(self, prompt_tokens: int, completion_tokens: int) -> float:
         return round(
@@ -99,35 +95,34 @@ class ExecutionService:
         )
         session.add(node_run)
         session.flush()
-        started = perf_counter()
-        for attempt in range(1, max_attempts + 1):
-            try:
-                result = self.gateway.complete(
-                    system_prompt=effective_prompt,
-                    user_input=input_text,
-                    model=snapshot.get("model", ""),
-                )
-                node_run.output_text = result.content
-                node_run.model = result.model
-                node_run.prompt_tokens = result.prompt_tokens
-                node_run.completion_tokens = result.completion_tokens
-                node_run.total_tokens = result.prompt_tokens + result.completion_tokens
-                node_run.cost_usd = self.calculate_cost(
-                    result.prompt_tokens,
-                    result.completion_tokens,
-                )
-                node_run.score = quality_score(result.content)
-                node_run.status = "已完成"
-                node_run.attempts = attempt
-                node_run.completed_at = utc_now()
-                node_run.duration_ms = int((perf_counter() - started) * 1000)
-                return node_run
-            except Exception:
-                node_run.attempts = attempt
-        node_run.status = "失败"
-        node_run.error = "Agent 执行失败，请稍后重试"
+        result = self.agent_runtime.execute(
+            AgentRuntimeRequest(
+                workspace_id=run.workspace_id,
+                run_id=run.id,
+                node_id=node_id,
+                node_name=node_name,
+                agent_id=agent_id,
+                agent_version=agent_version,
+                input_text=input_text,
+                system_prompt=effective_prompt,
+                model=snapshot.get("model", ""),
+                tools=snapshot.get("tools", []),
+                skills=snapshot.get("skills", []),
+            ),
+            max_attempts=max_attempts,
+        )
+        node_run.output_text = result.output_text
+        node_run.model = result.model
+        node_run.prompt_tokens = result.prompt_tokens
+        node_run.completion_tokens = result.completion_tokens
+        node_run.total_tokens = result.total_tokens
+        node_run.cost_usd = result.cost_usd
+        node_run.score = result.score
+        node_run.status = result.status
+        node_run.attempts = result.attempts
+        node_run.error = result.error
         node_run.completed_at = utc_now()
-        node_run.duration_ms = int((perf_counter() - started) * 1000)
+        node_run.duration_ms = result.duration_ms
         return node_run
 
     def run_agent_version(
