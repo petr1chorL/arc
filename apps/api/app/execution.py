@@ -86,8 +86,12 @@ class ExecutionService:
         snapshot = version.snapshot
         system_prompt = snapshot.get("systemPrompt", "").strip()
         role = snapshot.get("role", "")
-        tools = "、".join(snapshot.get("tools", [])) or "无"
-        skills = "、".join(snapshot.get("skills", [])) or "无"
+        tool_asset_refs = snapshot.get("toolAssetRefs", [])
+        skill_asset_refs = snapshot.get("skillAssetRefs", [])
+        tool_names = self._asset_ref_names(tool_asset_refs) or snapshot.get("tools", [])
+        skill_names = self._asset_ref_names(skill_asset_refs) or snapshot.get("skills", [])
+        tools = "、".join(tool_names) or "无"
+        skills = "、".join(skill_names) or "无"
         effective_prompt = (
             f"{system_prompt}\n\n职责：{role}\n可用工具：{tools}\n可用技能：{skills}"
         ).strip()
@@ -110,6 +114,7 @@ class ExecutionService:
             node_run=node_run,
             agent_id=agent_id,
             agent_version=agent_version,
+            tool_asset_refs=tool_asset_refs,
             tool_names=snapshot.get("tools", []),
             input_text=input_text,
         )
@@ -142,8 +147,8 @@ class ExecutionService:
                 model_secret_ref=model_secret_ref,
                 temperature=snapshot.get("temperature", 0.2),
                 max_output_tokens=snapshot.get("maxOutputTokens", 2000),
-                tools=snapshot.get("tools", []),
-                skills=snapshot.get("skills", []),
+                tools=tool_names,
+                skills=skill_names,
             ),
             max_attempts=max_attempts,
         )
@@ -169,20 +174,28 @@ class ExecutionService:
         node_run: NodeRunRecord,
         agent_id: str,
         agent_version: str,
+        tool_asset_refs: list[dict],
         tool_names: list[str],
         input_text: str,
     ) -> list[dict[str, str]]:
-        if not tool_names:
+        tool_asset_ids = [
+            str(ref["assetId"])
+            for ref in tool_asset_refs
+            if isinstance(ref, dict) and ref.get("assetId")
+        ]
+        if not tool_asset_ids and not tool_names:
             return []
-        assets = list(session.scalars(
-            select(ToolSkillAssetRecord).where(
-                ToolSkillAssetRecord.workspace_id == run.workspace_id,
-                ToolSkillAssetRecord.asset_type == "tool",
-                ToolSkillAssetRecord.status == "active",
-                ToolSkillAssetRecord.adapter_type == "http",
-                ToolSkillAssetRecord.name.in_(tool_names),
-            ),
-        ))
+        filters = [
+            ToolSkillAssetRecord.workspace_id == run.workspace_id,
+            ToolSkillAssetRecord.asset_type == "tool",
+            ToolSkillAssetRecord.status == "active",
+            ToolSkillAssetRecord.adapter_type == "http",
+        ]
+        if tool_asset_ids:
+            filters.append(ToolSkillAssetRecord.id.in_(tool_asset_ids))
+        else:
+            filters.append(ToolSkillAssetRecord.name.in_(tool_names))
+        assets = list(session.scalars(select(ToolSkillAssetRecord).where(*filters)))
         summaries: list[dict[str, str]] = []
         for asset in assets:
             runtime_result = self.tool_runtime.execute_http(
@@ -214,6 +227,14 @@ class ExecutionService:
                 "error": runtime_result.error,
             })
         return summaries
+
+    @staticmethod
+    def _asset_ref_names(asset_refs: list[dict]) -> list[str]:
+        return [
+            str(ref["assetName"])
+            for ref in asset_refs
+            if isinstance(ref, dict) and ref.get("assetName")
+        ]
 
     @staticmethod
     def _input_with_tool_summaries(

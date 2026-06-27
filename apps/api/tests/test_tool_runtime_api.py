@@ -2,9 +2,11 @@ from dataclasses import dataclass
 
 import pytest
 import httpx
+from sqlalchemy import select
 
 from api_test_support import create_authenticated_client, csrf_headers, workspace_url
 from app.config import Settings
+from app.models import AgentVersionRecord
 from app.tool_runtime import HttpxToolGateway, ToolRuntimeGatewayError, ToolRuntimeGatewayResult
 
 
@@ -267,6 +269,93 @@ def test_agent_test_run_writes_http_tool_invocation_with_run_context(tmp_path):
     assert logs[0]["nodeRunId"] == response.json()["nodes"][0]["id"]
     assert logs[0]["inputSummary"] == '{"input": "Lookup SKU A001"}'
     assert logs[0]["outputSummary"] == "price=199"
+    assert tool_gateway.calls == [{
+        "config": {"method": "POST", "url": "https://internal.example.test/price"},
+        "parameters": {"input": "Lookup SKU A001"},
+    }]
+
+
+def test_agent_test_run_invokes_http_tool_by_published_asset_ref_after_rename(tmp_path):
+    tool_gateway = FakeHttpToolGateway([
+        ToolRuntimeGatewayResult(output_summary="price=199", raw_output={"price": 199}),
+    ])
+    model_gateway = FakeModelGateway([
+        FakeModelResult("The answer uses the renamed tool evidence and is long enough."),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'agent-http-tool-runtime-stable-ref.db'}",
+        model_gateway=model_gateway,
+        tool_gateway=tool_gateway,
+    )
+    tool = create_http_tool(client, workspace_id, name="价格查询")
+    agent, version = create_agent_bound_to_tool(
+        client,
+        workspace_id,
+        tool_name=tool["name"],
+    )
+    rename = client.patch(
+        workspace_url(workspace_id, f"/asset-library/{tool['id']}"),
+        json={"name": "价格查询 V2"},
+        headers=csrf_headers(client),
+    )
+
+    response = client.post(
+        workspace_url(workspace_id, f"/agents/{agent['id']}/test-runs"),
+        json={"input": "Lookup SKU A001", "version": version["version"]},
+        headers=csrf_headers(client),
+    )
+    logs = client.get(
+        workspace_url(workspace_id, f"/asset-library/invocations?assetId={tool['id']}"),
+    ).json()
+
+    assert rename.status_code == 200
+    assert response.status_code == 201
+    assert tool_gateway.calls == [{
+        "config": {"method": "POST", "url": "https://internal.example.test/price"},
+        "parameters": {"input": "Lookup SKU A001"},
+    }]
+    assert "工具调用结果" in model_gateway.calls[0]["user_input"]
+    assert "price=199" in model_gateway.calls[0]["user_input"]
+    assert logs[0]["assetId"] == tool["id"]
+    assert logs[0]["assetName"] == "价格查询 V2"
+    assert logs[0]["agentVersion"] == version["version"]
+    assert "apiKey" not in response.text
+
+
+def test_agent_test_run_falls_back_to_legacy_tool_names_without_asset_refs(tmp_path):
+    tool_gateway = FakeHttpToolGateway([
+        ToolRuntimeGatewayResult(output_summary="price=199", raw_output={"price": 199}),
+    ])
+    model_gateway = FakeModelGateway([
+        FakeModelResult("The answer uses the legacy tool name and is long enough."),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'agent-http-tool-runtime-legacy-name.db'}",
+        model_gateway=model_gateway,
+        tool_gateway=tool_gateway,
+    )
+    tool = create_http_tool(client, workspace_id, name="价格查询")
+    agent, version = create_agent_bound_to_tool(
+        client,
+        workspace_id,
+        tool_name=tool["name"],
+    )
+    with client.app.state.session_factory() as session:
+        record = session.scalar(select(AgentVersionRecord).where(AgentVersionRecord.id == version["id"]))
+        assert record is not None
+        snapshot = dict(record.snapshot)
+        snapshot.pop("toolAssetRefs", None)
+        snapshot.pop("skillAssetRefs", None)
+        record.snapshot = snapshot
+        session.commit()
+
+    response = client.post(
+        workspace_url(workspace_id, f"/agents/{agent['id']}/test-runs"),
+        json={"input": "Lookup SKU A001", "version": version["version"]},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 201
     assert tool_gateway.calls == [{
         "config": {"method": "POST", "url": "https://internal.example.test/price"},
         "parameters": {"input": "Lookup SKU A001"},
