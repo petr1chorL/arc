@@ -63,6 +63,7 @@ export function Reviews() {
   const requestedTaskId = searchParams.get('taskId') ?? ''
   const requestedTaskStatus = searchParams.get('taskStatus') ?? '全部'
   const requestedSlaStatus = searchParams.get('slaStatus') ?? '全部'
+  const reviewSource = searchParams.get('source') ?? ''
   const [tasks, setTasks] = useState<HumanTask[]>([])
   const [detail, setDetail] = useState<HumanTaskDetail | null>(null)
   const [reviewers, setReviewers] = useState<Reviewer[]>([])
@@ -193,6 +194,14 @@ export function Reviews() {
   const canHandleCurrentTask = detail ? canCurrentReviewerHandleTask() : false
   const actionDisabled = isBusy || !canHandleCurrentTask
   const currentTaskPermission = detail ? getCurrentTaskPermission() : null
+  const reviewSourceLabel = reviewSource === 'sla'
+    ? '来自 SLA 风险入口'
+    : reviewSource === 'observability'
+    ? '来自运行观测入口'
+    : reviewSource
+    ? `来自 ${reviewSource}`
+    : '来自分享链接'
+  const hasUrlContext = Boolean(reviewSource || statusFilter !== '全部' || slaFilter !== '全部')
 
   function getReviewNextStep() {
     if (!hasReviewerQualification) {
@@ -503,6 +512,31 @@ export function Reviews() {
           <small>专家可沉淀为 Golden Sample</small>
         </div>
       </section>
+
+      {hasUrlContext && (
+        <section className="review-url-context" aria-label="当前审核上下文">
+          <div>
+            <span>当前审核上下文</span>
+            <strong>{reviewSourceLabel}</strong>
+            <p>该视图来自 URL 参数，可复制给协作者或刷新后继续恢复同一审核队列上下文。</p>
+          </div>
+          <div className="review-url-context-tags">
+            {selectedId && <strong>任务 {selectedId}</strong>}
+            <strong>状态 {statusFilter}</strong>
+            <strong>SLA {slaFilter}</strong>
+          </div>
+          <button
+            className="button ghost"
+            type="button"
+            onClick={() => {
+              setStatusFilter('全部')
+              setSlaFilter('全部')
+            }}
+          >
+            清空上下文筛选
+          </button>
+        </section>
+      )}
 
       <div className="review-workbench">
       <nav className="review-mobile-tabs" aria-label="审核工作台视图">

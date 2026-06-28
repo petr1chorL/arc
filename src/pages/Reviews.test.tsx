@@ -339,6 +339,33 @@ describe('Reviews', () => {
     expect(screen.getByText('当前筛选无任务')).toBeInTheDocument()
   })
 
+  it('explains URL-provided review context and clears context filters', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', vi.fn(baseFetch))
+
+    renderReviews(
+      'user-reviewer-1',
+      '/w/ai-capability-center/reviews?taskId=task-1&source=sla&taskStatus=待认领&slaStatus=即将到期',
+    )
+
+    const context = await screen.findByLabelText('当前审核上下文')
+    expect(within(context).getByText('来自 SLA 风险入口')).toBeInTheDocument()
+    expect(within(context).getByText('任务 task-1')).toBeInTheDocument()
+    expect(within(context).getByText('状态 待认领')).toBeInTheDocument()
+    expect(within(context).getByText('SLA 即将到期')).toBeInTheDocument()
+
+    await user.click(within(context).getByRole('button', { name: '清空上下文筛选' }))
+
+    await waitFor(() => {
+      expect(currentSearchParams().get('taskStatus')).toBeNull()
+      expect(currentSearchParams().get('slaStatus')).toBeNull()
+    })
+    expect(currentSearchParams().get('taskId')).toBe('task-1')
+    expect(currentSearchParams().get('source')).toBe('sla')
+    expect(screen.getByLabelText('任务状态筛选')).toHaveValue('全部')
+    expect(screen.getByLabelText('SLA 筛选')).toHaveValue('全部')
+  })
+
   it('normalizes legacy mojibake SLA statuses in the queue and detail pane', async () => {
     vi.stubGlobal('fetch', vi.fn(mojibakeSlaFetch))
 
