@@ -415,6 +415,75 @@ def test_workflow_run_final_artifact_version_records_output_data_object_contract
         assert artifact_version.data_object_snapshot["schema"]["required"] == ["summary"]
 
 
+def test_artifact_catalog_lists_versions_with_data_object_filter(tmp_path):
+    gateway = FakeGateway([
+        FakeModelResult('{"summary":"Catalog visible structured output."}'),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'artifact-catalog.db'}",
+        model_gateway=gateway,
+    )
+    agent, version = create_published_agent(client, workspace_id)
+    definition, data_object_version = create_published_data_object(client, workspace_id)
+    workflow = create_published_workflow(
+        client,
+        workspace_id,
+        agent,
+        version,
+        output_data_object_ref={
+            "definitionId": definition["id"],
+            "name": definition["name"],
+            "version": data_object_version["version"],
+            "status": "published",
+            "schemaSummary": "required: summary",
+        },
+    )
+    run = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Generate a cataloged artifact."},
+        headers=csrf_headers(client),
+    ).json()
+
+    response = client.get(
+        workspace_url(
+            workspace_id,
+            f"/artifacts?dataObjectDefinitionId={definition['id']}",
+        ),
+    )
+
+    assert response.status_code == 200
+    artifacts = response.json()
+    assert len(artifacts) == 1
+    assert artifacts[0]["runId"] == run["id"]
+    assert artifacts[0]["content"] == '{"summary":"Catalog visible structured output."}'
+    assert artifacts[0]["dataObjectDefinitionId"] == definition["id"]
+    assert artifacts[0]["dataObjectVersionId"] == data_object_version["id"]
+    assert artifacts[0]["dataObjectSnapshot"]["schema"]["required"] == ["summary"]
+
+    empty_response = client.get(
+        workspace_url(
+            workspace_id,
+            "/artifacts?dataObjectDefinitionId=missing-definition",
+        ),
+    )
+
+    assert empty_response.status_code == 200
+    assert empty_response.json() == []
+
+    other_workspace = client.post(
+        "/api/workspaces",
+        json={"name": "Artifact Empty Workspace", "slug": "artifact-empty-workspace"},
+        headers=csrf_headers(client),
+    )
+    assert other_workspace.status_code == 201
+    other_workspace_artifacts = client.get(
+        workspace_url(other_workspace.json()["id"], "/artifacts"),
+    )
+
+    assert other_workspace_artifacts.status_code == 200
+    assert other_workspace_artifacts.json() == []
+
+
 def test_workflow_run_rejects_input_missing_required_schema_field(tmp_path):
     gateway = FakeGateway([
         FakeModelResult("This should not be called for invalid schema input."),

@@ -22,6 +22,8 @@ from app.model_gateway import ModelGateway, OpenAICompatibleGateway
 from app.models import (
     AgentRecord,
     AgentVersionRecord,
+    ArtifactRecord,
+    ArtifactVersionRecord,
     AuditEventRecord,
     Base,
     DataObjectDefinitionRecord,
@@ -63,6 +65,7 @@ from app.schemas import (
     AgentCreate,
     AgentRead,
     AgentUpdate,
+    ArtifactCatalogItemRead,
     DataObjectDefinitionCreate,
     DataObjectDefinitionRead,
     DataObjectDefinitionUpdate,
@@ -3111,6 +3114,54 @@ def create_app(
             .order_by(WorkflowRunRecord.started_at.desc())
         )
         return [run_response(run, session) for run in session.scalars(statement)]
+
+    @router.get("/artifacts", response_model=list[ArtifactCatalogItemRead])
+    def list_artifacts(
+        request: Request,
+        data_object_definition_id: str | None = Query(default=None, alias="dataObjectDefinitionId"),
+        limit: int = Query(default=50, ge=1, le=200),
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> list[ArtifactCatalogItemRead]:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "run.read",
+            action="artifact.list",
+            target_type="workspace",
+            target_id=context.workspace.id,
+            request=request,
+        )
+        statement = (
+            select(ArtifactVersionRecord, ArtifactRecord)
+            .join(
+                ArtifactRecord,
+                ArtifactRecord.id == ArtifactVersionRecord.artifact_id,
+            )
+            .where(ArtifactVersionRecord.workspace_id == context.workspace.id)
+            .order_by(ArtifactVersionRecord.created_at.desc(), ArtifactVersionRecord.id.desc())
+            .limit(limit)
+        )
+        if data_object_definition_id:
+            statement = statement.where(
+                ArtifactVersionRecord.data_object_definition_id == data_object_definition_id,
+            )
+        return [
+            ArtifactCatalogItemRead(
+                artifact_id=artifact.id,
+                artifact_version_id=version.id,
+                version=version.version,
+                run_id=artifact.run_id,
+                source_node_run_id=artifact.source_node_run_id,
+                content=version.content,
+                score=artifact.score,
+                data_object_definition_id=version.data_object_definition_id,
+                data_object_version_id=version.data_object_version_id,
+                data_object_snapshot=version.data_object_snapshot,
+                created_at=version.created_at,
+            )
+            for version, artifact in session.execute(statement).all()
+        ]
 
     @router.post(
         "/runs/batch-rerun",

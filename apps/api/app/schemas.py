@@ -1246,6 +1246,22 @@ class ArtifactVersionSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
+class ArtifactCatalogItemRead(BaseModel):
+    artifact_id: str = Field(serialization_alias="artifactId")
+    artifact_version_id: str = Field(serialization_alias="artifactVersionId")
+    version: int
+    run_id: str = Field(serialization_alias="runId")
+    source_node_run_id: str = Field(serialization_alias="sourceNodeRunId")
+    content: str
+    score: int | None
+    data_object_definition_id: str | None = Field(default=None, serialization_alias="dataObjectDefinitionId")
+    data_object_version_id: str | None = Field(default=None, serialization_alias="dataObjectVersionId")
+    data_object_snapshot: dict | None = Field(default=None, serialization_alias="dataObjectSnapshot")
+    created_at: datetime = Field(serialization_alias="createdAt")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class HumanTaskRunSummary(BaseModel):
     id: str
     name: str
