@@ -634,6 +634,103 @@ describe('Workflows', () => {
     expect(body.edges).toEqual([])
   })
 
+  it('explains connected edge impact and requires confirmation before deleting a node', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const connectedWorkflow = {
+      ...workflow,
+      nodes: [
+        {
+          id: 'start',
+          type: 'trigger',
+          position: { x: 0, y: 0 },
+          data: { label: '手动触发', subtitle: '启动工作流' },
+        },
+        {
+          id: 'agent',
+          type: 'agent',
+          position: { x: 300, y: 0 },
+          data: { label: '选择执行 Agent', subtitle: '尚未绑定发布版本' },
+        },
+        {
+          id: 'end',
+          type: 'end',
+          position: { x: 600, y: 0 },
+          data: { label: '流程完成', subtitle: '结束节点' },
+        },
+      ],
+      edges: [
+        { id: 'start-agent', source: 'start', target: 'agent' },
+        { id: 'agent-end', source: 'agent', target: 'end' },
+      ],
+    }
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === `/api/workspaces/${workspace.id}/workflows` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([connectedWorkflow]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/agents` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (
+        url === `/api/workspaces/${workspace.id}/reviewers`
+        || url === `/api/workspaces/${workspace.id}/review-groups`
+      ) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/workflows/workflow-1` && init?.method === 'PATCH') {
+        return Promise.resolve(new Response(JSON.stringify(connectedWorkflow), { status: 200 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWorkflows()
+
+    await user.click(await screen.findByTestId('flow-node-agent'))
+
+    expect(screen.getByText('删除影响')).toBeInTheDocument()
+    expect(screen.getByText('入边 1')).toBeInTheDocument()
+    expect(screen.getByText('出边 1')).toBeInTheDocument()
+    expect(screen.getByText('共影响 2 条连线')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '删除节点' }))
+
+    expect(screen.getByText('确认删除该节点？')).toBeInTheDocument()
+    expect(screen.getByText('将同时移除 2 条关联连线。')).toBeInTheDocument()
+    expect(screen.getByTestId('flow-node-agent')).toBeInTheDocument()
+    expect(screen.getByTestId('edge-count')).toHaveTextContent('2')
+
+    await user.click(screen.getByRole('button', { name: '取消删除' }))
+
+    expect(screen.queryByText('确认删除该节点？')).not.toBeInTheDocument()
+    expect(screen.getByTestId('flow-node-agent')).toBeInTheDocument()
+    expect(screen.getByTestId('edge-count')).toHaveTextContent('2')
+
+    await user.click(screen.getByRole('button', { name: '删除节点' }))
+    await user.click(screen.getByRole('button', { name: '确认删除节点' }))
+
+    expect(screen.queryByTestId('flow-node-agent')).not.toBeInTheDocument()
+    expect(screen.getByTestId('flow-node-start')).toBeInTheDocument()
+    expect(screen.getByTestId('flow-node-end')).toBeInTheDocument()
+    expect(screen.getByTestId('edge-count')).toHaveTextContent('0')
+
+    await user.click(screen.getByRole('button', { name: '保存草稿' }))
+
+    const patchCall = fetchMock.mock.calls.find(([url, init]) => (
+      url === `/api/workspaces/${workspace.id}/workflows/workflow-1` && init?.method === 'PATCH'
+    ))
+    const body = JSON.parse(patchCall?.[1]?.body as string)
+    expect(body.nodes.map((node: { id: string }) => node.id)).toEqual(['start', 'end'])
+    expect(body.edges).toEqual([])
+  })
+
   it('restores the default connected graph when starting a new workflow', async () => {
     const user = userEvent.setup()
     vi.stubGlobal('ResizeObserver', class {

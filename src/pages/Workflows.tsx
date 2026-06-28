@@ -132,6 +132,12 @@ interface PublishedAgentOption {
   version: AgentVersion
 }
 
+interface NodeEdgeImpact {
+  incoming: number
+  outgoing: number
+  total: number
+}
+
 export function Workflows() {
   const { workspace, workspacePath } = useWorkspace()
   const reactFlowRef = useRef<ReactFlowInstance | null>(null)
@@ -208,6 +214,16 @@ export function Workflows() {
   const statusText = currentWorkflow
     ? `${currentWorkflow.status} · ${currentWorkflow.version}`
     : '新草稿 · 未保存'
+  const selectedNodeEdgeImpact = useMemo<NodeEdgeImpact>(() => {
+    if (!selectedNode) return { incoming: 0, outgoing: 0, total: 0 }
+    const incoming = edges.filter((edge) => edge.target === selectedNode.id).length
+    const outgoing = edges.filter((edge) => edge.source === selectedNode.id).length
+    return {
+      incoming,
+      outgoing,
+      total: incoming + outgoing,
+    }
+  }, [edges, selectedNode])
 
   const saveDraft = useCallback(async () => {
     setIsBusy(true)
@@ -521,6 +537,7 @@ export function Workflows() {
             agentOptions={agentOptions}
             reviewers={reviewers}
             reviewGroups={reviewGroups}
+            edgeImpact={selectedNodeEdgeImpact}
             onClose={() => setSelectedNode(null)}
             onUpdate={updateSelectedNode}
             onDuplicate={duplicateSelectedNode}
@@ -605,6 +622,7 @@ function NodeInspector({
   agentOptions,
   reviewers,
   reviewGroups,
+  edgeImpact,
   onClose,
   onUpdate,
   onDuplicate,
@@ -614,11 +632,13 @@ function NodeInspector({
   agentOptions: PublishedAgentOption[]
   reviewers: Reviewer[]
   reviewGroups: ReviewGroup[]
+  edgeImpact: NodeEdgeImpact
   onClose: () => void
   onUpdate: (data: Record<string, unknown>) => void
   onDuplicate: () => void
   onDelete: () => void
 }) {
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false)
   const data = node.data as WorkflowNodeData & {
     agentId?: string
     agentVersion?: string
@@ -635,6 +655,10 @@ function NodeInspector({
   const isAgent = data.kind === 'agent'
   const isHuman = data.kind === 'human'
   const optionsByAgent = useMemo(() => agentOptions, [agentOptions])
+
+  useEffect(() => {
+    setIsConfirmingDelete(false)
+  }, [node.id])
 
   return (
     <aside className="node-inspector">
@@ -823,8 +847,24 @@ function NodeInspector({
         <div><span>持久化状态</span><strong>随草稿保存</strong></div>
         <div><span>发布约束</span><strong>{isAgent ? '必须引用版本' : isHuman ? '必须配置审核规则' : 'DAG 校验'}</strong></div>
       </div>
+      <div className="inspector-section" aria-label="删除影响">
+        <div><span>删除影响</span><strong>共影响 {edgeImpact.total} 条连线</strong></div>
+        <div><span>入边 {edgeImpact.incoming}</span><strong>上游输入</strong></div>
+        <div><span>出边 {edgeImpact.outgoing}</span><strong>下游输出</strong></div>
+      </div>
       <button className="button secondary full" onClick={onDuplicate}><Copy size={14} />复制节点</button>
-      <button className="button danger full" onClick={onDelete}><Trash2 size={14} />删除节点</button>
+      {isConfirmingDelete ? (
+        <div className="inspector-delete-confirm">
+          <strong>确认删除该节点？</strong>
+          <p>{edgeImpact.total > 0 ? `将同时移除 ${edgeImpact.total} 条关联连线。` : '该节点没有关联连线。'}</p>
+          <div className="inspector-confirm-actions">
+            <button className="button ghost full" onClick={() => setIsConfirmingDelete(false)}>取消删除</button>
+            <button className="button danger full" onClick={onDelete}><Trash2 size={14} />确认删除节点</button>
+          </div>
+        </div>
+      ) : (
+        <button className="button danger full" onClick={() => setIsConfirmingDelete(true)}><Trash2 size={14} />删除节点</button>
+      )}
     </aside>
   )
 }
