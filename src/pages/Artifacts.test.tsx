@@ -27,6 +27,18 @@ const artifact = {
   createdAt: '2026-06-28T09:00:00Z',
 }
 
+const invalidArtifact = {
+  ...artifact,
+  artifactId: 'artifact-2',
+  artifactVersionId: 'artifact-version-2',
+  version: 2,
+  runId: 'run-2',
+  sourceNodeRunId: 'node-run-2',
+  content: '{"title":"Missing required summary."}',
+  score: 61,
+  createdAt: '2026-06-28T10:00:00Z',
+}
+
 function renderPage() {
   return render(
     <WorkspaceProvider workspace={workspace}>
@@ -97,5 +109,28 @@ describe('Artifacts page', () => {
 
     await user.click(screen.getByRole('button', { name: '关闭 Artifact 详情' }))
     expect(screen.queryByRole('dialog', { name: 'Artifact 详情' })).not.toBeInTheDocument()
+  })
+
+  it('shows schema validation status and failure reasons', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
+      if (url === `/api/workspaces/${workspace.id}/artifacts`) {
+        return Promise.resolve(new Response(JSON.stringify([artifact, invalidArtifact]), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+    }))
+
+    renderPage()
+
+    expect(await screen.findByText('artifact-version-1 · v1')).toBeInTheDocument()
+    expect(screen.getAllByText('Schema 校验通过').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('Schema 校验失败').length).toBeGreaterThanOrEqual(1)
+
+    await user.click(screen.getByRole('button', { name: '查看 artifact-version-2 详情' }))
+
+    const dialog = await screen.findByRole('dialog', { name: 'Artifact 详情' })
+    expect(dialog).toHaveTextContent('Schema 校验失败')
+    expect(dialog).toHaveTextContent('缺少必填字段：summary')
   })
 })

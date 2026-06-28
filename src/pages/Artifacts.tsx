@@ -4,9 +4,21 @@ import { listArtifacts } from '../api/artifacts'
 import { useWorkspace } from '../auth/workspaceContextState'
 import type { ArtifactCatalogItem } from '../types'
 
+type SchemaValidationStatus = 'passed' | 'failed' | 'unchecked'
+
+interface SchemaValidationResult {
+  status: SchemaValidationStatus
+  label: string
+  reasons: string[]
+}
+
 function formatDate(value: string) {
   if (!value) return '未知时间'
   return value.slice(0, 16).replace('T', ' ')
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function schemaSummary(snapshot: Record<string, unknown> | null) {
@@ -44,6 +56,57 @@ function formatSnapshot(snapshot: Record<string, unknown> | null) {
   return JSON.stringify(snapshot, null, 2)
 }
 
+function matchesSchemaType(value: unknown, schemaType: string) {
+  if (schemaType === 'string') return typeof value === 'string'
+  if (schemaType === 'number') return typeof value === 'number' && Number.isFinite(value)
+  if (schemaType === 'integer') return Number.isInteger(value)
+  if (schemaType === 'boolean') return typeof value === 'boolean'
+  if (schemaType === 'object') return isRecord(value)
+  return true
+}
+
+function validateArtifactSchema(artifact: ArtifactCatalogItem): SchemaValidationResult {
+  const schema = artifact.dataObjectSnapshot?.schema
+  if (!isRecord(schema) || schema.type !== 'object') {
+    return { status: 'unchecked', label: '未校验', reasons: ['未绑定可校验的对象 Schema'] }
+  }
+
+  let content: unknown
+  try {
+    content = JSON.parse(artifact.content)
+  } catch {
+    return { status: 'failed', label: 'Schema 校验失败', reasons: ['内容不是合法 JSON 对象'] }
+  }
+
+  if (!isRecord(content)) {
+    return { status: 'failed', label: 'Schema 校验失败', reasons: ['内容不是合法 JSON 对象'] }
+  }
+
+  const reasons: string[] = []
+  const required = Array.isArray(schema.required)
+    ? schema.required.filter((item): item is string => typeof item === 'string')
+    : []
+  for (const field of required) {
+    if (!Object.prototype.hasOwnProperty.call(content, field)) {
+      reasons.push(`缺少必填字段：${field}`)
+    }
+  }
+
+  const properties = isRecord(schema.properties) ? schema.properties : {}
+  for (const [field, definition] of Object.entries(properties)) {
+    if (!Object.prototype.hasOwnProperty.call(content, field) || !isRecord(definition)) continue
+    const schemaType = definition.type
+    if (typeof schemaType === 'string' && !matchesSchemaType(content[field], schemaType)) {
+      reasons.push(`字段 ${field} 类型应为 ${schemaType}`)
+    }
+  }
+
+  if (reasons.length > 0) {
+    return { status: 'failed', label: 'Schema 校验失败', reasons }
+  }
+  return { status: 'passed', label: 'Schema 校验通过', reasons: [] }
+}
+
 export function Artifacts() {
   const { workspace } = useWorkspace()
   const [artifacts, setArtifacts] = useState<ArtifactCatalogItem[]>([])
@@ -52,6 +115,7 @@ export function Artifacts() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
   const [selectedArtifact, setSelectedArtifact] = useState<ArtifactCatalogItem | null>(null)
+  const selectedValidation = selectedArtifact ? validateArtifactSchema(selectedArtifact) : null
 
   useEffect(() => {
     setIsLoading(true)
@@ -146,39 +210,43 @@ export function Artifacts() {
         {!isLoading && artifacts.length === 0 && <div className="table-state">暂无 Artifact 实例。</div>}
         {!isLoading && artifacts.length > 0 && (
           <div className="artifact-catalog-list">
-            {artifacts.map((artifact) => (
-              <article className="asset-library-card artifact-card" key={artifact.artifactVersionId}>
-                <div className="asset-library-card-head">
-                  <Database size={17} />
-                  <div>
-                    <strong>{snapshotName(artifact.dataObjectSnapshot)}</strong>
-                    <span>{artifact.artifactVersionId} · v{artifact.version}</span>
+            {artifacts.map((artifact) => {
+              const validation = validateArtifactSchema(artifact)
+              return (
+                <article className="asset-library-card artifact-card" key={artifact.artifactVersionId}>
+                  <div className="asset-library-card-head">
+                    <Database size={17} />
+                    <div>
+                      <strong>{snapshotName(artifact.dataObjectSnapshot)}</strong>
+                      <span>{artifact.artifactVersionId} · v{artifact.version}</span>
+                    </div>
+                    <span className="score-pill">{artifact.score ?? '-'}</span>
                   </div>
-                  <span className="score-pill">{artifact.score ?? '-'}</span>
-                </div>
-                <div className="artifact-contract-row">
-                  <span>{artifact.dataObjectDefinitionId ?? '未绑定 Definition'}</span>
-                  <span>{artifact.dataObjectVersionId ?? '未绑定 Version'}</span>
-                  <span>{schemaSummary(artifact.dataObjectSnapshot)}</span>
-                </div>
-                <div className="artifact-source-row">
-                  <span>Run</span><strong>{artifact.runId}</strong>
-                  <span>NodeRun</span><strong>{artifact.sourceNodeRunId}</strong>
-                  <span>{formatDate(artifact.createdAt)}</span>
-                </div>
-                <pre className="artifact-content-preview">{artifact.content}</pre>
-                <div className="artifact-card-actions">
-                  <button
-                    aria-label={`查看 ${artifact.artifactVersionId} 详情`}
-                    className="button ghost"
-                    type="button"
-                    onClick={() => setSelectedArtifact(artifact)}
-                  >
-                    <Eye size={15} />查看详情
-                  </button>
-                </div>
-              </article>
-            ))}
+                  <div className="artifact-contract-row">
+                    <span>{artifact.dataObjectDefinitionId ?? '未绑定 Definition'}</span>
+                    <span>{artifact.dataObjectVersionId ?? '未绑定 Version'}</span>
+                    <span>{schemaSummary(artifact.dataObjectSnapshot)}</span>
+                    <span className={`schema-status-pill ${validation.status}`}>{validation.label}</span>
+                  </div>
+                  <div className="artifact-source-row">
+                    <span>Run</span><strong>{artifact.runId}</strong>
+                    <span>NodeRun</span><strong>{artifact.sourceNodeRunId}</strong>
+                    <span>{formatDate(artifact.createdAt)}</span>
+                  </div>
+                  <pre className="artifact-content-preview">{artifact.content}</pre>
+                  <div className="artifact-card-actions">
+                    <button
+                      aria-label={`查看 ${artifact.artifactVersionId} 详情`}
+                      className="button ghost"
+                      type="button"
+                      onClick={() => setSelectedArtifact(artifact)}
+                    >
+                      <Eye size={15} />查看详情
+                    </button>
+                  </div>
+                </article>
+              )
+            })}
           </div>
         )}
       </section>
@@ -212,7 +280,18 @@ export function Artifacts() {
               <span>NodeRun</span><strong>{selectedArtifact.sourceNodeRunId}</strong>
               <span>Data Object Version</span><strong>{selectedArtifact.dataObjectVersionId ?? '未绑定'}</strong>
               <span>Score</span><strong>{selectedArtifact.score ?? '-'}</strong>
+              <span>Schema 状态</span><strong>{selectedValidation?.label}</strong>
             </div>
+            {selectedValidation && selectedValidation.reasons.length > 0 && (
+              <section className={`artifact-validation-box ${selectedValidation.status}`}>
+                <h4>校验原因</h4>
+                <ul>
+                  {selectedValidation.reasons.map((reason) => (
+                    <li key={reason}>{reason}</li>
+                  ))}
+                </ul>
+              </section>
+            )}
             <div className="artifact-detail-grid">
               <section>
                 <h4>格式化内容</h4>

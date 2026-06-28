@@ -4191,6 +4191,22 @@ kbd {
   box-shadow: var(--shadow-inset);
 }
 
+.schema-status-pill {
+  font-weight: 700;
+}
+
+.schema-status-pill.passed {
+  color: #34776a;
+}
+
+.schema-status-pill.failed {
+  color: #b96551;
+}
+
+.schema-status-pill.unchecked {
+  color: var(--muted);
+}
+
 .artifact-content-preview {
   margin: 0;
   padding: 14px;
@@ -4263,6 +4279,31 @@ kbd {
   color: var(--ink);
   font: 12px var(--mono);
   overflow-wrap: anywhere;
+}
+
+.artifact-validation-box {
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.46);
+  box-shadow: var(--shadow-inset);
+}
+
+.artifact-validation-box h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+.artifact-validation-box ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.artifact-validation-box.failed {
+  color: #b96551;
 }
 
 .artifact-detail-grid {
