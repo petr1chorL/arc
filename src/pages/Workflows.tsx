@@ -160,6 +160,22 @@ function cloneCanvasSnapshot(nodes: Node[], edges: Edge[]): CanvasSnapshot {
   }
 }
 
+function isEditableTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false
+  const tagName = target.tagName.toLowerCase()
+  return target.isContentEditable || ['input', 'textarea', 'select'].includes(tagName)
+}
+
+function getNodeEdgeImpact(nodeId: string, edges: Edge[]): NodeEdgeImpact {
+  const incoming = edges.filter((edge) => edge.target === nodeId).length
+  const outgoing = edges.filter((edge) => edge.source === nodeId).length
+  return {
+    incoming,
+    outgoing,
+    total: incoming + outgoing,
+  }
+}
+
 function createDraftSignature(name: string, nodes: Node[], edges: Edge[]) {
   return JSON.stringify({
     name: name.trim() || '未命名工作流',
@@ -190,6 +206,7 @@ export function Workflows() {
   const [isBusy, setIsBusy] = useState(false)
   const [savedDraftSignature, setSavedDraftSignature] = useState('')
   const [pendingNavigation, setPendingNavigation] = useState<PendingWorkflowNavigation | null>(null)
+  const [keyboardDeleteNode, setKeyboardDeleteNode] = useState<Node | null>(null)
   const [undoStack, setUndoStack] = useState<CanvasSnapshot[]>([])
   const [redoStack, setRedoStack] = useState<CanvasSnapshot[]>([])
   const renderedNodes = useMemo(() => sanitizeWorkflowNodes(nodes), [nodes])
@@ -211,10 +228,11 @@ export function Workflows() {
     setEdges(nextEdges)
     setSelectedNode(null)
     setSelectedEdge(null)
+    setKeyboardDeleteNode(null)
     if (nextFeedback) setFeedback(nextFeedback)
   }, [edges, nodes, setEdges, setNodes])
 
-  function undoCanvasChange() {
+  const undoCanvasChange = useCallback(() => {
     const previous = undoStack.at(-1)
     if (!previous) return
     setUndoStack((current) => current.slice(0, -1))
@@ -223,10 +241,11 @@ export function Workflows() {
     setEdges(previous.edges)
     setSelectedNode(null)
     setSelectedEdge(null)
+    setKeyboardDeleteNode(null)
     setFeedback('已撤销上一步画布编辑')
-  }
+  }, [edges, nodes, setEdges, setNodes, undoStack])
 
-  function redoCanvasChange() {
+  const redoCanvasChange = useCallback(() => {
     const next = redoStack.at(-1)
     if (!next) return
     setRedoStack((current) => current.slice(0, -1))
@@ -235,8 +254,45 @@ export function Workflows() {
     setEdges(next.edges)
     setSelectedNode(null)
     setSelectedEdge(null)
+    setKeyboardDeleteNode(null)
     setFeedback('已重做画布编辑')
-  }
+  }, [edges, nodes, redoStack, setEdges, setNodes])
+
+  useEffect(() => {
+    function handleKeyboardShortcut(event: KeyboardEvent) {
+      if (isEditableTarget(event.target)) return
+      const key = event.key.toLowerCase()
+      const isUndo = (event.ctrlKey || event.metaKey) && !event.shiftKey && key === 'z'
+      const isRedo = (event.ctrlKey || event.metaKey) && (key === 'y' || (event.shiftKey && key === 'z'))
+      if (isUndo) {
+        event.preventDefault()
+        undoCanvasChange()
+        return
+      }
+      if (isRedo) {
+        event.preventDefault()
+        redoCanvasChange()
+        return
+      }
+      const isDelete = event.key === 'Delete' || event.key === 'Backspace'
+      if (!isDelete || event.ctrlKey || event.metaKey || event.altKey) return
+      if (selectedEdge) {
+        event.preventDefault()
+        commitCanvasChange(
+          nodes,
+          edges.filter((edge) => edge.id !== selectedEdge.id),
+          '连线已删除，保存草稿后持久化',
+        )
+        return
+      }
+      if (selectedNode) {
+        event.preventDefault()
+        setKeyboardDeleteNode(selectedNode)
+      }
+    }
+    window.addEventListener('keydown', handleKeyboardShortcut)
+    return () => window.removeEventListener('keydown', handleKeyboardShortcut)
+  }, [commitCanvasChange, edges, nodes, redoCanvasChange, selectedEdge, selectedNode, undoCanvasChange])
 
   const onConnect = useCallback(
     (connection: Connection) => commitCanvasChange(nodes, addEdge(connection, edges), '连线已添加，保存草稿后持久化'),
@@ -253,6 +309,7 @@ export function Workflows() {
     setSelectedNode(null)
     setSelectedEdge(null)
     setPendingNavigation(null)
+    setKeyboardDeleteNode(null)
     resetCanvasHistory()
     setFeedback('')
     setErrors([])
@@ -296,16 +353,14 @@ export function Workflows() {
   const statusText = currentWorkflow
     ? `${currentWorkflow.status} · ${currentWorkflow.version}`
     : '新草稿 · 未保存'
-  const selectedNodeEdgeImpact = useMemo<NodeEdgeImpact>(() => {
-    if (!selectedNode) return { incoming: 0, outgoing: 0, total: 0 }
-    const incoming = edges.filter((edge) => edge.target === selectedNode.id).length
-    const outgoing = edges.filter((edge) => edge.source === selectedNode.id).length
-    return {
-      incoming,
-      outgoing,
-      total: incoming + outgoing,
-    }
-  }, [edges, selectedNode])
+  const selectedNodeEdgeImpact = useMemo<NodeEdgeImpact>(
+    () => selectedNode ? getNodeEdgeImpact(selectedNode.id, edges) : { incoming: 0, outgoing: 0, total: 0 },
+    [edges, selectedNode],
+  )
+  const keyboardDeleteNodeImpact = useMemo<NodeEdgeImpact>(
+    () => keyboardDeleteNode ? getNodeEdgeImpact(keyboardDeleteNode.id, edges) : { incoming: 0, outgoing: 0, total: 0 },
+    [edges, keyboardDeleteNode],
+  )
 
   const saveDraft = useCallback(async () => {
     setIsBusy(true)
@@ -396,6 +451,7 @@ export function Workflows() {
     setSelectedNode(null)
     setSelectedEdge(null)
     setPendingNavigation(null)
+    setKeyboardDeleteNode(null)
     setVersions([])
     setErrors([])
     setFeedback('')
@@ -526,6 +582,15 @@ export function Workflows() {
       nodes,
       edges.filter((edge) => edge.id !== selectedEdge.id),
       '连线已删除，保存草稿后持久化',
+    )
+  }
+
+  function confirmKeyboardNodeDelete() {
+    if (!keyboardDeleteNode) return
+    const nodeId = keyboardDeleteNode.id
+    commitCanvasChange(
+      nodes.filter((node) => node.id !== nodeId),
+      edges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId),
     )
   }
 
@@ -690,6 +755,29 @@ export function Workflows() {
           />
         )}
       </div>
+
+      {keyboardDeleteNode && (
+        <div className="dialog-backdrop">
+          <section className="agent-dialog" role="dialog" aria-modal="true" aria-labelledby="keyboard-delete-node-title">
+            <header>
+              <div>
+                <p className="eyebrow">KEYBOARD ACTION</p>
+                <h2 id="keyboard-delete-node-title">删除选中节点？</h2>
+              </div>
+              <button className="icon-button quiet" title="关闭" onClick={() => setKeyboardDeleteNode(null)}><X size={18} /></button>
+            </header>
+            <p className="dialog-copy">
+              {keyboardDeleteNodeImpact.total > 0
+                ? `将同时移除 ${keyboardDeleteNodeImpact.total} 条关联连线。`
+                : '该节点没有关联连线。'}
+            </p>
+            <div className="dialog-actions">
+              <button className="button secondary" onClick={() => setKeyboardDeleteNode(null)}>取消删除</button>
+              <button className="button danger" onClick={confirmKeyboardNodeDelete}><Trash2 size={14} />确认删除节点</button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {pendingNavigation && (
         <div className="dialog-backdrop">

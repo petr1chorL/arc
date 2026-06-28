@@ -1097,6 +1097,236 @@ describe('Workflows', () => {
     expect(screen.getByRole('button', { name: '重做' })).toBeDisabled()
   })
 
+  it('uses keyboard shortcuts to undo and redo workflow canvas edits', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === `/api/workspaces/${workspace.id}/workflows`) {
+        return Promise.resolve(new Response(JSON.stringify([workflow]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/agents`) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (
+        url === `/api/workspaces/${workspace.id}/reviewers`
+        || url === `/api/workspaces/${workspace.id}/review-groups`
+      ) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWorkflows()
+
+    await screen.findByTestId('flow-node-human-1')
+    await user.click(screen.getByRole('button', { name: '添加手动触发节点' }))
+
+    expect(await screen.findByTestId(/flow-node-trigger-/)).toHaveTextContent('手动触发')
+
+    await user.keyboard('{Control>}z{/Control}')
+
+    expect(screen.queryByTestId(/flow-node-trigger-/)).not.toBeInTheDocument()
+    expect(screen.getByTestId('flow-node-human-1')).toBeInTheDocument()
+
+    await user.keyboard('{Control>}y{/Control}')
+
+    expect(await screen.findByTestId(/flow-node-trigger-/)).toHaveTextContent('手动触发')
+  })
+
+  it('keeps workflow keyboard shortcuts inactive while editing text fields', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === `/api/workspaces/${workspace.id}/workflows`) {
+        return Promise.resolve(new Response(JSON.stringify([workflow]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/agents`) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (
+        url === `/api/workspaces/${workspace.id}/reviewers`
+        || url === `/api/workspaces/${workspace.id}/review-groups`
+      ) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWorkflows()
+
+    await screen.findByTestId('flow-node-human-1')
+    await user.click(screen.getByRole('button', { name: '添加手动触发节点' }))
+    expect(await screen.findByTestId(/flow-node-trigger-/)).toHaveTextContent('手动触发')
+
+    await user.click(screen.getByLabelText('工作流名称'))
+    await user.keyboard('{Control>}z{/Control}')
+
+    expect(screen.getByTestId(/flow-node-trigger-/)).toBeInTheDocument()
+  })
+
+  it('deletes a selected workflow edge with the keyboard and keeps nodes', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const connectedWorkflow = {
+      ...workflow,
+      nodes: [
+        {
+          id: 'start',
+          type: 'trigger',
+          position: { x: 0, y: 0 },
+          data: { label: '手动触发', subtitle: '启动工作流' },
+        },
+        {
+          id: 'agent',
+          type: 'agent',
+          position: { x: 300, y: 0 },
+          data: { label: '选择执行 Agent', subtitle: '尚未绑定发布版本' },
+        },
+        {
+          id: 'end',
+          type: 'end',
+          position: { x: 600, y: 0 },
+          data: { label: '流程完成', subtitle: '结束节点' },
+        },
+      ],
+      edges: [
+        { id: 'start-agent', source: 'start', target: 'agent' },
+        { id: 'agent-end', source: 'agent', target: 'end' },
+      ],
+    }
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === `/api/workspaces/${workspace.id}/workflows`) {
+        return Promise.resolve(new Response(JSON.stringify([connectedWorkflow]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/agents`) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (
+        url === `/api/workspaces/${workspace.id}/reviewers`
+        || url === `/api/workspaces/${workspace.id}/review-groups`
+      ) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWorkflows()
+
+    await user.click(await screen.findByTestId('flow-edge-start-agent'))
+    await user.keyboard('{Delete}')
+
+    expect(screen.queryByTestId('flow-edge-start-agent')).not.toBeInTheDocument()
+    expect(screen.getByTestId('flow-edge-agent-end')).toBeInTheDocument()
+    expect(screen.getByTestId('flow-node-start')).toBeInTheDocument()
+    expect(screen.getByTestId('flow-node-agent')).toBeInTheDocument()
+    expect(screen.getByTestId('flow-node-end')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '撤销' }))
+
+    expect(screen.getByTestId('flow-edge-start-agent')).toBeInTheDocument()
+    expect(screen.getByTestId('edge-count')).toHaveTextContent('2')
+  })
+
+  it('requires confirmation before deleting a selected workflow node with the keyboard', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const connectedWorkflow = {
+      ...workflow,
+      nodes: [
+        {
+          id: 'start',
+          type: 'trigger',
+          position: { x: 0, y: 0 },
+          data: { label: '手动触发', subtitle: '启动工作流' },
+        },
+        {
+          id: 'agent',
+          type: 'agent',
+          position: { x: 300, y: 0 },
+          data: { label: '选择执行 Agent', subtitle: '尚未绑定发布版本' },
+        },
+        {
+          id: 'end',
+          type: 'end',
+          position: { x: 600, y: 0 },
+          data: { label: '流程完成', subtitle: '结束节点' },
+        },
+      ],
+      edges: [
+        { id: 'start-agent', source: 'start', target: 'agent' },
+        { id: 'agent-end', source: 'agent', target: 'end' },
+      ],
+    }
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === `/api/workspaces/${workspace.id}/workflows`) {
+        return Promise.resolve(new Response(JSON.stringify([connectedWorkflow]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/agents`) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (
+        url === `/api/workspaces/${workspace.id}/reviewers`
+        || url === `/api/workspaces/${workspace.id}/review-groups`
+      ) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWorkflows()
+
+    await user.click(await screen.findByTestId('flow-node-agent'))
+    await user.keyboard('{Delete}')
+
+    expect(screen.getByRole('dialog', { name: '删除选中节点？' })).toBeInTheDocument()
+    expect(screen.getByText('将同时移除 2 条关联连线。')).toBeInTheDocument()
+    expect(screen.getByTestId('flow-node-agent')).toBeInTheDocument()
+    expect(screen.getByTestId('edge-count')).toHaveTextContent('2')
+
+    await user.click(screen.getByRole('button', { name: '取消删除' }))
+
+    expect(screen.queryByRole('dialog', { name: '删除选中节点？' })).not.toBeInTheDocument()
+    expect(screen.getByTestId('flow-node-agent')).toBeInTheDocument()
+
+    await user.keyboard('{Delete}')
+    await user.click(screen.getByRole('button', { name: '确认删除节点' }))
+
+    expect(screen.queryByTestId('flow-node-agent')).not.toBeInTheDocument()
+    expect(screen.getByTestId('edge-count')).toHaveTextContent('0')
+  })
+
   it('clears the unsaved workflow warning after saving the draft', async () => {
     const user = userEvent.setup()
     vi.stubGlobal('ResizeObserver', class {
