@@ -138,6 +138,17 @@ interface NodeEdgeImpact {
   total: number
 }
 
+type PendingWorkflowNavigation =
+  | { kind: 'new' }
+  | { kind: 'activate'; workflowId: string }
+
+function createDraftSignature(name: string, nodes: Node[], edges: Edge[]) {
+  return JSON.stringify({
+    name: name.trim() || '未命名工作流',
+    ...toContractGraph(sanitizeWorkflowNodes(nodes), edges),
+  })
+}
+
 export function Workflows() {
   const { workspace, workspacePath } = useWorkspace()
   const reactFlowRef = useRef<ReactFlowInstance | null>(null)
@@ -159,7 +170,14 @@ export function Workflows() {
   const [feedback, setFeedback] = useState('')
   const [errors, setErrors] = useState<string[]>([])
   const [isBusy, setIsBusy] = useState(false)
+  const [savedDraftSignature, setSavedDraftSignature] = useState('')
+  const [pendingNavigation, setPendingNavigation] = useState<PendingWorkflowNavigation | null>(null)
   const renderedNodes = useMemo(() => sanitizeWorkflowNodes(nodes), [nodes])
+  const draftSignature = useMemo(
+    () => createDraftSignature(name, renderedNodes, edges),
+    [edges, name, renderedNodes],
+  )
+  const hasUnsavedChanges = savedDraftSignature !== '' && draftSignature !== savedDraftSignature
 
   const onConnect = useCallback(
     (connection: Connection) => setEdges((items) => addEdge(connection, items)),
@@ -172,8 +190,10 @@ export function Workflows() {
     setName(workflow.name)
     setNodes(graph.nodes)
     setEdges(graph.edges)
+    setSavedDraftSignature(createDraftSignature(workflow.name, graph.nodes, graph.edges))
     setSelectedNode(null)
     setSelectedEdge(null)
+    setPendingNavigation(null)
     setFeedback('')
     setErrors([])
     void listWorkflowVersions(workspace.id, workflow.id).then(setVersions)
@@ -243,6 +263,8 @@ export function Workflows() {
           ? current.map((workflow) => workflow.id === saved.id ? saved : workflow)
           : [saved, ...current]
       })
+      const savedGraph = fromContractGraph(saved.nodes, saved.edges)
+      setSavedDraftSignature(createDraftSignature(saved.name, savedGraph.nodes, savedGraph.edges))
       setFeedback('工作流草稿已保存')
       return saved
     } catch (saveError) {
@@ -301,16 +323,48 @@ export function Workflows() {
     }
   }
 
-  function startNewWorkflow() {
+  function resetToNewWorkflow() {
+    const defaultNodes = createDefaultNodes()
+    const defaultEdges = createDefaultEdges()
     setCurrentId(null)
     setName('未命名工作流')
-    setNodes(createDefaultNodes())
-    setEdges(createDefaultEdges())
+    setNodes(defaultNodes)
+    setEdges(defaultEdges)
+    setSavedDraftSignature(createDraftSignature('未命名工作流', defaultNodes, defaultEdges))
     setSelectedNode(null)
     setSelectedEdge(null)
+    setPendingNavigation(null)
     setVersions([])
     setErrors([])
     setFeedback('')
+  }
+
+  function startNewWorkflow() {
+    if (hasUnsavedChanges) {
+      setPendingNavigation({ kind: 'new' })
+      return
+    }
+    resetToNewWorkflow()
+  }
+
+  function requestWorkflowActivation(workflowId: string) {
+    if (workflowId === currentId) return
+    if (hasUnsavedChanges) {
+      setPendingNavigation({ kind: 'activate', workflowId })
+      return
+    }
+    const workflow = workflows.find((item) => item.id === workflowId)
+    if (workflow) activateWorkflow(workflow)
+  }
+
+  function continueAfterDiscardingChanges() {
+    if (!pendingNavigation) return
+    if (pendingNavigation.kind === 'new') {
+      resetToNewWorkflow()
+      return
+    }
+    const workflow = workflows.find((item) => item.id === pendingNavigation.workflowId)
+    if (workflow) activateWorkflow(workflow)
   }
 
   function addNode(kind: WorkflowNodeData['kind'], label: string, position?: { x: number; y: number }) {
@@ -448,10 +502,7 @@ export function Workflows() {
             <select
               aria-label="切换工作流"
               value={currentId ?? ''}
-              onChange={(event) => {
-                const workflow = workflows.find((item) => item.id === event.target.value)
-                if (workflow) activateWorkflow(workflow)
-              }}
+              onChange={(event) => requestWorkflowActivation(event.target.value)}
             >
               {currentId === null && <option value="">新草稿</option>}
               {workflows.map((workflow) => <option value={workflow.id} key={workflow.id}>{workflow.name}</option>)}
@@ -476,6 +527,13 @@ export function Workflows() {
           <button className="button primary" title="发布工作流版本" disabled={isBusy} onClick={() => void publish()}><Send size={15} />发布版本</button>
         </div>
       </div>
+
+      {hasUnsavedChanges && (
+        <div className="workflow-unsaved" role="status">
+          <strong>有未保存变更</strong>
+          <span>保存草稿后再离开，或在确认提示中放弃本次修改。</span>
+        </div>
+      )}
 
       {errors.length > 0 && (
         <div className="workflow-errors" role="alert">
@@ -570,6 +628,25 @@ export function Workflows() {
           />
         )}
       </div>
+
+      {pendingNavigation && (
+        <div className="dialog-backdrop">
+          <section className="agent-dialog" role="dialog" aria-modal="true" aria-labelledby="discard-workflow-title">
+            <header>
+              <div>
+                <p className="eyebrow">UNSAVED CHANGES</p>
+                <h2 id="discard-workflow-title">放弃未保存变更？</h2>
+              </div>
+              <button className="icon-button quiet" title="关闭" onClick={() => setPendingNavigation(null)}><X size={18} /></button>
+            </header>
+            <p className="dialog-copy">当前工作流草稿还没有保存。继续操作会丢弃本次画布修改。</p>
+            <div className="dialog-actions">
+              <button className="button secondary" onClick={() => setPendingNavigation(null)}>继续编辑</button>
+              <button className="button danger" onClick={continueAfterDiscardingChanges}>放弃变更并继续</button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {showVersions && (
         <div className="dialog-backdrop">

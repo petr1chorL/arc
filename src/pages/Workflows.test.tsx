@@ -834,6 +834,124 @@ describe('Workflows', () => {
     ])
   })
 
+  it('warns about unsaved workflow changes before starting a new draft', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === `/api/workspaces/${workspace.id}/workflows` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([workflow]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/agents` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (
+        url === `/api/workspaces/${workspace.id}/reviewers`
+        || url === `/api/workspaces/${workspace.id}/review-groups`
+      ) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWorkflows()
+
+    await screen.findByTestId('flow-node-human-1')
+    expect(screen.queryByText('有未保存变更')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '添加手动触发节点' }))
+
+    expect(screen.getByText('有未保存变更')).toBeInTheDocument()
+    expect(screen.getByTestId('flow-node-human-1')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '新建' }))
+
+    expect(screen.getByText('放弃未保存变更？')).toBeInTheDocument()
+    expect(screen.getByTestId('flow-node-human-1')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '继续编辑' }))
+
+    expect(screen.queryByText('放弃未保存变更？')).not.toBeInTheDocument()
+    expect(screen.getByTestId('flow-node-human-1')).toBeInTheDocument()
+    expect(screen.getByText('有未保存变更')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '新建' }))
+    await user.click(screen.getByRole('button', { name: '放弃变更并继续' }))
+
+    expect(screen.queryByTestId('flow-node-human-1')).not.toBeInTheDocument()
+    expect(screen.getByTestId('flow-node-start')).toBeInTheDocument()
+    expect(screen.getByTestId('flow-node-agent')).toBeInTheDocument()
+    expect(screen.getByTestId('flow-node-end')).toBeInTheDocument()
+    expect(screen.queryByText('有未保存变更')).not.toBeInTheDocument()
+  })
+
+  it('clears the unsaved workflow warning after saving the draft', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const savedWorkflow = {
+      ...workflow,
+      nodes: [
+        ...workflow.nodes,
+        {
+          id: 'trigger-saved',
+          type: 'trigger',
+          position: { x: 160, y: 120 },
+          data: { label: '手动触发', subtitle: '待配置' },
+        },
+      ],
+    }
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === `/api/workspaces/${workspace.id}/workflows` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([workflow]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/agents` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (
+        url === `/api/workspaces/${workspace.id}/reviewers`
+        || url === `/api/workspaces/${workspace.id}/review-groups`
+      ) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/workflows/workflow-1` && init?.method === 'PATCH') {
+        const body = JSON.parse(init.body as string)
+        return Promise.resolve(new Response(JSON.stringify({
+          ...savedWorkflow,
+          nodes: body.nodes,
+          edges: body.edges,
+        }), { status: 200 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWorkflows()
+
+    await screen.findByTestId('flow-node-human-1')
+    await user.click(screen.getByRole('button', { name: '添加手动触发节点' }))
+
+    expect(screen.getByText('有未保存变更')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '保存草稿' }))
+
+    expect(await screen.findByText('工作流草稿已保存')).toBeInTheDocument()
+    expect(screen.queryByText('有未保存变更')).not.toBeInTheDocument()
+  })
+
   it('restores the default connected graph when starting a new workflow', async () => {
     const user = userEvent.setup()
     vi.stubGlobal('ResizeObserver', class {
