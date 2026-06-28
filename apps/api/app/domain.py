@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.models import (
     AgentVersionRecord,
     DataObjectDefinitionRecord,
+    DataObjectVersionRecord,
     ReviewGroupMemberRecord,
     ReviewGroupRecord,
 )
@@ -104,6 +105,20 @@ def validate_workflow(
             return
         if definition.status != "published" or definition.version == "unpublished":
             errors.append(f"节点 {node['id']} 的{label} Data Object {definition.name} 尚未发布")
+            return
+        version = ref.get("version")
+        if not version or version == "unpublished":
+            errors.append(f"节点 {node['id']} 的{label} Data Object 必须绑定已发布版本")
+            return
+        version_record = session.scalar(
+            select(DataObjectVersionRecord).where(
+                DataObjectVersionRecord.workspace_id == workspace_id,
+                DataObjectVersionRecord.definition_id == definition_id,
+                DataObjectVersionRecord.version == version,
+            ),
+        )
+        if version_record is None:
+            errors.append(f"节点 {node['id']} 的{label} Data Object 版本 {version} 不存在")
 
     for node in nodes:
         validate_data_object_ref(node, "inputDataObjectRef", "输入")

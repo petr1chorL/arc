@@ -1430,3 +1430,13 @@ Data Object Definition 已新增第一版前端资产入口：`/w/:workspaceSlug
 本版本仍不校验运行时 Artifact 内容是否符合 Schema，不固定选择 Data Object Version，也不比较节点 ref 中记录的版本字符串与 Definition 当前版本是否一致。验收记录见 `docs/ACCEPTANCE_V0.25E.md`。
 
 ---
+
+## V0.25F Workflow 发布冻结 Data Object 版本快照
+
+Workflow 发布现在会把节点 Data Object 引用固化到 WorkflowVersion 快照中。发布时，后端会根据节点 `data.inputDataObjectRef` 和 `data.outputDataObjectRef` 中的 `definitionId` 与 `version` 查询对应的 `DataObjectVersionRecord`，并在发布快照里补齐 `versionId` 和该版本的不可变 `snapshot`。
+
+这意味着 Data Object Definition 后续被编辑并重新发布为 `v1.1.0` 后，已经发布的 WorkflowVersion 仍然保留当时绑定的 `v1.0.0` 版本快照，避免旧工作流语义被资产更新悄悄改变。
+
+工作流校验同步增加 Data Object Version 存在性检查：节点引用必须指向当前 Workspace 内真实存在的已发布版本。本版本仍不提供前端版本历史选择器，不做运行时 Artifact Schema 校验，也不做版本兼容性分析或依赖图展示。验收记录见 `docs/ACCEPTANCE_V0.25F.md`。
+
+---

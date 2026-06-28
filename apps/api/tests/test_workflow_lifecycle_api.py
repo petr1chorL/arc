@@ -286,6 +286,63 @@ def test_workflow_validation_rejects_missing_or_unpublished_data_object_refs(tmp
     assert any("输出 Data Object" in error and "不存在" in error for error in missing_validation.json()["errors"])
 
 
+def test_workflow_publish_freezes_data_object_version_snapshots(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'workflow-data-object-freeze.db'}",
+    )
+    agent_id, agent_version = published_agent(client, workspace_id)
+    definition = create_data_object(client, workspace_id, "Product Research Input")
+    first_data_object_version = client.post(
+        workspace_url(workspace_id, f"/data-objects/{definition['id']}/publish"),
+        headers=csrf_headers(client),
+    ).json()
+    graph = valid_graph(agent_id, agent_version)
+    graph["nodes"][1]["data"]["inputDataObjectRef"] = {
+        "definitionId": definition["id"],
+        "name": definition["name"],
+        "version": first_data_object_version["version"],
+        "status": "published",
+        "schemaSummary": "required: asin",
+    }
+    workflow = client.post(
+        workspace_url(workspace_id, "/workflows"),
+        json={"name": "Frozen Data Object Workflow", **graph},
+        headers=csrf_headers(client),
+    ).json()
+
+    updated_definition = client.patch(
+        workspace_url(workspace_id, f"/data-objects/{definition['id']}"),
+        json={
+            "name": "Updated Product Research Input",
+            "schema": {
+                "type": "object",
+                "required": ["summary"],
+                "properties": {"summary": {"type": "string"}},
+            },
+        },
+        headers=csrf_headers(client),
+    )
+    assert updated_definition.status_code == 200
+    second_data_object_version = client.post(
+        workspace_url(workspace_id, f"/data-objects/{definition['id']}/publish"),
+        headers=csrf_headers(client),
+    )
+    assert second_data_object_version.status_code == 201
+    assert second_data_object_version.json()["version"] == "v1.1.0"
+
+    published_workflow = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/publish"),
+        headers=csrf_headers(client),
+    )
+
+    assert published_workflow.status_code == 201
+    ref = published_workflow.json()["snapshot"]["nodes"][1]["data"]["inputDataObjectRef"]
+    assert ref["version"] == "v1.0.0"
+    assert ref["versionId"] == first_data_object_version["id"]
+    assert ref["snapshot"]["name"] == "Product Research Input"
+    assert ref["snapshot"]["schema"]["required"] == ["asin"]
+
+
 def test_workflow_publish_rejects_cycles_and_unpublished_agent_references(tmp_path):
     client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'workflows.db'}")
     graph = {

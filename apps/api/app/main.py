@@ -653,8 +653,42 @@ def create_app(
             raise HTTPException(status_code=404, detail="工作流不存在")
         return workflow
 
-    def workflow_snapshot(record: WorkflowRecord) -> dict:
-        return WorkflowRead.model_validate(record).model_dump(by_alias=True, mode="json")
+    def workflow_snapshot(
+        record: WorkflowRecord,
+        session: Session | None = None,
+        workspace_id: str | None = None,
+    ) -> dict:
+        snapshot = WorkflowRead.model_validate(record).model_dump(by_alias=True, mode="json")
+        if session is None or workspace_id is None:
+            return snapshot
+
+        for node in snapshot.get("nodes", []):
+            data = node.get("data") if isinstance(node, dict) else None
+            if not isinstance(data, dict):
+                continue
+            for field in ("inputDataObjectRef", "outputDataObjectRef"):
+                ref = data.get(field)
+                if not isinstance(ref, dict):
+                    continue
+                definition_id = ref.get("definitionId")
+                version = ref.get("version")
+                if not isinstance(definition_id, str) or not isinstance(version, str):
+                    continue
+                data_object_version = session.scalar(
+                    select(DataObjectVersionRecord).where(
+                        DataObjectVersionRecord.workspace_id == workspace_id,
+                        DataObjectVersionRecord.definition_id == definition_id,
+                        DataObjectVersionRecord.version == version,
+                    ),
+                )
+                if data_object_version is None:
+                    continue
+                data[field] = {
+                    **ref,
+                    "versionId": data_object_version.id,
+                    "snapshot": data_object_version.snapshot,
+                }
+        return snapshot
 
     def find_workflow_version(
         workspace_id: str,
@@ -2747,7 +2781,7 @@ def create_app(
             workspace_id=context.workspace.id,
             workflow_id=workflow_id,
             version=version,
-            snapshot=workflow_snapshot(record),
+            snapshot=workflow_snapshot(record, session, context.workspace.id),
         )
         record.version = version
         record.status = "宸插彂甯?"
