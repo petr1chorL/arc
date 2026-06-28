@@ -156,6 +156,44 @@ describe('Runs', () => {
     )
   })
 
+  it('updates the runId query parameter when selecting a run', async () => {
+    const user = userEvent.setup()
+    window.history.pushState({}, '', '/w/ai-capability-center/runs?tab=history')
+    const secondRun = {
+      ...run,
+      id: 'run-second',
+      name: 'Second workflow run',
+      output: 'Second run output',
+      nodes: [{ ...run.nodes[0], output: 'Second run output' }],
+    }
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
+      if (url === `/api/workspaces/${workspace.id}/runs`) {
+        return Promise.resolve(new Response(JSON.stringify([run, secondRun]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/runs/run-1/operation-history`) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/runs/run-second/operation-history`) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify({ detail: 'not found' }), { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <WorkspaceProvider workspace={workspace}>
+        <Runs />
+      </WorkspaceProvider>,
+    )
+
+    expect((await screen.findAllByText('run-1')).length).toBeGreaterThanOrEqual(1)
+    await user.click(screen.getByRole('button', { name: /Second workflow run/ }))
+
+    expect(await screen.findByRole('heading', { name: 'Second workflow run' })).toBeInTheDocument()
+    expect(window.location.search).toBe('?tab=history&runId=run-second')
+  })
+
   it('links a waiting workflow run to the human review queue', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
       new Response(JSON.stringify([{ ...run, status: '需介入', currentNode: '人工审核' }]), { status: 200 }),

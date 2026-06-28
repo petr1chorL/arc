@@ -76,6 +76,12 @@ function requestedRunIdFromLocation() {
   return new URLSearchParams(window.location.search).get('runId') ?? ''
 }
 
+function syncRunIdToLocation(runId: string) {
+  const nextUrl = new URL(window.location.href)
+  nextUrl.searchParams.set('runId', runId)
+  window.history.replaceState(window.history.state, '', `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`)
+}
+
 export function Runs() {
   const { workspace, workspacePath } = useWorkspace()
   const [runs, setRuns] = useState<ExecutionRun[]>([])
@@ -208,6 +214,7 @@ export function Runs() {
         ...currentRuns.filter((currentRun) => currentRun.id !== rerun.id),
       ])
       setSelectedId(rerun.id)
+      syncRunIdToLocation(rerun.id)
       setEditingRerunId('')
       setRerunInput('')
       setRerunMessage('\u91cd\u65b0\u8fd0\u884c\u5df2\u521b\u5efa')
@@ -243,6 +250,7 @@ export function Runs() {
       ])
       if (result.createdRuns[0]) {
         setSelectedId(result.createdRuns[0].id)
+        syncRunIdToLocation(result.createdRuns[0].id)
       }
       setSelectedRunIds([])
       setOperationFailures(result.failures)
@@ -275,6 +283,7 @@ export function Runs() {
       )))
       if (result.resumedRuns[0]) {
         setSelectedId(result.resumedRuns[0].id)
+        syncRunIdToLocation(result.resumedRuns[0].id)
       }
       setSelectedRunIds([])
       setOperationFailures(result.failures)
@@ -302,6 +311,7 @@ export function Runs() {
         currentRun.id === resumed.id ? resumed : currentRun
       )))
       setSelectedId(resumed.id)
+      syncRunIdToLocation(resumed.id)
       setRerunMessage('\u5df2\u4ece\u5931\u8d25\u70b9\u6062\u590d')
       setOperationHistoryVersion((current) => current + 1)
     } catch (resumeRequestError) {
@@ -386,7 +396,10 @@ export function Runs() {
               />
             )}
             <button
-              onClick={() => setSelectedId(run.id)}
+              onClick={() => {
+                setSelectedId(run.id)
+                syncRunIdToLocation(run.id)
+              }}
               className={`run-list-item ${selectedId === run.id ? 'selected' : ''}`}
             >
               <div><strong>{run.name}</strong><span className="mono">{run.id}</span></div>
