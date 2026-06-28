@@ -4166,6 +4166,14 @@ kbd {
   background: rgba(247, 249, 252, 0.58);
 }
 
+.edge-picker-field {
+  margin-top: -4px;
+}
+
+.edge-picker-field select {
+  font-size: 10px;
+}
+
 .inspector-help {
   margin: 0;
   color: var(--muted);

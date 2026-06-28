@@ -1805,6 +1805,85 @@ describe('Workflows', () => {
     ])
   })
 
+  it('uses schema field picker shortcuts for edge mappings', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const connectedWorkflow = {
+      ...workflow,
+      inputSchema: {
+        type: 'object',
+        required: ['asin'],
+        properties: {
+          asin: { type: 'string', title: 'ASIN' },
+          market: { type: 'string', title: 'Market' },
+        },
+      },
+      nodes: [
+        {
+          id: 'start',
+          type: 'trigger',
+          position: { x: 0, y: 0 },
+          data: { label: 'Start', subtitle: 'Trigger' },
+        },
+        {
+          id: 'agent',
+          type: 'agent',
+          position: { x: 300, y: 0 },
+          data: { label: 'Agent', subtitle: 'Unbound' },
+        },
+      ],
+      edges: [
+        { id: 'start-agent', source: 'start', target: 'agent' },
+      ],
+    }
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === `/api/workspaces/${workspace.id}/workflows` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([connectedWorkflow]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/agents` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (
+        url === `/api/workspaces/${workspace.id}/reviewers`
+        || url === `/api/workspaces/${workspace.id}/review-groups`
+      ) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/workflows/workflow-1` && init?.method === 'PATCH') {
+        const body = JSON.parse(init.body as string)
+        return Promise.resolve(new Response(JSON.stringify({
+          ...connectedWorkflow,
+          edges: body.edges,
+        }), { status: 200 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWorkflows()
+
+    await user.click(await screen.findByTestId('flow-edge-start-agent'))
+    await user.click(screen.getByRole('button', { name: /新增映射|鏂板鏄犲皠/ }))
+    await user.selectOptions(screen.getByLabelText('源字段快捷选择 1'), '$.asin')
+    await user.selectOptions(screen.getByLabelText('目标字段快捷选择 1'), '$.input.asin')
+    await user.click(screen.getByRole('button', { name: /保存草稿|淇濆瓨鑽夌/ }))
+
+    const patchCall = fetchMock.mock.calls.find(([url, init]) => (
+      url === `/api/workspaces/${workspace.id}/workflows/workflow-1` && init?.method === 'PATCH'
+    ))
+    const body = JSON.parse(patchCall?.[1]?.body as string)
+    expect(body.edges[0].data.mappings).toEqual([
+      { sourcePath: '$.asin', targetPath: '$.input.asin' },
+    ])
+  })
+
   it('blocks saving edge mappings with blank paths', async () => {
     const user = userEvent.setup()
     vi.stubGlobal('ResizeObserver', class {

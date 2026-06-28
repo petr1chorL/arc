@@ -1004,6 +1004,7 @@ export function Workflows() {
           <EdgeInspector
             edge={selectedEdge}
             nodes={renderedNodes}
+            schemaFieldOptions={runSchemaFields}
             onClose={() => setSelectedEdge(null)}
             onDelete={removeSelectedEdge}
             onUpdateMappings={updateSelectedEdgeMappings}
@@ -1417,12 +1418,14 @@ function NodeInspector({
 function EdgeInspector({
   edge,
   nodes,
+  schemaFieldOptions,
   onClose,
   onDelete,
   onUpdateMappings,
 }: {
   edge: Edge
   nodes: Node[]
+  schemaFieldOptions: RunSchemaField[]
   onClose: () => void
   onDelete: () => void
   onUpdateMappings: (mappings: EdgeFieldMapping[]) => void
@@ -1439,6 +1442,14 @@ function EdgeInspector({
     onUpdateMappings(mappings.map((mapping, mappingIndex) => (
       mappingIndex === index ? { ...mapping, [key]: value } : mapping
     )))
+  }
+
+  function sourcePathFor(field: RunSchemaField) {
+    return `$.${field.name}`
+  }
+
+  function targetPathFor(field: RunSchemaField) {
+    return `$.input.${field.name}`
   }
 
   return (
@@ -1476,6 +1487,25 @@ function EdgeInspector({
                 placeholder="$.source.field"
               />
             </label>
+            {schemaFieldOptions.length > 0 && (
+              <label className="form-field edge-picker-field">
+                <span>{`源字段快捷选择 ${index + 1}`}</span>
+                <select
+                  aria-label={`源字段快捷选择 ${index + 1}`}
+                  value={schemaFieldOptions.some((field) => sourcePathFor(field) === mapping.sourcePath) ? mapping.sourcePath : ''}
+                  onChange={(event) => {
+                    if (event.target.value) updateMapping(index, 'sourcePath', event.target.value)
+                  }}
+                >
+                  <option value="">选择输入 Schema 字段</option>
+                  {schemaFieldOptions.map((field) => (
+                    <option value={sourcePathFor(field)} key={`source-${field.name}`}>
+                      {field.label} · {sourcePathFor(field)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <label className="form-field">
               <span>{`下游字段 ${index + 1}`}</span>
               <input
@@ -1485,6 +1515,25 @@ function EdgeInspector({
                 placeholder="$.target.field"
               />
             </label>
+            {schemaFieldOptions.length > 0 && (
+              <label className="form-field edge-picker-field">
+                <span>{`目标字段快捷选择 ${index + 1}`}</span>
+                <select
+                  aria-label={`目标字段快捷选择 ${index + 1}`}
+                  value={schemaFieldOptions.some((field) => targetPathFor(field) === mapping.targetPath) ? mapping.targetPath : ''}
+                  onChange={(event) => {
+                    if (event.target.value) updateMapping(index, 'targetPath', event.target.value)
+                  }}
+                >
+                  <option value="">选择下游输入字段</option>
+                  {schemaFieldOptions.map((field) => (
+                    <option value={targetPathFor(field)} key={`target-${field.name}`}>
+                      input.{field.label} · {targetPathFor(field)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <button
               className="button ghost full"
               onClick={() => onUpdateMappings(mappings.filter((_, mappingIndex) => mappingIndex !== index))}
