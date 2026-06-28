@@ -742,6 +742,82 @@ describe('Workflows', () => {
     expect(body.edges).toEqual([])
   })
 
+  it('undoes and redoes deleting a connected workflow node', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const connectedWorkflow = {
+      ...workflow,
+      nodes: [
+        {
+          id: 'start',
+          type: 'trigger',
+          position: { x: 0, y: 0 },
+          data: { label: '手动触发', subtitle: '启动工作流' },
+        },
+        {
+          id: 'agent',
+          type: 'agent',
+          position: { x: 300, y: 0 },
+          data: { label: '选择执行 Agent', subtitle: '尚未绑定发布版本' },
+        },
+        {
+          id: 'end',
+          type: 'end',
+          position: { x: 600, y: 0 },
+          data: { label: '流程完成', subtitle: '结束节点' },
+        },
+      ],
+      edges: [
+        { id: 'start-agent', source: 'start', target: 'agent' },
+        { id: 'agent-end', source: 'agent', target: 'end' },
+      ],
+    }
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === `/api/workspaces/${workspace.id}/workflows`) {
+        return Promise.resolve(new Response(JSON.stringify([connectedWorkflow]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/agents`) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (
+        url === `/api/workspaces/${workspace.id}/reviewers`
+        || url === `/api/workspaces/${workspace.id}/review-groups`
+      ) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWorkflows()
+
+    await user.click(await screen.findByTestId('flow-node-agent'))
+    await user.click(screen.getByRole('button', { name: '删除节点' }))
+    await user.click(screen.getByRole('button', { name: '确认删除节点' }))
+
+    expect(screen.queryByTestId('flow-node-agent')).not.toBeInTheDocument()
+    expect(screen.getByTestId('edge-count')).toHaveTextContent('0')
+
+    await user.click(screen.getByRole('button', { name: '撤销' }))
+
+    expect(screen.getByTestId('flow-node-agent')).toHaveTextContent('选择执行 Agent')
+    expect(screen.getByTestId('edge-count')).toHaveTextContent('2')
+    expect(screen.getByTestId('flow-edge-start-agent')).toBeInTheDocument()
+    expect(screen.getByTestId('flow-edge-agent-end')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '重做' }))
+
+    expect(screen.queryByTestId('flow-node-agent')).not.toBeInTheDocument()
+    expect(screen.getByTestId('edge-count')).toHaveTextContent('0')
+  })
+
   it('selects and deletes a single edge without deleting nodes', async () => {
     const user = userEvent.setup()
     vi.stubGlobal('ResizeObserver', class {
@@ -834,6 +910,81 @@ describe('Workflows', () => {
     ])
   })
 
+  it('undoes and redoes deleting a workflow edge', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const connectedWorkflow = {
+      ...workflow,
+      nodes: [
+        {
+          id: 'start',
+          type: 'trigger',
+          position: { x: 0, y: 0 },
+          data: { label: '手动触发', subtitle: '启动工作流' },
+        },
+        {
+          id: 'agent',
+          type: 'agent',
+          position: { x: 300, y: 0 },
+          data: { label: '选择执行 Agent', subtitle: '尚未绑定发布版本' },
+        },
+        {
+          id: 'end',
+          type: 'end',
+          position: { x: 600, y: 0 },
+          data: { label: '流程完成', subtitle: '结束节点' },
+        },
+      ],
+      edges: [
+        { id: 'start-agent', source: 'start', target: 'agent' },
+        { id: 'agent-end', source: 'agent', target: 'end' },
+      ],
+    }
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === `/api/workspaces/${workspace.id}/workflows`) {
+        return Promise.resolve(new Response(JSON.stringify([connectedWorkflow]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/agents`) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (
+        url === `/api/workspaces/${workspace.id}/reviewers`
+        || url === `/api/workspaces/${workspace.id}/review-groups`
+      ) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWorkflows()
+
+    await user.click(await screen.findByTestId('flow-edge-start-agent'))
+    await user.click(screen.getByRole('button', { name: '删除连线' }))
+
+    expect(screen.queryByTestId('flow-edge-start-agent')).not.toBeInTheDocument()
+    expect(screen.getByTestId('edge-count')).toHaveTextContent('1')
+
+    await user.click(screen.getByRole('button', { name: '撤销' }))
+
+    expect(screen.getByTestId('flow-edge-start-agent')).toBeInTheDocument()
+    expect(screen.getByTestId('flow-edge-agent-end')).toBeInTheDocument()
+    expect(screen.getByTestId('edge-count')).toHaveTextContent('2')
+
+    await user.click(screen.getByRole('button', { name: '重做' }))
+
+    expect(screen.queryByTestId('flow-edge-start-agent')).not.toBeInTheDocument()
+    expect(screen.getByTestId('flow-edge-agent-end')).toBeInTheDocument()
+    expect(screen.getByTestId('edge-count')).toHaveTextContent('1')
+  })
+
   it('warns about unsaved workflow changes before starting a new draft', async () => {
     const user = userEvent.setup()
     vi.stubGlobal('ResizeObserver', class {
@@ -892,6 +1043,60 @@ describe('Workflows', () => {
     expect(screen.queryByText('有未保存变更')).not.toBeInTheDocument()
   })
 
+  it('undoes and redoes a newly added workflow node', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === `/api/workspaces/${workspace.id}/workflows`) {
+        return Promise.resolve(new Response(JSON.stringify([workflow]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/agents`) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (
+        url === `/api/workspaces/${workspace.id}/reviewers`
+        || url === `/api/workspaces/${workspace.id}/review-groups`
+      ) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWorkflows()
+
+    await screen.findByTestId('flow-node-human-1')
+    expect(screen.getByRole('button', { name: '撤销' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '重做' })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: '添加手动触发节点' }))
+
+    const addedNode = await screen.findByTestId(/flow-node-trigger-/)
+    expect(addedNode).toHaveTextContent('手动触发')
+    expect(screen.getByRole('button', { name: '撤销' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '重做' })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: '撤销' }))
+
+    expect(screen.queryByTestId(/flow-node-trigger-/)).not.toBeInTheDocument()
+    expect(screen.getByTestId('flow-node-human-1')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '撤销' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '重做' })).toBeEnabled()
+
+    await user.click(screen.getByRole('button', { name: '重做' }))
+
+    expect(await screen.findByTestId(/flow-node-trigger-/)).toHaveTextContent('手动触发')
+    expect(screen.getByRole('button', { name: '撤销' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '重做' })).toBeDisabled()
+  })
+
   it('clears the unsaved workflow warning after saving the draft', async () => {
     const user = userEvent.setup()
     vi.stubGlobal('ResizeObserver', class {
@@ -945,11 +1150,14 @@ describe('Workflows', () => {
     await user.click(screen.getByRole('button', { name: '添加手动触发节点' }))
 
     expect(screen.getByText('有未保存变更')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '撤销' })).toBeEnabled()
 
     await user.click(screen.getByRole('button', { name: '保存草稿' }))
 
     expect(await screen.findByText('工作流草稿已保存')).toBeInTheDocument()
     expect(screen.queryByText('有未保存变更')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '撤销' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '重做' })).toBeDisabled()
   })
 
   it('restores the default connected graph when starting a new workflow', async () => {

@@ -33,6 +33,8 @@ import {
   ShieldAlert,
   ShieldCheck,
   Trash2,
+  Redo2,
+  Undo2,
   UserCheck,
   Wrench,
   X,
@@ -138,9 +140,25 @@ interface NodeEdgeImpact {
   total: number
 }
 
+interface CanvasSnapshot {
+  nodes: Node[]
+  edges: Edge[]
+}
+
 type PendingWorkflowNavigation =
   | { kind: 'new' }
   | { kind: 'activate'; workflowId: string }
+
+function cloneCanvasSnapshot(nodes: Node[], edges: Edge[]): CanvasSnapshot {
+  return {
+    nodes: sanitizeWorkflowNodes(nodes).map((node) => ({
+      ...node,
+      position: { ...node.position },
+      data: cloneNodeData(node.data),
+    })),
+    edges: edges.map((edge) => ({ ...edge })),
+  }
+}
 
 function createDraftSignature(name: string, nodes: Node[], edges: Edge[]) {
   return JSON.stringify({
@@ -172,6 +190,8 @@ export function Workflows() {
   const [isBusy, setIsBusy] = useState(false)
   const [savedDraftSignature, setSavedDraftSignature] = useState('')
   const [pendingNavigation, setPendingNavigation] = useState<PendingWorkflowNavigation | null>(null)
+  const [undoStack, setUndoStack] = useState<CanvasSnapshot[]>([])
+  const [redoStack, setRedoStack] = useState<CanvasSnapshot[]>([])
   const renderedNodes = useMemo(() => sanitizeWorkflowNodes(nodes), [nodes])
   const draftSignature = useMemo(
     () => createDraftSignature(name, renderedNodes, edges),
@@ -179,9 +199,48 @@ export function Workflows() {
   )
   const hasUnsavedChanges = savedDraftSignature !== '' && draftSignature !== savedDraftSignature
 
+  const resetCanvasHistory = useCallback(() => {
+    setUndoStack([])
+    setRedoStack([])
+  }, [])
+
+  const commitCanvasChange = useCallback((nextNodes: Node[], nextEdges: Edge[], nextFeedback?: string) => {
+    setUndoStack((current) => [...current, cloneCanvasSnapshot(nodes, edges)].slice(-50))
+    setRedoStack([])
+    setNodes(nextNodes)
+    setEdges(nextEdges)
+    setSelectedNode(null)
+    setSelectedEdge(null)
+    if (nextFeedback) setFeedback(nextFeedback)
+  }, [edges, nodes, setEdges, setNodes])
+
+  function undoCanvasChange() {
+    const previous = undoStack.at(-1)
+    if (!previous) return
+    setUndoStack((current) => current.slice(0, -1))
+    setRedoStack((current) => [...current, cloneCanvasSnapshot(nodes, edges)].slice(-50))
+    setNodes(previous.nodes)
+    setEdges(previous.edges)
+    setSelectedNode(null)
+    setSelectedEdge(null)
+    setFeedback('已撤销上一步画布编辑')
+  }
+
+  function redoCanvasChange() {
+    const next = redoStack.at(-1)
+    if (!next) return
+    setRedoStack((current) => current.slice(0, -1))
+    setUndoStack((current) => [...current, cloneCanvasSnapshot(nodes, edges)].slice(-50))
+    setNodes(next.nodes)
+    setEdges(next.edges)
+    setSelectedNode(null)
+    setSelectedEdge(null)
+    setFeedback('已重做画布编辑')
+  }
+
   const onConnect = useCallback(
-    (connection: Connection) => setEdges((items) => addEdge(connection, items)),
-    [setEdges],
+    (connection: Connection) => commitCanvasChange(nodes, addEdge(connection, edges), '连线已添加，保存草稿后持久化'),
+    [commitCanvasChange, edges, nodes],
   )
 
   const activateWorkflow = useCallback((workflow: WorkflowDraft) => {
@@ -194,10 +253,11 @@ export function Workflows() {
     setSelectedNode(null)
     setSelectedEdge(null)
     setPendingNavigation(null)
+    resetCanvasHistory()
     setFeedback('')
     setErrors([])
     void listWorkflowVersions(workspace.id, workflow.id).then(setVersions)
-  }, [setEdges, setNodes, workspace.id])
+  }, [resetCanvasHistory, setEdges, setNodes, workspace.id])
 
   useEffect(() => {
     async function load() {
@@ -265,6 +325,7 @@ export function Workflows() {
       })
       const savedGraph = fromContractGraph(saved.nodes, saved.edges)
       setSavedDraftSignature(createDraftSignature(saved.name, savedGraph.nodes, savedGraph.edges))
+      resetCanvasHistory()
       setFeedback('工作流草稿已保存')
       return saved
     } catch (saveError) {
@@ -273,7 +334,7 @@ export function Workflows() {
     } finally {
       setIsBusy(false)
     }
-  }, [currentId, edges, name, renderedNodes, workspace.id])
+  }, [currentId, edges, name, renderedNodes, resetCanvasHistory, workspace.id])
 
   async function publish() {
     const saved = await saveDraft()
@@ -331,6 +392,7 @@ export function Workflows() {
     setNodes(defaultNodes)
     setEdges(defaultEdges)
     setSavedDraftSignature(createDraftSignature('未命名工作流', defaultNodes, defaultEdges))
+    resetCanvasHistory()
     setSelectedNode(null)
     setSelectedEdge(null)
     setPendingNavigation(null)
@@ -369,15 +431,14 @@ export function Workflows() {
 
   function addNode(kind: WorkflowNodeData['kind'], label: string, position?: { x: number; y: number }) {
     const id = `${kind}-${Date.now()}`
-    setNodes((current) => {
-      const fallbackPosition = fallbackNodePosition(current.length)
-      const nextPosition = position
-        && Number.isFinite(position.x)
-        && Number.isFinite(position.y)
-        ? position
-        : fallbackPosition
-      return [
-        ...current,
+    const fallbackPosition = fallbackNodePosition(nodes.length)
+    const nextPosition = position
+      && Number.isFinite(position.x)
+      && Number.isFinite(position.y)
+      ? position
+      : fallbackPosition
+    const nextNodes = [
+      ...nodes,
       {
         id,
         type: 'workflow',
@@ -389,9 +450,8 @@ export function Workflows() {
           status: kind === 'agent' ? 'warning' : 'idle',
         } satisfies WorkflowNodeData,
       },
-      ]
-    })
-    setFeedback('节点已添加，保存草稿后持久化')
+    ]
+    commitCanvasChange(nextNodes, edges, '节点已添加，保存草稿后持久化')
   }
 
   function startPaletteDrag(event: DragEvent<HTMLButtonElement>, kind: WorkflowNodeData['kind'], label: string) {
@@ -454,38 +514,38 @@ export function Workflows() {
 
   function removeSelectedNode() {
     if (!selectedNode) return
-    setNodes((current) => current.filter((node) => node.id !== selectedNode.id))
-    setEdges((current) => current.filter((edge) => edge.source !== selectedNode.id && edge.target !== selectedNode.id))
-    setSelectedNode(null)
+    commitCanvasChange(
+      nodes.filter((node) => node.id !== selectedNode.id),
+      edges.filter((edge) => edge.source !== selectedNode.id && edge.target !== selectedNode.id),
+    )
   }
 
   function removeSelectedEdge() {
     if (!selectedEdge) return
-    setEdges((current) => current.filter((edge) => edge.id !== selectedEdge.id))
-    setSelectedEdge(null)
-    setFeedback('连线已删除，保存草稿后持久化')
+    commitCanvasChange(
+      nodes,
+      edges.filter((edge) => edge.id !== selectedEdge.id),
+      '连线已删除，保存草稿后持久化',
+    )
   }
 
   function duplicateSelectedNode() {
     if (!selectedNode) return
-    setNodes((current) => {
-      const data = selectedNode.data as WorkflowNodeData
-      const basePosition = hasValidPosition(selectedNode)
-        ? selectedNode.position
-        : fallbackNodePosition(current.length)
-      const duplicate: Node = {
-        id: `${data.kind ?? 'node'}-copy-${Date.now()}`,
-        type: selectedNode.type ?? 'workflow',
-        position: {
-          x: basePosition.x + 40,
-          y: basePosition.y + 40,
-        },
-        data: cloneNodeData(selectedNode.data),
-      }
-      setSelectedNode(duplicate)
-      return [...current, duplicate]
-    })
-    setFeedback('节点已复制，保存草稿后持久化')
+    const data = selectedNode.data as WorkflowNodeData
+    const basePosition = hasValidPosition(selectedNode)
+      ? selectedNode.position
+      : fallbackNodePosition(nodes.length)
+    const duplicate: Node = {
+      id: `${data.kind ?? 'node'}-copy-${Date.now()}`,
+      type: selectedNode.type ?? 'workflow',
+      position: {
+        x: basePosition.x + 40,
+        y: basePosition.y + 40,
+      },
+      data: cloneNodeData(selectedNode.data),
+    }
+    commitCanvasChange([...nodes, duplicate], edges, '节点已复制，保存草稿后持久化')
+    setSelectedNode(duplicate)
   }
 
   return (
@@ -510,6 +570,8 @@ export function Workflows() {
           )}
         </div>
         <div className="studio-actions">
+          <button className="button ghost" title="撤销上一步画布编辑" disabled={undoStack.length === 0} onClick={undoCanvasChange}><Undo2 size={15} />撤销</button>
+          <button className="button ghost" title="重做刚撤销的画布编辑" disabled={redoStack.length === 0} onClick={redoCanvasChange}><Redo2 size={15} />重做</button>
           <button className="button ghost" title="新建工作流" onClick={startNewWorkflow}><FilePlus2 size={15} />新建</button>
           <button className="button ghost" title="查看版本记录" disabled={!currentId} onClick={() => setShowVersions(true)}><History size={15} />版本记录</button>
           <button
