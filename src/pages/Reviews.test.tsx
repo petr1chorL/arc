@@ -183,6 +183,10 @@ const completedRun = {
   nodes: [],
 }
 
+function currentSearchParams() {
+  return new URLSearchParams(screen.getByLabelText('current search').textContent ?? '')
+}
+
 function response(data: unknown, status = 200) {
   return Promise.resolve(new Response(JSON.stringify(data), { status }))
 }
@@ -300,6 +304,39 @@ describe('Reviews', () => {
       expect(screen.getByLabelText('current search')).toHaveTextContent('?pane=queue&taskId=task-from-link')
     })
     expect(await screen.findByText(detailFromLink.artifact.content)).toBeInTheDocument()
+  })
+
+  it('syncs review queue filters to the URL while preserving the selected task', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', vi.fn(baseFetch))
+
+    renderReviews(
+      'user-reviewer-1',
+      '/w/ai-capability-center/reviews?taskId=task-1&source=sla&taskStatus=待认领&slaStatus=即将到期',
+    )
+
+    expect(await screen.findByText(detail.artifact.content)).toBeInTheDocument()
+    expect(screen.getByLabelText('任务状态筛选')).toHaveValue('待认领')
+    expect(screen.getByLabelText('SLA 筛选')).toHaveValue('即将到期')
+
+    await user.selectOptions(screen.getByLabelText('SLA 筛选'), '全部')
+
+    await waitFor(() => {
+      expect(currentSearchParams().get('slaStatus')).toBeNull()
+    })
+    expect(currentSearchParams().get('taskId')).toBe('task-1')
+    expect(currentSearchParams().get('source')).toBe('sla')
+    expect(currentSearchParams().get('taskStatus')).toBe('待认领')
+
+    await user.selectOptions(screen.getByLabelText('任务状态筛选'), '已通过')
+
+    await waitFor(() => {
+      expect(currentSearchParams().get('taskStatus')).toBe('已通过')
+    })
+    expect(currentSearchParams().get('taskId')).toBe('task-1')
+    expect(currentSearchParams().get('source')).toBe('sla')
+    expect(currentSearchParams().get('slaStatus')).toBeNull()
+    expect(screen.getByText('当前筛选无任务')).toBeInTheDocument()
   })
 
   it('normalizes legacy mojibake SLA statuses in the queue and detail pane', async () => {

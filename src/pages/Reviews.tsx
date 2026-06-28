@@ -61,6 +61,8 @@ export function Reviews() {
   const { workspace, workspacePath } = useWorkspace()
   const [searchParams, setSearchParams] = useSearchParams()
   const requestedTaskId = searchParams.get('taskId') ?? ''
+  const requestedTaskStatus = searchParams.get('taskStatus') ?? '全部'
+  const requestedSlaStatus = searchParams.get('slaStatus') ?? '全部'
   const [tasks, setTasks] = useState<HumanTask[]>([])
   const [detail, setDetail] = useState<HumanTaskDetail | null>(null)
   const [reviewers, setReviewers] = useState<Reviewer[]>([])
@@ -68,8 +70,12 @@ export function Reviews() {
   const [candidates, setCandidates] = useState<FeedbackCandidate[]>([])
   const [runs, setRuns] = useState<ExecutionRun[]>([])
   const [selectedId, setSelectedId] = useState('')
-  const [statusFilter, setStatusFilter] = useState('全部')
-  const [slaFilter, setSlaFilter] = useState('全部')
+  const [statusFilter, setStatusFilter] = useState(() => (
+    reviewStatusOptions.includes(requestedTaskStatus) ? requestedTaskStatus : '全部'
+  ))
+  const [slaFilter, setSlaFilter] = useState(() => (
+    ['全部', '正常', '即将到期', '已逾期', '已升级'].includes(requestedSlaStatus) ? requestedSlaStatus : '全部'
+  ))
   const [mobilePane, setMobilePane] = useState<MobilePane>('queue')
   const [isEditing, setIsEditing] = useState(false)
   const [editedContent, setEditedContent] = useState('')
@@ -117,9 +123,13 @@ export function Reviews() {
       const next = new URLSearchParams(current)
       if (selectedId) next.set('taskId', selectedId)
       else next.delete('taskId')
+      if (statusFilter !== '全部') next.set('taskStatus', statusFilter)
+      else next.delete('taskStatus')
+      if (slaFilter !== '全部') next.set('slaStatus', slaFilter)
+      else next.delete('slaStatus')
       return next.toString() === current.toString() ? current : next
     }, { replace: true })
-  }, [selectedId, setSearchParams])
+  }, [selectedId, setSearchParams, slaFilter, statusFilter])
 
   useEffect(() => {
     function refreshReviewers() {
