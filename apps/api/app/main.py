@@ -3,7 +3,7 @@ from collections.abc import Callable, Iterator
 from datetime import datetime
 
 from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Query, Request, Response, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
@@ -2827,6 +2827,71 @@ def create_app(
         )
         session.commit()
         return run_response(rerun, session)
+
+    @router.post("/runs/{run_id}/resume-from-failed-node", response_model=RunRead)
+    def resume_run_from_failed_node(
+        run_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> RunRead:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "run.execute",
+            action="run.resume_failed_node",
+            target_type="run",
+            target_id=run_id,
+            request=request,
+        )
+        run = find_run(context.workspace.id, run_id, session)
+        if (
+            run.kind != "workflow"
+            or not run.workflow_id
+            or not run.workflow_version
+        ):
+            raise HTTPException(status_code=422, detail="仅支持工作流运行恢复")
+        failed_node_run = session.scalar(
+            select(NodeRunRecord)
+            .where(
+                NodeRunRecord.workspace_id == context.workspace.id,
+                NodeRunRecord.run_id == run.id,
+                or_(
+                    NodeRunRecord.status.in_(("失败", "澶辫触")),
+                    (NodeRunRecord.status == "??") & (NodeRunRecord.error != ""),
+                ),
+            )
+            .order_by(NodeRunRecord.started_at.desc(), NodeRunRecord.id.desc())
+        )
+        if failed_node_run is None:
+            raise HTTPException(status_code=409, detail="当前运行没有可恢复的失败节点")
+        try:
+            snapshot = execution_service.workflow_snapshot(session, run)
+            run.error = ""
+            resumed = execution_service.execute_workflow_from(
+                session=session,
+                run=run,
+                snapshot=snapshot,
+                start_node_id=failed_node_run.node_id,
+            )
+        except RuntimeError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from None
+        record_success(
+            session,
+            context,
+            action="run.resume_failed_node",
+            target_type="run",
+            target_id=run.id,
+            request=request,
+            metadata={
+                "runId": run.id,
+                "failedNodeRunId": failed_node_run.id,
+                "failedNodeId": failed_node_run.node_id,
+                "workflowVersion": run.workflow_version,
+            },
+        )
+        session.commit()
+        return run_response(resumed, session)
 
     @router.get("/runs/{run_id}", response_model=RunRead)
     def get_run(

@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from api_test_support import create_authenticated_client, csrf_headers, workspace_url
-from app.models import AuditEventRecord, ExecutionJobRecord, WorkflowRunRecord, utc_now
+from app.models import AuditEventRecord, ExecutionJobRecord, NodeRunRecord, WorkflowRunRecord, utc_now
 
 
 @dataclass
@@ -897,6 +897,118 @@ def test_agent_run_cannot_be_rerun_from_workflow_history_endpoint(tmp_path):
     )
 
     assert response.status_code == 422
+
+
+def test_failed_workflow_run_can_resume_from_failed_node(tmp_path):
+    gateway = FakeGateway([
+        RuntimeError("temporary-provider-outage"),
+        FakeModelResult("The failed node recovered and downstream execution completed."),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'execution.db'}",
+        model_gateway=gateway,
+    )
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(client, workspace_id, agent, version, retry_max_attempts=1)
+    source = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Resume this failed node without replaying the start node."},
+        headers=csrf_headers(client),
+    ).json()
+    assert source["status"] == "失败"
+    assert [node["nodeId"] for node in source["nodes"]] == ["start", "agent"]
+
+    response = client.post(
+        workspace_url(workspace_id, f"/runs/{source['id']}/resume-from-failed-node"),
+        headers={**csrf_headers(client), "X-Request-ID": "req-run-resume-failed-node"},
+    )
+
+    assert response.status_code == 200
+    resumed = response.json()
+    assert resumed["id"] == source["id"]
+    assert resumed["status"] == "已完成"
+    assert resumed["output"].startswith("The failed node recovered")
+    assert [node["nodeId"] for node in resumed["nodes"]] == ["start", "agent", "agent", "end"]
+    assert resumed["nodes"][1]["status"] == "失败"
+    assert resumed["nodes"][2]["status"] == "已完成"
+
+    with client.app.state.session_factory() as session:
+        event = session.scalars(
+            select(AuditEventRecord)
+            .where(
+                AuditEventRecord.action == "run.resume_failed_node",
+                AuditEventRecord.target_id == source["id"],
+                AuditEventRecord.outcome == "success",
+            )
+            .order_by(AuditEventRecord.created_at.desc()),
+        ).first()
+        assert event is not None
+        assert event.request_id == "req-run-resume-failed-node"
+        assert event.event_metadata["runId"] == source["id"]
+        assert event.event_metadata["failedNodeId"] == "agent"
+
+
+def test_failed_workflow_run_with_unknown_status_and_error_can_resume(tmp_path):
+    gateway = FakeGateway([
+        RuntimeError("temporary-provider-outage"),
+        FakeModelResult("The unknown-status failed node recovered."),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'execution.db'}",
+        model_gateway=gateway,
+    )
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(client, workspace_id, agent, version, retry_max_attempts=1)
+    source = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Resume a browser-compatible failed node."},
+        headers=csrf_headers(client),
+    ).json()
+    with client.app.state.session_factory() as session:
+        failed_node = session.scalar(
+            select(NodeRunRecord).where(
+                NodeRunRecord.run_id == source["id"],
+                NodeRunRecord.node_id == "agent",
+            ),
+        )
+        assert failed_node is not None
+        failed_node.status = "??"
+        session.commit()
+
+    response = client.post(
+        workspace_url(workspace_id, f"/runs/{source['id']}/resume-from-failed-node"),
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 200
+    resumed = response.json()
+    assert resumed["id"] == source["id"]
+    assert resumed["output"].startswith("The unknown-status failed node recovered")
+    assert [node["nodeId"] for node in resumed["nodes"]] == ["start", "agent", "agent", "end"]
+    assert resumed["nodes"][1]["status"] == "??"
+
+
+def test_completed_workflow_run_cannot_resume_without_failed_node(tmp_path):
+    gateway = FakeGateway([FakeModelResult("This workflow completed before resume was requested.")])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'execution.db'}",
+        model_gateway=gateway,
+    )
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(client, workspace_id, agent, version, retry_max_attempts=1)
+    source = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "This run succeeds."},
+        headers=csrf_headers(client),
+    ).json()
+    assert source["status"] == "已完成"
+
+    response = client.post(
+        workspace_url(workspace_id, f"/runs/{source['id']}/resume-from-failed-node"),
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 409
 
 
 def test_human_review_decision_updates_review_and_run_status(tmp_path):

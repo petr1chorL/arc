@@ -1,7 +1,7 @@
 import { Play, RefreshCw, RotateCcw, Search } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWorkspace } from '../auth/workspaceContextState'
-import { listRuns, rerunWorkflowRun } from '../api/execution'
+import { listRuns, rerunWorkflowRun, resumeRunFromFailedNode } from '../api/execution'
 import { StatusBadge } from '../components/StatusBadge'
 import { displayStatus, isWaitingForHumanReview } from '../domain/statusText'
 import type { ExecutionRun, NodeExecution } from '../types'
@@ -16,6 +16,7 @@ function formatTime(value: string) {
 }
 
 const rerunnableWorkflowStatuses = new Set(['\u6fb6\u8fab\u89e6', '\u5931\u8d25', '\u5df2\u53d6\u6d88', '\u6062\u590d\u5931\u8d25'])
+const failedWorkflowStatuses = new Set(['\u6fb6\u8fab\u89e6', '\u5931\u8d25'])
 
 function canRerunWorkflow(run: ExecutionRun) {
   const status = displayStatus(run.status)
@@ -24,6 +25,16 @@ function canRerunWorkflow(run: ExecutionRun) {
     && Boolean(run.workflowId)
     && Boolean(run.workflowVersion)
     && (rerunnableWorkflowStatuses.has(status) || (status === '??' && Boolean(run.error)))
+  )
+}
+
+function canResumeFailedNode(run: ExecutionRun) {
+  const status = displayStatus(run.status)
+  return (
+    run.kind === 'workflow'
+    && Boolean(run.workflowId)
+    && Boolean(run.workflowVersion)
+    && (failedWorkflowStatuses.has(status) || (status === '??' && Boolean(run.error)))
   )
 }
 
@@ -36,6 +47,7 @@ export function Runs() {
   const [rerunError, setRerunError] = useState('')
   const [rerunMessage, setRerunMessage] = useState('')
   const [rerunningId, setRerunningId] = useState('')
+  const [resumingId, setResumingId] = useState('')
   const [isLoading, setIsLoading] = useState(true)
 
   const load = useCallback(async () => {
@@ -85,6 +97,24 @@ export function Runs() {
       setRerunError(rerunRequestError instanceof Error ? rerunRequestError.message : '\u91cd\u65b0\u8fd0\u884c\u5931\u8d25')
     } finally {
       setRerunningId('')
+    }
+  }, [workspace.id])
+
+  const handleResumeFromFailedNode = useCallback(async (run: ExecutionRun) => {
+    setRerunError('')
+    setRerunMessage('')
+    setResumingId(run.id)
+    try {
+      const resumed = await resumeRunFromFailedNode(workspace.id, run.id)
+      setRuns((currentRuns) => currentRuns.map((currentRun) => (
+        currentRun.id === resumed.id ? resumed : currentRun
+      )))
+      setSelectedId(resumed.id)
+      setRerunMessage('\u5df2\u4ece\u5931\u8d25\u70b9\u6062\u590d')
+    } catch (resumeRequestError) {
+      setRerunError(resumeRequestError instanceof Error ? resumeRequestError.message : '\u5931\u8d25\u70b9\u6062\u590d\u5931\u8d25')
+    } finally {
+      setResumingId('')
     }
   }, [workspace.id])
 
@@ -145,6 +175,16 @@ export function Runs() {
             <p>{formatTime(selected.startedAt)} 启动 · {selected.kind === 'agent' ? 'Agent 测试运行' : `工作流 ${selected.workflowVersion}`}</p>
           </div>
           <div className="run-actions">
+            {canResumeFailedNode(selected) && (
+              <button
+                className="button secondary compact"
+                disabled={resumingId === selected.id}
+                onClick={() => void handleResumeFromFailedNode(selected)}
+              >
+                <Play size={15} />
+                {resumingId === selected.id ? '\u6062\u590d\u4e2d' : '\u4ece\u5931\u8d25\u70b9\u6062\u590d'}
+              </button>
+            )}
             {canRerunWorkflow(selected) && (
               <button
                 className="button secondary compact"

@@ -41,6 +41,12 @@ export async function rerunWorkflowRun(workspaceId: string, runId: string): Prom
   }))
 }
 
+export async function resumeRunFromFailedNode(workspaceId: string, runId: string): Promise<ExecutionRun> {
+  return readJson<ExecutionRun>(await apiFetch(workspacePath(workspaceId, `/runs/${runId}/resume-from-failed-node`), {
+    ...jsonRequest,
+  }))
+}
+
 export async function listExecutionJobs(workspaceId: string, status?: string): Promise<ExecutionJob[]> {
   const params = new URLSearchParams()
   if (status) params.set('status', status)

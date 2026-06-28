@@ -7,6 +7,7 @@ import {
   listReviews,
   listRuns,
   requeueExecutionJob,
+  resumeRunFromFailedNode,
   rerunWorkflowRun,
   runAgent,
   runWorkflow,
@@ -117,6 +118,30 @@ describe('Execution API', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/workspaces/workspace-1/runs/run-1/rerun',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'same-origin',
+      }),
+    )
+  })
+
+  it('resumes a workflow run from its failed node', async () => {
+    const resumed = {
+      ...run,
+      id: 'run-1',
+      kind: 'workflow',
+      workflowId: 'workflow-1',
+      workflowVersion: 'v1.0.0',
+      status: '已完成',
+      output: '从失败点恢复后的结果。',
+    }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(resumed), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(resumeRunFromFailedNode(workspaceId, 'run-1')).resolves.toEqual(resumed)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/workspaces/workspace-1/runs/run-1/resume-from-failed-node',
       expect.objectContaining({
         method: 'POST',
         credentials: 'same-origin',

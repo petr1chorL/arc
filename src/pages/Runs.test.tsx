@@ -145,4 +145,52 @@ describe('Runs', () => {
       expect.objectContaining({ method: 'POST' }),
     )
   })
+
+  it('resumes a failed workflow run from the failed node', async () => {
+    const user = userEvent.setup()
+    const failedRun = {
+      ...run,
+      id: 'run-failed',
+      status: '失败',
+      output: '',
+      error: 'Agent 执行失败，请稍后重试',
+    }
+    const resumed = {
+      ...failedRun,
+      status: '已完成',
+      output: '从失败点恢复后的结果。',
+      error: '',
+      nodes: [
+        ...run.nodes,
+        { ...run.nodes[0], id: 'node-recovered', output: '从失败点恢复后的结果。' },
+      ],
+    }
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
+      if (url === `/api/workspaces/${workspace.id}/runs`) {
+        return Promise.resolve(new Response(JSON.stringify([failedRun]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/runs/run-failed/resume-from-failed-node`) {
+        return Promise.resolve(new Response(JSON.stringify(resumed), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify({ detail: 'not found' }), { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <WorkspaceProvider workspace={workspace}>
+        <Runs />
+      </WorkspaceProvider>,
+    )
+
+    expect(await screen.findByText('Agent 执行失败，请稍后重试')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '从失败点恢复' }))
+
+    expect(await screen.findByText('已从失败点恢复')).toBeInTheDocument()
+    expect(screen.getAllByText('从失败点恢复后的结果。')).toHaveLength(2)
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/workspaces/${workspace.id}/runs/run-failed/resume-from-failed-node`,
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
 })
