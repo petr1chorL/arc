@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AuthContext, type AuthContextValue } from '../auth/authContext'
 import { WorkspaceProvider } from '../auth/WorkspaceContext'
@@ -225,6 +225,11 @@ function mojibakeSlaFetch(url: string, init?: RequestInit) {
   return response({ detail: 'Not Found' }, 404)
 }
 
+function LocationProbe() {
+  const location = useLocation()
+  return <output aria-label="current search">{location.search}</output>
+}
+
 function renderReviews(userId = 'user-reviewer-1', initialPath = '/w/ai-capability-center/reviews') {
   const authValue: AuthContextValue = {
     user: {
@@ -244,6 +249,7 @@ function renderReviews(userId = 'user-reviewer-1', initialPath = '/w/ai-capabili
       <AuthContext.Provider value={authValue}>
         <WorkspaceProvider workspace={workspace}>
           <Reviews />
+          <LocationProbe />
         </WorkspaceProvider>
       </AuthContext.Provider>
     </MemoryRouter>,
@@ -279,6 +285,21 @@ describe('Reviews', () => {
 
     expect(await screen.findByText(detailFromLink.artifact.content)).toBeInTheDocument()
     expect(screen.getByText('从 SLA 风险进入的任务')).toBeInTheDocument()
+  })
+
+  it('syncs the selected human task to the URL while preserving existing query params', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', vi.fn(baseFetch))
+
+    renderReviews('user-reviewer-1', '/w/ai-capability-center/reviews?pane=queue')
+
+    expect(await screen.findByText(detail.artifact.content)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /从 SLA 风险进入的任务/ }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('current search')).toHaveTextContent('?pane=queue&taskId=task-from-link')
+    })
+    expect(await screen.findByText(detailFromLink.artifact.content)).toBeInTheDocument()
   })
 
   it('normalizes legacy mojibake SLA statuses in the queue and detail pane', async () => {

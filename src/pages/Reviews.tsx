@@ -59,7 +59,7 @@ function formatTime(value: string) {
 export function Reviews() {
   const { user } = useAuth()
   const { workspace, workspacePath } = useWorkspace()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const requestedTaskId = searchParams.get('taskId') ?? ''
   const [tasks, setTasks] = useState<HumanTask[]>([])
   const [detail, setDetail] = useState<HumanTaskDetail | null>(null)
@@ -111,6 +111,15 @@ export function Reviews() {
   useEffect(() => {
     void loadWorkspace()
   }, [loadWorkspace])
+
+  useEffect(() => {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current)
+      if (selectedId) next.set('taskId', selectedId)
+      else next.delete('taskId')
+      return next.toString() === current.toString() ? current : next
+    }, { replace: true })
+  }, [selectedId, setSearchParams])
 
   useEffect(() => {
     function refreshReviewers() {
