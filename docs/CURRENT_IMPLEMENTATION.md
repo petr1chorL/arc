@@ -1392,3 +1392,11 @@ API 新增 `GET /api/workspaces/{workspaceId}/data-objects`、`POST /api/workspa
 本版本只建立 Data Object 定义资产和发布快照，不提供前端页面，不绑定工作流节点，不把运行 Artifact 改为 Data Object 实例，也不实现停用、影响面、审计面板或完整 JSON Schema 语义校验。验收记录见 `docs/ACCEPTANCE_V0.25A.md`。
 
 ---
+
+## V0.25B Data Object Definition 草稿编辑
+
+Data Object Definition 新增草稿编辑 API：`PATCH /api/workspaces/{workspaceId}/data-objects/{definitionId}`。接口支持更新名称、描述和 JSON Schema；重命名时继续执行 Workspace 内唯一性校验，冲突返回 `409`；更新成功后刷新 `updatedAt` 并写入审计事件。
+
+已发布 Data Object Version 的 `snapshot` 不会被后续编辑改写。编辑 Definition 后再次发布会生成新的版本号，例如 `v1.1.0`，新版本快照反映更新后的名称与 Schema，旧版本快照保持原样。验收记录见 `docs/ACCEPTANCE_V0.25B.md`。
+
+---

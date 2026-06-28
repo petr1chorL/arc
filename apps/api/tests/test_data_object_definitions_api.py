@@ -109,3 +109,64 @@ def test_data_object_publish_freezes_snapshot(tmp_path):
     assert version["snapshot"]["schema"]["required"] == ["asin", "summary"]
     assert republished.json()["version"] == "v1.1.0"
     assert republished.json()["snapshot"]["name"] == "Updated Product Brief"
+
+
+def test_data_object_definition_can_be_updated_and_republished(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'data-objects-update.db'}",
+    )
+    definition = create_data_object(client, workspace_id)
+    first_version = client.post(
+        workspace_url(workspace_id, f"/data-objects/{definition['id']}/publish"),
+        headers=csrf_headers(client),
+    ).json()
+
+    update_response = client.patch(
+        workspace_url(workspace_id, f"/data-objects/{definition['id']}"),
+        json={
+            "name": "Updated Product Brief",
+            "description": "Updated schema for downstream workflows.",
+            "schema": {
+                "type": "object",
+                "required": ["asin", "score"],
+                "properties": {
+                    "asin": {"type": "string"},
+                    "score": {"type": "number"},
+                },
+            },
+        },
+        headers=csrf_headers(client),
+    )
+
+    assert update_response.status_code == 200
+    updated = update_response.json()
+    assert updated["name"] == "Updated Product Brief"
+    assert updated["description"] == "Updated schema for downstream workflows."
+    assert updated["schema"]["required"] == ["asin", "score"]
+    assert updated["updatedAt"] != definition["updatedAt"]
+
+    second_version = client.post(
+        workspace_url(workspace_id, f"/data-objects/{definition['id']}/publish"),
+        headers=csrf_headers(client),
+    ).json()
+    assert first_version["snapshot"]["name"] == "Product Brief"
+    assert first_version["snapshot"]["schema"]["required"] == ["asin", "summary"]
+    assert second_version["version"] == "v1.1.0"
+    assert second_version["snapshot"]["name"] == "Updated Product Brief"
+    assert second_version["snapshot"]["schema"]["required"] == ["asin", "score"]
+
+
+def test_data_object_definition_update_rejects_duplicate_name(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'data-objects-update-duplicate.db'}",
+    )
+    first = create_data_object(client, workspace_id, name="Product Brief")
+    second = create_data_object(client, workspace_id, name="User Insight")
+
+    duplicate = client.patch(
+        workspace_url(workspace_id, f"/data-objects/{second['id']}"),
+        json={"name": first["name"]},
+        headers=csrf_headers(client),
+    )
+
+    assert duplicate.status_code == 409

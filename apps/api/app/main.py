@@ -65,6 +65,7 @@ from app.schemas import (
     AgentUpdate,
     DataObjectDefinitionCreate,
     DataObjectDefinitionRead,
+    DataObjectDefinitionUpdate,
     DataObjectVersionRead,
     EvaluationRecordRead,
     EvaluationOverviewRead,
@@ -1616,6 +1617,58 @@ def create_app(
         session.commit()
         session.refresh(record)
         return record
+
+    @router.patch("/data-objects/{definition_id}", response_model=DataObjectDefinitionRead)
+    def update_data_object_definition(
+        definition_id: str,
+        payload: DataObjectDefinitionUpdate,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> DataObjectDefinitionRecord:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "agent.write",
+            action="data_object_definition.update",
+            target_type="data_object_definition",
+            target_id=definition_id,
+            request=request,
+        )
+        definition = find_data_object_definition(
+            session,
+            workspace_id=context.workspace.id,
+            definition_id=definition_id,
+        )
+        if payload.name is not None and payload.name != definition.name:
+            existing = session.scalar(
+                select(DataObjectDefinitionRecord).where(
+                    DataObjectDefinitionRecord.workspace_id == context.workspace.id,
+                    DataObjectDefinitionRecord.name == payload.name,
+                    DataObjectDefinitionRecord.id != definition.id,
+                ),
+            )
+            if existing is not None:
+                raise HTTPException(status_code=409, detail="Data Object definition name already exists")
+            definition.name = payload.name
+        if payload.description is not None:
+            definition.description = payload.description
+        if payload.object_schema is not None:
+            definition.object_schema = payload.object_schema
+        definition.updated_at = utc_now()
+        session.add(definition)
+        session.flush()
+        record_success(
+            session,
+            context,
+            action="data_object_definition.update",
+            target_type="data_object_definition",
+            target_id=definition.id,
+            request=request,
+        )
+        session.commit()
+        session.refresh(definition)
+        return definition
 
     @router.post(
         "/data-objects/{definition_id}/publish",

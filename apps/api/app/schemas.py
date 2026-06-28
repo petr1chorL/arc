@@ -380,6 +380,33 @@ class DataObjectDefinitionCreate(BaseModel):
         return value
 
 
+class DataObjectDefinitionUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=2000)
+    object_schema: dict | None = Field(default=None, alias="schema")
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    @field_validator("name")
+    @classmethod
+    def reject_blank_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("name cannot be blank")
+        return normalized
+
+    @field_validator("object_schema")
+    @classmethod
+    def require_schema_object(cls, value: dict | None) -> dict | None:
+        if value is None:
+            return value
+        if not isinstance(value, dict) or isinstance(value, list):
+            raise ValueError("schema must be a JSON object")
+        return value
+
+
 class DataObjectDefinitionRead(BaseModel):
     id: str
     name: str
