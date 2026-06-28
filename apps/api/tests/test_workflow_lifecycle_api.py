@@ -148,6 +148,55 @@ def test_workflow_draft_persists_io_schema_and_freezes_it_in_versions(tmp_path):
     assert snapshot["outputSchema"] == updated_output_schema
 
 
+def test_workflow_edges_preserve_field_mappings_in_draft_and_versions(tmp_path):
+    client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'workflow-edge-mapping.db'}")
+    agent_id, agent_version = published_agent(client, workspace_id)
+    graph = valid_graph(agent_id, agent_version)
+    graph["edges"][0]["data"] = {
+        "mappings": [
+            {"sourcePath": "$.asin", "targetPath": "$.input.asin"},
+            {"sourcePath": "$.market", "targetPath": "$.input.market"},
+        ],
+    }
+
+    workflow = client.post(
+        workspace_url(workspace_id, "/workflows"),
+        json={"name": "Mapped Workflow", **graph},
+        headers=csrf_headers(client),
+    )
+
+    assert workflow.status_code == 201
+    created = workflow.json()
+    assert created["edges"][0]["data"]["mappings"][0] == {
+        "sourcePath": "$.asin",
+        "targetPath": "$.input.asin",
+    }
+
+    graph["edges"][0]["data"]["mappings"] = [
+        {"sourcePath": "$.summary", "targetPath": "$.review.summary"},
+    ]
+    updated = client.patch(
+        workspace_url(workspace_id, f"/workflows/{created['id']}"),
+        json={"name": "Mapped Workflow", **graph},
+        headers=csrf_headers(client),
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["edges"][0]["data"]["mappings"] == [
+        {"sourcePath": "$.summary", "targetPath": "$.review.summary"},
+    ]
+
+    published = client.post(
+        workspace_url(workspace_id, f"/workflows/{created['id']}/publish"),
+        headers=csrf_headers(client),
+    )
+
+    assert published.status_code == 201
+    assert published.json()["snapshot"]["edges"][0]["data"]["mappings"] == [
+        {"sourcePath": "$.summary", "targetPath": "$.review.summary"},
+    ]
+
+
 def test_workflow_publish_rejects_cycles_and_unpublished_agent_references(tmp_path):
     client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'workflows.db'}")
     graph = {

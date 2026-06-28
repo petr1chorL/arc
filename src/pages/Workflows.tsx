@@ -145,6 +145,11 @@ interface CanvasSnapshot {
   edges: Edge[]
 }
 
+interface EdgeFieldMapping {
+  sourcePath: string
+  targetPath: string
+}
+
 type PendingWorkflowNavigation =
   | { kind: 'new' }
   | { kind: 'activate'; workflowId: string }
@@ -194,6 +199,42 @@ function parseWorkflowSchema(label: string, text: string) {
   } catch {
     return { error: `${label} 必须是合法 JSON` }
   }
+}
+
+function getEdgeFieldMappings(edge: Edge): EdgeFieldMapping[] {
+  const mappings = edge.data?.mappings
+  if (!Array.isArray(mappings)) return []
+  return mappings.map((mapping) => {
+    if (!mapping || typeof mapping !== 'object') {
+      return { sourcePath: '', targetPath: '' }
+    }
+    const candidate = mapping as Record<string, unknown>
+    return {
+      sourcePath: typeof candidate.sourcePath === 'string' ? candidate.sourcePath : '',
+      targetPath: typeof candidate.targetPath === 'string' ? candidate.targetPath : '',
+    }
+  })
+}
+
+function withEdgeFieldMappings(edge: Edge, mappings: EdgeFieldMapping[]): Edge {
+  return {
+    ...edge,
+    data: {
+      ...(edge.data ?? {}),
+      mappings,
+    },
+  }
+}
+
+function collectEdgeMappingErrors(edges: Edge[]) {
+  return edges.flatMap((edge) => getEdgeFieldMappings(edge).flatMap((mapping, index) => {
+    const sourcePath = mapping.sourcePath.trim()
+    const targetPath = mapping.targetPath.trim()
+    if (!sourcePath || !targetPath) {
+      return [`连线 ${edge.id} 的第 ${index + 1} 条映射必须同时填写上游字段和下游字段`]
+    }
+    return []
+  }))
 }
 
 function createDraftSignature(
@@ -409,8 +450,10 @@ export function Workflows() {
       const parsedInputSchema = parseWorkflowSchema('工作流输入 Schema', inputSchemaText)
       const parsedOutputSchema = parseWorkflowSchema('工作流输出 Schema', outputSchemaText)
       const schemaErrors = [parsedInputSchema.error, parsedOutputSchema.error].filter(Boolean) as string[]
-      if (schemaErrors.length > 0 || !parsedInputSchema.value || !parsedOutputSchema.value) {
-        setErrors(schemaErrors)
+      const edgeMappingErrors = collectEdgeMappingErrors(edges)
+      const validationErrors = [...schemaErrors, ...edgeMappingErrors]
+      if (validationErrors.length > 0 || !parsedInputSchema.value || !parsedOutputSchema.value) {
+        setErrors(validationErrors)
         return null
       }
       const graph = toContractGraph(renderedNodes, edges)
@@ -657,6 +700,15 @@ export function Workflows() {
     )
   }
 
+  function updateSelectedEdgeMappings(nextMappings: EdgeFieldMapping[]) {
+    if (!selectedEdge) return
+    const applyMappings = (edge: Edge) => (
+      edge.id === selectedEdge.id ? withEdgeFieldMappings(edge, nextMappings) : edge
+    )
+    setEdges((current) => current.map(applyMappings))
+    setSelectedEdge((current) => current ? withEdgeFieldMappings(current, nextMappings) : current)
+  }
+
   function confirmKeyboardNodeDelete() {
     if (!keyboardDeleteNode) return
     const nodeId = keyboardDeleteNode.id
@@ -847,6 +899,7 @@ export function Workflows() {
             nodes={renderedNodes}
             onClose={() => setSelectedEdge(null)}
             onDelete={removeSelectedEdge}
+            onUpdateMappings={updateSelectedEdgeMappings}
           />
         )}
       </div>
@@ -1221,11 +1274,13 @@ function EdgeInspector({
   nodes,
   onClose,
   onDelete,
+  onUpdateMappings,
 }: {
   edge: Edge
   nodes: Node[]
   onClose: () => void
   onDelete: () => void
+  onUpdateMappings: (mappings: EdgeFieldMapping[]) => void
 }) {
   const sourceNode = nodes.find((node) => node.id === edge.source)
   const targetNode = nodes.find((node) => node.id === edge.target)
@@ -1233,6 +1288,13 @@ function EdgeInspector({
   const targetData = targetNode?.data as WorkflowNodeData | undefined
   const sourceLabel = sourceData?.label ?? edge.source
   const targetLabel = targetData?.label ?? edge.target
+  const mappings = getEdgeFieldMappings(edge)
+
+  function updateMapping(index: number, key: keyof EdgeFieldMapping, value: string) {
+    onUpdateMappings(mappings.map((mapping, mappingIndex) => (
+      mappingIndex === index ? { ...mapping, [key]: value } : mapping
+    )))
+  }
 
   return (
     <aside className="node-inspector edge-inspector">
@@ -1251,6 +1313,47 @@ function EdgeInspector({
       <div className="inspector-section">
         <div><span>持久化状态</span><strong>随草稿保存</strong></div>
         <div><span>删除影响</span><strong>仅移除当前连线</strong></div>
+      </div>
+      <div className="inspector-section edge-mapping-section">
+        <div>
+          <span>字段映射</span>
+          <strong>{mappings.length} 条</strong>
+        </div>
+        {mappings.length === 0 && <p className="inspector-help">尚未配置字段映射。</p>}
+        {mappings.map((mapping, index) => (
+          <div className="edge-mapping-row" key={`mapping-${index + 1}`}>
+            <label className="form-field">
+              <span>{`上游字段 ${index + 1}`}</span>
+              <input
+                aria-label={`上游字段 ${index + 1}`}
+                value={mapping.sourcePath}
+                onChange={(event) => updateMapping(index, 'sourcePath', event.target.value)}
+                placeholder="$.source.field"
+              />
+            </label>
+            <label className="form-field">
+              <span>{`下游字段 ${index + 1}`}</span>
+              <input
+                aria-label={`下游字段 ${index + 1}`}
+                value={mapping.targetPath}
+                onChange={(event) => updateMapping(index, 'targetPath', event.target.value)}
+                placeholder="$.target.field"
+              />
+            </label>
+            <button
+              className="button ghost full"
+              onClick={() => onUpdateMappings(mappings.filter((_, mappingIndex) => mappingIndex !== index))}
+            >
+              删除映射
+            </button>
+          </div>
+        ))}
+        <button
+          className="button secondary full"
+          onClick={() => onUpdateMappings([...mappings, { sourcePath: '', targetPath: '' }])}
+        >
+          <Plus size={14} />新增映射
+        </button>
       </div>
       <button className="button danger full" onClick={onDelete}><Trash2 size={14} />删除连线</button>
     </aside>

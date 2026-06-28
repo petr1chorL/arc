@@ -619,6 +619,7 @@ class WorkflowEdge(BaseModel):
     source: str
     target: str
     label: str | None = None
+    data: dict | None = None
 
 
 def default_workflow_schema() -> dict:

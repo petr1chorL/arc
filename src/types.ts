@@ -328,6 +328,7 @@ export interface WorkflowEdgeContract {
   source: string
   target: string
   label?: string
+  data?: Record<string, unknown>
 }
 
 export interface WorkflowDraft {
