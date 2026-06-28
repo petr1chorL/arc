@@ -254,6 +254,14 @@ export interface DataObjectVersion {
   createdAt: string
 }
 
+export interface DataObjectNodeRef {
+  definitionId: string
+  name: string
+  version: string
+  status: string
+  schemaSummary: string
+}
+
 export interface WorkspaceAuditEvent {
   id: string
   action: string

@@ -487,6 +487,100 @@ describe('Workflows', () => {
     }))
   })
 
+  it('binds data objects to a workflow node and saves the refs with the draft', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const dataObjects = [
+      {
+        id: 'data-object-input',
+        name: 'Product Research Input',
+        description: '节点输入契约',
+        schema: {
+          type: 'object',
+          required: ['asin'],
+          properties: { asin: { type: 'string' } },
+        },
+        status: 'published',
+        version: 'v1.0.0',
+        createdBy: 'user-1',
+        createdAt: '2026-06-28T09:00:00Z',
+        updatedAt: '2026-06-28T09:00:00Z',
+      },
+      {
+        id: 'data-object-output',
+        name: 'Review Decision Output',
+        description: '节点输出契约',
+        schema: {
+          type: 'object',
+          required: ['decision'],
+          properties: { decision: { type: 'string' } },
+        },
+        status: 'draft',
+        version: 'unpublished',
+        createdBy: 'user-1',
+        createdAt: '2026-06-28T09:30:00Z',
+        updatedAt: '2026-06-28T09:30:00Z',
+      },
+    ]
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === `/api/workspaces/${workspace.id}/workflows` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([workflow]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/agents` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (
+        url === `/api/workspaces/${workspace.id}/reviewers`
+        || url === `/api/workspaces/${workspace.id}/review-groups`
+      ) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/data-objects` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify(dataObjects), { status: 200 }))
+      }
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/workflows/workflow-1` && init?.method === 'PATCH') {
+        return Promise.resolve(new Response(JSON.stringify(workflow), { status: 200 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWorkflows()
+
+    await user.click(await screen.findByTestId('flow-node-human-1'))
+    await user.selectOptions(screen.getByLabelText('输入 Data Object'), 'data-object-input')
+    await user.selectOptions(screen.getByLabelText('输出 Data Object'), 'data-object-output')
+    expect(screen.getByText('Product Research Input · v1.0.0 · published · required: asin')).toBeInTheDocument()
+    expect(screen.getByText('Review Decision Output · unpublished · draft · required: decision')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '保存草稿' }))
+
+    const patchCall = fetchMock.mock.calls.find(([url, init]) => (
+      url === `/api/workspaces/${workspace.id}/workflows/workflow-1` && init?.method === 'PATCH'
+    ))
+    const body = JSON.parse(patchCall?.[1]?.body as string)
+    expect(body.nodes[0].data.inputDataObjectRef).toEqual({
+      definitionId: 'data-object-input',
+      name: 'Product Research Input',
+      version: 'v1.0.0',
+      status: 'published',
+      schemaSummary: 'required: asin',
+    })
+    expect(body.nodes[0].data.outputDataObjectRef).toEqual({
+      definitionId: 'data-object-output',
+      name: 'Review Decision Output',
+      version: 'unpublished',
+      status: 'draft',
+      schemaSummary: 'required: decision',
+    })
+  })
+
   it('edits workflow input and output schemas and saves them with the draft', async () => {
     const user = userEvent.setup()
     vi.stubGlobal('ResizeObserver', class {

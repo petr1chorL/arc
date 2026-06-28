@@ -1410,3 +1410,13 @@ Data Object Definition 已新增第一版前端资产入口：`/w/:workspaceSlug
 本版本只提供 Data Object 资产管理入口，不绑定工作流节点，不展示版本历史，不提供停用/删除/影响面分析，也不把运行 Artifact 实例改造成 Data Object 实例。验收记录见 `docs/ACCEPTANCE_V0.25C.md`。
 
 ---
+
+## V0.25D 工作流节点绑定 Data Object
+
+工作流编排页已接入第一版节点级 Data Object 契约绑定。页面加载当前 Workspace 的 Data Object Definitions 后，会在节点配置面板展示 `Data Object 契约` 区域；用户可分别为当前节点选择输入 Data Object 和输出 Data Object。选择后，面板会展示 Definition 名称、版本、状态和 Schema 摘要，帮助构建者理解节点与结构化数据对象之间的契约关系。
+
+绑定结果保存在节点 `data.inputDataObjectRef` 和 `data.outputDataObjectRef` 中，包含 Definition ID、名称、版本、状态和 Schema 摘要。由于工作流草稿与发布快照已经持久化节点 `data`，本版本不新增后端字段或接口；保存草稿和后续发布时，绑定信息会随既有节点快照进入工作流定义。
+
+本版本只声明节点契约，不改变运行时 Artifact 实例化，不改变连线字段映射引擎，不强制发布工作流时必须绑定已发布 Data Object，也不提供 Data Object 版本历史选择或可视化 Schema Builder。验收记录见 `docs/ACCEPTANCE_V0.25D.md`。
+
+---

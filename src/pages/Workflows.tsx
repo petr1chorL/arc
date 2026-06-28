@@ -52,11 +52,14 @@ import {
 } from '../api/workflows'
 import { runWorkflow } from '../api/execution'
 import { listReviewers, listReviewGroups } from '../api/humanTasks'
+import { listDataObjectDefinitions } from '../api/dataObjects'
 import { WorkflowNode, type WorkflowNodeData } from '../components/WorkflowNode'
 import { fromContractGraph, toContractGraph } from '../domain/workflows'
 import { displayStatus, isWaitingForHumanReview } from '../domain/statusText'
 import type {
   AgentVersion,
+  DataObjectDefinition,
+  DataObjectNodeRef,
   ExecutionRun,
   Reviewer,
   ReviewGroup,
@@ -291,6 +294,26 @@ function getRunFormTextValue(value: string | boolean | undefined) {
   return typeof value === 'string' ? value : ''
 }
 
+function getDataObjectSchemaSummary(schema: Record<string, unknown>) {
+  const required = Array.isArray(schema.required)
+    ? schema.required.filter((item): item is string => typeof item === 'string')
+    : []
+  const properties = isRecord(schema.properties) ? Object.keys(schema.properties) : []
+  if (required.length > 0) return `required: ${required.join(', ')}`
+  if (properties.length > 0) return `fields: ${properties.slice(0, 6).join(', ')}`
+  return 'object schema'
+}
+
+function toDataObjectNodeRef(definition: DataObjectDefinition): DataObjectNodeRef {
+  return {
+    definitionId: definition.id,
+    name: definition.name,
+    version: definition.version,
+    status: definition.status,
+    schemaSummary: getDataObjectSchemaSummary(definition.schema),
+  }
+}
+
 function getEdgeFieldMappings(edge: Edge): EdgeFieldMapping[] {
   const mappings = edge.data?.mappings
   if (!Array.isArray(mappings)) return []
@@ -353,6 +376,7 @@ export function Workflows() {
   const [selectedNode, setSelectedNode] = useState<Node | null>(null)
   const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null)
   const [agentOptions, setAgentOptions] = useState<PublishedAgentOption[]>([])
+  const [dataObjects, setDataObjects] = useState<DataObjectDefinition[]>([])
   const [reviewers, setReviewers] = useState<Reviewer[]>([])
   const [reviewGroups, setReviewGroups] = useState<ReviewGroup[]>([])
   const [versions, setVersions] = useState<WorkflowVersion[]>([])
@@ -496,6 +520,8 @@ export function Workflows() {
         listReviewers(workspace.id).catch(() => []),
         listReviewGroups(workspace.id).catch(() => []),
       ])
+      const definitions = await listDataObjectDefinitions(workspace.id).catch(() => [])
+      setDataObjects(definitions)
       setReviewers(directoryReviewers)
       setReviewGroups(directoryGroups)
       setWorkflows(savedWorkflows)
@@ -991,6 +1017,7 @@ export function Workflows() {
           <NodeInspector
             node={selectedNode}
             agentOptions={agentOptions}
+            dataObjects={dataObjects}
             reviewers={reviewers}
             reviewGroups={reviewGroups}
             edgeImpact={selectedNodeEdgeImpact}
@@ -1166,6 +1193,7 @@ export function Workflows() {
 function NodeInspector({
   node,
   agentOptions,
+  dataObjects,
   reviewers,
   reviewGroups,
   edgeImpact,
@@ -1176,6 +1204,7 @@ function NodeInspector({
 }: {
   node: Node
   agentOptions: PublishedAgentOption[]
+  dataObjects: DataObjectDefinition[]
   reviewers: Reviewer[]
   reviewGroups: ReviewGroup[]
   edgeImpact: NodeEdgeImpact
@@ -1196,11 +1225,19 @@ function NodeInspector({
     dueMinutes?: number
     escalationMinutes?: number
     escalationGroupId?: string
+    inputDataObjectRef?: DataObjectNodeRef
+    outputDataObjectRef?: DataObjectNodeRef
   }
   const selectedAgent = data.agentId && data.agentVersion ? `${data.agentId}|${data.agentVersion}` : ''
+  const dataObjectOptions = useMemo(() => dataObjects, [dataObjects])
   const isAgent = data.kind === 'agent'
   const isHuman = data.kind === 'human'
   const optionsByAgent = useMemo(() => agentOptions, [agentOptions])
+
+  function bindDataObjectRef(field: 'inputDataObjectRef' | 'outputDataObjectRef', definitionId: string) {
+    const definition = dataObjectOptions.find((item) => item.id === definitionId)
+    onUpdate({ [field]: definition ? toDataObjectNodeRef(definition) : undefined })
+  }
 
   useEffect(() => {
     setIsConfirmingDelete(false)
@@ -1387,6 +1424,62 @@ function NodeInspector({
           </div>
         </>
       )}
+      <div className="inspector-group">
+        <span className="inspector-group-title">Data Object 契约</span>
+        <label className="form-field">
+          <span>输入 Data Object</span>
+          <select
+            aria-label="输入 Data Object"
+            value={data.inputDataObjectRef?.definitionId ?? ''}
+            onChange={(event) => bindDataObjectRef('inputDataObjectRef', event.target.value)}
+          >
+            <option value="">暂不绑定输入契约</option>
+            {dataObjectOptions.map((definition) => (
+              <option value={definition.id} key={definition.id}>
+                {definition.name} · {definition.version} · {definition.status}
+              </option>
+            ))}
+          </select>
+          {data.inputDataObjectRef && (
+            <small>
+              {data.inputDataObjectRef.name} · {data.inputDataObjectRef.version} · {data.inputDataObjectRef.status} · {data.inputDataObjectRef.schemaSummary}
+            </small>
+          )}
+        </label>
+        <label className="form-field">
+          <span>输出 Data Object</span>
+          <select
+            aria-label="输出 Data Object"
+            value={data.outputDataObjectRef?.definitionId ?? ''}
+            onChange={(event) => bindDataObjectRef('outputDataObjectRef', event.target.value)}
+          >
+            <option value="">暂不绑定输出契约</option>
+            {dataObjectOptions.map((definition) => (
+              <option value={definition.id} key={definition.id}>
+                {definition.name} · {definition.version} · {definition.status}
+              </option>
+            ))}
+          </select>
+          {data.outputDataObjectRef && (
+            <small>
+              {data.outputDataObjectRef.name} · {data.outputDataObjectRef.version} · {data.outputDataObjectRef.status} · {data.outputDataObjectRef.schemaSummary}
+            </small>
+          )}
+        </label>
+        {dataObjectOptions.length === 0 && (
+          <small>当前 Workspace 还没有 Data Object，请先到 Data Object 资产页创建。</small>
+        )}
+        {(data.inputDataObjectRef || data.outputDataObjectRef) && (
+          <div className="inspector-section compact" aria-label="Data Object 绑定摘要">
+            {data.inputDataObjectRef && (
+              <div><span>输入契约</span><strong>{data.inputDataObjectRef.schemaSummary}</strong></div>
+            )}
+            {data.outputDataObjectRef && (
+              <div><span>输出契约</span><strong>{data.outputDataObjectRef.schemaSummary}</strong></div>
+            )}
+          </div>
+        )}
+      </div>
       <label className="form-field"><span>节点说明</span><input value={data.subtitle} onChange={(event) => onUpdate({ subtitle: event.target.value })} /></label>
       <div className="inspector-section">
         <div><span>节点类型</span><strong>{data.kind}</strong></div>
