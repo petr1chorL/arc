@@ -1098,6 +1098,82 @@ def test_failed_workflow_run_can_resume_from_failed_node(tmp_path):
         assert event.event_metadata["failedNodeId"] == "agent"
 
 
+def test_workflow_runs_can_batch_resume_from_failed_nodes_with_per_item_failures(tmp_path):
+    gateway = FakeGateway([
+        RuntimeError("first-provider-outage"),
+        RuntimeError("second-provider-outage"),
+        FakeModelResult("This workflow already completed."),
+        FakeModelResult("First batch resume recovered."),
+        FakeModelResult("Second batch resume recovered."),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'execution.db'}",
+        model_gateway=gateway,
+    )
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(client, workspace_id, agent, version, retry_max_attempts=1)
+    first_source = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "First batch resume input"},
+        headers=csrf_headers(client),
+    ).json()
+    second_source = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Second batch resume input"},
+        headers=csrf_headers(client),
+    ).json()
+    completed_source = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Completed source cannot be resumed"},
+        headers=csrf_headers(client),
+    ).json()
+
+    response = client.post(
+        workspace_url(workspace_id, "/runs/batch-resume-from-failed-node"),
+        json={"runIds": [first_source["id"], completed_source["id"], second_source["id"]]},
+        headers={
+            **csrf_headers(client),
+            "x-request-id": "req-run-batch-resume",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [run["id"] for run in payload["resumedRuns"]] == [
+        first_source["id"],
+        second_source["id"],
+    ]
+    assert [run["output"] for run in payload["resumedRuns"]] == [
+        "First batch resume recovered.",
+        "Second batch resume recovered.",
+    ]
+    assert payload["failures"] == [
+        {
+            "sourceRunId": completed_source["id"],
+            "reason": "Run has no resumable failed node",
+        },
+    ]
+    assert [node["nodeId"] for node in payload["resumedRuns"][0]["nodes"]] == [
+        "start",
+        "agent",
+        "agent",
+        "end",
+    ]
+    with client.app.state.session_factory() as session:
+        events = list(session.scalars(
+            select(AuditEventRecord)
+            .where(AuditEventRecord.action == "run.batch_resume_failed_node")
+            .order_by(AuditEventRecord.created_at.asc()),
+        ))
+        assert len(events) == 2
+        assert [event.event_metadata["runId"] for event in events] == [
+            first_source["id"],
+            second_source["id"],
+        ]
+        assert [event.event_metadata["failedNodeId"] for event in events] == ["agent", "agent"]
+        assert all(event.request_id == "req-run-batch-resume" for event in events)
+
+
 def test_failed_workflow_run_with_unknown_status_and_error_can_resume(tmp_path):
     gateway = FakeGateway([
         RuntimeError("temporary-provider-outage"),

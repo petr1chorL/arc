@@ -1202,3 +1202,11 @@ Workflow、Workflow Version 和原始输入创建新 Run；不存在、非 Workf
 
 本版本不支持批量编辑输入、异步批量任务、批量失败点恢复或跨 Workspace 批量重跑。
 验收文档见 `docs/ACCEPTANCE_V0.20D.md`。
+
+## V0.20E 批量失败点恢复
+
+V0.20E 在 V0.20B 单条失败点恢复能力上新增批量恢复。后端新增 `POST /api/workspaces/{workspaceId}/runs/batch-resume-from-failed-node`，请求体为 `{ "runIds": string[] }`，最多 20 条，拒绝空 ID 和重复 ID。接口逐条定位原 Run 的最近失败节点，复用 `ExecutionService.execute_workflow_from(start_node_id=...)` 从失败节点继续执行；成功项更新原 Run 并返回到 `resumedRuns`，不可恢复项进入 `failures`，不阻断其他条目。
+
+每条成功恢复项都会写入 `run.batch_resume_failed_node` 审计事件，metadata 包含 `runId`、`failedNodeRunId`、`failedNodeId`、`workflowVersion` 和 `batchSize`。前端 `src/api/execution.ts` 新增 `batchResumeRunsFromFailedNode`，Runs 页面在批量选择条中并列提供“批量重跑”和“批量恢复”；点击“批量恢复”后，页面原地更新成功恢复的 Run，选中第一条恢复成功 Run，并展示成功/部分失败提示。
+
+本版本不创建新 Run，不支持批量指定恢复节点，不做后台异步批量任务，也不支持跨 Workspace 批量恢复。验收文档见 `docs/ACCEPTANCE_V0.20E.md`。

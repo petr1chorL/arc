@@ -277,6 +277,79 @@ describe('Runs', () => {
     )
   })
 
+  it('batch resumes selected failed workflow runs and updates the original runs', async () => {
+    const user = userEvent.setup()
+    const firstFailedRun = {
+      ...run,
+      id: 'run-failed-a',
+      name: 'Batch resume source A',
+      status: '\u5931\u8d25',
+      input: 'Batch resume input A',
+      output: '',
+      error: 'First source failed',
+    }
+    const secondFailedRun = {
+      ...run,
+      id: 'run-failed-b',
+      name: 'Batch resume source B',
+      status: '\u5931\u8d25',
+      input: 'Batch resume input B',
+      output: '',
+      error: 'Second source failed',
+    }
+    const firstResumedRun = {
+      ...firstFailedRun,
+      status: '\u5df2\u5b8c\u6210',
+      output: 'Batch resume output A',
+      error: '',
+      nodes: [{ ...run.nodes[0], output: 'Batch resume output A' }],
+    }
+    const secondResumedRun = {
+      ...secondFailedRun,
+      status: '\u5df2\u5b8c\u6210',
+      output: 'Batch resume output B',
+      error: '',
+      nodes: [{ ...run.nodes[0], output: 'Batch resume output B' }],
+    }
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
+      if (url === `/api/workspaces/${workspace.id}/runs`) {
+        return Promise.resolve(new Response(JSON.stringify([firstFailedRun, secondFailedRun]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/runs/batch-resume-from-failed-node`) {
+        return Promise.resolve(new Response(JSON.stringify({
+          resumedRuns: [firstResumedRun, secondResumedRun],
+          failures: [],
+        }), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify({ detail: 'not found' }), { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <WorkspaceProvider workspace={workspace}>
+        <Runs />
+      </WorkspaceProvider>,
+    )
+
+    expect(await screen.findByRole('heading', { name: 'Batch resume source A' })).toBeInTheDocument()
+    await user.click(screen.getByRole('checkbox', { name: '\u9009\u62e9\u8fd0\u884c run-failed-a' }))
+    await user.click(screen.getByRole('checkbox', { name: '\u9009\u62e9\u8fd0\u884c run-failed-b' }))
+    await user.click(screen.getByRole('button', { name: '\u6279\u91cf\u6062\u590d' }))
+
+    expect(await screen.findByText('\u5df2\u6279\u91cf\u6062\u590d 2 \u6761')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Batch resume source A' })).toBeInTheDocument()
+    expect(screen.getAllByText('Batch resume output A')).toHaveLength(2)
+    expect(screen.queryByText('First source failed')).not.toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/workspaces/${workspace.id}/runs/batch-resume-from-failed-node`,
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ runIds: ['run-failed-a', 'run-failed-b'] }),
+      }),
+    )
+  })
+
   it('resumes a failed workflow run from the failed node', async () => {
     const user = userEvent.setup()
     const failedRun = {

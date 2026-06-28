@@ -757,6 +757,36 @@ class RunBatchRerunRead(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class RunBatchResumeRequest(BaseModel):
+    run_ids: list[str] = Field(alias="runIds", min_length=1, max_length=20)
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    @field_validator("run_ids")
+    @classmethod
+    def reject_duplicate_run_ids(cls, value: list[str]) -> list[str]:
+        normalized = [run_id.strip() for run_id in value]
+        if any(not run_id for run_id in normalized):
+            raise ValueError("runIds 涓嶈兘涓虹┖")
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("runIds 涓嶈兘閲嶅")
+        return normalized
+
+
+class RunBatchResumeFailureRead(BaseModel):
+    source_run_id: str = Field(serialization_alias="sourceRunId")
+    reason: str
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class RunBatchResumeRead(BaseModel):
+    resumed_runs: list[RunRead] = Field(serialization_alias="resumedRuns")
+    failures: list[RunBatchResumeFailureRead] = Field(default_factory=list)
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class ExecutionJobRead(BaseModel):
     id: str
     workspace_id: str | None = Field(serialization_alias="workspaceId")

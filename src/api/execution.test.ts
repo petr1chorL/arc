@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  batchResumeRunsFromFailedNode,
   batchRerunWorkflowRuns,
   cancelExecutionJob,
   decideReview,
@@ -166,6 +167,29 @@ describe('Execution API', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/workspaces/workspace-1/runs/batch-rerun',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'same-origin',
+        body: JSON.stringify({ runIds: ['run-a', 'run-b'] }),
+      }),
+    )
+  })
+
+  it('batch resumes workflow runs from their latest failed nodes', async () => {
+    const response = {
+      resumedRuns: [
+        { ...run, id: 'run-a', kind: 'workflow', output: 'Recovered A' },
+        { ...run, id: 'run-b', kind: 'workflow', output: 'Recovered B' },
+      ],
+      failures: [{ sourceRunId: 'run-completed', reason: 'Run has no resumable failed node' }],
+    }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(response), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(batchResumeRunsFromFailedNode(workspaceId, ['run-a', 'run-b'])).resolves.toEqual(response)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/workspaces/workspace-1/runs/batch-resume-from-failed-node',
       expect.objectContaining({
         method: 'POST',
         credentials: 'same-origin',

@@ -1,7 +1,13 @@
 import { Pencil, Play, RefreshCw, RotateCcw, Search } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWorkspace } from '../auth/workspaceContextState'
-import { batchRerunWorkflowRuns, listRuns, rerunWorkflowRun, resumeRunFromFailedNode } from '../api/execution'
+import {
+  batchResumeRunsFromFailedNode,
+  batchRerunWorkflowRuns,
+  listRuns,
+  rerunWorkflowRun,
+  resumeRunFromFailedNode,
+} from '../api/execution'
 import { StatusBadge } from '../components/StatusBadge'
 import { displayStatus, isWaitingForHumanReview } from '../domain/statusText'
 import type { ExecutionRun, NodeExecution } from '../types'
@@ -48,6 +54,7 @@ export function Runs() {
   const [rerunMessage, setRerunMessage] = useState('')
   const [rerunningId, setRerunningId] = useState('')
   const [batchRerunning, setBatchRerunning] = useState(false)
+  const [batchResuming, setBatchResuming] = useState(false)
   const [selectedRunIds, setSelectedRunIds] = useState<string[]>([])
   const [editingRerunId, setEditingRerunId] = useState('')
   const [rerunInput, setRerunInput] = useState('')
@@ -87,6 +94,10 @@ export function Runs() {
   const selectedRerunnableRunIds = selectedRunIds.filter((runId) => {
     const run = runs.find((item) => item.id === runId)
     return run ? canRerunWorkflow(run) : false
+  })
+  const selectedResumableRunIds = selectedRunIds.filter((runId) => {
+    const run = runs.find((item) => item.id === runId)
+    return run ? canResumeFailedNode(run) : false
   })
 
   useEffect(() => {
@@ -172,6 +183,35 @@ export function Runs() {
     }
   }, [selectedRerunnableRunIds, workspace.id])
 
+  const handleBatchResumeFromFailedNode = useCallback(async () => {
+    if (selectedResumableRunIds.length === 0) {
+      setRerunError('\u8bf7\u5148\u9009\u62e9\u53ef\u6062\u590d\u7684\u5931\u8d25\u5de5\u4f5c\u6d41\u8fd0\u884c')
+      return
+    }
+    setRerunError('')
+    setRerunMessage('')
+    setBatchResuming(true)
+    try {
+      const result = await batchResumeRunsFromFailedNode(workspace.id, selectedResumableRunIds)
+      setRuns((currentRuns) => currentRuns.map((currentRun) => (
+        result.resumedRuns.find((resumedRun) => resumedRun.id === currentRun.id) ?? currentRun
+      )))
+      if (result.resumedRuns[0]) {
+        setSelectedId(result.resumedRuns[0].id)
+      }
+      setSelectedRunIds([])
+      setRerunMessage(
+        result.failures.length > 0
+          ? `\u5df2\u6279\u91cf\u6062\u590d ${result.resumedRuns.length} \u6761\uff0c${result.failures.length} \u6761\u5931\u8d25`
+          : `\u5df2\u6279\u91cf\u6062\u590d ${result.resumedRuns.length} \u6761`,
+      )
+    } catch (batchResumeError) {
+      setRerunError(batchResumeError instanceof Error ? batchResumeError.message : '\u6279\u91cf\u6062\u590d\u5931\u8d25')
+    } finally {
+      setBatchResuming(false)
+    }
+  }, [selectedResumableRunIds, workspace.id])
+
   const handleResumeFromFailedNode = useCallback(async (run: ExecutionRun) => {
     setRerunError('')
     setRerunMessage('')
@@ -225,19 +265,31 @@ export function Runs() {
           </button>
         </div>
         <div className="run-list-head"><span>持久化运行记录</span><strong>{filteredRuns.length} 个实例</strong></div>
-        {selectedRerunnableRunIds.length > 0 && (
+        {(selectedRerunnableRunIds.length > 0 || selectedResumableRunIds.length > 0) && (
           <div className="run-batch-bar">
-            <span>已选择 {selectedRerunnableRunIds.length} 条</span>
-            <button
-              className="button secondary compact"
-              disabled={batchRerunning}
-              onClick={() => void handleBatchRerun()}
-            >
-              <RotateCcw size={15} />
-              {batchRerunning ? '批量重跑中' : '批量重跑'}
-            </button>
+            <span>{'\u5df2\u9009\u62e9'} {selectedRunIds.length} {'\u6761'}</span>
+            {selectedRerunnableRunIds.length > 0 && (
+              <button
+                className="button secondary compact"
+                disabled={batchRerunning || batchResuming}
+                onClick={() => void handleBatchRerun()}
+              >
+                <RotateCcw size={15} />
+                {batchRerunning ? '\u6279\u91cf\u91cd\u8dd1\u4e2d' : '\u6279\u91cf\u91cd\u8dd1'}
+              </button>
+            )}
+            {selectedResumableRunIds.length > 0 && (
+              <button
+                className="button secondary compact"
+                disabled={batchRerunning || batchResuming}
+                onClick={() => void handleBatchResumeFromFailedNode()}
+              >
+                <Play size={15} />
+                {batchResuming ? '\u6279\u91cf\u6062\u590d\u4e2d' : '\u6279\u91cf\u6062\u590d'}
+              </button>
+            )}
             <button className="button secondary compact" onClick={() => setSelectedRunIds([])}>
-              清空
+              {'\u6e05\u7a7a'}
             </button>
           </div>
         )}

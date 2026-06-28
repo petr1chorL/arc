@@ -14,6 +14,14 @@ export interface BatchRerunResult {
   }>
 }
 
+export interface BatchResumeResult {
+  resumedRuns: ExecutionRun[]
+  failures: Array<{
+    sourceRunId: string
+    reason: string
+  }>
+}
+
 export type ReviewDecision = 'approve' | 'reject'
 
 const jsonRequest = {
@@ -59,6 +67,15 @@ export async function batchRerunWorkflowRuns(workspaceId: string, runIds: string
     ...jsonRequest,
     body: JSON.stringify({ runIds }),
   }))
+}
+
+export async function batchResumeRunsFromFailedNode(workspaceId: string, runIds: string[]): Promise<BatchResumeResult> {
+  return readJson<BatchResumeResult>(
+    await apiFetch(workspacePath(workspaceId, '/runs/batch-resume-from-failed-node'), {
+      ...jsonRequest,
+      body: JSON.stringify({ runIds }),
+    }),
+  )
 }
 
 export async function resumeRunFromFailedNode(workspaceId: string, runId: string): Promise<ExecutionRun> {

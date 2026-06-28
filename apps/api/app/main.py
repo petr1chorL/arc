@@ -123,6 +123,8 @@ from app.schemas import (
     RubricRead,
     RubricVersionRead,
     RubricWrite,
+    RunBatchResumeRead,
+    RunBatchResumeRequest,
     RunBatchRerunRead,
     RunBatchRerunRequest,
     RunCreate,
@@ -2846,6 +2848,87 @@ def create_app(
             created_runs.append(run_response(rerun, session))
         session.commit()
         return RunBatchRerunRead(created_runs=created_runs, failures=failures)
+
+    @router.post("/runs/batch-resume-from-failed-node", response_model=RunBatchResumeRead)
+    def batch_resume_runs_from_failed_node(
+        payload: RunBatchResumeRequest,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> RunBatchResumeRead:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "run.execute",
+            action="run.batch_resume_failed_node",
+            target_type="workspace",
+            target_id=context.workspace.id,
+            request=request,
+        )
+        resumed_runs: list[RunRead] = []
+        failures: list[dict[str, str]] = []
+        for run_id in payload.run_ids:
+            run = session.scalar(
+                select(WorkflowRunRecord).where(
+                    WorkflowRunRecord.workspace_id == context.workspace.id,
+                    WorkflowRunRecord.id == run_id,
+                ),
+            )
+            if run is None:
+                failures.append({"source_run_id": run_id, "reason": "Run not found"})
+                continue
+            if (
+                run.kind != "workflow"
+                or not run.workflow_id
+                or not run.workflow_version
+            ):
+                failures.append({"source_run_id": run_id, "reason": "Only workflow runs can be resumed"})
+                continue
+            failed_node_run = session.scalar(
+                select(NodeRunRecord)
+                .where(
+                    NodeRunRecord.workspace_id == context.workspace.id,
+                    NodeRunRecord.run_id == run.id,
+                    NodeRunRecord.error != "",
+                )
+                .order_by(NodeRunRecord.started_at.desc(), NodeRunRecord.id.desc())
+            )
+            if failed_node_run is None:
+                failures.append({
+                    "source_run_id": run_id,
+                    "reason": "Run has no resumable failed node",
+                })
+                continue
+            try:
+                snapshot = execution_service.workflow_snapshot(session, run)
+                run.error = ""
+                resumed = execution_service.execute_workflow_from(
+                    session=session,
+                    run=run,
+                    snapshot=snapshot,
+                    start_node_id=failed_node_run.node_id,
+                )
+            except RuntimeError as error:
+                failures.append({"source_run_id": run_id, "reason": str(error)})
+                continue
+            record_success(
+                session,
+                context,
+                action="run.batch_resume_failed_node",
+                target_type="run",
+                target_id=run.id,
+                request=request,
+                metadata={
+                    "runId": run.id,
+                    "failedNodeRunId": failed_node_run.id,
+                    "failedNodeId": failed_node_run.node_id,
+                    "workflowVersion": run.workflow_version,
+                    "batchSize": len(payload.run_ids),
+                },
+            )
+            resumed_runs.append(run_response(resumed, session))
+        session.commit()
+        return RunBatchResumeRead(resumed_runs=resumed_runs, failures=failures)
 
     @router.post(
         "/runs/{run_id}/rerun",
