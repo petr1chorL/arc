@@ -1,3 +1,4 @@
+import json
 import os
 from collections.abc import Callable, Iterator
 from datetime import datetime
@@ -629,6 +630,72 @@ def create_app(
 
     def workflow_snapshot(record: WorkflowRecord) -> dict:
         return WorkflowRead.model_validate(record).model_dump(by_alias=True, mode="json")
+
+    def find_workflow_version(
+        workspace_id: str,
+        workflow_id: str,
+        version: str,
+        session: Session,
+    ) -> WorkflowVersionRecord:
+        workflow_version = session.scalar(
+            select(WorkflowVersionRecord).where(
+                WorkflowVersionRecord.workspace_id == workspace_id,
+                WorkflowVersionRecord.workflow_id == workflow_id,
+                WorkflowVersionRecord.version == version,
+            ),
+        )
+        if workflow_version is None:
+            raise HTTPException(status_code=422, detail="Published workflow version does not exist")
+        return workflow_version
+
+    def validate_workflow_run_input(input_schema: dict, input_text: str) -> None:
+        if input_schema.get("type") != "object":
+            return
+        properties = input_schema.get("properties")
+        required = input_schema.get("required", [])
+        if not isinstance(properties, dict):
+            properties = {}
+        if not isinstance(required, list):
+            required = []
+        supported_types = {"string", "number", "integer", "boolean"}
+        fields_to_validate = {
+            name: schema
+            for name, schema in properties.items()
+            if isinstance(name, str)
+            and isinstance(schema, dict)
+            and schema.get("type") in supported_types
+        }
+        if not fields_to_validate:
+            return
+        required_fields = [field for field in required if field in fields_to_validate]
+        try:
+            payload = json.loads(input_text)
+        except json.JSONDecodeError as error:
+            raise HTTPException(status_code=422, detail="Run input must be a valid JSON object") from error
+        if not isinstance(payload, dict) or isinstance(payload, list):
+            raise HTTPException(status_code=422, detail="Run input must be a valid JSON object")
+        errors: list[str] = []
+        for field in required_fields:
+            value = payload.get(field)
+            if field not in payload or value is None or (isinstance(value, str) and not value.strip()):
+                errors.append(f"{field} is required")
+        for field, schema in fields_to_validate.items():
+            if field not in payload or payload[field] is None:
+                continue
+            value = payload[field]
+            expected_type = schema.get("type")
+            if expected_type == "string" and not isinstance(value, str):
+                errors.append(f"{field} must be string")
+            elif expected_type == "number" and (
+                not isinstance(value, (int, float)) or isinstance(value, bool)
+            ):
+                errors.append(f"{field} must be number")
+            elif expected_type == "integer" and (not isinstance(value, int) or isinstance(value, bool)):
+                errors.append(f"{field} must be integer")
+            elif expected_type == "boolean" and not isinstance(value, bool):
+                errors.append(f"{field} must be boolean")
+        if errors:
+            raise HTTPException(status_code=422, detail="; ".join(errors))
 
     def find_run(workspace_id: str, run_id: str, session: Session) -> WorkflowRunRecord:
         run = session.scalar(
@@ -2519,6 +2586,11 @@ def create_app(
         version = payload.version or workflow.version
         if version == "鏈彂甯?":
             raise HTTPException(status_code=422, detail="请先发布工作流版本")
+        workflow_version = find_workflow_version(context.workspace.id, workflow_id, version, session)
+        validate_workflow_run_input(
+            workflow_version.snapshot.get("inputSchema", {}),
+            payload.input,
+        )
         try:
             if payload.async_mode:
                 run = execution_service.enqueue_workflow_version(

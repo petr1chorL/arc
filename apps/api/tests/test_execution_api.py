@@ -78,31 +78,35 @@ def create_published_workflow(
     agent: dict,
     version: dict,
     retry_max_attempts: int = 2,
+    input_schema: dict | None = None,
 ) -> dict:
+    payload = {
+        "name": "Execution Workflow",
+        "nodes": [
+            {"id": "start", "type": "trigger", "position": {"x": 0, "y": 0}, "data": {"label": "Start"}},
+            {
+                "id": "agent",
+                "type": "agent",
+                "position": {"x": 200, "y": 0},
+                "data": {
+                    "label": "Insight Agent",
+                    "agentId": agent["id"],
+                    "agentVersion": version["version"],
+                    "retryMaxAttempts": retry_max_attempts,
+                },
+            },
+            {"id": "end", "type": "end", "position": {"x": 400, "y": 0}, "data": {"label": "End"}},
+        ],
+        "edges": [
+            {"id": "start-agent", "source": "start", "target": "agent"},
+            {"id": "agent-end", "source": "agent", "target": "end"},
+        ],
+    }
+    if input_schema is not None:
+        payload["inputSchema"] = input_schema
     workflow = client.post(
         workspace_url(workspace_id, "/workflows"),
-        json={
-            "name": "Execution Workflow",
-            "nodes": [
-                {"id": "start", "type": "trigger", "position": {"x": 0, "y": 0}, "data": {"label": "Start"}},
-                {
-                    "id": "agent",
-                    "type": "agent",
-                    "position": {"x": 200, "y": 0},
-                    "data": {
-                        "label": "Insight Agent",
-                        "agentId": agent["id"],
-                        "agentVersion": version["version"],
-                        "retryMaxAttempts": retry_max_attempts,
-                    },
-                },
-                {"id": "end", "type": "end", "position": {"x": 400, "y": 0}, "data": {"label": "End"}},
-            ],
-            "edges": [
-                {"id": "start-agent", "source": "start", "target": "agent"},
-                {"id": "agent-end", "source": "agent", "target": "end"},
-            ],
-        },
+        json=payload,
         headers=csrf_headers(client),
     ).json()
     publish_response = client.post(
@@ -309,6 +313,152 @@ def test_workflow_run_retries_and_persists_node_timeline(tmp_path):
     ).json()
     assert persisted["output"] == run["output"]
     assert len(persisted["nodes"]) == 3
+
+
+def test_workflow_run_rejects_input_missing_required_schema_field(tmp_path):
+    gateway = FakeGateway([
+        FakeModelResult("This should not be called for invalid schema input."),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'schema-run-validation.db'}",
+        model_gateway=gateway,
+    )
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(
+        client,
+        workspace_id,
+        agent,
+        version,
+        input_schema={
+            "type": "object",
+            "required": ["asin"],
+            "properties": {
+                "asin": {"type": "string"},
+                "score": {"type": "number"},
+            },
+        },
+    )
+
+    response = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": '{"score":91}'},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 422
+    assert "asin" in response.text
+    assert gateway.calls == []
+    with client.app.state.session_factory() as session:
+        runs = session.scalars(select(WorkflowRunRecord)).all()
+        assert runs == []
+
+
+def test_workflow_run_rejects_input_with_schema_type_mismatch(tmp_path):
+    gateway = FakeGateway([
+        FakeModelResult("This should not be called when schema types fail."),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'schema-run-type-validation.db'}",
+        model_gateway=gateway,
+    )
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(
+        client,
+        workspace_id,
+        agent,
+        version,
+        input_schema={
+            "type": "object",
+            "required": ["asin"],
+            "properties": {
+                "asin": {"type": "string"},
+                "score": {"type": "number"},
+                "urgent": {"type": "boolean"},
+            },
+        },
+    )
+
+    response = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": '{"asin":"B0TEST","score":"91","urgent":"yes"}'},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 422
+    assert "score" in response.text
+    assert "urgent" in response.text
+    assert gateway.calls == []
+    with client.app.state.session_factory() as session:
+        runs = session.scalars(select(WorkflowRunRecord)).all()
+        assert runs == []
+
+
+def test_workflow_run_accepts_valid_schema_input(tmp_path):
+    gateway = FakeGateway([
+        FakeModelResult("The schema-valid workflow input reached the agent."),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'schema-run-valid.db'}",
+        model_gateway=gateway,
+    )
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(
+        client,
+        workspace_id,
+        agent,
+        version,
+        input_schema={
+            "type": "object",
+            "required": ["asin", "score", "urgent"],
+            "properties": {
+                "asin": {"type": "string"},
+                "score": {"type": "number"},
+                "urgent": {"type": "boolean"},
+            },
+        },
+    )
+
+    response = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": '{"asin":"B0TEST","score":91,"urgent":true}'},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 201
+    assert gateway.calls[0]["user_input"] == '{"asin":"B0TEST","score":91,"urgent":true}'
+
+
+def test_workflow_run_keeps_free_text_for_unsupported_schema(tmp_path):
+    gateway = FakeGateway([
+        FakeModelResult("The legacy free-text input still reached the agent."),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'schema-run-unsupported.db'}",
+        model_gateway=gateway,
+    )
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(
+        client,
+        workspace_id,
+        agent,
+        version,
+        input_schema={
+            "type": "object",
+            "required": ["tags"],
+            "properties": {
+                "tags": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+    )
+
+    response = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "legacy free text input"},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 201
+    assert gateway.calls[0]["user_input"] == "legacy free text input"
 
 
 def test_workflow_edge_mapping_builds_downstream_agent_input(tmp_path):
