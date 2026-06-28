@@ -4410,6 +4410,28 @@ kbd {
   box-shadow: var(--shadow-inset);
 }
 
+.review-url-context-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 180px;
+}
+
+.review-url-context-actions .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.review-url-context-actions small {
+  flex-basis: 100%;
+  text-align: right;
+  font-size: 9px;
+  font-weight: 800;
+}
+
 .review-empty-state {
   display: grid;
   max-width: 900px;
@@ -5065,6 +5087,15 @@ kbd {
 
   .review-url-context {
     align-items: stretch;
+  }
+
+  .review-url-context-actions {
+    justify-content: flex-start;
+    min-width: 0;
+  }
+
+  .review-url-context-actions small {
+    text-align: left;
   }
 
   .review-handoff-notice {

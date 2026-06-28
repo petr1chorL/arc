@@ -366,6 +366,51 @@ describe('Reviews', () => {
     expect(screen.getByLabelText('SLA 筛选')).toHaveValue('全部')
   })
 
+  it('copies the current review context link from the URL context panel', async () => {
+    const user = userEvent.setup()
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+    vi.stubGlobal('fetch', vi.fn(baseFetch))
+
+    renderReviews(
+      'user-reviewer-1',
+      '/w/ai-capability-center/reviews?taskId=task-1&source=sla&taskStatus=待认领&slaStatus=即将到期',
+    )
+
+    const context = await screen.findByLabelText('当前审核上下文')
+
+    await user.click(within(context).getByRole('button', { name: '复制当前链接' }))
+
+    const copiedUrl = new URL(writeText.mock.calls[0]?.[0] as string)
+    expect(copiedUrl.origin).toBe(window.location.origin)
+    expect(copiedUrl.pathname).toBe('/w/ai-capability-center/reviews')
+    expect(copiedUrl.searchParams.get('taskId')).toBe('task-1')
+    expect(copiedUrl.searchParams.get('source')).toBe('sla')
+    expect(copiedUrl.searchParams.get('taskStatus')).toBe('待认领')
+    expect(copiedUrl.searchParams.get('slaStatus')).toBe('即将到期')
+    expect(within(context).getByText('已复制当前审核链接')).toBeInTheDocument()
+  })
+
+  it('shows an error when copying the review context link fails', async () => {
+    const user = userEvent.setup()
+    const writeText = vi.fn().mockRejectedValue(new Error('clipboard unavailable'))
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+    vi.stubGlobal('fetch', vi.fn(baseFetch))
+
+    renderReviews('user-reviewer-1', '/w/ai-capability-center/reviews?source=sla')
+
+    const context = await screen.findByLabelText('当前审核上下文')
+
+    await user.click(within(context).getByRole('button', { name: '复制当前链接' }))
+
+    const copiedUrl = new URL(writeText.mock.calls[0]?.[0] as string)
+    expect(copiedUrl.origin).toBe(window.location.origin)
+    expect(copiedUrl.pathname).toBe('/w/ai-capability-center/reviews')
+    expect(copiedUrl.searchParams.get('source')).toBe('sla')
+    expect(copiedUrl.searchParams.get('taskId')).toBe('task-1')
+    expect(within(context).getByText('复制失败，请手动复制地址栏链接')).toBeInTheDocument()
+  })
+
   it('normalizes legacy mojibake SLA statuses in the queue and detail pane', async () => {
     vi.stubGlobal('fetch', vi.fn(mojibakeSlaFetch))
 

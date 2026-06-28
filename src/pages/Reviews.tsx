@@ -3,6 +3,7 @@ import {
   Check,
   CheckCheck,
   Clock3,
+  Copy,
   FileDiff,
   FilePenLine,
   History,
@@ -13,7 +14,7 @@ import {
   X,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useLocation, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../auth/authContext'
 import { useWorkspace } from '../auth/workspaceContextState'
 import {
@@ -59,6 +60,7 @@ function formatTime(value: string) {
 export function Reviews() {
   const { user } = useAuth()
   const { workspace, workspacePath } = useWorkspace()
+  const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const requestedTaskId = searchParams.get('taskId') ?? ''
   const requestedTaskStatus = searchParams.get('taskStatus') ?? '全部'
@@ -86,6 +88,8 @@ export function Reviews() {
   const [expertReason, setExpertReason] = useState('')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [reviewLinkMessage, setReviewLinkMessage] = useState('')
+  const [reviewLinkTone, setReviewLinkTone] = useState<'success' | 'error'>('success')
   const [isBusy, setIsBusy] = useState(false)
 
   const loadWorkspace = useCallback(async () => {
@@ -202,6 +206,24 @@ export function Reviews() {
     ? `来自 ${reviewSource}`
     : '来自分享链接'
   const hasUrlContext = Boolean(reviewSource || statusFilter !== '全部' || slaFilter !== '全部')
+  const currentReviewUrl = useMemo(() => {
+    const params = new URLSearchParams(location.search)
+    if (selectedId) {
+      params.set('taskId', selectedId)
+    }
+    if (statusFilter === '全部') {
+      params.delete('taskStatus')
+    } else {
+      params.set('taskStatus', statusFilter)
+    }
+    if (slaFilter === '全部') {
+      params.delete('slaStatus')
+    } else {
+      params.set('slaStatus', slaFilter)
+    }
+    const query = params.toString()
+    return `${window.location.origin}${location.pathname}${query ? `?${query}` : ''}`
+  }, [location.pathname, location.search, selectedId, slaFilter, statusFilter])
 
   function getReviewNextStep() {
     if (!hasReviewerQualification) {
@@ -230,6 +252,17 @@ export function Reviews() {
       && (!detail.assigneeReviewerId || detail.assigneeReviewerId === currentReviewer.id)
       && detail.participantSnapshot.includes(currentReviewer.id),
     )
+  }
+
+  async function copyReviewLink() {
+    try {
+      await navigator.clipboard.writeText(currentReviewUrl)
+      setReviewLinkTone('success')
+      setReviewLinkMessage('已复制当前审核链接')
+    } catch {
+      setReviewLinkTone('error')
+      setReviewLinkMessage('复制失败，请手动复制地址栏链接')
+    }
   }
 
   function getCurrentTaskPermission() {
@@ -525,16 +558,27 @@ export function Reviews() {
             <strong>状态 {statusFilter}</strong>
             <strong>SLA {slaFilter}</strong>
           </div>
-          <button
-            className="button ghost"
-            type="button"
-            onClick={() => {
-              setStatusFilter('全部')
-              setSlaFilter('全部')
-            }}
-          >
-            清空上下文筛选
-          </button>
+          <div className="review-url-context-actions">
+            <button className="button ghost" type="button" onClick={copyReviewLink}>
+              <Copy size={14} />
+              复制当前链接
+            </button>
+            <button
+              className="button ghost"
+              type="button"
+              onClick={() => {
+                setStatusFilter('全部')
+                setSlaFilter('全部')
+              }}
+            >
+              清空上下文筛选
+            </button>
+            {reviewLinkMessage && (
+              <small className={reviewLinkTone === 'error' ? 'danger-text' : 'success-text'}>
+                {reviewLinkMessage}
+              </small>
+            )}
+          </div>
         </section>
       )}
 
