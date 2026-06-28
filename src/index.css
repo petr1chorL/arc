@@ -4323,6 +4323,51 @@ kbd {
   max-width: 480px;
 }
 
+.schema-run-form {
+  display: grid;
+  gap: 13px;
+  margin-top: 14px;
+}
+
+.schema-run-form-header {
+  display: grid;
+  gap: 4px;
+  padding: 12px 13px;
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow-inset);
+}
+
+.schema-run-form-header strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.schema-run-form-header span {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.schema-checkbox-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.schema-checkbox-field > span {
+  margin-bottom: 0;
+}
+
+.schema-checkbox-field input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  padding: 0;
+  accent-color: var(--blue);
+}
+
 .node-inspector .form-field small {
   display: block;
   margin-top: 7px;

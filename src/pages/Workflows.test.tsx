@@ -204,6 +204,144 @@ describe('Workflows', () => {
     }))
   })
 
+  it('runs a workflow with schema run input fields serialized as JSON', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const schemaWorkflow = {
+      ...workflow,
+      inputSchema: {
+        type: 'object',
+        required: ['asin', 'score'],
+        properties: {
+          asin: { type: 'string', title: 'ASIN' },
+          score: { type: 'number', title: '机会评分' },
+          urgent: { type: 'boolean', title: '是否加急' },
+        },
+      },
+    }
+    const run = {
+      id: 'run-schema-1',
+      kind: 'workflow',
+      name: schemaWorkflow.name,
+      workflowId: schemaWorkflow.id,
+      workflowVersion: schemaWorkflow.version,
+      agentId: null,
+      agentVersion: null,
+      status: '已完成',
+      input: '{"asin":"B0TEST","score":88,"urgent":true}',
+      output: '结构化输入已进入工作流',
+      score: 100,
+      model: 'configured-model',
+      promptTokens: 12,
+      completionTokens: 8,
+      totalTokens: 20,
+      costUsd: 0.001,
+      durationMs: 1200,
+      currentNode: '流程结束',
+      error: '',
+      startedAt: '2026-06-24T08:00:00Z',
+      completedAt: '2026-06-24T08:00:01Z',
+      nodes: [],
+    }
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === `/api/workspaces/${workspace.id}/workflows` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([schemaWorkflow]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/agents` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (
+        url === `/api/workspaces/${workspace.id}/reviewers`
+        || url === `/api/workspaces/${workspace.id}/review-groups`
+      ) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/runs')) {
+        return Promise.resolve(new Response(JSON.stringify(run), { status: 201 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWorkflows()
+
+    await user.click(await screen.findByRole('button', { name: /运行工作流|杩愯宸ヤ綔娴/ }))
+    await user.type(screen.getByLabelText(/ASIN/), 'B0TEST')
+    await user.type(screen.getByLabelText(/机会评分/), '88')
+    await user.click(screen.getByLabelText(/是否加急/))
+    await user.click(screen.getByRole('button', { name: /开始运行|寮€濮嬭繍琛/ }))
+
+    expect(await screen.findByText('结构化输入已进入工作流')).toBeInTheDocument()
+    const runCall = fetchMock.mock.calls.find(([url, init]) => (
+      url === `/api/workspaces/${workspace.id}/workflows/workflow-1/runs` && init?.method === 'POST'
+    ))
+    const body = JSON.parse(runCall?.[1]?.body as string)
+    expect(JSON.parse(body.input)).toEqual({
+      asin: 'B0TEST',
+      score: 88,
+      urgent: true,
+    })
+  })
+
+  it('blocks schema run input when required fields are empty', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const schemaWorkflow = {
+      ...workflow,
+      inputSchema: {
+        type: 'object',
+        required: ['asin'],
+        properties: {
+          asin: { type: 'string', title: 'ASIN' },
+          note: { type: 'string', title: '备注' },
+        },
+      },
+    }
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === `/api/workspaces/${workspace.id}/workflows` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([schemaWorkflow]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/agents` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (
+        url === `/api/workspaces/${workspace.id}/reviewers`
+        || url === `/api/workspaces/${workspace.id}/review-groups`
+      ) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/runs')) {
+        return Promise.resolve(new Response(JSON.stringify({}), { status: 201 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWorkflows()
+
+    await user.click(await screen.findByRole('button', { name: /运行工作流|杩愯宸ヤ綔娴/ }))
+    await user.click(screen.getByRole('button', { name: /开始运行|寮€濮嬭繍琛/ }))
+
+    expect(await screen.findByText('ASIN 为必填项')).toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([url, init]) => (
+      url === `/api/workspaces/${workspace.id}/workflows/workflow-1/runs` && init?.method === 'POST'
+    ))).toBe(false)
+  })
+
   it('guides the user to Reviews when a workflow pauses for human review', async () => {
     const user = userEvent.setup()
     vi.stubGlobal('ResizeObserver', class {

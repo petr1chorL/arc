@@ -150,6 +150,15 @@ interface EdgeFieldMapping {
   targetPath: string
 }
 
+type RunSchemaFieldType = 'string' | 'number' | 'integer' | 'boolean'
+
+interface RunSchemaField {
+  name: string
+  label: string
+  type: RunSchemaFieldType
+  required: boolean
+}
+
 type PendingWorkflowNavigation =
   | { kind: 'new' }
   | { kind: 'activate'; workflowId: string }
@@ -199,6 +208,87 @@ function parseWorkflowSchema(label: string, text: string) {
   } catch {
     return { error: `${label} 必须是合法 JSON` }
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getSchemaFieldType(value: unknown): RunSchemaFieldType | null {
+  if (value === 'string' || value === 'number' || value === 'integer' || value === 'boolean') {
+    return value
+  }
+  return null
+}
+
+function getRunSchemaFields(schema: Record<string, unknown> | undefined): RunSchemaField[] {
+  if (!isRecord(schema) || schema.type !== 'object' || !isRecord(schema.properties)) {
+    return []
+  }
+  const required = new Set(
+    Array.isArray(schema.required)
+      ? schema.required.filter((field): field is string => typeof field === 'string')
+      : [],
+  )
+  return Object.entries(schema.properties).flatMap(([name, property]) => {
+    if (!isRecord(property)) return []
+    const fieldType = getSchemaFieldType(property.type ?? 'string')
+    if (!fieldType) return []
+    return [{
+      name,
+      label: typeof property.title === 'string' && property.title.trim() ? property.title.trim() : name,
+      type: fieldType,
+      required: required.has(name),
+    }]
+  })
+}
+
+function buildSchemaRunInput(
+  fields: RunSchemaField[],
+  values: Record<string, string | boolean>,
+) {
+  const payload: Record<string, unknown> = {}
+  const errors: string[] = []
+
+  fields.forEach((field) => {
+    const value = values[field.name]
+    if (field.type === 'boolean') {
+      const checked = value === true
+      if (checked || field.required) payload[field.name] = checked
+      return
+    }
+
+    const text = typeof value === 'string' ? value.trim() : ''
+    if (!text) {
+      if (field.required) errors.push(`${field.label} 为必填项`)
+      return
+    }
+
+    if (field.type === 'number' || field.type === 'integer') {
+      const numericValue = Number(text)
+      if (!Number.isFinite(numericValue)) {
+        errors.push(`${field.label} 必须是数字`)
+        return
+      }
+      if (field.type === 'integer' && !Number.isInteger(numericValue)) {
+        errors.push(`${field.label} 必须是整数`)
+        return
+      }
+      payload[field.name] = numericValue
+      return
+    }
+
+    payload[field.name] = text
+  })
+
+  return {
+    errors,
+    input: JSON.stringify(payload),
+  }
+}
+
+function getRunFormTextValue(value: string | boolean | undefined) {
+  return typeof value === 'string' ? value : ''
 }
 
 function getEdgeFieldMappings(edge: Edge): EdgeFieldMapping[] {
@@ -269,6 +359,7 @@ export function Workflows() {
   const [showVersions, setShowVersions] = useState(false)
   const [showRun, setShowRun] = useState(false)
   const [runInput, setRunInput] = useState('')
+  const [runFormValues, setRunFormValues] = useState<Record<string, string | boolean>>({})
   const [runResult, setRunResult] = useState<ExecutionRun | null>(null)
   const [inputSchemaText, setInputSchemaText] = useState(schemaToText(defaultWorkflowSchema()))
   const [outputSchemaText, setOutputSchemaText] = useState(schemaToText(defaultWorkflowSchema()))
@@ -431,6 +522,11 @@ export function Workflows() {
   }, [activateWorkflow, workspace.id])
 
   const currentWorkflow = workflows.find((workflow) => workflow.id === currentId)
+  const runSchemaFields = useMemo(
+    () => getRunSchemaFields(currentWorkflow?.inputSchema),
+    [currentWorkflow?.inputSchema],
+  )
+  const hasRunSchemaForm = runSchemaFields.length > 0
   const statusText = currentWorkflow
     ? `${currentWorkflow.status} · ${currentWorkflow.version}`
     : '新草稿 · 未保存'
@@ -523,7 +619,15 @@ export function Workflows() {
   }
 
   async function executeWorkflow() {
-    if (!currentId || !runInput.trim()) {
+    const schemaRunInput = hasRunSchemaForm
+      ? buildSchemaRunInput(runSchemaFields, runFormValues)
+      : null
+    if (schemaRunInput?.errors.length) {
+      setErrors(schemaRunInput.errors)
+      return
+    }
+    const nextRunInput = schemaRunInput?.input ?? runInput.trim()
+    if (!currentId || !nextRunInput) {
       setErrors(['请输入运行任务'])
       return
     }
@@ -532,7 +636,7 @@ export function Workflows() {
     setRunResult(null)
     try {
       const result = await runWorkflow(workspace.id, currentId, {
-        input: runInput.trim(),
+        input: nextRunInput,
         version: currentWorkflow?.version,
       })
       setRunResult(result)
@@ -769,6 +873,9 @@ export function Workflows() {
             disabled={!currentWorkflow || currentWorkflow.version === '未发布' || isBusy}
             onClick={() => {
               setRunResult(null)
+              setRunInput('')
+              setRunFormValues({})
+              setErrors([])
               setShowRun(true)
             }}
           >
@@ -974,15 +1081,53 @@ export function Workflows() {
               <div><p className="eyebrow">PUBLISHED WORKFLOW</p><h2 id="workflow-run-title">运行工作流</h2></div>
               <button className="icon-button quiet" title="关闭" onClick={() => setShowRun(false)}><X size={18} /></button>
             </header>
-            <label className="form-field">
-              <span>运行输入</span>
-              <textarea
-                rows={5}
-                value={runInput}
-                onChange={(event) => setRunInput(event.target.value)}
-                placeholder="输入本次工作流需要处理的任务"
-              />
-            </label>
+            {hasRunSchemaForm ? (
+              <div className="schema-run-form" aria-label="结构化运行输入">
+                <div className="schema-run-form-header">
+                  <strong>结构化运行输入</strong>
+                  <span>按当前工作流输入 Schema 生成，提交时会自动转为 JSON。</span>
+                </div>
+                {runSchemaFields.map((field) => (
+                  field.type === 'boolean' ? (
+                    <label className="form-field schema-checkbox-field" key={field.name}>
+                      <span>{field.label}{field.required ? '（必填）' : ''}</span>
+                      <input
+                        aria-label={field.label}
+                        checked={runFormValues[field.name] === true}
+                        type="checkbox"
+                        onChange={(event) => setRunFormValues((current) => ({
+                          ...current,
+                          [field.name]: event.target.checked,
+                        }))}
+                      />
+                    </label>
+                  ) : (
+                    <label className="form-field" key={field.name}>
+                      <span>{field.label}{field.required ? '（必填）' : ''}</span>
+                      <input
+                        aria-label={field.label}
+                        type={field.type === 'string' ? 'text' : 'number'}
+                        value={getRunFormTextValue(runFormValues[field.name])}
+                        onChange={(event) => setRunFormValues((current) => ({
+                          ...current,
+                          [field.name]: event.target.value,
+                        }))}
+                      />
+                    </label>
+                  )
+                ))}
+              </div>
+            ) : (
+              <label className="form-field">
+                <span>运行输入</span>
+                <textarea
+                  rows={5}
+                  value={runInput}
+                  onChange={(event) => setRunInput(event.target.value)}
+                  placeholder="输入本次工作流需要处理的任务"
+                />
+              </label>
+            )}
             <div className="dialog-actions">
               <button className="button secondary" onClick={() => setShowRun(false)}>取消</button>
               <button className="button primary" disabled={isBusy} onClick={() => void executeWorkflow()}>
