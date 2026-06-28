@@ -5,7 +5,15 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from api_test_support import create_authenticated_client, csrf_headers, workspace_url
-from app.models import AuditEventRecord, ExecutionJobRecord, NodeRunRecord, WorkflowRunRecord, utc_now
+from app.models import (
+    ArtifactRecord,
+    ArtifactVersionRecord,
+    AuditEventRecord,
+    ExecutionJobRecord,
+    NodeRunRecord,
+    WorkflowRunRecord,
+    utc_now,
+)
 
 
 @dataclass
@@ -79,7 +87,16 @@ def create_published_workflow(
     version: dict,
     retry_max_attempts: int = 2,
     input_schema: dict | None = None,
+    output_data_object_ref: dict | None = None,
 ) -> dict:
+    agent_data = {
+        "label": "Insight Agent",
+        "agentId": agent["id"],
+        "agentVersion": version["version"],
+        "retryMaxAttempts": retry_max_attempts,
+    }
+    if output_data_object_ref is not None:
+        agent_data["outputDataObjectRef"] = output_data_object_ref
     payload = {
         "name": "Execution Workflow",
         "nodes": [
@@ -88,12 +105,7 @@ def create_published_workflow(
                 "id": "agent",
                 "type": "agent",
                 "position": {"x": 200, "y": 0},
-                "data": {
-                    "label": "Insight Agent",
-                    "agentId": agent["id"],
-                    "agentVersion": version["version"],
-                    "retryMaxAttempts": retry_max_attempts,
-                },
+                "data": agent_data,
             },
             {"id": "end", "type": "end", "position": {"x": 400, "y": 0}, "data": {"label": "End"}},
         ],
@@ -115,6 +127,27 @@ def create_published_workflow(
     )
     assert publish_response.status_code == 201
     return workflow
+
+
+def create_published_data_object(client: TestClient, workspace_id: str) -> tuple[dict, dict]:
+    definition = client.post(
+        workspace_url(workspace_id, "/data-objects"),
+        json={
+            "name": "Structured Insight",
+            "description": "Final structured workflow output.",
+            "schema": {
+                "type": "object",
+                "required": ["summary"],
+                "properties": {"summary": {"type": "string"}},
+            },
+        },
+        headers=csrf_headers(client),
+    ).json()
+    version = client.post(
+        workspace_url(workspace_id, f"/data-objects/{definition['id']}/publish"),
+        headers=csrf_headers(client),
+    ).json()
+    return definition, version
 
 
 def make_queued_execution_job_claimable(client: TestClient) -> None:
@@ -313,6 +346,73 @@ def test_workflow_run_retries_and_persists_node_timeline(tmp_path):
     ).json()
     assert persisted["output"] == run["output"]
     assert len(persisted["nodes"]) == 3
+    with restarted.app.state.session_factory() as session:
+        artifact = session.scalar(
+            select(ArtifactRecord).where(ArtifactRecord.run_id == run["id"]),
+        )
+        assert artifact is not None
+        artifact_version = session.scalar(
+            select(ArtifactVersionRecord).where(
+                ArtifactVersionRecord.artifact_id == artifact.id,
+            ),
+        )
+        assert artifact_version is not None
+        assert artifact_version.data_object_definition_id is None
+        assert artifact_version.data_object_version_id is None
+        assert artifact_version.data_object_snapshot is None
+
+
+def test_workflow_run_final_artifact_version_records_output_data_object_contract(tmp_path):
+    gateway = FakeGateway([
+        FakeModelResult('{"summary":"The workflow produced structured output."}'),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'artifact-data-object-contract.db'}",
+        model_gateway=gateway,
+    )
+    agent, version = create_published_agent(client, workspace_id)
+    definition, data_object_version = create_published_data_object(client, workspace_id)
+    workflow = create_published_workflow(
+        client,
+        workspace_id,
+        agent,
+        version,
+        output_data_object_ref={
+            "definitionId": definition["id"],
+            "name": definition["name"],
+            "version": data_object_version["version"],
+            "status": "published",
+            "schemaSummary": "required: summary",
+        },
+    )
+
+    response = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Generate a structured insight."},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 201
+    run = response.json()
+    with client.app.state.session_factory() as session:
+        artifact = session.scalar(
+            select(ArtifactRecord).where(
+                ArtifactRecord.workspace_id == workspace_id,
+                ArtifactRecord.run_id == run["id"],
+            ),
+        )
+        assert artifact is not None
+        artifact_version = session.scalar(
+            select(ArtifactVersionRecord).where(
+                ArtifactVersionRecord.workspace_id == workspace_id,
+                ArtifactVersionRecord.artifact_id == artifact.id,
+            ),
+        )
+        assert artifact_version is not None
+        assert artifact_version.data_object_definition_id == definition["id"]
+        assert artifact_version.data_object_version_id == data_object_version["id"]
+        assert artifact_version.data_object_snapshot["name"] == "Structured Insight"
+        assert artifact_version.data_object_snapshot["schema"]["required"] == ["summary"]
 
 
 def test_workflow_run_rejects_input_missing_required_schema_field(tmp_path):

@@ -424,6 +424,9 @@ class ArtifactVersionRecord(Base):
     version: Mapped[int] = mapped_column(Integer, default=1)
     parent_version_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     content: Mapped[str] = mapped_column(Text)
+    data_object_definition_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    data_object_version_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    data_object_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_by: Mapped[str] = mapped_column(String(80), default="system")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 

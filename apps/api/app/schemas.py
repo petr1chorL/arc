@@ -1237,6 +1237,9 @@ class ArtifactVersionSummary(BaseModel):
     id: str
     version: int
     content: str
+    data_object_definition_id: str | None = Field(default=None, serialization_alias="dataObjectDefinitionId")
+    data_object_version_id: str | None = Field(default=None, serialization_alias="dataObjectVersionId")
+    data_object_snapshot: dict | None = Field(default=None, serialization_alias="dataObjectSnapshot")
     created_by: str = Field(serialization_alias="createdBy")
     created_at: datetime = Field(serialization_alias="createdAt")
 

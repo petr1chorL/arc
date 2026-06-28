@@ -830,14 +830,63 @@ class ExecutionService:
         else:
             run.status = "已完成"
         if node_runs:
-            session.add(ArtifactRecord(
+            artifact = ArtifactRecord(
                 workspace_id=run.workspace_id,
                 run_id=run.id,
                 source_node_run_id=node_runs[-1].id,
                 content=run.output_text,
                 score=run.score,
+            )
+            session.add(artifact)
+            session.flush()
+            output_data_object_ref = None
+            if run.workflow_id and run.workflow_version:
+                output_data_object_ref = self._output_data_object_ref(
+                    snapshot=self.workflow_snapshot(session, run),
+                    node_runs=current_nodes,
+                )
+            session.add(ArtifactVersionRecord(
+                workspace_id=run.workspace_id,
+                artifact_id=artifact.id,
+                content=run.output_text,
+                data_object_definition_id=(
+                    output_data_object_ref.get("definitionId")
+                    if output_data_object_ref
+                    else None
+                ),
+                data_object_version_id=(
+                    output_data_object_ref.get("versionId")
+                    if output_data_object_ref
+                    else None
+                ),
+                data_object_snapshot=(
+                    output_data_object_ref.get("snapshot")
+                    if output_data_object_ref
+                    else None
+                ),
             ))
         session.commit()
+
+    @staticmethod
+    def _output_data_object_ref(
+        *,
+        snapshot: dict,
+        node_runs: list[NodeRunRecord],
+    ) -> dict | None:
+        nodes_by_id = {
+            node.get("id"): node
+            for node in snapshot.get("nodes", [])
+            if isinstance(node, dict)
+        }
+        for node_run in reversed(node_runs):
+            node = nodes_by_id.get(node_run.node_id)
+            data = node.get("data") if isinstance(node, dict) else None
+            if not isinstance(data, dict):
+                continue
+            ref = data.get("outputDataObjectRef")
+            if isinstance(ref, dict):
+                return ref
+        return None
 
 
 class WorkflowResumeService:

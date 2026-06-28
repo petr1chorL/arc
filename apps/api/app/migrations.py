@@ -704,6 +704,15 @@ def ensure_current_schema(engine: Engine) -> None:
     )
     ensure_columns(
         engine,
+        "artifact_versions",
+        {
+            "data_object_definition_id": "VARCHAR(36)",
+            "data_object_version_id": "VARCHAR(36)",
+            "data_object_snapshot": "JSON",
+        },
+    )
+    ensure_columns(
+        engine,
         "audit_events",
         {
             "trace_id": "VARCHAR(80) NOT NULL DEFAULT ''",
