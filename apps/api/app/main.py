@@ -2775,6 +2775,59 @@ def create_app(
         )
         return [run_response(run, session) for run in session.scalars(statement)]
 
+    @router.post(
+        "/runs/{run_id}/rerun",
+        response_model=RunRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def rerun_workflow_run(
+        run_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> RunRead:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "run.execute",
+            action="run.rerun",
+            target_type="run",
+            target_id=run_id,
+            request=request,
+        )
+        source_run = find_run(context.workspace.id, run_id, session)
+        if (
+            source_run.kind != "workflow"
+            or not source_run.workflow_id
+            or not source_run.workflow_version
+        ):
+            raise HTTPException(status_code=422, detail="浠呮敮鎸佸伐浣滄祦杩愯閲嶈窇")
+        try:
+            rerun = execution_service.run_workflow_version(
+                session=session,
+                workflow_id=source_run.workflow_id,
+                workflow_version=source_run.workflow_version,
+                input_text=source_run.input_text,
+            )
+        except RuntimeError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from None
+        record_success(
+            session,
+            context,
+            action="run.rerun",
+            target_type="run",
+            target_id=source_run.id,
+            request=request,
+            metadata={
+                "sourceRunId": source_run.id,
+                "newRunId": rerun.id,
+                "workflowId": source_run.workflow_id,
+                "workflowVersion": source_run.workflow_version,
+            },
+        )
+        session.commit()
+        return run_response(rerun, session)
+
     @router.get("/runs/{run_id}", response_model=RunRead)
     def get_run(
         run_id: str,

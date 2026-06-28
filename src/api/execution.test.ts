@@ -7,6 +7,7 @@ import {
   listReviews,
   listRuns,
   requeueExecutionJob,
+  rerunWorkflowRun,
   runAgent,
   runWorkflow,
 } from './execution'
@@ -97,6 +98,30 @@ describe('Execution API', () => {
       body: JSON.stringify({ decision: 'approve' }),
     })
     expect(new Headers(lastInit?.headers).get('Content-Type')).toBe('application/json')
+  })
+
+  it('reruns a workflow run from its history record', async () => {
+    const rerun = {
+      ...run,
+      id: 'run-2',
+      kind: 'workflow',
+      workflowId: 'workflow-1',
+      workflowVersion: 'v1.0.0',
+      input: '分析需求',
+      output: '重新运行后的结果。',
+    }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(rerun), { status: 201 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(rerunWorkflowRun(workspaceId, 'run-1')).resolves.toEqual(rerun)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/workspaces/workspace-1/runs/run-1/rerun',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'same-origin',
+      }),
+    )
   })
 
   it('loads execution jobs with an optional status filter', async () => {

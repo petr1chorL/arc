@@ -1,9 +1,9 @@
-import { Play, RefreshCw, Search } from 'lucide-react'
+import { Play, RefreshCw, RotateCcw, Search } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWorkspace } from '../auth/workspaceContextState'
-import { listRuns } from '../api/execution'
+import { listRuns, rerunWorkflowRun } from '../api/execution'
 import { StatusBadge } from '../components/StatusBadge'
-import { isWaitingForHumanReview } from '../domain/statusText'
+import { displayStatus, isWaitingForHumanReview } from '../domain/statusText'
 import type { ExecutionRun, NodeExecution } from '../types'
 
 function formatDuration(durationMs: number) {
@@ -15,12 +15,27 @@ function formatTime(value: string) {
   return new Date(value).toLocaleString('zh-CN')
 }
 
+const rerunnableWorkflowStatuses = new Set(['\u6fb6\u8fab\u89e6', '\u5931\u8d25', '\u5df2\u53d6\u6d88', '\u6062\u590d\u5931\u8d25'])
+
+function canRerunWorkflow(run: ExecutionRun) {
+  const status = displayStatus(run.status)
+  return (
+    run.kind === 'workflow'
+    && Boolean(run.workflowId)
+    && Boolean(run.workflowVersion)
+    && (rerunnableWorkflowStatuses.has(status) || (status === '??' && Boolean(run.error)))
+  )
+}
+
 export function Runs() {
   const { workspace, workspacePath } = useWorkspace()
   const [runs, setRuns] = useState<ExecutionRun[]>([])
   const [selectedId, setSelectedId] = useState('')
   const [query, setQuery] = useState('')
   const [error, setError] = useState('')
+  const [rerunError, setRerunError] = useState('')
+  const [rerunMessage, setRerunMessage] = useState('')
+  const [rerunningId, setRerunningId] = useState('')
   const [isLoading, setIsLoading] = useState(true)
 
   const load = useCallback(async () => {
@@ -53,6 +68,25 @@ export function Runs() {
     ))
   }, [query, runs])
   const selected = runs.find((run) => run.id === selectedId) ?? runs[0]
+
+  const handleRerun = useCallback(async (run: ExecutionRun) => {
+    setRerunError('')
+    setRerunMessage('')
+    setRerunningId(run.id)
+    try {
+      const rerun = await rerunWorkflowRun(workspace.id, run.id)
+      setRuns((currentRuns) => [
+        rerun,
+        ...currentRuns.filter((currentRun) => currentRun.id !== rerun.id),
+      ])
+      setSelectedId(rerun.id)
+      setRerunMessage('\u91cd\u65b0\u8fd0\u884c\u5df2\u521b\u5efa')
+    } catch (rerunRequestError) {
+      setRerunError(rerunRequestError instanceof Error ? rerunRequestError.message : '\u91cd\u65b0\u8fd0\u884c\u5931\u8d25')
+    } finally {
+      setRerunningId('')
+    }
+  }, [workspace.id])
 
   if (isLoading) {
     return <div className="panel table-state">正在加载运行记录…</div>
@@ -110,8 +144,23 @@ export function Runs() {
             <h2>{selected.name}</h2>
             <p>{formatTime(selected.startedAt)} 启动 · {selected.kind === 'agent' ? 'Agent 测试运行' : `工作流 ${selected.workflowVersion}`}</p>
           </div>
-          <div className="run-actions"><StatusBadge status={selected.status} /></div>
+          <div className="run-actions">
+            {canRerunWorkflow(selected) && (
+              <button
+                className="button secondary compact"
+                disabled={rerunningId === selected.id}
+                onClick={() => void handleRerun(selected)}
+              >
+                <RotateCcw size={15} />
+                {rerunningId === selected.id ? '\u91cd\u65b0\u8fd0\u884c\u4e2d' : '\u91cd\u65b0\u8fd0\u884c'}
+              </button>
+            )}
+            <StatusBadge status={selected.status} />
+          </div>
         </header>
+
+        {rerunMessage && <div className="run-action-notice success">{rerunMessage}</div>}
+        {rerunError && <div className="run-action-notice error" role="alert">{rerunError}</div>}
 
         <div className="run-kpis">
           <div><span>总耗时</span><strong>{formatDuration(selected.durationMs)}</strong></div>

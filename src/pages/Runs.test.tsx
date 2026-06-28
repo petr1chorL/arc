@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WorkspaceProvider } from '../auth/WorkspaceContext'
 import { Runs } from './Runs'
@@ -92,6 +93,56 @@ describe('Runs', () => {
     expect(screen.getByRole('link', { name: '去人工审核处理' })).toHaveAttribute(
       'href',
       '/w/ai-capability-center/reviews',
+    )
+  })
+
+  it('reruns a failed workflow run and selects the new run', async () => {
+    const user = userEvent.setup()
+    const failedRun = {
+      ...run,
+      id: 'run-failed',
+      status: '失败',
+      input: '复用这次输入',
+      output: '',
+      error: 'Agent 执行失败，请稍后重试',
+    }
+    const rerun = {
+      ...run,
+      id: 'run-rerun',
+      status: '\u5df2\u5b8c\u6210',
+      input: '复用这次输入',
+      output: '\u91cd\u65b0\u8fd0\u884c\u5df2\u7ecf\u5b8c\u6210\u3002',
+      error: '',
+      startedAt: '2026-06-24T08:05:00Z',
+      nodes: [{ ...run.nodes[0], output: '\u91cd\u65b0\u8fd0\u884c\u5df2\u7ecf\u5b8c\u6210\u3002' }],
+    }
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
+      if (url === `/api/workspaces/${workspace.id}/runs`) {
+        return Promise.resolve(new Response(JSON.stringify([failedRun]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/runs/run-failed/rerun`) {
+        return Promise.resolve(new Response(JSON.stringify(rerun), { status: 201 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify({ detail: 'not found' }), { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <WorkspaceProvider workspace={workspace}>
+        <Runs />
+      </WorkspaceProvider>,
+    )
+
+    expect(await screen.findByText('Agent 执行失败，请稍后重试')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '\u91cd\u65b0\u8fd0\u884c' }))
+
+    expect(await screen.findByText('\u91cd\u65b0\u8fd0\u884c\u5df2\u521b\u5efa')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '新品研究流程' })).toBeInTheDocument()
+    expect(screen.getAllByText('\u91cd\u65b0\u8fd0\u884c\u5df2\u7ecf\u5b8c\u6210\u3002')).toHaveLength(2)
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/workspaces/${workspace.id}/runs/run-failed/rerun`,
+      expect.objectContaining({ method: 'POST' }),
     )
   })
 })

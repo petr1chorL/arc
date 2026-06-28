@@ -827,6 +827,78 @@ def test_agent_test_run_exhausts_retries_without_exposing_provider_error(tmp_pat
     assert "provider-secret-detail" not in response.text
 
 
+def test_failed_workflow_run_can_be_rerun_with_original_input_and_version(tmp_path):
+    gateway = FakeGateway([
+        RuntimeError("provider-secret-detail"),
+        RuntimeError("provider-secret-detail"),
+        FakeModelResult("The rerun completed with the original workflow input."),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'execution.db'}",
+        model_gateway=gateway,
+    )
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(client, workspace_id, agent, version)
+
+    source = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Retry this workflow from the run center."},
+        headers=csrf_headers(client),
+    ).json()
+    assert source["status"] == "失败"
+
+    response = client.post(
+        workspace_url(workspace_id, f"/runs/{source['id']}/rerun"),
+        headers={**csrf_headers(client), "X-Request-ID": "req-run-rerun"},
+    )
+
+    assert response.status_code == 201
+    rerun = response.json()
+    assert rerun["id"] != source["id"]
+    assert rerun["workflowId"] == workflow["id"]
+    assert rerun["workflowVersion"] == source["workflowVersion"]
+    assert rerun["input"] == source["input"]
+    assert rerun["status"] == "已完成"
+    assert rerun["output"].startswith("The rerun completed")
+
+    with client.app.state.session_factory() as session:
+        event = session.scalars(
+            select(AuditEventRecord)
+            .where(
+                AuditEventRecord.action == "run.rerun",
+                AuditEventRecord.target_id == source["id"],
+                AuditEventRecord.outcome == "success",
+            )
+            .order_by(AuditEventRecord.created_at.desc()),
+        ).first()
+        assert event is not None
+        assert event.workspace_id == workspace_id
+        assert event.request_id == "req-run-rerun"
+        assert event.event_metadata["sourceRunId"] == source["id"]
+        assert event.event_metadata["newRunId"] == rerun["id"]
+
+
+def test_agent_run_cannot_be_rerun_from_workflow_history_endpoint(tmp_path):
+    gateway = FakeGateway([FakeModelResult("This direct agent run should not be rerun as a workflow.")])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'execution.db'}",
+        model_gateway=gateway,
+    )
+    agent, version = create_published_agent(client, workspace_id)
+    source = client.post(
+        workspace_url(workspace_id, f"/agents/{agent['id']}/test-runs"),
+        json={"input": "Run the agent directly.", "version": version["version"]},
+        headers=csrf_headers(client),
+    ).json()
+
+    response = client.post(
+        workspace_url(workspace_id, f"/runs/{source['id']}/rerun"),
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 422
+
+
 def test_human_review_decision_updates_review_and_run_status(tmp_path):
     gateway = FakeGateway([FakeModelResult("short")])
     client, workspace_id = create_authenticated_client(
