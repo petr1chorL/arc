@@ -39,11 +39,11 @@ function eventTitle(event: WorkspaceAuditEvent) {
 
 export function AuditLog() {
   const { workspace, workspacePath } = useWorkspace()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [events, setEvents] = useState<WorkspaceAuditEvent[]>([])
-  const [action, setAction] = useState('')
-  const [targetType, setTargetType] = useState('')
-  const [outcome, setOutcome] = useState('')
+  const [action, setAction] = useState(() => searchParams.get('action') ?? '')
+  const [targetType, setTargetType] = useState(() => searchParams.get('targetType') ?? '')
+  const [outcome, setOutcome] = useState(() => searchParams.get('outcome') ?? '')
   const [traceId, setTraceId] = useState(() => searchParams.get('traceId') ?? '')
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
@@ -55,6 +55,23 @@ export function AuditLog() {
     traceId: traceId.trim() || undefined,
     limit: 50,
   }), [action, targetType, outcome, traceId])
+
+  useEffect(() => {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current)
+      const entries = {
+        traceId: traceId.trim(),
+        action: action.trim(),
+        targetType: targetType.trim(),
+        outcome,
+      }
+      for (const [key, value] of Object.entries(entries)) {
+        if (value) next.set(key, value)
+        else next.delete(key)
+      }
+      return next.toString() === current.toString() ? current : next
+    }, { replace: true })
+  }, [action, outcome, setSearchParams, targetType, traceId])
 
   async function loadEvents() {
     setIsLoading(true)

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WorkspaceProvider } from '../auth/WorkspaceContext'
 import { AuditLog } from './AuditLog'
@@ -55,11 +55,17 @@ const runEvent = {
   metadata: { sourceRunId: 'run-1' },
 }
 
+function LocationProbe() {
+  const location = useLocation()
+  return <output aria-label="current search">{location.search}</output>
+}
+
 function renderPage(initialPath = '/w/ai-capability-center/settings/audit') {
   return render(
     <MemoryRouter initialEntries={[initialPath]}>
       <WorkspaceProvider workspace={workspace}>
         <AuditLog />
+        <LocationProbe />
       </WorkspaceProvider>
     </MemoryRouter>,
   )
@@ -124,6 +130,32 @@ describe('AuditLog page', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         `/api/workspaces/${workspace.id}/audit-events?traceId=trace-1&limit=50`,
+        expect.objectContaining({ credentials: 'same-origin' }),
+      )
+    })
+  })
+
+  it('syncs audit filters to the URL while preserving existing filters', async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
+      if (url.includes('outcome=denied')) {
+        return Promise.resolve(new Response(JSON.stringify([deniedEvent]), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify([successEvent]), { status: 200 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage('/w/ai-capability-center/settings/audit?traceId=trace-1&action=tool_skill_asset.update')
+
+    expect(await screen.findByText('tool_skill_asset.update')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('结果'), { target: { value: 'denied' } })
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('current search')).toHaveTextContent('?traceId=trace-1&action=tool_skill_asset.update&outcome=denied')
+    })
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenLastCalledWith(
+        `/api/workspaces/${workspace.id}/audit-events?action=tool_skill_asset.update&outcome=denied&traceId=trace-1&limit=50`,
         expect.objectContaining({ credentials: 'same-origin' }),
       )
     })
