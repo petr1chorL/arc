@@ -621,10 +621,33 @@ class WorkflowEdge(BaseModel):
     label: str | None = None
 
 
+def default_workflow_schema() -> dict:
+    return {"type": "object", "properties": {}}
+
+
 class WorkflowCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     nodes: list[WorkflowNode] = Field(default_factory=list)
     edges: list[WorkflowEdge] = Field(default_factory=list)
+    input_schema: dict = Field(
+        default_factory=default_workflow_schema,
+        alias="inputSchema",
+        serialization_alias="inputSchema",
+    )
+    output_schema: dict = Field(
+        default_factory=default_workflow_schema,
+        alias="outputSchema",
+        serialization_alias="outputSchema",
+    )
+
+    @field_validator("input_schema", "output_schema")
+    @classmethod
+    def require_object_schema(cls, value: dict) -> dict:
+        if not isinstance(value, dict) or isinstance(value, list):
+            raise ValueError("Schema 必须是 JSON 对象")
+        return value
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class WorkflowUpdate(WorkflowCreate):
@@ -638,6 +661,8 @@ class WorkflowRead(BaseModel):
     version: str
     nodes: list[dict]
     edges: list[dict]
+    input_schema: dict = Field(serialization_alias="inputSchema")
+    output_schema: dict = Field(serialization_alias="outputSchema")
     created_at: datetime = Field(serialization_alias="createdAt")
     updated_at: datetime = Field(serialization_alias="updatedAt")
 

@@ -176,9 +176,37 @@ function getNodeEdgeImpact(nodeId: string, edges: Edge[]): NodeEdgeImpact {
   }
 }
 
-function createDraftSignature(name: string, nodes: Node[], edges: Edge[]) {
+function defaultWorkflowSchema() {
+  return { type: 'object', properties: {} }
+}
+
+function schemaToText(schema: Record<string, unknown> | undefined) {
+  return JSON.stringify(schema ?? defaultWorkflowSchema(), null, 2)
+}
+
+function parseWorkflowSchema(label: string, text: string) {
+  try {
+    const parsed = JSON.parse(text)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { error: `${label} 必须是 JSON 对象` }
+    }
+    return { value: parsed as Record<string, unknown> }
+  } catch {
+    return { error: `${label} 必须是合法 JSON` }
+  }
+}
+
+function createDraftSignature(
+  name: string,
+  nodes: Node[],
+  edges: Edge[],
+  inputSchemaText: string,
+  outputSchemaText: string,
+) {
   return JSON.stringify({
     name: name.trim() || '未命名工作流',
+    inputSchemaText,
+    outputSchemaText,
     ...toContractGraph(sanitizeWorkflowNodes(nodes), edges),
   })
 }
@@ -201,6 +229,8 @@ export function Workflows() {
   const [showRun, setShowRun] = useState(false)
   const [runInput, setRunInput] = useState('')
   const [runResult, setRunResult] = useState<ExecutionRun | null>(null)
+  const [inputSchemaText, setInputSchemaText] = useState(schemaToText(defaultWorkflowSchema()))
+  const [outputSchemaText, setOutputSchemaText] = useState(schemaToText(defaultWorkflowSchema()))
   const [feedback, setFeedback] = useState('')
   const [errors, setErrors] = useState<string[]>([])
   const [isBusy, setIsBusy] = useState(false)
@@ -211,8 +241,8 @@ export function Workflows() {
   const [redoStack, setRedoStack] = useState<CanvasSnapshot[]>([])
   const renderedNodes = useMemo(() => sanitizeWorkflowNodes(nodes), [nodes])
   const draftSignature = useMemo(
-    () => createDraftSignature(name, renderedNodes, edges),
-    [edges, name, renderedNodes],
+    () => createDraftSignature(name, renderedNodes, edges, inputSchemaText, outputSchemaText),
+    [edges, inputSchemaText, name, outputSchemaText, renderedNodes],
   )
   const hasUnsavedChanges = savedDraftSignature !== '' && draftSignature !== savedDraftSignature
 
@@ -305,7 +335,17 @@ export function Workflows() {
     setName(workflow.name)
     setNodes(graph.nodes)
     setEdges(graph.edges)
-    setSavedDraftSignature(createDraftSignature(workflow.name, graph.nodes, graph.edges))
+    const nextInputSchemaText = schemaToText(workflow.inputSchema)
+    const nextOutputSchemaText = schemaToText(workflow.outputSchema)
+    setInputSchemaText(nextInputSchemaText)
+    setOutputSchemaText(nextOutputSchemaText)
+    setSavedDraftSignature(createDraftSignature(
+      workflow.name,
+      graph.nodes,
+      graph.edges,
+      nextInputSchemaText,
+      nextOutputSchemaText,
+    ))
     setSelectedNode(null)
     setSelectedEdge(null)
     setPendingNavigation(null)
@@ -366,8 +406,20 @@ export function Workflows() {
     setIsBusy(true)
     setErrors([])
     try {
+      const parsedInputSchema = parseWorkflowSchema('工作流输入 Schema', inputSchemaText)
+      const parsedOutputSchema = parseWorkflowSchema('工作流输出 Schema', outputSchemaText)
+      const schemaErrors = [parsedInputSchema.error, parsedOutputSchema.error].filter(Boolean) as string[]
+      if (schemaErrors.length > 0 || !parsedInputSchema.value || !parsedOutputSchema.value) {
+        setErrors(schemaErrors)
+        return null
+      }
       const graph = toContractGraph(renderedNodes, edges)
-      const input = { name: name.trim() || '未命名工作流', ...graph }
+      const input = {
+        name: name.trim() || '未命名工作流',
+        inputSchema: parsedInputSchema.value,
+        outputSchema: parsedOutputSchema.value,
+        ...graph,
+      }
       const saved = currentId
         ? await updateWorkflow(workspace.id, currentId, input)
         : await createWorkflow(workspace.id, input)
@@ -379,7 +431,17 @@ export function Workflows() {
           : [saved, ...current]
       })
       const savedGraph = fromContractGraph(saved.nodes, saved.edges)
-      setSavedDraftSignature(createDraftSignature(saved.name, savedGraph.nodes, savedGraph.edges))
+      const savedInputSchemaText = schemaToText(saved.inputSchema)
+      const savedOutputSchemaText = schemaToText(saved.outputSchema)
+      setInputSchemaText(savedInputSchemaText)
+      setOutputSchemaText(savedOutputSchemaText)
+      setSavedDraftSignature(createDraftSignature(
+        saved.name,
+        savedGraph.nodes,
+        savedGraph.edges,
+        savedInputSchemaText,
+        savedOutputSchemaText,
+      ))
       resetCanvasHistory()
       setFeedback('工作流草稿已保存')
       return saved
@@ -389,7 +451,7 @@ export function Workflows() {
     } finally {
       setIsBusy(false)
     }
-  }, [currentId, edges, name, renderedNodes, resetCanvasHistory, workspace.id])
+  }, [currentId, edges, inputSchemaText, name, outputSchemaText, renderedNodes, resetCanvasHistory, workspace.id])
 
   async function publish() {
     const saved = await saveDraft()
@@ -442,11 +504,21 @@ export function Workflows() {
   function resetToNewWorkflow() {
     const defaultNodes = createDefaultNodes()
     const defaultEdges = createDefaultEdges()
+    const defaultInputSchemaText = schemaToText(defaultWorkflowSchema())
+    const defaultOutputSchemaText = schemaToText(defaultWorkflowSchema())
     setCurrentId(null)
     setName('未命名工作流')
     setNodes(defaultNodes)
     setEdges(defaultEdges)
-    setSavedDraftSignature(createDraftSignature('未命名工作流', defaultNodes, defaultEdges))
+    setInputSchemaText(defaultInputSchemaText)
+    setOutputSchemaText(defaultOutputSchemaText)
+    setSavedDraftSignature(createDraftSignature(
+      '未命名工作流',
+      defaultNodes,
+      defaultEdges,
+      defaultInputSchemaText,
+      defaultOutputSchemaText,
+    ))
     resetCanvasHistory()
     setSelectedNode(null)
     setSelectedEdge(null)
@@ -669,6 +741,29 @@ export function Workflows() {
           <button className="icon-button quiet" title="关闭错误提示" onClick={() => setErrors([])}><X size={16} /></button>
         </div>
       )}
+
+      <section className="workflow-contract-panel" aria-label="工作流输入输出契约">
+        <div>
+          <p className="eyebrow">WORKFLOW CONTRACT</p>
+          <h2>输入输出 Schema</h2>
+        </div>
+        <label className="form-field">
+          <span>工作流输入 Schema</span>
+          <textarea
+            rows={7}
+            value={inputSchemaText}
+            onChange={(event) => setInputSchemaText(event.target.value)}
+          />
+        </label>
+        <label className="form-field">
+          <span>工作流输出 Schema</span>
+          <textarea
+            rows={7}
+            value={outputSchemaText}
+            onChange={(event) => setOutputSchemaText(event.target.value)}
+          />
+        </label>
+      </section>
 
       <div className="studio-body">
         <aside className="node-palette">

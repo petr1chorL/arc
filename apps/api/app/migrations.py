@@ -685,6 +685,14 @@ def ensure_current_schema(engine: Engine) -> None:
     )
     ensure_columns(
         engine,
+        "workflows",
+        {
+            "input_schema": "JSON NOT NULL DEFAULT '{\"type\":\"object\",\"properties\":{}}'",
+            "output_schema": "JSON NOT NULL DEFAULT '{\"type\":\"object\",\"properties\":{}}'",
+        },
+    )
+    ensure_columns(
+        engine,
         "node_runs",
         {
             "trace_id": "VARCHAR(80) NOT NULL DEFAULT ''",

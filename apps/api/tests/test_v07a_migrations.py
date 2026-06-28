@@ -513,6 +513,10 @@ def test_v06_records_are_migrated_into_one_default_workspace(tmp_path):
             column["name"]
             for column in inspect(engine).get_columns("workflow_runs")
         }
+        workflow_columns = {
+            column["name"]
+            for column in inspect(engine).get_columns("workflows")
+        }
         node_run_columns = {
             column["name"]
             for column in inspect(engine).get_columns("node_runs")
@@ -521,9 +525,18 @@ def test_v06_records_are_migrated_into_one_default_workspace(tmp_path):
             column["name"]
             for column in inspect(engine).get_columns("audit_events")
         }
+        assert {"input_schema", "output_schema"} <= workflow_columns
         assert {"trace_id"} <= workflow_run_columns
         assert {"trace_id", "span_id", "parent_span_id"} <= node_run_columns
         assert {"trace_id", "span_id"} <= audit_event_columns
+        workflow_schema = session.execute(
+            text(
+                "SELECT input_schema, output_schema FROM workflows "
+                "WHERE id = 'workflow-1'",
+            ),
+        ).one()
+        assert workflow_schema.input_schema == '{"type":"object","properties":{}}'
+        assert workflow_schema.output_schema == '{"type":"object","properties":{}}'
 
         assert session.get(AgentRecord, "agent-1").name == "Legacy Agent"
         assert session.get(

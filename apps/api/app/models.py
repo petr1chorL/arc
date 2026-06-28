@@ -268,6 +268,8 @@ class WorkflowRecord(Base):
     version: Mapped[str] = mapped_column(String(20), default="未发布")
     nodes: Mapped[list[dict]] = mapped_column(JSON, default=list)
     edges: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    input_schema: Mapped[dict] = mapped_column(JSON, default=lambda: {"type": "object", "properties": {}})
+    output_schema: Mapped[dict] = mapped_column(JSON, default=lambda: {"type": "object", "properties": {}})
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 

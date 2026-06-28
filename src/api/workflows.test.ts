@@ -15,6 +15,8 @@ const workflow = {
   version: '未发布',
   nodes: [],
   edges: [],
+  inputSchema: { type: 'object', properties: {} },
+  outputSchema: { type: 'object', properties: {} },
   createdAt: '2026-06-24T07:00:00Z',
   updatedAt: '2026-06-24T07:00:00Z',
 }
@@ -41,7 +43,13 @@ describe('Workflow API', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify(version), { status: 201 }))
       .mockResolvedValueOnce(new Response(JSON.stringify([version]), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
-    const draft = { name: workflow.name, nodes: [], edges: [] }
+    const draft = {
+      name: workflow.name,
+      nodes: [],
+      edges: [],
+      inputSchema: workflow.inputSchema,
+      outputSchema: workflow.outputSchema,
+    }
 
     await expect(listWorkflows(workspaceId)).resolves.toEqual([workflow])
     await expect(createWorkflow(workspaceId, draft)).resolves.toEqual(workflow)

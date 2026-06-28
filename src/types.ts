@@ -337,6 +337,8 @@ export interface WorkflowDraft {
   version: string
   nodes: WorkflowNodeContract[]
   edges: WorkflowEdgeContract[]
+  inputSchema: Record<string, unknown>
+  outputSchema: Record<string, unknown>
   createdAt: string
   updatedAt: string
 }

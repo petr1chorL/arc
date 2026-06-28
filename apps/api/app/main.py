@@ -2319,6 +2319,8 @@ def create_app(
             name=payload.name.strip(),
             nodes=[node.model_dump() for node in payload.nodes],
             edges=[edge.model_dump(exclude_none=True) for edge in payload.edges],
+            input_schema=payload.input_schema,
+            output_schema=payload.output_schema,
             created_at=now,
             updated_at=now,
         )
@@ -2375,6 +2377,8 @@ def create_app(
         record.name = payload.name.strip()
         record.nodes = [node.model_dump() for node in payload.nodes]
         record.edges = [edge.model_dump(exclude_none=True) for edge in payload.edges]
+        record.input_schema = payload.input_schema
+        record.output_schema = payload.output_schema
         record.status = "鑽夌"
         record.updated_at = utc_now()
         record_success(

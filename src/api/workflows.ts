@@ -9,6 +9,8 @@ export interface SaveWorkflowInput {
   name: string
   nodes: WorkflowDraft['nodes']
   edges: WorkflowDraft['edges']
+  inputSchema: WorkflowDraft['inputSchema']
+  outputSchema: WorkflowDraft['outputSchema']
 }
 
 function workspacePath(workspaceId: string, path = '') {

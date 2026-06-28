@@ -118,6 +118,8 @@ const workflow = {
     },
   ],
   edges: [],
+  inputSchema: { type: 'object', properties: {} },
+  outputSchema: { type: 'object', properties: {} },
   createdAt: '2026-06-24T07:00:00Z',
   updatedAt: '2026-06-24T07:00:00Z',
 }
@@ -345,6 +347,107 @@ describe('Workflows', () => {
       escalationMinutes: 180,
       escalationGroupId: 'group-escalation',
     }))
+  })
+
+  it('edits workflow input and output schemas and saves them with the draft', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const savedWorkflow = {
+      ...workflow,
+      inputSchema: {
+        type: 'object',
+        required: ['asin'],
+        properties: { asin: { type: 'string' } },
+      },
+      outputSchema: {
+        type: 'object',
+        required: ['summary'],
+        properties: { summary: { type: 'string' } },
+      },
+    }
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === `/api/workspaces/${workspace.id}/workflows` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([workflow]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/agents` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (
+        url === `/api/workspaces/${workspace.id}/reviewers`
+        || url === `/api/workspaces/${workspace.id}/review-groups`
+      ) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/workflows/workflow-1` && init?.method === 'PATCH') {
+        return Promise.resolve(new Response(JSON.stringify(savedWorkflow), { status: 200 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWorkflows()
+
+    const inputSchema = await screen.findByLabelText('工作流输入 Schema')
+    fireEvent.change(inputSchema, { target: { value: JSON.stringify(savedWorkflow.inputSchema, null, 2) } })
+    const outputSchema = screen.getByLabelText('工作流输出 Schema')
+    fireEvent.change(outputSchema, { target: { value: JSON.stringify(savedWorkflow.outputSchema, null, 2) } })
+    await user.click(screen.getByRole('button', { name: '保存草稿' }))
+
+    const patchCall = fetchMock.mock.calls.find(([url, init]) => (
+      url === `/api/workspaces/${workspace.id}/workflows/workflow-1` && init?.method === 'PATCH'
+    ))
+    const body = JSON.parse(patchCall?.[1]?.body as string)
+    expect(body.inputSchema).toEqual(savedWorkflow.inputSchema)
+    expect(body.outputSchema).toEqual(savedWorkflow.outputSchema)
+  })
+
+  it('blocks saving when workflow schema text is not a JSON object', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === `/api/workspaces/${workspace.id}/workflows` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([workflow]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/agents` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (
+        url === `/api/workspaces/${workspace.id}/reviewers`
+        || url === `/api/workspaces/${workspace.id}/review-groups`
+      ) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/workflows/workflow-1` && init?.method === 'PATCH') {
+        return Promise.resolve(new Response(JSON.stringify(workflow), { status: 200 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWorkflows()
+
+    const inputSchema = await screen.findByLabelText('工作流输入 Schema')
+    fireEvent.change(inputSchema, { target: { value: '[]' } })
+    await user.click(screen.getByRole('button', { name: '保存草稿' }))
+
+    expect(await screen.findByText('工作流输入 Schema 必须是 JSON 对象')).toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([url, init]) => (
+      url === `/api/workspaces/${workspace.id}/workflows/workflow-1` && init?.method === 'PATCH'
+    ))).toBe(false)
   })
 
   it('explains that direct reviewer options only include active reviewer qualifications', async () => {

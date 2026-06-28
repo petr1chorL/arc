@@ -82,6 +82,72 @@ def test_workflow_draft_publishes_an_immutable_snapshot(tmp_path):
     assert versions[0]["snapshot"]["nodes"][1]["data"]["label"] == "Workflow Agent"
 
 
+def test_workflow_draft_persists_io_schema_and_freezes_it_in_versions(tmp_path):
+    client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'workflow-schema.db'}")
+    agent_id, agent_version = published_agent(client, workspace_id)
+    graph = valid_graph(agent_id, agent_version)
+    input_schema = {
+        "type": "object",
+        "required": ["asin"],
+        "properties": {
+            "asin": {"type": "string", "description": "Amazon ASIN"},
+        },
+    }
+    output_schema = {
+        "type": "object",
+        "required": ["summary"],
+        "properties": {
+            "summary": {"type": "string"},
+        },
+    }
+    workflow = client.post(
+        workspace_url(workspace_id, "/workflows"),
+        json={
+            "name": "Contract Workflow",
+            "inputSchema": input_schema,
+            "outputSchema": output_schema,
+            **graph,
+        },
+        headers=csrf_headers(client),
+    )
+
+    assert workflow.status_code == 201
+    created = workflow.json()
+    assert created["inputSchema"] == input_schema
+    assert created["outputSchema"] == output_schema
+
+    updated_output_schema = {
+        "type": "object",
+        "required": ["decision"],
+        "properties": {
+            "decision": {"type": "string", "enum": ["pass", "review"]},
+        },
+    }
+    updated = client.patch(
+        workspace_url(workspace_id, f"/workflows/{created['id']}"),
+        json={
+            "name": "Contract Workflow",
+            "inputSchema": input_schema,
+            "outputSchema": updated_output_schema,
+            **graph,
+        },
+        headers=csrf_headers(client),
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["outputSchema"] == updated_output_schema
+
+    published = client.post(
+        workspace_url(workspace_id, f"/workflows/{created['id']}/publish"),
+        headers=csrf_headers(client),
+    )
+
+    assert published.status_code == 201
+    snapshot = published.json()["snapshot"]
+    assert snapshot["inputSchema"] == input_schema
+    assert snapshot["outputSchema"] == updated_output_schema
+
+
 def test_workflow_publish_rejects_cycles_and_unpublished_agent_references(tmp_path):
     client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'workflows.db'}")
     graph = {
