@@ -1,4 +1,4 @@
-import { Check, Database, FileJson, Filter, RotateCcw, ShieldOff } from 'lucide-react'
+import { Check, Database, Eye, FileJson, Filter, RotateCcw, ShieldOff, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { listArtifacts } from '../api/artifacts'
 import { useWorkspace } from '../auth/workspaceContextState'
@@ -31,6 +31,19 @@ function snapshotName(snapshot: Record<string, unknown> | null) {
   return typeof name === 'string' && name.trim() ? name : '未绑定 Data Object'
 }
 
+function formatJsonText(value: string) {
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2)
+  } catch {
+    return value
+  }
+}
+
+function formatSnapshot(snapshot: Record<string, unknown> | null) {
+  if (!snapshot) return '未绑定 Data Object Snapshot'
+  return JSON.stringify(snapshot, null, 2)
+}
+
 export function Artifacts() {
   const { workspace } = useWorkspace()
   const [artifacts, setArtifacts] = useState<ArtifactCatalogItem[]>([])
@@ -38,6 +51,7 @@ export function Artifacts() {
   const [appliedFilter, setAppliedFilter] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
+  const [selectedArtifact, setSelectedArtifact] = useState<ArtifactCatalogItem | null>(null)
 
   useEffect(() => {
     setIsLoading(true)
@@ -153,11 +167,65 @@ export function Artifacts() {
                   <span>{formatDate(artifact.createdAt)}</span>
                 </div>
                 <pre className="artifact-content-preview">{artifact.content}</pre>
+                <div className="artifact-card-actions">
+                  <button
+                    aria-label={`查看 ${artifact.artifactVersionId} 详情`}
+                    className="button ghost"
+                    type="button"
+                    onClick={() => setSelectedArtifact(artifact)}
+                  >
+                    <Eye size={15} />查看详情
+                  </button>
+                </div>
               </article>
             ))}
           </div>
         )}
       </section>
+
+      {selectedArtifact && (
+        <div className="modal-backdrop" role="presentation">
+          <section
+            aria-label="Artifact 详情"
+            className="artifact-detail-dialog"
+            role="dialog"
+            aria-modal="true"
+          >
+            <header className="artifact-detail-head">
+              <div>
+                <span className="section-kicker">ARTIFACT DETAIL</span>
+                <h3>Artifact 详情</h3>
+              </div>
+              <button
+                aria-label="关闭 Artifact 详情"
+                className="icon-button"
+                type="button"
+                onClick={() => setSelectedArtifact(null)}
+              >
+                <X size={17} />
+              </button>
+            </header>
+            <div className="artifact-detail-meta">
+              <span>ArtifactVersion</span><strong>{selectedArtifact.artifactVersionId}</strong>
+              <span>Artifact</span><strong>{selectedArtifact.artifactId}</strong>
+              <span>Run</span><strong>{selectedArtifact.runId}</strong>
+              <span>NodeRun</span><strong>{selectedArtifact.sourceNodeRunId}</strong>
+              <span>Data Object Version</span><strong>{selectedArtifact.dataObjectVersionId ?? '未绑定'}</strong>
+              <span>Score</span><strong>{selectedArtifact.score ?? '-'}</strong>
+            </div>
+            <div className="artifact-detail-grid">
+              <section>
+                <h4>格式化内容</h4>
+                <pre className="artifact-detail-code">{formatJsonText(selectedArtifact.content)}</pre>
+              </section>
+              <section>
+                <h4>Data Object Snapshot</h4>
+                <pre className="artifact-detail-code">{formatSnapshot(selectedArtifact.dataObjectSnapshot)}</pre>
+              </section>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   )
 }

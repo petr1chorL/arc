@@ -72,4 +72,30 @@ describe('Artifacts page', () => {
       expect(calls).toContain(`/api/workspaces/${workspace.id}/artifacts?dataObjectDefinitionId=data-object-1`)
     })
   })
+
+  it('opens an artifact detail dialog with formatted content and snapshot', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
+      if (url === `/api/workspaces/${workspace.id}/artifacts`) {
+        return Promise.resolve(new Response(JSON.stringify([artifact]), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+    }))
+
+    renderPage()
+
+    await screen.findByText('Structured Insight')
+    await user.click(screen.getByRole('button', { name: '查看 artifact-version-1 详情' }))
+
+    const dialog = await screen.findByRole('dialog', { name: 'Artifact 详情' })
+    expect(dialog).toHaveTextContent('artifact-version-1')
+    expect(dialog).toHaveTextContent('run-1')
+    expect(dialog).toHaveTextContent('node-run-1')
+    expect(dialog).toHaveTextContent('"summary": "Catalog visible structured output."')
+    expect(dialog).toHaveTextContent('"name": "Structured Insight"')
+
+    await user.click(screen.getByRole('button', { name: '关闭 Artifact 详情' }))
+    expect(screen.queryByRole('dialog', { name: 'Artifact 详情' })).not.toBeInTheDocument()
+  })
 })
