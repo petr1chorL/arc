@@ -4,13 +4,14 @@ import { useWorkspace } from '../auth/workspaceContextState'
 import {
   batchResumeRunsFromFailedNode,
   batchRerunWorkflowRuns,
+  listRunOperationHistory,
   listRuns,
   rerunWorkflowRun,
   resumeRunFromFailedNode,
 } from '../api/execution'
 import { StatusBadge } from '../components/StatusBadge'
 import { displayStatus, isWaitingForHumanReview } from '../domain/statusText'
-import type { ExecutionRun, NodeExecution } from '../types'
+import type { ExecutionRun, NodeExecution, RunOperationHistoryEvent } from '../types'
 
 function formatDuration(durationMs: number) {
   if (durationMs < 1000) return `${durationMs} ms`
@@ -23,6 +24,22 @@ function formatTime(value: string) {
 
 const rerunnableWorkflowStatuses = new Set(['\u6fb6\u8fab\u89e6', '\u5931\u8d25', '\u5df2\u53d6\u6d88', '\u6062\u590d\u5931\u8d25'])
 const failedWorkflowStatuses = new Set(['\u6fb6\u8fab\u89e6', '\u5931\u8d25'])
+const runOperationActionLabels: Record<string, string> = {
+  'run.rerun': '\u91cd\u65b0\u8fd0\u884c',
+  'run.batch_rerun': '\u6279\u91cf\u91cd\u8dd1',
+  'run.resume_failed_node': '\u5931\u8d25\u70b9\u6062\u590d',
+  'run.batch_resume_failed_node': '\u6279\u91cf\u6062\u590d',
+}
+const operationMetadataKeys = [
+  'sourceRunId',
+  'newRunId',
+  'runId',
+  'failedNodeId',
+  'failedNodeRunId',
+  'workflowVersion',
+  'batchSize',
+  'inputOverridden',
+]
 
 type RunOperationFailure = {
   sourceRunId: string
@@ -49,6 +66,12 @@ function canResumeFailedNode(run: ExecutionRun) {
   )
 }
 
+function formatOperationMetadata(event: RunOperationHistoryEvent) {
+  return operationMetadataKeys
+    .filter((key) => event.metadata[key] !== undefined && event.metadata[key] !== null)
+    .map((key) => `${key}: ${String(event.metadata[key])}`)
+}
+
 export function Runs() {
   const { workspace, workspacePath } = useWorkspace()
   const [runs, setRuns] = useState<ExecutionRun[]>([])
@@ -58,6 +81,10 @@ export function Runs() {
   const [rerunError, setRerunError] = useState('')
   const [rerunMessage, setRerunMessage] = useState('')
   const [operationFailures, setOperationFailures] = useState<RunOperationFailure[]>([])
+  const [operationHistory, setOperationHistory] = useState<RunOperationHistoryEvent[]>([])
+  const [operationHistoryError, setOperationHistoryError] = useState('')
+  const [isOperationHistoryLoading, setIsOperationHistoryLoading] = useState(false)
+  const [operationHistoryVersion, setOperationHistoryVersion] = useState(0)
   const [rerunningId, setRerunningId] = useState('')
   const [batchRerunning, setBatchRerunning] = useState(false)
   const [batchResuming, setBatchResuming] = useState(false)
@@ -116,6 +143,36 @@ export function Runs() {
     setSelectedRunIds((current) => current.filter((runId) => runs.some((run) => run.id === runId)))
   }, [runs])
 
+  useEffect(() => {
+    if (!selected?.id) {
+      setOperationHistory([])
+      setOperationHistoryError('')
+      return
+    }
+
+    let isActive = true
+    setIsOperationHistoryLoading(true)
+    setOperationHistoryError('')
+    void listRunOperationHistory(workspace.id, selected.id)
+      .then((events) => {
+        if (isActive) setOperationHistory(events)
+      })
+      .catch((historyError) => {
+        if (!isActive) return
+        setOperationHistory([])
+        setOperationHistoryError(
+          historyError instanceof Error ? historyError.message : '\u64cd\u4f5c\u5386\u53f2\u52a0\u8f7d\u5931\u8d25',
+        )
+      })
+      .finally(() => {
+        if (isActive) setIsOperationHistoryLoading(false)
+      })
+
+    return () => {
+      isActive = false
+    }
+  }, [operationHistoryVersion, selected?.id, workspace.id])
+
   const openRerunInputEditor = useCallback((run: ExecutionRun) => {
     setRerunError('')
     setRerunMessage('')
@@ -148,6 +205,7 @@ export function Runs() {
       setEditingRerunId('')
       setRerunInput('')
       setRerunMessage('\u91cd\u65b0\u8fd0\u884c\u5df2\u521b\u5efa')
+      setOperationHistoryVersion((current) => current + 1)
     } catch (rerunRequestError) {
       setRerunError(rerunRequestError instanceof Error ? rerunRequestError.message : '\u91cd\u65b0\u8fd0\u884c\u5931\u8d25')
     } finally {
@@ -182,6 +240,7 @@ export function Runs() {
       }
       setSelectedRunIds([])
       setOperationFailures(result.failures)
+      setOperationHistoryVersion((current) => current + 1)
       setRerunMessage(
         result.failures.length > 0
           ? `已批量重跑 ${result.createdRuns.length} 条，${result.failures.length} 条失败`
@@ -213,6 +272,7 @@ export function Runs() {
       }
       setSelectedRunIds([])
       setOperationFailures(result.failures)
+      setOperationHistoryVersion((current) => current + 1)
       setRerunMessage(
         result.failures.length > 0
           ? `\u5df2\u6279\u91cf\u6062\u590d ${result.resumedRuns.length} \u6761\uff0c${result.failures.length} \u6761\u5931\u8d25`
@@ -237,6 +297,7 @@ export function Runs() {
       )))
       setSelectedId(resumed.id)
       setRerunMessage('\u5df2\u4ece\u5931\u8d25\u70b9\u6062\u590d')
+      setOperationHistoryVersion((current) => current + 1)
     } catch (resumeRequestError) {
       setRerunError(resumeRequestError instanceof Error ? resumeRequestError.message : '\u5931\u8d25\u70b9\u6062\u590d\u5931\u8d25')
     } finally {
@@ -422,6 +483,45 @@ export function Runs() {
           <div><span>Token</span><strong>{selected.totalTokens}</strong></div>
           <div><span>质量得分</span><strong>{selected.score ?? '待评估'}</strong></div>
           <div><span>模型成本</span><strong>${selected.costUsd.toFixed(6)}</strong></div>
+        </div>
+
+        <div className="run-operation-history">
+          <div className="review-section-title">
+            <h3>{'\u64cd\u4f5c\u5386\u53f2'}</h3>
+            <span>{operationHistory.length} {'\u6761'}</span>
+          </div>
+          {isOperationHistoryLoading && (
+            <div className="run-operation-history-state">{'\u6b63\u5728\u52a0\u8f7d\u64cd\u4f5c\u5386\u53f2'}</div>
+          )}
+          {operationHistoryError && (
+            <div className="run-operation-history-state error" role="alert">{operationHistoryError}</div>
+          )}
+          {!isOperationHistoryLoading && !operationHistoryError && operationHistory.length === 0 && (
+            <div className="run-operation-history-state">{'\u6682\u65e0\u64cd\u4f5c\u8bb0\u5f55'}</div>
+          )}
+          <div className="run-operation-history-list">
+            {operationHistory.map((event) => {
+              const metadataLines = formatOperationMetadata(event)
+              return (
+                <article className="run-operation-history-item" key={event.id}>
+                  <div>
+                    <strong>{runOperationActionLabels[event.action] ?? event.action}</strong>
+                    <span>{formatTime(event.createdAt)}</span>
+                  </div>
+                  <div className="run-operation-history-meta">
+                    {event.requestId && <span className="mono">{event.requestId}</span>}
+                    {event.outcome && <span>{event.outcome}</span>}
+                    {event.reason && <span>{event.reason}</span>}
+                  </div>
+                  {metadataLines.length > 0 && (
+                    <ul>
+                      {metadataLines.map((line) => <li key={line}>{line}</li>)}
+                    </ul>
+                  )}
+                </article>
+              )
+            })}
+          </div>
         </div>
 
         {isWaitingForHumanReview(selected.status) && (

@@ -1174,6 +1174,86 @@ def test_workflow_runs_can_batch_resume_from_failed_nodes_with_per_item_failures
         assert all(event.request_id == "req-run-batch-resume" for event in events)
 
 
+def test_run_operation_history_lists_related_run_audit_events(tmp_path):
+    gateway = FakeGateway([FakeModelResult("The run completed before operation history events.")])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'execution.db'}",
+        model_gateway=gateway,
+    )
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(client, workspace_id, agent, version)
+    source = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Create a run with operation history."},
+        headers=csrf_headers(client),
+    ).json()
+    created_at = utc_now()
+
+    with client.app.state.session_factory() as session:
+        session.add_all([
+            AuditEventRecord(
+                workspace_id=workspace_id,
+                action="run.rerun",
+                target_type="run",
+                target_id=source["id"],
+                outcome="success",
+                request_id="req-single-rerun",
+                event_metadata={"sourceRunId": source["id"], "newRunId": "new-single-run"},
+                reason="single rerun",
+                created_at=created_at,
+            ),
+            AuditEventRecord(
+                workspace_id=workspace_id,
+                action="run.batch_rerun",
+                target_type="run",
+                target_id="other-source-run",
+                outcome="success",
+                request_id="req-batch-rerun",
+                event_metadata={"sourceRunId": source["id"], "newRunId": "new-batch-run"},
+                reason="batch rerun",
+                created_at=created_at + timedelta(seconds=1),
+            ),
+            AuditEventRecord(
+                workspace_id=workspace_id,
+                action="run.batch_resume_failed_node",
+                target_type="run",
+                target_id="other-resume-run",
+                outcome="success",
+                request_id="req-batch-resume",
+                event_metadata={"runId": source["id"], "failedNodeId": "agent"},
+                reason="batch resume",
+                created_at=created_at + timedelta(seconds=2),
+            ),
+            AuditEventRecord(
+                workspace_id=workspace_id,
+                action="agent.publish",
+                target_type="agent",
+                target_id=agent["id"],
+                outcome="success",
+                request_id="req-unrelated",
+                event_metadata={"runId": source["id"]},
+                created_at=created_at + timedelta(seconds=3),
+            ),
+        ])
+        session.commit()
+
+    response = client.get(
+        workspace_url(workspace_id, f"/runs/{source['id']}/operation-history"),
+    )
+
+    assert response.status_code == 200
+    events = response.json()
+    assert [event["action"] for event in events] == [
+        "run.batch_resume_failed_node",
+        "run.batch_rerun",
+        "run.rerun",
+    ]
+    assert events[0]["requestId"] == "req-batch-resume"
+    assert events[0]["metadata"]["runId"] == source["id"]
+    assert events[1]["metadata"]["sourceRunId"] == source["id"]
+    assert events[2]["targetId"] == source["id"]
+
+
 def test_failed_workflow_run_with_unknown_status_and_error_can_resume(tmp_path):
     gateway = FakeGateway([
         RuntimeError("temporary-provider-outage"),

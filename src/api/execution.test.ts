@@ -5,6 +5,7 @@ import {
   cancelExecutionJob,
   decideReview,
   getExecutionJob,
+  listRunOperationHistory,
   listExecutionJobs,
   listReviews,
   listRuns,
@@ -219,6 +220,30 @@ describe('Execution API', () => {
         method: 'POST',
         credentials: 'same-origin',
       }),
+    )
+  })
+
+  it('loads run operation history', async () => {
+    const events = [{
+      id: 'event-1',
+      action: 'run.batch_rerun',
+      targetType: 'run',
+      targetId: 'run-1',
+      outcome: 'success',
+      reason: 'batch rerun',
+      actorId: 'user-1',
+      requestId: 'req-1',
+      createdAt: '2026-06-28T08:00:00Z',
+      metadata: { sourceRunId: 'run-1', newRunId: 'run-2' },
+    }]
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(events), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(listRunOperationHistory(workspaceId, 'run-1')).resolves.toEqual(events)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/workspaces/workspace-1/runs/run-1/operation-history',
+      expect.objectContaining({ credentials: 'same-origin' }),
     )
   })
 

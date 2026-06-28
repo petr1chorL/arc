@@ -1,4 +1,4 @@
-import type { ExecutionJob, ExecutionJobDetail, ExecutionRun, HumanReview } from '../types'
+import type { ExecutionJob, ExecutionJobDetail, ExecutionRun, HumanReview, RunOperationHistoryEvent } from '../types'
 import { apiFetch, readJson } from './http'
 
 export interface RunInput {
@@ -82,6 +82,15 @@ export async function resumeRunFromFailedNode(workspaceId: string, runId: string
   return readJson<ExecutionRun>(await apiFetch(workspacePath(workspaceId, `/runs/${runId}/resume-from-failed-node`), {
     ...jsonRequest,
   }))
+}
+
+export async function listRunOperationHistory(
+  workspaceId: string,
+  runId: string,
+): Promise<RunOperationHistoryEvent[]> {
+  return readJson<RunOperationHistoryEvent[]>(
+    await apiFetch(workspacePath(workspaceId, `/runs/${runId}/operation-history`)),
+  )
 }
 
 export async function listExecutionJobs(workspaceId: string, status?: string): Promise<ExecutionJob[]> {

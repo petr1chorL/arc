@@ -78,6 +78,43 @@ describe('Runs', () => {
     expect(screen.getByText(/尝试 2 次/)).toBeInTheDocument()
   })
 
+  it('loads and renders run operation history', async () => {
+    const events = [{
+      id: 'event-1',
+      action: 'run.batch_rerun',
+      targetType: 'run',
+      targetId: 'run-1',
+      outcome: 'success',
+      reason: 'batch rerun from run center',
+      actorId: 'user-1',
+      requestId: 'req-batch-rerun',
+      createdAt: '2026-06-28T08:00:00Z',
+      metadata: { sourceRunId: 'run-1', newRunId: 'run-2' },
+    }]
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
+      if (url === `/api/workspaces/${workspace.id}/runs`) {
+        return Promise.resolve(new Response(JSON.stringify([run]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/runs/run-1/operation-history`) {
+        return Promise.resolve(new Response(JSON.stringify(events), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify({ detail: 'not found' }), { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <WorkspaceProvider workspace={workspace}>
+        <Runs />
+      </WorkspaceProvider>,
+    )
+
+    expect(await screen.findByText('\u64cd\u4f5c\u5386\u53f2')).toBeInTheDocument()
+    expect(await screen.findByText('\u6279\u91cf\u91cd\u8dd1')).toBeInTheDocument()
+    expect(screen.getByText('req-batch-rerun')).toBeInTheDocument()
+    expect(screen.getByText('newRunId: run-2')).toBeInTheDocument()
+  })
+
   it('links a waiting workflow run to the human review queue', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
       new Response(JSON.stringify([{ ...run, status: '需介入', currentNode: '人工审核' }]), { status: 200 }),

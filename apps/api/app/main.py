@@ -128,6 +128,7 @@ from app.schemas import (
     RunBatchRerunRead,
     RunBatchRerunRequest,
     RunCreate,
+    RunOperationHistoryEventRead,
     RunRead,
     RunRerunRequest,
     ToolSkillAssetAuditEventRead,
@@ -664,6 +665,22 @@ def create_app(
         payload = RunRead.model_validate(run)
         return payload.model_copy(
             update={"nodes": [NodeRunRead.model_validate(node) for node in nodes]},
+        )
+
+    run_operation_actions = {
+        "run.rerun",
+        "run.batch_rerun",
+        "run.resume_failed_node",
+        "run.batch_resume_failed_node",
+    }
+
+    def audit_event_involves_run(event: AuditEventRecord, run_id: str) -> bool:
+        metadata = event.event_metadata or {}
+        return (
+            event.target_id == run_id
+            or metadata.get("sourceRunId") == run_id
+            or metadata.get("newRunId") == run_id
+            or metadata.get("runId") == run_id
         )
 
     def observability_priority(run: WorkflowRunRecord) -> tuple[int, str]:
@@ -3051,6 +3068,53 @@ def create_app(
         )
         session.commit()
         return run_response(resumed, session)
+
+    @router.get("/runs/{run_id}/operation-history", response_model=list[RunOperationHistoryEventRead])
+    def get_run_operation_history(
+        run_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> list[RunOperationHistoryEventRead]:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "run.read",
+            action="run.operation_history",
+            target_type="run",
+            target_id=run_id,
+            request=request,
+        )
+        find_run(context.workspace.id, run_id, session)
+        statement = (
+            select(AuditEventRecord)
+            .where(
+                AuditEventRecord.workspace_id == context.workspace.id,
+                AuditEventRecord.action.in_(run_operation_actions),
+            )
+            .order_by(AuditEventRecord.created_at.desc(), AuditEventRecord.id.desc())
+            .limit(200)
+        )
+        records = [
+            record
+            for record in session.scalars(statement)
+            if audit_event_involves_run(record, run_id)
+        ]
+        return [
+            RunOperationHistoryEventRead(
+                id=record.id,
+                action=record.action or "",
+                target_type=record.target_type,
+                target_id=record.target_id,
+                outcome=record.outcome or "",
+                reason=record.reason,
+                actor_id=record.actor_user_id or record.actor_id,
+                request_id=record.request_id,
+                created_at=record.created_at,
+                metadata=record.event_metadata or {},
+            )
+            for record in records
+        ]
 
     @router.get("/runs/{run_id}", response_model=RunRead)
     def get_run(

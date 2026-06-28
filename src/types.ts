@@ -458,6 +458,19 @@ export interface ExecutionRun {
   nodes: NodeExecution[]
 }
 
+export interface RunOperationHistoryEvent {
+  id: string
+  action: string
+  targetType: string | null
+  targetId: string | null
+  outcome: string
+  reason: string
+  actorId: string | null
+  requestId: string | null
+  createdAt: string
+  metadata: Record<string, unknown>
+}
+
 export interface ExecutionJob {
   id: string
   workspaceId: string | null

@@ -787,6 +787,21 @@ class RunBatchResumeRead(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class RunOperationHistoryEventRead(BaseModel):
+    id: str
+    action: str
+    target_type: str | None = Field(serialization_alias="targetType")
+    target_id: str | None = Field(serialization_alias="targetId")
+    outcome: str
+    reason: str
+    actor_id: str | None = Field(serialization_alias="actorId")
+    request_id: str | None = Field(serialization_alias="requestId")
+    created_at: datetime = Field(serialization_alias="createdAt")
+    metadata: dict
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class ExecutionJobRead(BaseModel):
     id: str
     workspace_id: str | None = Field(serialization_alias="workspaceId")
