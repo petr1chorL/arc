@@ -277,6 +277,65 @@ describe('Runs', () => {
     )
   })
 
+  it('shows per-run failures after a partial batch rerun', async () => {
+    const user = userEvent.setup()
+    const firstFailedRun = {
+      ...run,
+      id: 'run-failed-a',
+      name: 'Partial batch source A',
+      status: '\u5931\u8d25',
+      input: 'Partial input A',
+      output: '',
+      error: 'First source failed',
+    }
+    const secondFailedRun = {
+      ...run,
+      id: 'run-failed-b',
+      name: 'Partial batch source B',
+      status: '\u5931\u8d25',
+      input: 'Partial input B',
+      output: '',
+      error: 'Second source failed',
+    }
+    const firstCreatedRun = {
+      ...firstFailedRun,
+      id: 'run-created-a',
+      status: '\u5df2\u5b8c\u6210',
+      output: 'Partial batch output A',
+      error: '',
+      nodes: [{ ...run.nodes[0], output: 'Partial batch output A' }],
+    }
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
+      if (url === `/api/workspaces/${workspace.id}/runs`) {
+        return Promise.resolve(new Response(JSON.stringify([firstFailedRun, secondFailedRun]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/runs/batch-rerun`) {
+        return Promise.resolve(new Response(JSON.stringify({
+          createdRuns: [firstCreatedRun],
+          failures: [{ sourceRunId: 'run-failed-b', reason: 'Provider temporarily unavailable' }],
+        }), { status: 201 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify({ detail: 'not found' }), { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <WorkspaceProvider workspace={workspace}>
+        <Runs />
+      </WorkspaceProvider>,
+    )
+
+    expect(await screen.findByRole('heading', { name: 'Partial batch source A' })).toBeInTheDocument()
+    await user.click(screen.getByRole('checkbox', { name: '\u9009\u62e9\u8fd0\u884c run-failed-a' }))
+    await user.click(screen.getByRole('checkbox', { name: '\u9009\u62e9\u8fd0\u884c run-failed-b' }))
+    await user.click(screen.getByRole('button', { name: '\u6279\u91cf\u91cd\u8dd1' }))
+
+    expect(await screen.findByText('Provider temporarily unavailable')).toBeInTheDocument()
+    expect(screen.getByText('\u672a\u5b8c\u6210\u7684\u6279\u91cf\u9879')).toBeInTheDocument()
+    expect(screen.getAllByText('run-failed-b').length).toBeGreaterThanOrEqual(2)
+  })
+
   it('batch resumes selected failed workflow runs and updates the original runs', async () => {
     const user = userEvent.setup()
     const firstFailedRun = {
@@ -348,6 +407,64 @@ describe('Runs', () => {
         body: JSON.stringify({ runIds: ['run-failed-a', 'run-failed-b'] }),
       }),
     )
+  })
+
+  it('shows per-run failures after a partial batch resume', async () => {
+    const user = userEvent.setup()
+    const firstFailedRun = {
+      ...run,
+      id: 'run-failed-a',
+      name: 'Partial resume source A',
+      status: '\u5931\u8d25',
+      input: 'Partial resume input A',
+      output: '',
+      error: 'First source failed',
+    }
+    const secondFailedRun = {
+      ...run,
+      id: 'run-failed-b',
+      name: 'Partial resume source B',
+      status: '\u5931\u8d25',
+      input: 'Partial resume input B',
+      output: '',
+      error: 'Second source failed',
+    }
+    const firstResumedRun = {
+      ...firstFailedRun,
+      status: '\u5df2\u5b8c\u6210',
+      output: 'Partial resume output A',
+      error: '',
+      nodes: [{ ...run.nodes[0], output: 'Partial resume output A' }],
+    }
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
+      if (url === `/api/workspaces/${workspace.id}/runs`) {
+        return Promise.resolve(new Response(JSON.stringify([firstFailedRun, secondFailedRun]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/runs/batch-resume-from-failed-node`) {
+        return Promise.resolve(new Response(JSON.stringify({
+          resumedRuns: [firstResumedRun],
+          failures: [{ sourceRunId: 'run-failed-b', reason: 'Run has no resumable failed node' }],
+        }), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify({ detail: 'not found' }), { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <WorkspaceProvider workspace={workspace}>
+        <Runs />
+      </WorkspaceProvider>,
+    )
+
+    expect(await screen.findByRole('heading', { name: 'Partial resume source A' })).toBeInTheDocument()
+    await user.click(screen.getByRole('checkbox', { name: '\u9009\u62e9\u8fd0\u884c run-failed-a' }))
+    await user.click(screen.getByRole('checkbox', { name: '\u9009\u62e9\u8fd0\u884c run-failed-b' }))
+    await user.click(screen.getByRole('button', { name: '\u6279\u91cf\u6062\u590d' }))
+
+    expect(await screen.findByText('Run has no resumable failed node')).toBeInTheDocument()
+    expect(screen.getByText('\u672a\u5b8c\u6210\u7684\u6279\u91cf\u9879')).toBeInTheDocument()
+    expect(screen.getAllByText('run-failed-b').length).toBeGreaterThanOrEqual(2)
   })
 
   it('resumes a failed workflow run from the failed node', async () => {

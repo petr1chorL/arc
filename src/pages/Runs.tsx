@@ -24,6 +24,11 @@ function formatTime(value: string) {
 const rerunnableWorkflowStatuses = new Set(['\u6fb6\u8fab\u89e6', '\u5931\u8d25', '\u5df2\u53d6\u6d88', '\u6062\u590d\u5931\u8d25'])
 const failedWorkflowStatuses = new Set(['\u6fb6\u8fab\u89e6', '\u5931\u8d25'])
 
+type RunOperationFailure = {
+  sourceRunId: string
+  reason: string
+}
+
 function canRerunWorkflow(run: ExecutionRun) {
   const status = displayStatus(run.status)
   return (
@@ -52,6 +57,7 @@ export function Runs() {
   const [error, setError] = useState('')
   const [rerunError, setRerunError] = useState('')
   const [rerunMessage, setRerunMessage] = useState('')
+  const [operationFailures, setOperationFailures] = useState<RunOperationFailure[]>([])
   const [rerunningId, setRerunningId] = useState('')
   const [batchRerunning, setBatchRerunning] = useState(false)
   const [batchResuming, setBatchResuming] = useState(false)
@@ -64,6 +70,7 @@ export function Runs() {
   const load = useCallback(async () => {
     setIsLoading(true)
     setError('')
+    setOperationFailures([])
     try {
       const nextRuns = await listRuns(workspace.id)
       setRuns(nextRuns)
@@ -112,6 +119,7 @@ export function Runs() {
   const openRerunInputEditor = useCallback((run: ExecutionRun) => {
     setRerunError('')
     setRerunMessage('')
+    setOperationFailures([])
     setEditingRerunId(run.id)
     setRerunInput(run.input)
   }, [])
@@ -124,6 +132,7 @@ export function Runs() {
     }
     setRerunError('')
     setRerunMessage('')
+    setOperationFailures([])
     setRerunningId(run.id)
     try {
       const rerun = await rerunWorkflowRun(
@@ -160,6 +169,7 @@ export function Runs() {
     }
     setRerunError('')
     setRerunMessage('')
+    setOperationFailures([])
     setBatchRerunning(true)
     try {
       const result = await batchRerunWorkflowRuns(workspace.id, selectedRerunnableRunIds)
@@ -171,6 +181,7 @@ export function Runs() {
         setSelectedId(result.createdRuns[0].id)
       }
       setSelectedRunIds([])
+      setOperationFailures(result.failures)
       setRerunMessage(
         result.failures.length > 0
           ? `已批量重跑 ${result.createdRuns.length} 条，${result.failures.length} 条失败`
@@ -190,6 +201,7 @@ export function Runs() {
     }
     setRerunError('')
     setRerunMessage('')
+    setOperationFailures([])
     setBatchResuming(true)
     try {
       const result = await batchResumeRunsFromFailedNode(workspace.id, selectedResumableRunIds)
@@ -200,6 +212,7 @@ export function Runs() {
         setSelectedId(result.resumedRuns[0].id)
       }
       setSelectedRunIds([])
+      setOperationFailures(result.failures)
       setRerunMessage(
         result.failures.length > 0
           ? `\u5df2\u6279\u91cf\u6062\u590d ${result.resumedRuns.length} \u6761\uff0c${result.failures.length} \u6761\u5931\u8d25`
@@ -215,6 +228,7 @@ export function Runs() {
   const handleResumeFromFailedNode = useCallback(async (run: ExecutionRun) => {
     setRerunError('')
     setRerunMessage('')
+    setOperationFailures([])
     setResumingId(run.id)
     try {
       const resumed = await resumeRunFromFailedNode(workspace.id, run.id)
@@ -361,6 +375,22 @@ export function Runs() {
 
         {rerunMessage && <div className="run-action-notice success">{rerunMessage}</div>}
         {rerunError && <div className="run-action-notice error" role="alert">{rerunError}</div>}
+        {operationFailures.length > 0 && (
+          <div className="run-operation-failures" role="status">
+            <header>
+              <strong>{'\u672a\u5b8c\u6210\u7684\u6279\u91cf\u9879'}</strong>
+              <span>{operationFailures.length} {'\u6761\u9700\u8981\u5904\u7406'}</span>
+            </header>
+            <ul>
+              {operationFailures.map((failure) => (
+                <li key={`${failure.sourceRunId}-${failure.reason}`}>
+                  <span className="mono">{failure.sourceRunId}</span>
+                  <p>{failure.reason}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {editingRerunId === selected.id && (
           <div className="run-rerun-editor">
             <label>
