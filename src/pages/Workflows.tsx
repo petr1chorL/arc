@@ -11,6 +11,7 @@ import {
   type Connection,
   type Edge,
   type Node,
+  type ReactFlowInstance,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import {
@@ -35,7 +36,7 @@ import {
   Wrench,
   X,
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { useWorkspace } from '../auth/workspaceContextState'
 import { listAgentVersions, listAgents } from '../api/agents'
 import {
@@ -61,6 +62,7 @@ import type {
 } from '../types'
 
 const nodeTypes = { workflow: WorkflowNode }
+const nodeDragDataType = 'application/arc-one-node'
 
 function createDefaultNodes(): Node[] {
   return [
@@ -92,6 +94,20 @@ function createDefaultEdges(): Edge[] {
   ]
 }
 
+function fallbackNodePosition(index: number) {
+  return { x: 300 + (index % 3) * 260, y: 100 + Math.floor(index / 3) * 180 }
+}
+
+function hasValidPosition(node: Node) {
+  return Number.isFinite(node.position?.x) && Number.isFinite(node.position?.y)
+}
+
+function sanitizeWorkflowNodes(items: Node[]) {
+  return items.map((node, index) => (
+    hasValidPosition(node) ? node : { ...node, position: fallbackNodePosition(index) }
+  ))
+}
+
 const palette: Array<{ label: string; icon: typeof Bot; kind: WorkflowNodeData['kind'] }> = [
   { label: '手动触发', icon: Play, kind: 'trigger' },
   { label: 'Agent', icon: Bot, kind: 'agent' },
@@ -113,6 +129,7 @@ interface PublishedAgentOption {
 
 export function Workflows() {
   const { workspace, workspacePath } = useWorkspace()
+  const reactFlowRef = useRef<ReactFlowInstance | null>(null)
   const [nodes, setNodes, onNodesChange] = useNodesState(createDefaultNodes())
   const [edges, setEdges, onEdgesChange] = useEdgesState(createDefaultEdges())
   const [workflows, setWorkflows] = useState<WorkflowDraft[]>([])
@@ -130,6 +147,7 @@ export function Workflows() {
   const [feedback, setFeedback] = useState('')
   const [errors, setErrors] = useState<string[]>([])
   const [isBusy, setIsBusy] = useState(false)
+  const renderedNodes = useMemo(() => sanitizeWorkflowNodes(nodes), [nodes])
 
   const onConnect = useCallback(
     (connection: Connection) => setEdges((items) => addEdge(connection, items)),
@@ -190,7 +208,7 @@ export function Workflows() {
     setIsBusy(true)
     setErrors([])
     try {
-      const graph = toContractGraph(nodes, edges)
+      const graph = toContractGraph(renderedNodes, edges)
       const input = { name: name.trim() || '未命名工作流', ...graph }
       const saved = currentId
         ? await updateWorkflow(workspace.id, currentId, input)
@@ -210,7 +228,7 @@ export function Workflows() {
     } finally {
       setIsBusy(false)
     }
-  }, [currentId, edges, name, nodes, workspace.id])
+  }, [currentId, edges, name, renderedNodes, workspace.id])
 
   async function publish() {
     const saved = await saveDraft()
@@ -271,14 +289,21 @@ export function Workflows() {
     setFeedback('')
   }
 
-  function addNode(kind: WorkflowNodeData['kind'], label: string) {
+  function addNode(kind: WorkflowNodeData['kind'], label: string, position?: { x: number; y: number }) {
     const id = `${kind}-${Date.now()}`
-    setNodes((current) => [
-      ...current,
+    setNodes((current) => {
+      const fallbackPosition = fallbackNodePosition(current.length)
+      const nextPosition = position
+        && Number.isFinite(position.x)
+        && Number.isFinite(position.y)
+        ? position
+        : fallbackPosition
+      return [
+        ...current,
       {
         id,
         type: 'workflow',
-        position: { x: 300 + (current.length % 3) * 260, y: 100 + Math.floor(current.length / 3) * 180 },
+        position: nextPosition,
         data: {
           label,
           subtitle: kind === 'agent' ? '尚未绑定发布版本' : '待配置',
@@ -286,8 +311,57 @@ export function Workflows() {
           status: kind === 'agent' ? 'warning' : 'idle',
         } satisfies WorkflowNodeData,
       },
-    ])
+      ]
+    })
     setFeedback('节点已添加，保存草稿后持久化')
+  }
+
+  function startPaletteDrag(event: DragEvent<HTMLButtonElement>, kind: WorkflowNodeData['kind'], label: string) {
+    event.dataTransfer.setData(nodeDragDataType, JSON.stringify({ kind, label }))
+    event.dataTransfer.effectAllowed = 'copy'
+  }
+
+  function allowPaletteDrop(event: DragEvent<HTMLDivElement>) {
+    if (!event.dataTransfer.types.includes(nodeDragDataType)) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'copy'
+  }
+
+  function resolveDropPosition(event: DragEvent<HTMLDivElement>) {
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const screenPosition = {
+      x: Number.isFinite(event.clientX) ? event.clientX : bounds.left,
+      y: Number.isFinite(event.clientY) ? event.clientY : bounds.top,
+    }
+    if (reactFlowRef.current) {
+      try {
+        const flowPosition = reactFlowRef.current.screenToFlowPosition(screenPosition)
+        if (Number.isFinite(flowPosition.x) && Number.isFinite(flowPosition.y)) {
+          return flowPosition
+        }
+      } catch {
+        // React Flow can reject synthetic or interrupted drag events; fall back to the canvas box.
+      }
+    }
+    return {
+      x: screenPosition.x - bounds.left,
+      y: screenPosition.y - bounds.top,
+    }
+  }
+
+  function dropPaletteNode(event: DragEvent<HTMLDivElement>) {
+    const raw = event.dataTransfer.getData(nodeDragDataType)
+    if (!raw) return
+    event.preventDefault()
+    try {
+      const parsed = JSON.parse(raw) as { kind?: WorkflowNodeData['kind']; label?: string }
+      const paletteItem = palette.find((item) => item.kind === parsed.kind && item.label === parsed.label)
+      if (!paletteItem) return
+      const position = resolveDropPosition(event)
+      addNode(paletteItem.kind, paletteItem.label, position)
+    } catch {
+      // Ignore malformed drag payloads from outside the node palette.
+    }
   }
 
   function updateSelectedNode(nextData: Record<string, unknown>) {
@@ -368,6 +442,8 @@ export function Workflows() {
               key={label}
               className="palette-item"
               title={`添加${label}节点`}
+              draggable
+              onDragStart={(event) => startPaletteDrag(event, kind, label)}
               onClick={() => addNode(kind, label)}
             >
               <span className={`palette-icon ${kind}`}><Icon size={16} /></span>{label}<Plus size={14} />
@@ -377,12 +453,17 @@ export function Workflows() {
 
         <div className="flow-canvas">
           <ReactFlow
-            nodes={nodes}
+            nodes={renderedNodes}
             edges={edges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             onNodeClick={(_, node) => setSelectedNode(node)}
+            onInit={(instance) => {
+              reactFlowRef.current = instance
+            }}
+            onDragOver={allowPaletteDrop}
+            onDrop={dropPaletteNode}
             nodeTypes={nodeTypes}
             connectionLineStyle={{ stroke: '#6579a8', strokeWidth: 2 }}
             connectionRadius={24}

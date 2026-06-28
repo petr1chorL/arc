@@ -1181,6 +1181,7 @@ kbd {
   height: 40px;
   border-radius: 10px;
   color: var(--ink);
+  cursor: grab;
 }
 
 .palette-item:hover {
@@ -1189,7 +1190,10 @@ kbd {
   box-shadow: var(--shadow-raised-sm);
 }
 
-.palette-item:active { box-shadow: var(--shadow-pressed); }
+.palette-item:active {
+  cursor: grabbing;
+  box-shadow: var(--shadow-pressed);
+}
 
 .palette-icon,
 .palette-icon.agent,

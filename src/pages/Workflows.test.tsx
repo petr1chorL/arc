@@ -1,7 +1,7 @@
-import { render, screen } from '@testing-library/react'
+import { createEvent, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { ReactNode } from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { DragEventHandler, ReactNode } from 'react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkspaceProvider } from '../auth/WorkspaceContext'
 import { Workflows } from './Workflows'
 
@@ -10,6 +10,10 @@ const workspace = {
   slug: 'ai-capability-center',
   name: 'AI 能力中心',
 }
+
+const flowMock = vi.hoisted(() => ({
+  screenToFlowPosition: vi.fn(),
+}))
 
 vi.mock('@xyflow/react', async () => {
   const actual = await vi.importActual<typeof import('@xyflow/react')>('@xyflow/react')
@@ -20,6 +24,9 @@ vi.mock('@xyflow/react', async () => {
       edges,
       onConnect,
       onNodeClick,
+      onDrop,
+      onDragOver,
+      onInit,
       children,
     }: {
       nodes: Array<{ id: string; data: Record<string, unknown> }>
@@ -31,35 +38,47 @@ vi.mock('@xyflow/react', async () => {
         targetHandle: null
       }) => void
       onNodeClick?: (event: unknown, node: unknown) => void
+      onDrop?: DragEventHandler<HTMLDivElement>
+      onDragOver?: DragEventHandler<HTMLDivElement>
+      onInit?: (instance: { screenToFlowPosition: (position: { x: number; y: number }) => { x: number; y: number } }) => void
       children?: ReactNode
-    }) => (
-      <div>
-        <output data-testid="edge-count">{edges.length}</output>
-        {nodes.map((node) => (
-          <button
-            data-testid={`flow-node-${node.id}`}
-            key={node.id}
-            onClick={(event) => onNodeClick?.(event, node)}
-          >
-            {String(node.data.label)}
-          </button>
-        ))}
-        {nodes.length >= 2 && (
-          <button
-            data-testid="connect-first-two"
-            onClick={() => onConnect?.({
-              source: nodes[0].id,
-              target: nodes[1].id,
-              sourceHandle: null,
-              targetHandle: null,
-            })}
-          >
-            模拟连接
-          </button>
-        )}
-        {children}
-      </div>
-    ),
+    }) => {
+      onInit?.({
+        screenToFlowPosition: flowMock.screenToFlowPosition,
+      })
+      return (
+        <div
+          data-testid="flow-drop-zone"
+          onDragOver={onDragOver}
+          onDrop={onDrop}
+        >
+          <output data-testid="edge-count">{edges.length}</output>
+          {nodes.map((node) => (
+            <button
+              data-testid={`flow-node-${node.id}`}
+              key={node.id}
+              onClick={(event) => onNodeClick?.(event, node)}
+            >
+              {String(node.data.label)}
+            </button>
+          ))}
+          {nodes.length >= 2 && (
+            <button
+              data-testid="connect-first-two"
+              onClick={() => onConnect?.({
+                source: nodes[0].id,
+                target: nodes[1].id,
+                sourceHandle: null,
+                targetHandle: null,
+              })}
+            >
+              模拟连接
+            </button>
+          )}
+          {children}
+        </div>
+      )
+    },
     Background: () => null,
     Controls: () => null,
     MiniMap: () => null,
@@ -101,7 +120,12 @@ function renderWorkflows() {
 }
 
 describe('Workflows', () => {
+  beforeEach(() => {
+    flowMock.screenToFlowPosition.mockReturnValue({ x: 420, y: 270 })
+  })
+
   afterEach(() => {
+    flowMock.screenToFlowPosition.mockReset()
     vi.unstubAllGlobals()
   })
 
@@ -393,6 +417,164 @@ describe('Workflows', () => {
 
     expect(screen.getAllByText('手动触发')).toHaveLength(3)
     expect(screen.getAllByText('流程完成')).toHaveLength(3)
+  })
+
+  it('drops a palette node onto the canvas and saves it at the drop position', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === `/api/workspaces/${workspace.id}/workflows` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/agents` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (
+        url === `/api/workspaces/${workspace.id}/reviewers`
+        || url === `/api/workspaces/${workspace.id}/review-groups`
+      ) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/workflows` && init?.method === 'POST') {
+        return Promise.resolve(new Response(JSON.stringify({ ...workflow, id: 'workflow-created' }), { status: 201 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWorkflows()
+
+    const humanPaletteItem = await screen.findByRole('button', { name: '添加人工审核节点' })
+    const dropZone = screen.getByTestId('flow-drop-zone')
+    const dragData = new Map<string, string>()
+    const dataTransfer = {
+      setData: (key: string, value: string) => dragData.set(key, value),
+      getData: (key: string) => dragData.get(key) ?? '',
+      effectAllowed: '',
+      dropEffect: '',
+      types: ['application/arc-one-node'],
+    }
+
+    fireEvent.dragStart(humanPaletteItem, { dataTransfer })
+    const dragOverEvent = createEvent.dragOver(dropZone, { dataTransfer })
+    Object.defineProperties(dragOverEvent, {
+      clientX: { value: 520 },
+      clientY: { value: 320 },
+    })
+    const dropEvent = createEvent.drop(dropZone, { dataTransfer })
+    Object.defineProperties(dropEvent, {
+      clientX: { value: 520 },
+      clientY: { value: 320 },
+    })
+    fireEvent(dropZone, dragOverEvent)
+    fireEvent(dropZone, dropEvent)
+
+    expect(await screen.findByTestId(/flow-node-human-/)).toHaveTextContent('人工审核')
+
+    await user.click(screen.getByRole('button', { name: '保存草稿' }))
+
+    const postCall = fetchMock.mock.calls.find(([url, init]) => (
+      url === `/api/workspaces/${workspace.id}/workflows` && init?.method === 'POST'
+    ))
+    const body = JSON.parse(postCall?.[1]?.body as string)
+    expect(body.nodes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'human',
+        position: { x: 420, y: 270 },
+        data: expect.objectContaining({ label: '人工审核' }),
+      }),
+    ]))
+  })
+
+  it('falls back to the canvas-relative drop position when React Flow rejects conversion', async () => {
+    const user = userEvent.setup()
+    flowMock.screenToFlowPosition.mockImplementation(() => {
+      throw new Error('missing viewport')
+    })
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === `/api/workspaces/${workspace.id}/workflows` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/agents` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (
+        url === `/api/workspaces/${workspace.id}/reviewers`
+        || url === `/api/workspaces/${workspace.id}/review-groups`
+      ) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/workflows` && init?.method === 'POST') {
+        return Promise.resolve(new Response(JSON.stringify({ ...workflow, id: 'workflow-created' }), { status: 201 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWorkflows()
+
+    await screen.findByTestId('flow-drop-zone')
+    const humanPaletteItem = document.querySelectorAll<HTMLButtonElement>('.palette-item')[6]
+    const dropZone = screen.getByTestId('flow-drop-zone')
+    Object.defineProperty(dropZone, 'getBoundingClientRect', {
+      value: () => ({
+        x: 20,
+        y: 30,
+        left: 20,
+        top: 30,
+        right: 820,
+        bottom: 630,
+        width: 800,
+        height: 600,
+        toJSON: () => {},
+      }),
+    })
+    const dragData = new Map<string, string>()
+    const dataTransfer = {
+      setData: (key: string, value: string) => dragData.set(key, value),
+      getData: (key: string) => dragData.get(key) ?? '',
+      effectAllowed: '',
+      dropEffect: '',
+      types: ['application/arc-one-node'],
+    }
+
+    fireEvent.dragStart(humanPaletteItem, { dataTransfer })
+    const dragOverEvent = createEvent.dragOver(dropZone, { dataTransfer })
+    Object.defineProperties(dragOverEvent, {
+      clientX: { value: 520 },
+      clientY: { value: 320 },
+    })
+    const dropEvent = createEvent.drop(dropZone, { dataTransfer })
+    Object.defineProperties(dropEvent, {
+      clientX: { value: 520 },
+      clientY: { value: 320 },
+    })
+    fireEvent(dropZone, dragOverEvent)
+    fireEvent(dropZone, dropEvent)
+
+    expect(await screen.findByTestId(/flow-node-human-/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '保存草稿' }))
+
+    const postCall = fetchMock.mock.calls.find(([url, init]) => (
+      url === `/api/workspaces/${workspace.id}/workflows` && init?.method === 'POST'
+    ))
+    const body = JSON.parse(postCall?.[1]?.body as string)
+    expect(body.nodes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'human',
+        position: { x: 500, y: 290 },
+      }),
+    ]))
   })
 
   it('restores the default connected graph when starting a new workflow', async () => {

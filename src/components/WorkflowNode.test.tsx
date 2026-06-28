@@ -43,4 +43,26 @@ describe('WorkflowNode', () => {
       'source',
     )
   })
+
+  it('falls back to an agent icon when node kind is missing', () => {
+    render(<WorkflowNode
+      data={{
+        label: '临时节点',
+        subtitle: '等待配置',
+      }}
+      id="unknown-1"
+      selected={false}
+      type="workflow"
+      dragging={false}
+      draggable
+      selectable
+      deletable
+      isConnectable
+      positionAbsoluteX={0}
+      positionAbsoluteY={0}
+      zIndex={0}
+    />)
+
+    expect(screen.getByText('临时节点')).toBeInTheDocument()
+  })
 })
