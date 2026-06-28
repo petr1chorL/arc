@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+import json
 from time import perf_counter
 
 from sqlalchemy import and_, or_, select
@@ -35,6 +36,86 @@ class ExecutionTotals:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     cost_usd: float = 0
+
+
+def _parse_object_path(path: str) -> list[str] | None:
+    normalized = path.strip()
+    if normalized == "$":
+        return []
+    if not normalized.startswith("$."):
+        return None
+    parts = [part for part in normalized[2:].split(".") if part]
+    return parts if parts else None
+
+
+def _extract_path_value(payload: object, path: str) -> object | None:
+    parts = _parse_object_path(path)
+    if parts is None:
+        return None
+    current = payload
+    for part in parts:
+        if not isinstance(current, dict) or part not in current:
+            return None
+        current = current[part]
+    return current
+
+
+def _assign_path_value(target: dict, path: str, value: object) -> bool:
+    parts = _parse_object_path(path)
+    if parts is None:
+        return False
+    if not parts:
+        if isinstance(value, dict):
+            target.update(value)
+            return True
+        return False
+    current = target
+    for part in parts[:-1]:
+        nested = current.setdefault(part, {})
+        if not isinstance(nested, dict):
+            nested = {}
+            current[part] = nested
+        current = nested
+    current[parts[-1]] = value
+    return True
+
+
+def _mapped_node_input(
+    *,
+    node_id: str,
+    predecessors: list[str],
+    edges: list[dict],
+    node_outputs: dict[str, str],
+) -> str | None:
+    incoming_edges = [edge for edge in edges if edge.get("target") == node_id]
+    mapped_payload: dict = {}
+    mapped_any = False
+    for edge in incoming_edges:
+        source_id = edge.get("source")
+        if source_id not in predecessors or source_id not in node_outputs:
+            continue
+        mappings = (edge.get("data") or {}).get("mappings", [])
+        if not isinstance(mappings, list) or not mappings:
+            continue
+        try:
+            source_payload = json.loads(node_outputs[source_id])
+        except json.JSONDecodeError:
+            continue
+        for mapping in mappings:
+            if not isinstance(mapping, dict):
+                continue
+            source_path = mapping.get("sourcePath", "")
+            target_path = mapping.get("targetPath", "")
+            if not isinstance(source_path, str) or not isinstance(target_path, str):
+                continue
+            value = _extract_path_value(source_payload, source_path)
+            if value is None:
+                continue
+            if _assign_path_value(mapped_payload, target_path, value):
+                mapped_any = True
+    if not mapped_any:
+        return None
+    return json.dumps(mapped_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
 class ExecutionService:
@@ -619,7 +700,12 @@ class ExecutionService:
         start_index = ordered_ids.index(start_node_id) if start_node_id else 0
         for node_id in ordered_ids[start_index:]:
             node = nodes_by_id[node_id]
-            node_input = "\n".join(
+            node_input = _mapped_node_input(
+                node_id=node_id,
+                predecessors=predecessors[node_id],
+                edges=snapshot["edges"],
+                node_outputs=node_outputs,
+            ) or "\n".join(
                 node_outputs[source] for source in predecessors[node_id] if source in node_outputs
             ) or run.input_text
             run.current_node = node["data"].get("label", node_id)

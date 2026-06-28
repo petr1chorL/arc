@@ -311,6 +311,151 @@ def test_workflow_run_retries_and_persists_node_timeline(tmp_path):
     assert len(persisted["nodes"]) == 3
 
 
+def test_workflow_edge_mapping_builds_downstream_agent_input(tmp_path):
+    gateway = FakeGateway([
+        FakeModelResult("The mapped workflow input reached the agent."),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'mapped-execution.db'}",
+        model_gateway=gateway,
+    )
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = client.post(
+        workspace_url(workspace_id, "/workflows"),
+        json={
+            "name": "Mapped Execution Workflow",
+            "nodes": [
+                {"id": "start", "type": "trigger", "position": {"x": 0, "y": 0}, "data": {"label": "Start"}},
+                {
+                    "id": "agent",
+                    "type": "agent",
+                    "position": {"x": 200, "y": 0},
+                    "data": {
+                        "label": "Insight Agent",
+                        "agentId": agent["id"],
+                        "agentVersion": version["version"],
+                    },
+                },
+                {"id": "end", "type": "end", "position": {"x": 400, "y": 0}, "data": {"label": "End"}},
+            ],
+            "edges": [
+                {
+                    "id": "start-agent",
+                    "source": "start",
+                    "target": "agent",
+                    "data": {
+                        "mappings": [
+                            {"sourcePath": "$.asin", "targetPath": "$.input.asin"},
+                            {"sourcePath": "$.market", "targetPath": "$.input.market"},
+                        ],
+                    },
+                },
+                {"id": "agent-end", "source": "agent", "target": "end"},
+            ],
+        },
+        headers=csrf_headers(client),
+    ).json()
+    publish_response = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/publish"),
+        headers=csrf_headers(client),
+    )
+    assert publish_response.status_code == 201
+
+    response = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": '{"asin":"B0TEST","market":"US","ignored":"value"}'},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 201
+    assert gateway.calls[0]["user_input"] == '{"input":{"asin":"B0TEST","market":"US"}}'
+    agent_node = next(node for node in response.json()["nodes"] if node["nodeId"] == "agent")
+    assert agent_node["input"] == '{"input":{"asin":"B0TEST","market":"US"}}'
+
+
+def test_workflow_edge_mapping_falls_back_when_source_is_not_mappable(tmp_path):
+    gateway = FakeGateway([
+        FakeModelResult("The fallback workflow input reached the agent."),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'mapped-fallback.db'}",
+        model_gateway=gateway,
+    )
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = client.post(
+        workspace_url(workspace_id, "/workflows"),
+        json={
+            "name": "Mapped Fallback Workflow",
+            "nodes": [
+                {"id": "start", "type": "trigger", "position": {"x": 0, "y": 0}, "data": {"label": "Start"}},
+                {
+                    "id": "agent",
+                    "type": "agent",
+                    "position": {"x": 200, "y": 0},
+                    "data": {
+                        "label": "Insight Agent",
+                        "agentId": agent["id"],
+                        "agentVersion": version["version"],
+                    },
+                },
+                {"id": "end", "type": "end", "position": {"x": 400, "y": 0}, "data": {"label": "End"}},
+            ],
+            "edges": [
+                {
+                    "id": "start-agent",
+                    "source": "start",
+                    "target": "agent",
+                    "data": {
+                        "mappings": [
+                            {"sourcePath": "$.missing", "targetPath": "$.input.asin"},
+                        ],
+                    },
+                },
+                {"id": "agent-end", "source": "agent", "target": "end"},
+            ],
+        },
+        headers=csrf_headers(client),
+    ).json()
+    client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/publish"),
+        headers=csrf_headers(client),
+    )
+
+    response = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "plain text that cannot map"},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 201
+    assert gateway.calls[0]["user_input"] == "plain text that cannot map"
+    agent_node = next(node for node in response.json()["nodes"] if node["nodeId"] == "agent")
+    assert agent_node["input"] == "plain text that cannot map"
+
+
+def test_workflow_without_edge_mapping_keeps_original_agent_input(tmp_path):
+    gateway = FakeGateway([
+        FakeModelResult("The unmapped workflow input reached the agent."),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'unmapped-execution.db'}",
+        model_gateway=gateway,
+    )
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(client, workspace_id, agent, version)
+
+    response = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Keep the legacy workflow input."},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 201
+    assert gateway.calls[0]["user_input"] == "Keep the legacy workflow input."
+    agent_node = next(node for node in response.json()["nodes"] if node["nodeId"] == "agent")
+    assert agent_node["input"] == "Keep the legacy workflow input."
+
+
 def test_async_workflow_run_enqueues_and_worker_processes_next_job(tmp_path):
     gateway = FakeGateway([
         FakeModelResult("The queued workflow completed from the background worker."),
