@@ -2682,7 +2682,7 @@ def create_app(
             request=request,
         )
         record = find_workflow(context.workspace.id, workflow_id, session)
-        errors = validate_workflow(record.nodes, record.edges, session)
+        errors = validate_workflow(record.nodes, record.edges, session, context.workspace.id)
         return ValidationResult(valid=not errors, errors=errors)
 
     @router.get("/workflows/{workflow_id}/versions", response_model=list[VersionRead])
@@ -2733,7 +2733,7 @@ def create_app(
             request=request,
         )
         record = find_workflow(context.workspace.id, workflow_id, session)
-        errors = validate_workflow(record.nodes, record.edges, session)
+        errors = validate_workflow(record.nodes, record.edges, session, context.workspace.id)
         if errors:
             raise HTTPException(status_code=422, detail=errors)
         count = session.scalar(

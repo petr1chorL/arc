@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.models import (
     AgentVersionRecord,
+    DataObjectDefinitionRecord,
     ReviewGroupMemberRecord,
     ReviewGroupRecord,
 )
@@ -40,6 +41,7 @@ def validate_workflow(
     nodes: list[dict],
     edges: list[dict],
     session: Session,
+    workspace_id: str | None = None,
 ) -> list[str]:
     errors: list[str] = []
     node_ids = [node["id"] for node in nodes]
@@ -77,7 +79,35 @@ def validate_workflow(
     if node_id_set and visited != len(node_id_set):
         errors.append("工作流不能包含有向环")
 
+    def validate_data_object_ref(node: dict, field: str, label: str) -> None:
+        if not workspace_id:
+            return
+        data = node.get("data", {})
+        ref = data.get(field)
+        if not ref:
+            return
+        if not isinstance(ref, dict):
+            errors.append(f"节点 {node['id']} 的{label} Data Object 引用格式无效")
+            return
+        definition_id = ref.get("definitionId")
+        if not definition_id:
+            errors.append(f"节点 {node['id']} 的{label} Data Object 必须包含 Definition ID")
+            return
+        definition = session.scalar(
+            select(DataObjectDefinitionRecord).where(
+                DataObjectDefinitionRecord.id == definition_id,
+                DataObjectDefinitionRecord.workspace_id == workspace_id,
+            ),
+        )
+        if definition is None:
+            errors.append(f"节点 {node['id']} 的{label} Data Object {definition_id} 不存在")
+            return
+        if definition.status != "published" or definition.version == "unpublished":
+            errors.append(f"节点 {node['id']} 的{label} Data Object {definition.name} 尚未发布")
+
     for node in nodes:
+        validate_data_object_ref(node, "inputDataObjectRef", "输入")
+        validate_data_object_ref(node, "outputDataObjectRef", "输出")
         if node["type"] == "agent":
             agent_id = node["data"].get("agentId")
             agent_version = node["data"].get("agentVersion")

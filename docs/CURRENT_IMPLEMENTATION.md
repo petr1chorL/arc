@@ -1420,3 +1420,13 @@ Data Object Definition 已新增第一版前端资产入口：`/w/:workspaceSlug
 本版本只声明节点契约，不改变运行时 Artifact 实例化，不改变连线字段映射引擎，不强制发布工作流时必须绑定已发布 Data Object，也不提供 Data Object 版本历史选择或可视化 Schema Builder。验收记录见 `docs/ACCEPTANCE_V0.25D.md`。
 
 ---
+
+## V0.25E Data Object 节点绑定发布前校验
+
+工作流校验已接入节点 Data Object 绑定检查。`/workflows/{workflowId}/validate` 和 `/workflows/{workflowId}/publish` 会读取节点 `data.inputDataObjectRef` 与 `data.outputDataObjectRef`，并校验其中的 `definitionId` 必须指向当前 Workspace 内存在的 Data Object Definition。
+
+如果绑定的 Definition 不存在，校验结果会返回对应节点和输入/输出方向的“不存在”错误；如果 Definition 仍是草稿或版本为 `unpublished`，校验结果会返回“尚未发布”错误。发布工作流时复用同一校验，失败时返回 `422`，不会创建 WorkflowVersion。
+
+本版本仍不校验运行时 Artifact 内容是否符合 Schema，不固定选择 Data Object Version，也不比较节点 ref 中记录的版本字符串与 Definition 当前版本是否一致。验收记录见 `docs/ACCEPTANCE_V0.25E.md`。
+
+---
