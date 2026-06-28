@@ -1,7 +1,7 @@
 import { Pencil, Play, RefreshCw, RotateCcw, Search } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWorkspace } from '../auth/workspaceContextState'
-import { listRuns, rerunWorkflowRun, resumeRunFromFailedNode } from '../api/execution'
+import { batchRerunWorkflowRuns, listRuns, rerunWorkflowRun, resumeRunFromFailedNode } from '../api/execution'
 import { StatusBadge } from '../components/StatusBadge'
 import { displayStatus, isWaitingForHumanReview } from '../domain/statusText'
 import type { ExecutionRun, NodeExecution } from '../types'
@@ -47,6 +47,8 @@ export function Runs() {
   const [rerunError, setRerunError] = useState('')
   const [rerunMessage, setRerunMessage] = useState('')
   const [rerunningId, setRerunningId] = useState('')
+  const [batchRerunning, setBatchRerunning] = useState(false)
+  const [selectedRunIds, setSelectedRunIds] = useState<string[]>([])
   const [editingRerunId, setEditingRerunId] = useState('')
   const [rerunInput, setRerunInput] = useState('')
   const [resumingId, setResumingId] = useState('')
@@ -82,11 +84,19 @@ export function Runs() {
     ))
   }, [query, runs])
   const selected = runs.find((run) => run.id === selectedId) ?? runs[0]
+  const selectedRerunnableRunIds = selectedRunIds.filter((runId) => {
+    const run = runs.find((item) => item.id === runId)
+    return run ? canRerunWorkflow(run) : false
+  })
 
   useEffect(() => {
     setEditingRerunId('')
     setRerunInput('')
   }, [selectedId])
+
+  useEffect(() => {
+    setSelectedRunIds((current) => current.filter((runId) => runs.some((run) => run.id === runId)))
+  }, [runs])
 
   const openRerunInputEditor = useCallback((run: ExecutionRun) => {
     setRerunError('')
@@ -124,6 +134,43 @@ export function Runs() {
       setRerunningId('')
     }
   }, [workspace.id])
+
+  const toggleSelectedRun = useCallback((run: ExecutionRun, checked: boolean) => {
+    setSelectedRunIds((current) => {
+      if (checked) return current.includes(run.id) ? current : [...current, run.id]
+      return current.filter((runId) => runId !== run.id)
+    })
+  }, [])
+
+  const handleBatchRerun = useCallback(async () => {
+    if (selectedRerunnableRunIds.length === 0) {
+      setRerunError('请先选择可重跑的工作流运行')
+      return
+    }
+    setRerunError('')
+    setRerunMessage('')
+    setBatchRerunning(true)
+    try {
+      const result = await batchRerunWorkflowRuns(workspace.id, selectedRerunnableRunIds)
+      setRuns((currentRuns) => [
+        ...result.createdRuns,
+        ...currentRuns.filter((currentRun) => !result.createdRuns.some((createdRun) => createdRun.id === currentRun.id)),
+      ])
+      if (result.createdRuns[0]) {
+        setSelectedId(result.createdRuns[0].id)
+      }
+      setSelectedRunIds([])
+      setRerunMessage(
+        result.failures.length > 0
+          ? `已批量重跑 ${result.createdRuns.length} 条，${result.failures.length} 条失败`
+          : `已批量重跑 ${result.createdRuns.length} 条`,
+      )
+    } catch (batchRerunError) {
+      setRerunError(batchRerunError instanceof Error ? batchRerunError.message : '批量重跑失败')
+    } finally {
+      setBatchRerunning(false)
+    }
+  }, [selectedRerunnableRunIds, workspace.id])
 
   const handleResumeFromFailedNode = useCallback(async (run: ExecutionRun) => {
     setRerunError('')
@@ -178,17 +225,43 @@ export function Runs() {
           </button>
         </div>
         <div className="run-list-head"><span>持久化运行记录</span><strong>{filteredRuns.length} 个实例</strong></div>
+        {selectedRerunnableRunIds.length > 0 && (
+          <div className="run-batch-bar">
+            <span>已选择 {selectedRerunnableRunIds.length} 条</span>
+            <button
+              className="button secondary compact"
+              disabled={batchRerunning}
+              onClick={() => void handleBatchRerun()}
+            >
+              <RotateCcw size={15} />
+              {batchRerunning ? '批量重跑中' : '批量重跑'}
+            </button>
+            <button className="button secondary compact" onClick={() => setSelectedRunIds([])}>
+              清空
+            </button>
+          </div>
+        )}
         {filteredRuns.map((run) => (
-          <button
-            key={run.id}
-            onClick={() => setSelectedId(run.id)}
-            className={`run-list-item ${selectedId === run.id ? 'selected' : ''}`}
-          >
-            <div><strong>{run.name}</strong><span className="mono">{run.id}</span></div>
-            <StatusBadge status={run.status} />
-            <div className="run-progress"><i style={{ width: '100%' }} /></div>
-            <small>{formatTime(run.startedAt)} · {formatDuration(run.durationMs)}</small>
-          </button>
+          <div className="run-list-row" key={run.id}>
+            {canRerunWorkflow(run) && (
+              <input
+                aria-label={`选择运行 ${run.id}`}
+                checked={selectedRunIds.includes(run.id)}
+                className="run-select-checkbox"
+                type="checkbox"
+                onChange={(event) => toggleSelectedRun(run, event.target.checked)}
+              />
+            )}
+            <button
+              onClick={() => setSelectedId(run.id)}
+              className={`run-list-item ${selectedId === run.id ? 'selected' : ''}`}
+            >
+              <div><strong>{run.name}</strong><span className="mono">{run.id}</span></div>
+              <StatusBadge status={run.status} />
+              <div className="run-progress"><i style={{ width: '100%' }} /></div>
+              <small>{formatTime(run.startedAt)} · {formatDuration(run.durationMs)}</small>
+            </button>
+          </div>
         ))}
       </section>
 

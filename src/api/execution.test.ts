@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  batchRerunWorkflowRuns,
   cancelExecutionJob,
   decideReview,
   getExecutionJob,
@@ -146,6 +147,29 @@ describe('Execution API', () => {
         method: 'POST',
         credentials: 'same-origin',
         body: JSON.stringify({ input: 'Corrected workflow input' }),
+      }),
+    )
+  })
+
+  it('batch reruns workflow runs from their history records', async () => {
+    const response = {
+      createdRuns: [
+        { ...run, id: 'run-rerun-a', kind: 'workflow', input: 'Input A' },
+        { ...run, id: 'run-rerun-b', kind: 'workflow', input: 'Input B' },
+      ],
+      failures: [{ sourceRunId: 'run-agent', reason: '仅支持 Workflow Run 批量重跑' }],
+    }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(response), { status: 201 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(batchRerunWorkflowRuns(workspaceId, ['run-a', 'run-b'])).resolves.toEqual(response)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/workspaces/workspace-1/runs/batch-rerun',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'same-origin',
+        body: JSON.stringify({ runIds: ['run-a', 'run-b'] }),
       }),
     )
   })

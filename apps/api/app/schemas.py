@@ -673,6 +673,22 @@ class RunRerunRequest(BaseModel):
         return normalized
 
 
+class RunBatchRerunRequest(BaseModel):
+    run_ids: list[str] = Field(alias="runIds", min_length=1, max_length=20)
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    @field_validator("run_ids")
+    @classmethod
+    def reject_duplicate_run_ids(cls, value: list[str]) -> list[str]:
+        normalized = [run_id.strip() for run_id in value]
+        if any(not run_id for run_id in normalized):
+            raise ValueError("runIds 不能为空")
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("runIds 不能重复")
+        return normalized
+
+
 class ReviewDecision(BaseModel):
     decision: Literal["approve", "reject"]
 
@@ -725,6 +741,20 @@ class RunRead(BaseModel):
     nodes: list[NodeRunRead] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class RunBatchRerunFailureRead(BaseModel):
+    source_run_id: str = Field(serialization_alias="sourceRunId")
+    reason: str
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class RunBatchRerunRead(BaseModel):
+    created_runs: list[RunRead] = Field(serialization_alias="createdRuns")
+    failures: list[RunBatchRerunFailureRead] = Field(default_factory=list)
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ExecutionJobRead(BaseModel):

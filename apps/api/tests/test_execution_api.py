@@ -972,6 +972,83 @@ def test_agent_run_cannot_be_rerun_from_workflow_history_endpoint(tmp_path):
     assert response.status_code == 422
 
 
+def test_workflow_runs_can_be_batch_rerun_with_per_item_failures(tmp_path):
+    gateway = FakeGateway([
+        RuntimeError("first-provider-outage"),
+        RuntimeError("first-provider-outage"),
+        RuntimeError("second-provider-outage"),
+        RuntimeError("second-provider-outage"),
+        FakeModelResult("Agent run created only as an invalid batch source."),
+        FakeModelResult("First batch rerun completed."),
+        FakeModelResult("Second batch rerun completed."),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'execution.db'}",
+        model_gateway=gateway,
+    )
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(client, workspace_id, agent, version)
+    first_source = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "First failed input"},
+        headers=csrf_headers(client),
+    ).json()
+    second_source = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Second failed input"},
+        headers=csrf_headers(client),
+    ).json()
+    agent_source = client.post(
+        workspace_url(workspace_id, f"/agents/{agent['id']}/test-runs"),
+        json={"input": "Agent run cannot be batch rerun", "version": version["version"]},
+        headers=csrf_headers(client),
+    ).json()
+
+    response = client.post(
+        workspace_url(workspace_id, "/runs/batch-rerun"),
+        json={"runIds": [first_source["id"], agent_source["id"], second_source["id"]]},
+        headers={
+            **csrf_headers(client),
+            "x-request-id": "req-run-batch-rerun",
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert [run["input"] for run in payload["createdRuns"]] == [
+        "First failed input",
+        "Second failed input",
+    ]
+    assert [run["output"] for run in payload["createdRuns"]] == [
+        "First batch rerun completed.",
+        "Second batch rerun completed.",
+    ]
+    assert payload["failures"] == [
+        {
+            "sourceRunId": agent_source["id"],
+            "reason": "仅支持 Workflow Run 批量重跑",
+        },
+    ]
+    assert gateway.calls[-2]["user_input"] == "First failed input"
+    assert gateway.calls[-1]["user_input"] == "Second failed input"
+    with client.app.state.session_factory() as session:
+        events = list(session.scalars(
+            select(AuditEventRecord)
+            .where(AuditEventRecord.action == "run.batch_rerun")
+            .order_by(AuditEventRecord.created_at.asc()),
+        ))
+        assert len(events) == 2
+        assert [event.event_metadata["sourceRunId"] for event in events] == [
+            first_source["id"],
+            second_source["id"],
+        ]
+        assert [event.event_metadata["newRunId"] for event in events] == [
+            payload["createdRuns"][0]["id"],
+            payload["createdRuns"][1]["id"],
+        ]
+        assert all(event.request_id == "req-run-batch-rerun" for event in events)
+
+
 def test_failed_workflow_run_can_resume_from_failed_node(tmp_path):
     gateway = FakeGateway([
         RuntimeError("temporary-provider-outage"),

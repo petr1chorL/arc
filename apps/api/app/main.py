@@ -123,6 +123,8 @@ from app.schemas import (
     RubricRead,
     RubricVersionRead,
     RubricWrite,
+    RunBatchRerunRead,
+    RunBatchRerunRequest,
     RunCreate,
     RunRead,
     RunRerunRequest,
@@ -2775,6 +2777,75 @@ def create_app(
             .order_by(WorkflowRunRecord.started_at.desc())
         )
         return [run_response(run, session) for run in session.scalars(statement)]
+
+    @router.post(
+        "/runs/batch-rerun",
+        response_model=RunBatchRerunRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def batch_rerun_workflow_runs(
+        payload: RunBatchRerunRequest,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> RunBatchRerunRead:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "run.execute",
+            action="run.batch_rerun",
+            target_type="workspace",
+            target_id=context.workspace.id,
+            request=request,
+        )
+        created_runs: list[RunRead] = []
+        failures: list[dict[str, str]] = []
+        for run_id in payload.run_ids:
+            source_run = session.scalar(
+                select(WorkflowRunRecord).where(
+                    WorkflowRunRecord.workspace_id == context.workspace.id,
+                    WorkflowRunRecord.id == run_id,
+                ),
+            )
+            if source_run is None:
+                failures.append({"source_run_id": run_id, "reason": "Run 不存在"})
+                continue
+            if (
+                source_run.kind != "workflow"
+                or not source_run.workflow_id
+                or not source_run.workflow_version
+            ):
+                failures.append({"source_run_id": run_id, "reason": "仅支持 Workflow Run 批量重跑"})
+                continue
+            try:
+                rerun = execution_service.run_workflow_version(
+                    session=session,
+                    workflow_id=source_run.workflow_id,
+                    workflow_version=source_run.workflow_version,
+                    input_text=source_run.input_text,
+                )
+            except RuntimeError as error:
+                failures.append({"source_run_id": run_id, "reason": str(error)})
+                continue
+            record_success(
+                session,
+                context,
+                action="run.batch_rerun",
+                target_type="run",
+                target_id=source_run.id,
+                request=request,
+                metadata={
+                    "sourceRunId": source_run.id,
+                    "newRunId": rerun.id,
+                    "workflowId": source_run.workflow_id,
+                    "workflowVersion": source_run.workflow_version,
+                    "inputOverridden": False,
+                    "batchSize": len(payload.run_ids),
+                },
+            )
+            created_runs.append(run_response(rerun, session))
+        session.commit()
+        return RunBatchRerunRead(created_runs=created_runs, failures=failures)
 
     @router.post(
         "/runs/{run_id}/rerun",

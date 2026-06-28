@@ -6,6 +6,14 @@ export interface RunInput {
   version?: string
 }
 
+export interface BatchRerunResult {
+  createdRuns: ExecutionRun[]
+  failures: Array<{
+    sourceRunId: string
+    reason: string
+  }>
+}
+
 export type ReviewDecision = 'approve' | 'reject'
 
 const jsonRequest = {
@@ -43,6 +51,13 @@ export async function rerunWorkflowRun(
   return readJson<ExecutionRun>(await apiFetch(workspacePath(workspaceId, `/runs/${runId}/rerun`), {
     ...jsonRequest,
     ...(input ? { body: JSON.stringify(input) } : {}),
+  }))
+}
+
+export async function batchRerunWorkflowRuns(workspaceId: string, runIds: string[]): Promise<BatchRerunResult> {
+  return readJson<BatchRerunResult>(await apiFetch(workspacePath(workspaceId, '/runs/batch-rerun'), {
+    ...jsonRequest,
+    body: JSON.stringify({ runIds }),
   }))
 }
 

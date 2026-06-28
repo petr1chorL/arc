@@ -1186,3 +1186,19 @@ V0.20C 在 V0.20A 的历史 Workflow Run 重新运行能力上，增加可选输
 前端 `src/api/execution.ts` 的 `rerunWorkflowRun` 支持第三个可选参数 `{ input }`。Runs 页面在可重跑 Workflow Run 上新增“编辑输入重跑”按钮，展开后默认填充源 Run 输入，用户确认后创建新 Run、插入列表并选中新 Run。
 
 验收文档见 `docs/ACCEPTANCE_V0.20C.md`。
+
+## V0.20D 批量重跑
+
+V0.20D 在运行中心补充批量重跑能力。后端新增
+`POST /api/workspaces/{workspaceId}/runs/batch-rerun`，请求体为 `{ "runIds": string[] }`，
+最多 20 条，拒绝空 ID 和重复 ID。接口逐条处理源 Run：合法 Workflow Run 会复用自己的
+Workflow、Workflow Version 和原始输入创建新 Run；不存在、非 Workflow Run 或缺少版本上下文的
+条目进入 `failures`，不会阻断其他条目。
+
+每条成功项写入 `run.batch_rerun` 审计事件，metadata 包含 `sourceRunId`、`newRunId`、
+`workflowId`、`workflowVersion`、`inputOverridden=false` 和 `batchSize`。前端
+`src/api/execution.ts` 新增 `batchRerunWorkflowRuns`，Runs 页面在可重跑 Run 行展示复选框，
+选中后出现批量操作条；点击“批量重跑”后插入新 Run、选中第一条新 Run，并展示批量成功提示。
+
+本版本不支持批量编辑输入、异步批量任务、批量失败点恢复或跨 Workspace 批量重跑。
+验收文档见 `docs/ACCEPTANCE_V0.20D.md`。
