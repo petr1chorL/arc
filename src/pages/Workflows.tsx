@@ -20,6 +20,7 @@ import {
   Check,
   CircleCheck,
   Clock3,
+  Copy,
   Database,
   FilePlus2,
   GitBranch,
@@ -106,6 +107,10 @@ function sanitizeWorkflowNodes(items: Node[]) {
   return items.map((node, index) => (
     hasValidPosition(node) ? node : { ...node, position: fallbackNodePosition(index) }
   ))
+}
+
+function cloneNodeData(data: Node['data']) {
+  return JSON.parse(JSON.stringify(data)) as Record<string, unknown>
 }
 
 const palette: Array<{ label: string; icon: typeof Bot; kind: WorkflowNodeData['kind'] }> = [
@@ -381,6 +386,28 @@ export function Workflows() {
     setSelectedNode(null)
   }
 
+  function duplicateSelectedNode() {
+    if (!selectedNode) return
+    setNodes((current) => {
+      const data = selectedNode.data as WorkflowNodeData
+      const basePosition = hasValidPosition(selectedNode)
+        ? selectedNode.position
+        : fallbackNodePosition(current.length)
+      const duplicate: Node = {
+        id: `${data.kind ?? 'node'}-copy-${Date.now()}`,
+        type: selectedNode.type ?? 'workflow',
+        position: {
+          x: basePosition.x + 40,
+          y: basePosition.y + 40,
+        },
+        data: cloneNodeData(selectedNode.data),
+      }
+      setSelectedNode(duplicate)
+      return [...current, duplicate]
+    })
+    setFeedback('节点已复制，保存草稿后持久化')
+  }
+
   return (
     <div className="workflow-studio">
       {feedback && <div className="toast"><Check size={16} />{feedback}</div>}
@@ -496,6 +523,7 @@ export function Workflows() {
             reviewGroups={reviewGroups}
             onClose={() => setSelectedNode(null)}
             onUpdate={updateSelectedNode}
+            onDuplicate={duplicateSelectedNode}
             onDelete={removeSelectedNode}
           />
         )}
@@ -579,6 +607,7 @@ function NodeInspector({
   reviewGroups,
   onClose,
   onUpdate,
+  onDuplicate,
   onDelete,
 }: {
   node: Node
@@ -587,6 +616,7 @@ function NodeInspector({
   reviewGroups: ReviewGroup[]
   onClose: () => void
   onUpdate: (data: Record<string, unknown>) => void
+  onDuplicate: () => void
   onDelete: () => void
 }) {
   const data = node.data as WorkflowNodeData & {
@@ -793,6 +823,7 @@ function NodeInspector({
         <div><span>持久化状态</span><strong>随草稿保存</strong></div>
         <div><span>发布约束</span><strong>{isAgent ? '必须引用版本' : isHuman ? '必须配置审核规则' : 'DAG 校验'}</strong></div>
       </div>
+      <button className="button secondary full" onClick={onDuplicate}><Copy size={14} />复制节点</button>
       <button className="button danger full" onClick={onDelete}><Trash2 size={14} />删除节点</button>
     </aside>
   )

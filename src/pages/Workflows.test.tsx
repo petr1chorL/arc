@@ -577,6 +577,63 @@ describe('Workflows', () => {
     ]))
   })
 
+  it('duplicates the selected node without copying edges and saves the duplicate', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === `/api/workspaces/${workspace.id}/workflows` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([workflow]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/agents` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (
+        url === `/api/workspaces/${workspace.id}/reviewers`
+        || url === `/api/workspaces/${workspace.id}/review-groups`
+      ) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/workflows/workflow-1` && init?.method === 'PATCH') {
+        return Promise.resolve(new Response(JSON.stringify(workflow), { status: 200 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWorkflows()
+
+    await user.click(await screen.findByTestId('flow-node-human-1'))
+    await user.click(screen.getByRole('button', { name: '复制节点' }))
+
+    expect(screen.getAllByRole('button', { name: '人工审核' })).toHaveLength(2)
+    expect(screen.getByTestId('edge-count')).toHaveTextContent('0')
+
+    await user.click(screen.getByRole('button', { name: '保存草稿' }))
+
+    const patchCall = fetchMock.mock.calls.find(([url, init]) => (
+      url === `/api/workspaces/${workspace.id}/workflows/workflow-1` && init?.method === 'PATCH'
+    ))
+    const body = JSON.parse(patchCall?.[1]?.body as string)
+    const humanNodes = body.nodes.filter((node: { type: string }) => node.type === 'human')
+    expect(humanNodes).toHaveLength(2)
+    expect(humanNodes[1]).toEqual(expect.objectContaining({
+      type: 'human',
+      position: { x: 340, y: 240 },
+      data: expect.objectContaining({
+        assignmentType: 'group_claim',
+        dueMinutes: 60,
+      }),
+    }))
+    expect(body.edges).toEqual([])
+  })
+
   it('restores the default connected graph when starting a new workflow', async () => {
     const user = userEvent.setup()
     vi.stubGlobal('ResizeObserver', class {
