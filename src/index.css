@@ -4099,6 +4099,119 @@ kbd {
   font-weight: 800;
 }
 
+.artifact-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.metric-card {
+  min-width: 0;
+  padding: 18px;
+  border-radius: 8px;
+  background: rgba(235, 240, 248, 0.78);
+  box-shadow: var(--shadow-inset);
+}
+
+.metric-card span,
+.metric-card small {
+  display: block;
+  color: var(--muted);
+}
+
+.metric-card span {
+  font-size: 12px;
+}
+
+.metric-card strong {
+  display: block;
+  margin-top: 10px;
+  color: var(--ink);
+  font: 700 26px var(--mono);
+}
+
+.metric-card small {
+  margin-top: 6px;
+  font-size: 11px;
+}
+
+.artifact-filter-panel {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.artifact-catalog-list {
+  display: grid;
+  gap: 14px;
+}
+
+.artifact-card {
+  gap: 13px;
+}
+
+.artifact-card .asset-library-card-head > div {
+  display: grid;
+  gap: 4px;
+}
+
+.artifact-card .asset-library-card-head span {
+  display: block;
+}
+
+.score-pill {
+  min-width: 44px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(97, 122, 173, 0.14);
+  box-shadow: var(--shadow-inset);
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.artifact-contract-row,
+.artifact-source-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.artifact-contract-row span,
+.artifact-source-row strong,
+.artifact-source-row span {
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.5);
+  box-shadow: var(--shadow-inset);
+}
+
+.artifact-content-preview {
+  margin: 0;
+  padding: 14px;
+  max-height: 190px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.48);
+  box-shadow: var(--shadow-inset);
+  color: var(--ink);
+  font: 12px/1.7 var(--mono);
+}
+
+@media (max-width: 760px) {
+  .artifact-summary-grid,
+  .artifact-filter-panel {
+    grid-template-columns: 1fr;
+  }
+}
+
 .asset-test-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

@@ -10,6 +10,7 @@ import { AgentDetail } from './pages/AgentDetail'
 import { ActivateInvitation } from './pages/ActivateInvitation'
 import { AuditLog } from './pages/AuditLog'
 import { AssetLibrary } from './pages/AssetLibrary'
+import { Artifacts } from './pages/Artifacts'
 import { Dashboard } from './pages/Dashboard'
 import { DataObjects } from './pages/DataObjects'
 import { Evaluations } from './pages/Evaluations'
@@ -69,6 +70,7 @@ function App() {
           <Route path="/agents/:agentId" element={<LegacyWorkspaceRedirect />} />
           <Route path="/evaluations" element={<LegacyWorkspaceRedirect suffix="evaluations" />} />
           <Route path="/runs" element={<LegacyWorkspaceRedirect suffix="runs" />} />
+          <Route path="/artifacts" element={<LegacyWorkspaceRedirect suffix="artifacts" />} />
           <Route path="/observability" element={<LegacyWorkspaceRedirect suffix="observability" />} />
           <Route path="/reviews" element={<LegacyWorkspaceRedirect suffix="reviews" />} />
           <Route element={<ProtectedRoute />}>
@@ -80,6 +82,7 @@ function App() {
                 <Route path="agents/:agentId" element={<AgentDetail />} />
                 <Route path="evaluations" element={<Evaluations />} />
                 <Route path="runs" element={<Runs />} />
+                <Route path="artifacts" element={<Artifacts />} />
                 <Route path="observability" element={<Observability />} />
                 <Route path="reviews" element={<Reviews />} />
                 <Route path="settings/asset-library" element={<AssetLibrary />} />

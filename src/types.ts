@@ -262,6 +262,20 @@ export interface DataObjectNodeRef {
   schemaSummary: string
 }
 
+export interface ArtifactCatalogItem {
+  artifactId: string
+  artifactVersionId: string
+  version: number
+  runId: string
+  sourceNodeRunId: string
+  content: string
+  score: number | null
+  dataObjectDefinitionId: string | null
+  dataObjectVersionId: string | null
+  dataObjectSnapshot: Record<string, unknown> | null
+  createdAt: string
+}
+
 export interface WorkspaceAuditEvent {
   id: string
   action: string

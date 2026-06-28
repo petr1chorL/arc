@@ -7,6 +7,7 @@ import {
   CircleHelp,
   ClipboardCheck,
   Database,
+  Files,
   Gauge,
   KeyRound,
   Network,
@@ -30,6 +31,7 @@ const navigation = [
   { path: 'agents', label: 'Agent 资产', icon: Bot },
   { path: 'evaluations', label: '评估中心', icon: ClipboardCheck },
   { path: 'runs', label: '运行中心', icon: Activity },
+  { path: 'artifacts', label: '产出物', icon: Files },
   { path: 'observability', label: '运行观测', icon: ShieldAlert },
   { path: 'reviews', label: '人工审核', icon: Blocks },
 ]
@@ -40,6 +42,7 @@ const titles: Record<string, { title: string; eyebrow: string }> = {
   '/agents': { title: 'Agent 资产', eyebrow: 'AGENT REGISTRY' },
   '/evaluations': { title: '评估中心', eyebrow: 'EVALUATION OPS' },
   '/runs': { title: '运行中心', eyebrow: 'RUNTIME' },
+  '/artifacts': { title: '产出物', eyebrow: 'ARTIFACT CATALOG' },
   '/observability': { title: '运行观测', eyebrow: 'OBSERVABILITY' },
   '/reviews': { title: '人工审核', eyebrow: 'HUMAN IN THE LOOP' },
   '/settings/asset-library': { title: 'Tool / Skill 资产库', eyebrow: 'TOOL REGISTRY' },

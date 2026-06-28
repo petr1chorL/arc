@@ -102,6 +102,17 @@ describe('Layout', () => {
     expect(dataObjectLink).toHaveAttribute('href', '/w/ai-capability-center/settings/data-objects')
   })
 
+  it('links to artifact instances inside the current workspace', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([]), { status: 200 }),
+    ))
+
+    renderLayout()
+
+    const artifactsLink = await screen.findByRole('link', { name: '产出物' })
+    expect(artifactsLink).toHaveAttribute('href', '/w/ai-capability-center/artifacts')
+  })
+
   it('keeps the shell usable when the human task count fails', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ detail: '服务暂不可用' }), { status: 503 }),
