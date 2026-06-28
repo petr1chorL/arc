@@ -657,6 +657,22 @@ class RunCreate(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class RunRerunRequest(BaseModel):
+    input: str | None = Field(default=None, max_length=50000)
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    @field_validator("input")
+    @classmethod
+    def reject_blank_input(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("重跑输入不能为空")
+        return normalized
+
+
 class ReviewDecision(BaseModel):
     decision: Literal["approve", "reject"]
 

@@ -146,6 +146,63 @@ describe('Runs', () => {
     )
   })
 
+  it('reruns a failed workflow run with an edited input', async () => {
+    const user = userEvent.setup()
+    const failedRun = {
+      ...run,
+      id: 'run-failed',
+      status: '澶辫触',
+      input: 'Original workflow input',
+      output: '',
+      error: 'Agent 鎵ц澶辫触锛岃绋嶅悗閲嶈瘯',
+    }
+    const rerun = {
+      ...run,
+      id: 'run-rerun',
+      status: '\u5df2\u5b8c\u6210',
+      input: 'Corrected workflow input',
+      output: 'Rerun output created from corrected input.',
+      error: '',
+      startedAt: '2026-06-24T08:05:00Z',
+      nodes: [{ ...run.nodes[0], output: 'Rerun output created from corrected input.' }],
+    }
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
+      if (url === `/api/workspaces/${workspace.id}/runs`) {
+        return Promise.resolve(new Response(JSON.stringify([failedRun]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/runs/run-failed/rerun`) {
+        return Promise.resolve(new Response(JSON.stringify(rerun), { status: 201 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify({ detail: 'not found' }), { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <WorkspaceProvider workspace={workspace}>
+        <Runs />
+      </WorkspaceProvider>,
+    )
+
+    expect(await screen.findByRole('heading', { name: '\u65b0\u54c1\u7814\u7a76\u6d41\u7a0b' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '\u7f16\u8f91\u8f93\u5165\u91cd\u8dd1' }))
+    const inputBox = screen.getByLabelText('\u91cd\u8dd1\u8f93\u5165')
+    expect(inputBox).toHaveValue('Original workflow input')
+    await user.clear(inputBox)
+    await user.type(inputBox, 'Corrected workflow input')
+    await user.click(screen.getByRole('button', { name: '\u786e\u8ba4\u91cd\u8dd1' }))
+
+    expect(await screen.findByText('\u91cd\u65b0\u8fd0\u884c\u5df2\u521b\u5efa')).toBeInTheDocument()
+    expect(screen.getAllByText('Rerun output created from corrected input.')).toHaveLength(2)
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/workspaces/${workspace.id}/runs/run-failed/rerun`,
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ input: 'Corrected workflow input' }),
+      }),
+    )
+  })
+
   it('resumes a failed workflow run from the failed node', async () => {
     const user = userEvent.setup()
     const failedRun = {

@@ -1176,3 +1176,13 @@ V0.20B 在运行中心补充“从失败点恢复”能力。后端新增 `POST 
 前端 `src/api/execution.ts` 新增 `resumeRunFromFailedNode`，Runs 页面在失败的 Workflow Run 上展示“从失败点恢复”按钮。点击成功后页面原地更新当前 Run，并显示“已从失败点恢复”。该能力和 V0.20A 的“重新运行”并列：重新运行创建新 Run 并从入口执行；失败点恢复复用原 Run 并从失败节点继续。
 
 验收文档见 `docs/ACCEPTANCE_V0.20B.md`。
+
+## V0.20C 带输入覆盖的历史 Run 重新运行
+
+V0.20C 在 V0.20A 的历史 Workflow Run 重新运行能力上，增加可选输入覆盖。后端继续复用 `POST /api/workspaces/{workspaceId}/runs/{runId}/rerun`，请求体可为空；为空时沿用源 Run 的输入，传入 `{ "input": "..." }` 时使用覆盖输入创建新的 Run。覆盖输入会做非空和长度校验，空白输入返回 `422`。
+
+审计事件仍为 `run.rerun`，metadata 在原有 `sourceRunId`、`newRunId`、`workflowId`、`workflowVersion` 基础上增加 `inputOverridden`，用于区分原样重跑和编辑输入重跑。该能力仍只支持 Workflow Run，不支持 Agent test run，也不支持修改 Workflow Version。
+
+前端 `src/api/execution.ts` 的 `rerunWorkflowRun` 支持第三个可选参数 `{ input }`。Runs 页面在可重跑 Workflow Run 上新增“编辑输入重跑”按钮，展开后默认填充源 Run 输入，用户确认后创建新 Run、插入列表并选中新 Run。
+
+验收文档见 `docs/ACCEPTANCE_V0.20C.md`。

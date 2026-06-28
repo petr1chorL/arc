@@ -1,4 +1,4 @@
-import { Play, RefreshCw, RotateCcw, Search } from 'lucide-react'
+import { Pencil, Play, RefreshCw, RotateCcw, Search } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWorkspace } from '../auth/workspaceContextState'
 import { listRuns, rerunWorkflowRun, resumeRunFromFailedNode } from '../api/execution'
@@ -47,6 +47,8 @@ export function Runs() {
   const [rerunError, setRerunError] = useState('')
   const [rerunMessage, setRerunMessage] = useState('')
   const [rerunningId, setRerunningId] = useState('')
+  const [editingRerunId, setEditingRerunId] = useState('')
+  const [rerunInput, setRerunInput] = useState('')
   const [resumingId, setResumingId] = useState('')
   const [isLoading, setIsLoading] = useState(true)
 
@@ -81,17 +83,40 @@ export function Runs() {
   }, [query, runs])
   const selected = runs.find((run) => run.id === selectedId) ?? runs[0]
 
-  const handleRerun = useCallback(async (run: ExecutionRun) => {
+  useEffect(() => {
+    setEditingRerunId('')
+    setRerunInput('')
+  }, [selectedId])
+
+  const openRerunInputEditor = useCallback((run: ExecutionRun) => {
+    setRerunError('')
+    setRerunMessage('')
+    setEditingRerunId(run.id)
+    setRerunInput(run.input)
+  }, [])
+
+  const handleRerun = useCallback(async (run: ExecutionRun, overriddenInput?: string) => {
+    const trimmedInput = overriddenInput?.trim()
+    if (overriddenInput !== undefined && !trimmedInput) {
+      setRerunError('\u91cd\u8dd1\u8f93\u5165\u4e0d\u80fd\u4e3a\u7a7a')
+      return
+    }
     setRerunError('')
     setRerunMessage('')
     setRerunningId(run.id)
     try {
-      const rerun = await rerunWorkflowRun(workspace.id, run.id)
+      const rerun = await rerunWorkflowRun(
+        workspace.id,
+        run.id,
+        trimmedInput === undefined ? undefined : { input: trimmedInput },
+      )
       setRuns((currentRuns) => [
         rerun,
         ...currentRuns.filter((currentRun) => currentRun.id !== rerun.id),
       ])
       setSelectedId(rerun.id)
+      setEditingRerunId('')
+      setRerunInput('')
       setRerunMessage('\u91cd\u65b0\u8fd0\u884c\u5df2\u521b\u5efa')
     } catch (rerunRequestError) {
       setRerunError(rerunRequestError instanceof Error ? rerunRequestError.message : '\u91cd\u65b0\u8fd0\u884c\u5931\u8d25')
@@ -186,14 +211,24 @@ export function Runs() {
               </button>
             )}
             {canRerunWorkflow(selected) && (
-              <button
-                className="button secondary compact"
-                disabled={rerunningId === selected.id}
-                onClick={() => void handleRerun(selected)}
-              >
-                <RotateCcw size={15} />
-                {rerunningId === selected.id ? '\u91cd\u65b0\u8fd0\u884c\u4e2d' : '\u91cd\u65b0\u8fd0\u884c'}
-              </button>
+              <>
+                <button
+                  className="button secondary compact"
+                  disabled={rerunningId === selected.id}
+                  onClick={() => void handleRerun(selected)}
+                >
+                  <RotateCcw size={15} />
+                  {rerunningId === selected.id ? '\u91cd\u65b0\u8fd0\u884c\u4e2d' : '\u91cd\u65b0\u8fd0\u884c'}
+                </button>
+                <button
+                  className="button secondary compact"
+                  disabled={rerunningId === selected.id}
+                  onClick={() => openRerunInputEditor(selected)}
+                >
+                  <Pencil size={15} />
+                  {'\u7f16\u8f91\u8f93\u5165\u91cd\u8dd1'}
+                </button>
+              </>
             )}
             <StatusBadge status={selected.status} />
           </div>
@@ -201,6 +236,31 @@ export function Runs() {
 
         {rerunMessage && <div className="run-action-notice success">{rerunMessage}</div>}
         {rerunError && <div className="run-action-notice error" role="alert">{rerunError}</div>}
+        {editingRerunId === selected.id && (
+          <div className="run-rerun-editor">
+            <label>
+              <span>{'\u91cd\u8dd1\u8f93\u5165'}</span>
+              <textarea
+                aria-label={'\u91cd\u8dd1\u8f93\u5165'}
+                value={rerunInput}
+                onChange={(event) => setRerunInput(event.target.value)}
+              />
+            </label>
+            <div className="run-rerun-editor-actions">
+              <button className="button secondary compact" onClick={() => setEditingRerunId('')}>
+                {'\u53d6\u6d88'}
+              </button>
+              <button
+                className="button primary compact"
+                disabled={rerunningId === selected.id}
+                onClick={() => void handleRerun(selected, rerunInput)}
+              >
+                <RotateCcw size={15} />
+                {rerunningId === selected.id ? '\u91cd\u65b0\u8fd0\u884c\u4e2d' : '\u786e\u8ba4\u91cd\u8dd1'}
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="run-kpis">
           <div><span>总耗时</span><strong>{formatDuration(selected.durationMs)}</strong></div>

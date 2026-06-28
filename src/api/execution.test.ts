@@ -125,6 +125,31 @@ describe('Execution API', () => {
     )
   })
 
+  it('reruns a workflow run with an overridden input', async () => {
+    const rerun = {
+      ...run,
+      id: 'run-2',
+      kind: 'workflow',
+      workflowId: 'workflow-1',
+      workflowVersion: 'v1.0.0',
+      input: 'Corrected workflow input',
+      output: 'Rerun output created from corrected input.',
+    }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(rerun), { status: 201 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(rerunWorkflowRun(workspaceId, 'run-1', { input: 'Corrected workflow input' })).resolves.toEqual(rerun)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/workspaces/workspace-1/runs/run-1/rerun',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'same-origin',
+        body: JSON.stringify({ input: 'Corrected workflow input' }),
+      }),
+    )
+  })
+
   it('resumes a workflow run from its failed node', async () => {
     const resumed = {
       ...run,

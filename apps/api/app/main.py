@@ -125,6 +125,7 @@ from app.schemas import (
     RubricWrite,
     RunCreate,
     RunRead,
+    RunRerunRequest,
     ToolSkillAssetAuditEventRead,
     ToolSkillAssetCreate,
     ToolSkillAssetDraftAgentImpactRead,
@@ -2784,6 +2785,7 @@ def create_app(
         run_id: str,
         request: Request,
         context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+        payload: RunRerunRequest | None = Body(default=None),
     ) -> RunRead:
         context, session = context_bundle
         authorization_service.require_capability(
@@ -2802,12 +2804,14 @@ def create_app(
             or not source_run.workflow_version
         ):
             raise HTTPException(status_code=422, detail="浠呮敮鎸佸伐浣滄祦杩愯閲嶈窇")
+        input_overridden = payload is not None and payload.input is not None
+        input_text = payload.input if input_overridden else source_run.input_text
         try:
             rerun = execution_service.run_workflow_version(
                 session=session,
                 workflow_id=source_run.workflow_id,
                 workflow_version=source_run.workflow_version,
-                input_text=source_run.input_text,
+                input_text=input_text,
             )
         except RuntimeError as error:
             raise HTTPException(status_code=422, detail=str(error)) from None
@@ -2823,6 +2827,7 @@ def create_app(
                 "newRunId": rerun.id,
                 "workflowId": source_run.workflow_id,
                 "workflowVersion": source_run.workflow_version,
+                "inputOverridden": input_overridden,
             },
         )
         session.commit()
