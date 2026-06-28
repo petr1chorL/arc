@@ -233,6 +233,7 @@ describe('Execution API', () => {
       reason: 'batch rerun',
       actorId: 'user-1',
       requestId: 'req-1',
+      traceId: 'trace-run-operation',
       createdAt: '2026-06-28T08:00:00Z',
       metadata: { sourceRunId: 'run-1', newRunId: 'run-2' },
     }]

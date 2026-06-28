@@ -1220,6 +1220,7 @@ def test_run_operation_history_lists_related_run_audit_events(tmp_path):
                 target_id="other-resume-run",
                 outcome="success",
                 request_id="req-batch-resume",
+                trace_id="trace-batch-resume",
                 event_metadata={"runId": source["id"], "failedNodeId": "agent"},
                 reason="batch resume",
                 created_at=created_at + timedelta(seconds=2),
@@ -1249,6 +1250,7 @@ def test_run_operation_history_lists_related_run_audit_events(tmp_path):
         "run.rerun",
     ]
     assert events[0]["requestId"] == "req-batch-resume"
+    assert events[0]["traceId"] == "trace-batch-resume"
     assert events[0]["metadata"]["runId"] == source["id"]
     assert events[1]["metadata"]["sourceRunId"] == source["id"]
     assert events[2]["targetId"] == source["id"]

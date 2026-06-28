@@ -1,4 +1,4 @@
-import { Pencil, Play, RefreshCw, RotateCcw, Search } from 'lucide-react'
+import { ExternalLink, Pencil, Play, RefreshCw, RotateCcw, Search } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWorkspace } from '../auth/workspaceContextState'
 import {
@@ -507,6 +507,15 @@ export function Runs() {
                   <div>
                     <strong>{runOperationActionLabels[event.action] ?? event.action}</strong>
                     <span>{formatTime(event.createdAt)}</span>
+                    {event.traceId && (
+                      <a
+                        className="run-operation-history-audit-link"
+                        href={workspacePath(`settings/audit?traceId=${encodeURIComponent(event.traceId)}`)}
+                      >
+                        <ExternalLink size={13} />
+                        {'\u67e5\u770b\u5ba1\u8ba1'}
+                      </a>
+                    )}
                   </div>
                   <div className="run-operation-history-meta">
                     {event.requestId && <span className="mono">{event.requestId}</span>}

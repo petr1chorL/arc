@@ -461,6 +461,7 @@ export interface ExecutionRun {
 export interface RunOperationHistoryEvent {
   id: string
   action: string
+  traceId: string
   targetType: string | null
   targetId: string | null
   outcome: string

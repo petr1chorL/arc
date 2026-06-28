@@ -88,6 +88,7 @@ describe('Runs', () => {
       reason: 'batch rerun from run center',
       actorId: 'user-1',
       requestId: 'req-batch-rerun',
+      traceId: 'trace-run-operation',
       createdAt: '2026-06-28T08:00:00Z',
       metadata: { sourceRunId: 'run-1', newRunId: 'run-2' },
     }]
@@ -113,6 +114,10 @@ describe('Runs', () => {
     expect(await screen.findByText('\u6279\u91cf\u91cd\u8dd1')).toBeInTheDocument()
     expect(screen.getByText('req-batch-rerun')).toBeInTheDocument()
     expect(screen.getByText('newRunId: run-2')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '\u67e5\u770b\u5ba1\u8ba1' })).toHaveAttribute(
+      'href',
+      '/w/ai-capability-center/settings/audit?traceId=trace-run-operation',
+    )
   })
 
   it('links a waiting workflow run to the human review queue', async () => {

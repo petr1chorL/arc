@@ -3104,6 +3104,7 @@ def create_app(
             RunOperationHistoryEventRead(
                 id=record.id,
                 action=record.action or "",
+                trace_id=record.trace_id,
                 target_type=record.target_type,
                 target_id=record.target_id,
                 outcome=record.outcome or "",
