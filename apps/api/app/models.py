@@ -235,6 +235,39 @@ class ToolSkillAssetInvocationRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class DataObjectDefinitionRecord(Base):
+    __tablename__ = "data_object_definitions"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "name",
+            name="uq_data_object_definition_workspace_name",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str] = mapped_column(String(36), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(Text, default="")
+    object_schema: Mapped[dict] = mapped_column("schema", JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+    version: Mapped[str] = mapped_column(String(20), default="unpublished")
+    created_by: Mapped[str] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class DataObjectVersionRecord(Base):
+    __tablename__ = "data_object_versions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str] = mapped_column(String(36), index=True)
+    definition_id: Mapped[str] = mapped_column(String(36), index=True)
+    version: Mapped[str] = mapped_column(String(20))
+    snapshot: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class ModelProviderRecord(Base):
     __tablename__ = "model_providers"
     __table_args__ = (

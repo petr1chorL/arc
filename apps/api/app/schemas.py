@@ -357,6 +357,53 @@ class ToolSkillAssetRead(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
+class DataObjectDefinitionCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=2000)
+    object_schema: dict = Field(alias="schema")
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    @field_validator("name")
+    @classmethod
+    def reject_blank_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("name cannot be blank")
+        return normalized
+
+    @field_validator("object_schema")
+    @classmethod
+    def require_schema_object(cls, value: dict) -> dict:
+        if not isinstance(value, dict) or isinstance(value, list):
+            raise ValueError("schema must be a JSON object")
+        return value
+
+
+class DataObjectDefinitionRead(BaseModel):
+    id: str
+    name: str
+    description: str
+    object_schema: dict = Field(serialization_alias="schema")
+    status: str
+    version: str
+    created_by: str = Field(serialization_alias="createdBy")
+    created_at: datetime = Field(serialization_alias="createdAt")
+    updated_at: datetime = Field(serialization_alias="updatedAt")
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class DataObjectVersionRead(BaseModel):
+    id: str
+    definition_id: str = Field(serialization_alias="definitionId")
+    version: str
+    snapshot: dict
+    created_at: datetime = Field(serialization_alias="createdAt")
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
 class ToolSkillAssetDraftAgentImpactRead(BaseModel):
     agent_id: str = Field(serialization_alias="agentId")
     agent_name: str = Field(serialization_alias="agentName")

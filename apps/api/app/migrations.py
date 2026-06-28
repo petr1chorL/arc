@@ -50,6 +50,8 @@ WORKSPACE_TABLES = (
     "tool_skill_assets",
     "tool_skill_asset_invocations",
     "model_providers",
+    "data_object_definitions",
+    "data_object_versions",
 )
 DEFAULT_WORKSPACE_FALLBACK_TABLES = tuple(
     table_name

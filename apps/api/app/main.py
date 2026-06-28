@@ -24,6 +24,8 @@ from app.models import (
     AgentVersionRecord,
     AuditEventRecord,
     Base,
+    DataObjectDefinitionRecord,
+    DataObjectVersionRecord,
     EvaluationRecord,
     ExecutionJobRecord,
     FeedbackCandidateRecord,
@@ -61,6 +63,9 @@ from app.schemas import (
     AgentCreate,
     AgentRead,
     AgentUpdate,
+    DataObjectDefinitionCreate,
+    DataObjectDefinitionRead,
+    DataObjectVersionRead,
     EvaluationRecordRead,
     EvaluationOverviewRead,
     EvaluationRunCreate,
@@ -453,6 +458,25 @@ def create_app(
         if asset is None:
             raise HTTPException(status_code=404, detail="Tool / Skill 资产不存在")
         return asset
+
+    def find_data_object_definition(
+        session: Session,
+        *,
+        workspace_id: str,
+        definition_id: str,
+    ) -> DataObjectDefinitionRecord:
+        definition = session.scalar(
+            select(DataObjectDefinitionRecord).where(
+                DataObjectDefinitionRecord.id == definition_id,
+                DataObjectDefinitionRecord.workspace_id == workspace_id,
+            ),
+        )
+        if definition is None:
+            raise HTTPException(status_code=404, detail="Data Object definition does not exist")
+        return definition
+
+    def data_object_definition_snapshot(record: DataObjectDefinitionRecord) -> dict:
+        return DataObjectDefinitionRead.model_validate(record).model_dump(by_alias=True, mode="json")
 
     def agent_snapshot(record: AgentRecord) -> dict:
         return AgentRead.model_validate(record).model_dump(by_alias=True, mode="json")
@@ -1519,6 +1543,134 @@ def create_app(
             request=request,
         )
         return run_response(run, session)
+
+    @router.get("/data-objects", response_model=list[DataObjectDefinitionRead])
+    def list_data_object_definitions(
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> list[DataObjectDefinitionRecord]:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "asset.read",
+            action="data_object_definition.list",
+            target_type="workspace",
+            target_id=context.workspace.id,
+            request=request,
+        )
+        return list(session.scalars(
+            select(DataObjectDefinitionRecord)
+            .where(DataObjectDefinitionRecord.workspace_id == context.workspace.id)
+            .order_by(DataObjectDefinitionRecord.created_at.desc()),
+        ))
+
+    @router.post(
+        "/data-objects",
+        response_model=DataObjectDefinitionRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_data_object_definition(
+        payload: DataObjectDefinitionCreate,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> DataObjectDefinitionRecord:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "agent.write",
+            action="data_object_definition.create",
+            target_type="data_object_definition",
+            target_id=None,
+            request=request,
+        )
+        existing = session.scalar(
+            select(DataObjectDefinitionRecord).where(
+                DataObjectDefinitionRecord.workspace_id == context.workspace.id,
+                DataObjectDefinitionRecord.name == payload.name,
+            ),
+        )
+        if existing is not None:
+            raise HTTPException(status_code=409, detail="Data Object definition name already exists")
+        now = utc_now()
+        record = DataObjectDefinitionRecord(
+            workspace_id=context.workspace.id,
+            name=payload.name,
+            description=payload.description,
+            object_schema=payload.object_schema,
+            created_by=context.user.id,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(record)
+        session.flush()
+        record_success(
+            session,
+            context,
+            action="data_object_definition.create",
+            target_type="data_object_definition",
+            target_id=record.id,
+            request=request,
+        )
+        session.commit()
+        session.refresh(record)
+        return record
+
+    @router.post(
+        "/data-objects/{definition_id}/publish",
+        response_model=DataObjectVersionRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def publish_data_object_definition(
+        definition_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> DataObjectVersionRecord:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "agent.write",
+            action="data_object_definition.publish",
+            target_type="data_object_definition",
+            target_id=definition_id,
+            request=request,
+        )
+        definition = find_data_object_definition(
+            session,
+            workspace_id=context.workspace.id,
+            definition_id=definition_id,
+        )
+        count = session.scalar(
+            select(func.count()).select_from(DataObjectVersionRecord).where(
+                DataObjectVersionRecord.workspace_id == context.workspace.id,
+                DataObjectVersionRecord.definition_id == definition_id,
+            ),
+        ) or 0
+        version = next_version(count)
+        published = DataObjectVersionRecord(
+            workspace_id=context.workspace.id,
+            definition_id=definition_id,
+            version=version,
+            snapshot=data_object_definition_snapshot(definition),
+        )
+        definition.status = "published"
+        definition.version = version
+        definition.updated_at = utc_now()
+        session.add(published)
+        session.flush()
+        record_success(
+            session,
+            context,
+            action="data_object_definition.publish",
+            target_type="data_object_definition",
+            target_id=definition.id,
+            request=request,
+        )
+        session.commit()
+        session.refresh(published)
+        return published
 
     @router.get("/asset-library", response_model=list[ToolSkillAssetRead])
     def list_tool_skill_assets(
