@@ -147,6 +147,7 @@ export function Workflows() {
   const [currentId, setCurrentId] = useState<string | null>(null)
   const [name, setName] = useState('未命名工作流')
   const [selectedNode, setSelectedNode] = useState<Node | null>(null)
+  const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null)
   const [agentOptions, setAgentOptions] = useState<PublishedAgentOption[]>([])
   const [reviewers, setReviewers] = useState<Reviewer[]>([])
   const [reviewGroups, setReviewGroups] = useState<ReviewGroup[]>([])
@@ -172,6 +173,7 @@ export function Workflows() {
     setNodes(graph.nodes)
     setEdges(graph.edges)
     setSelectedNode(null)
+    setSelectedEdge(null)
     setFeedback('')
     setErrors([])
     void listWorkflowVersions(workspace.id, workflow.id).then(setVersions)
@@ -305,6 +307,7 @@ export function Workflows() {
     setNodes(createDefaultNodes())
     setEdges(createDefaultEdges())
     setSelectedNode(null)
+    setSelectedEdge(null)
     setVersions([])
     setErrors([])
     setFeedback('')
@@ -400,6 +403,13 @@ export function Workflows() {
     setNodes((current) => current.filter((node) => node.id !== selectedNode.id))
     setEdges((current) => current.filter((edge) => edge.source !== selectedNode.id && edge.target !== selectedNode.id))
     setSelectedNode(null)
+  }
+
+  function removeSelectedEdge() {
+    if (!selectedEdge) return
+    setEdges((current) => current.filter((edge) => edge.id !== selectedEdge.id))
+    setSelectedEdge(null)
+    setFeedback('连线已删除，保存草稿后持久化')
   }
 
   function duplicateSelectedNode() {
@@ -501,7 +511,14 @@ export function Workflows() {
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
-            onNodeClick={(_, node) => setSelectedNode(node)}
+            onNodeClick={(_, node) => {
+              setSelectedEdge(null)
+              setSelectedNode(node)
+            }}
+            onEdgeClick={(_, edge) => {
+              setSelectedNode(null)
+              setSelectedEdge(edge)
+            }}
             onInit={(instance) => {
               reactFlowRef.current = instance
             }}
@@ -542,6 +559,14 @@ export function Workflows() {
             onUpdate={updateSelectedNode}
             onDuplicate={duplicateSelectedNode}
             onDelete={removeSelectedNode}
+          />
+        )}
+        {selectedEdge && (
+          <EdgeInspector
+            edge={selectedEdge}
+            nodes={renderedNodes}
+            onClose={() => setSelectedEdge(null)}
+            onDelete={removeSelectedEdge}
           />
         )}
       </div>
@@ -865,6 +890,47 @@ function NodeInspector({
       ) : (
         <button className="button danger full" onClick={() => setIsConfirmingDelete(true)}><Trash2 size={14} />删除节点</button>
       )}
+    </aside>
+  )
+}
+
+function EdgeInspector({
+  edge,
+  nodes,
+  onClose,
+  onDelete,
+}: {
+  edge: Edge
+  nodes: Node[]
+  onClose: () => void
+  onDelete: () => void
+}) {
+  const sourceNode = nodes.find((node) => node.id === edge.source)
+  const targetNode = nodes.find((node) => node.id === edge.target)
+  const sourceData = sourceNode?.data as WorkflowNodeData | undefined
+  const targetData = targetNode?.data as WorkflowNodeData | undefined
+  const sourceLabel = sourceData?.label ?? edge.source
+  const targetLabel = targetData?.label ?? edge.target
+
+  return (
+    <aside className="node-inspector edge-inspector">
+      <header>
+        <div>
+          <span className="section-kicker">EDGE</span>
+          <h3>连线配置</h3>
+        </div>
+        <button onClick={onClose}>×</button>
+      </header>
+      <div className="inspector-section">
+        <div><span>上游节点</span><strong>{sourceLabel}</strong></div>
+        <div><span>下游节点</span><strong>{targetLabel}</strong></div>
+        <div><span>连线 ID</span><strong>{edge.id}</strong></div>
+      </div>
+      <div className="inspector-section">
+        <div><span>持久化状态</span><strong>随草稿保存</strong></div>
+        <div><span>删除影响</span><strong>仅移除当前连线</strong></div>
+      </div>
+      <button className="button danger full" onClick={onDelete}><Trash2 size={14} />删除连线</button>
     </aside>
   )
 }

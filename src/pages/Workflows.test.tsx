@@ -1,4 +1,4 @@
-import { createEvent, fireEvent, render, screen } from '@testing-library/react'
+import { createEvent, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { DragEventHandler, ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -23,6 +23,7 @@ vi.mock('@xyflow/react', async () => {
       nodes,
       edges,
       onConnect,
+      onEdgeClick,
       onNodeClick,
       onDrop,
       onDragOver,
@@ -37,6 +38,7 @@ vi.mock('@xyflow/react', async () => {
         sourceHandle: null
         targetHandle: null
       }) => void
+      onEdgeClick?: (event: unknown, edge: { id: string; source: string; target: string }) => void
       onNodeClick?: (event: unknown, node: unknown) => void
       onDrop?: DragEventHandler<HTMLDivElement>
       onDragOver?: DragEventHandler<HTMLDivElement>
@@ -53,6 +55,15 @@ vi.mock('@xyflow/react', async () => {
           onDrop={onDrop}
         >
           <output data-testid="edge-count">{edges.length}</output>
+          {edges.map((edge) => (
+            <button
+              data-testid={`flow-edge-${edge.id}`}
+              key={edge.id}
+              onClick={(event) => onEdgeClick?.(event, edge)}
+            >
+              {edge.source} → {edge.target}
+            </button>
+          ))}
           {nodes.map((node) => (
             <button
               data-testid={`flow-node-${node.id}`}
@@ -729,6 +740,98 @@ describe('Workflows', () => {
     const body = JSON.parse(patchCall?.[1]?.body as string)
     expect(body.nodes.map((node: { id: string }) => node.id)).toEqual(['start', 'end'])
     expect(body.edges).toEqual([])
+  })
+
+  it('selects and deletes a single edge without deleting nodes', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const connectedWorkflow = {
+      ...workflow,
+      nodes: [
+        {
+          id: 'start',
+          type: 'trigger',
+          position: { x: 0, y: 0 },
+          data: { label: '手动触发', subtitle: '启动工作流' },
+        },
+        {
+          id: 'agent',
+          type: 'agent',
+          position: { x: 300, y: 0 },
+          data: { label: '选择执行 Agent', subtitle: '尚未绑定发布版本' },
+        },
+        {
+          id: 'end',
+          type: 'end',
+          position: { x: 600, y: 0 },
+          data: { label: '流程完成', subtitle: '结束节点' },
+        },
+      ],
+      edges: [
+        { id: 'start-agent', source: 'start', target: 'agent' },
+        { id: 'agent-end', source: 'agent', target: 'end' },
+      ],
+    }
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === `/api/workspaces/${workspace.id}/workflows` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([connectedWorkflow]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/agents` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (
+        url === `/api/workspaces/${workspace.id}/reviewers`
+        || url === `/api/workspaces/${workspace.id}/review-groups`
+      ) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/workflows/workflow-1` && init?.method === 'PATCH') {
+        return Promise.resolve(new Response(JSON.stringify(connectedWorkflow), { status: 200 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWorkflows()
+
+    await user.click(await screen.findByTestId('flow-edge-start-agent'))
+
+    const edgeInspector = document.querySelector<HTMLElement>('.edge-inspector')
+    expect(edgeInspector).not.toBeNull()
+    expect(within(edgeInspector!).getByText('连线配置')).toBeInTheDocument()
+    expect(within(edgeInspector!).getByText('上游节点')).toBeInTheDocument()
+    expect(within(edgeInspector!).getByText('手动触发')).toBeInTheDocument()
+    expect(within(edgeInspector!).getByText('下游节点')).toBeInTheDocument()
+    expect(within(edgeInspector!).getByText('选择执行 Agent')).toBeInTheDocument()
+    expect(within(edgeInspector!).getByText('start-agent')).toBeInTheDocument()
+    expect(screen.queryByText('节点配置')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '删除连线' }))
+
+    expect(screen.getByTestId('edge-count')).toHaveTextContent('1')
+    expect(screen.getByTestId('flow-node-start')).toBeInTheDocument()
+    expect(screen.getByTestId('flow-node-agent')).toBeInTheDocument()
+    expect(screen.getByTestId('flow-node-end')).toBeInTheDocument()
+    expect(screen.queryByTestId('flow-edge-start-agent')).not.toBeInTheDocument()
+    expect(screen.getByTestId('flow-edge-agent-end')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '保存草稿' }))
+
+    const patchCall = fetchMock.mock.calls.find(([url, init]) => (
+      url === `/api/workspaces/${workspace.id}/workflows/workflow-1` && init?.method === 'PATCH'
+    ))
+    const body = JSON.parse(patchCall?.[1]?.body as string)
+    expect(body.nodes.map((node: { id: string }) => node.id)).toEqual(['start', 'agent', 'end'])
+    expect(body.edges).toEqual([
+      expect.objectContaining({ id: 'agent-end', source: 'agent', target: 'end' }),
+    ])
   })
 
   it('restores the default connected graph when starting a new workflow', async () => {
