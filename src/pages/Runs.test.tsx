@@ -57,6 +57,7 @@ const run = {
 describe('Runs', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
+    window.history.pushState({}, '', '/')
   })
 
   it('renders persisted run metrics, output and node attempts', async () => {
@@ -117,6 +118,41 @@ describe('Runs', () => {
     expect(screen.getByRole('link', { name: '\u67e5\u770b\u5ba1\u8ba1' })).toHaveAttribute(
       'href',
       '/w/ai-capability-center/settings/audit?traceId=trace-run-operation',
+    )
+  })
+
+  it('selects the run requested by the runId query parameter', async () => {
+    window.history.pushState({}, '', '/w/ai-capability-center/runs?runId=run-deep-link')
+    const deepLinkedRun = {
+      ...run,
+      id: 'run-deep-link',
+      name: 'Deep linked workflow run',
+      output: 'Deep linked run output',
+      nodes: [{ ...run.nodes[0], output: 'Deep linked run output' }],
+    }
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
+      if (url === `/api/workspaces/${workspace.id}/runs`) {
+        return Promise.resolve(new Response(JSON.stringify([run, deepLinkedRun]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/runs/run-deep-link/operation-history`) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify({ detail: 'not found' }), { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <WorkspaceProvider workspace={workspace}>
+        <Runs />
+      </WorkspaceProvider>,
+    )
+
+    expect(await screen.findByRole('heading', { name: 'Deep linked workflow run' })).toBeInTheDocument()
+    expect(screen.getAllByText('Deep linked run output')).toHaveLength(2)
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/workspaces/${workspace.id}/runs/run-deep-link/operation-history`,
+      expect.objectContaining({ credentials: 'same-origin' }),
     )
   })
 

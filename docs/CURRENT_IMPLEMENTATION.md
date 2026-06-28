@@ -1,7 +1,7 @@
 # ARC.ONE 当前版本实现说明
 
-> 当前版本：V0.21B Run 操作历史跳转审计日志
-> 上一阶段：V0.21A Run 操作历史
+> 当前版本：V0.21C 审计日志反向跳回运行中心
+> 上一阶段：V0.21B Run 操作历史跳转审计日志
 > 更新时间：2026-06-28
 
 > 对应版本：V0.20F 批量操作结果面板
@@ -1231,3 +1231,9 @@ V0.21A 在运行中心新增 Run 维度的操作历史。后端新增 `GET /api/
 V0.21B 在 Run 操作历史中补齐 Trace ID 追踪入口。后端 `GET /api/workspaces/{workspaceId}/runs/{runId}/operation-history` 返回每条审计事件的 `traceId`，继续复用 Workspace 审计事件作为事实来源，不新增独立操作历史表。
 
 前端 `Runs` 页面在每条操作历史上展示“查看审计”链接，跳转到 `/w/{workspaceSlug}/settings/audit?traceId={traceId}`。审计日志页面沿用已有 Trace ID 过滤能力，用于查看同一次运行操作相关的完整审计链路。验收文档见 `docs/ACCEPTANCE_V0.21B.md`。
+
+## V0.21C 审计日志反向跳回运行中心
+
+V0.21C 在 V0.21B 的 Run -> Audit 链路基础上补齐 Audit -> Run。审计日志页面在 `targetType === "run"` 且存在 `targetId` 的事件上展示“查看运行”链接，地址为 `/w/{workspaceSlug}/runs?runId={runId}`。
+
+运行中心支持读取 URL 查询参数 `runId`。当运行列表加载完成后，如果该 Run 存在，会优先选中它；如果不存在，则保持原有回退逻辑，选中当前有效 Run 或第一条 Run。验收文档见 `docs/ACCEPTANCE_V0.21C.md`。

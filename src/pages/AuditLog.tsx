@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { FileClock, RefreshCw } from 'lucide-react'
+import { Activity, FileClock, RefreshCw } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import { useWorkspace } from '../auth/workspaceContextState'
 import { listWorkspaceAuditEvents } from '../api/audit'
@@ -38,7 +38,7 @@ function eventTitle(event: WorkspaceAuditEvent) {
 }
 
 export function AuditLog() {
-  const { workspace } = useWorkspace()
+  const { workspace, workspacePath } = useWorkspace()
   const [searchParams] = useSearchParams()
   const [events, setEvents] = useState<WorkspaceAuditEvent[]>([])
   const [action, setAction] = useState('')
@@ -150,6 +150,15 @@ export function AuditLog() {
             <em>{event.outcome}</em>
             <span>{event.actorId ?? 'system'}</span>
             <small>{event.requestId ?? event.traceId}</small>
+            {event.targetType === 'run' && event.targetId && (
+              <a
+                className="audit-run-link"
+                href={workspacePath(`runs?runId=${encodeURIComponent(event.targetId)}`)}
+              >
+                <Activity size={13} />
+                查看运行
+              </a>
+            )}
           </article>
         ))}
       </section>

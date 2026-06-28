@@ -40,6 +40,21 @@ const deniedEvent = {
   metadata: { userEmail: 'member@example.com' },
 }
 
+const runEvent = {
+  id: 'audit-run',
+  action: 'run.batch_rerun',
+  targetType: 'run',
+  targetId: 'run-1',
+  outcome: 'success',
+  reason: 'batch rerun from run center',
+  actorId: 'admin',
+  requestId: 'req-run',
+  traceId: 'trace-run-1',
+  spanId: null,
+  createdAt: '2026-06-28T00:05:00Z',
+  metadata: { sourceRunId: 'run-1' },
+}
+
 function renderPage(initialPath = '/w/ai-capability-center/settings/audit') {
   return render(
     <MemoryRouter initialEntries={[initialPath]}>
@@ -112,5 +127,19 @@ describe('AuditLog page', () => {
         expect.objectContaining({ credentials: 'same-origin' }),
       )
     })
+  })
+
+  it('links run audit events back to the run detail page', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([runEvent]), { status: 200 }),
+    ))
+
+    renderPage()
+
+    expect(await screen.findByText('run.batch_rerun')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '查看运行' })).toHaveAttribute(
+      'href',
+      '/w/ai-capability-center/runs?runId=run-1',
+    )
   })
 })

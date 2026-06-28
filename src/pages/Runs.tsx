@@ -72,10 +72,14 @@ function formatOperationMetadata(event: RunOperationHistoryEvent) {
     .map((key) => `${key}: ${String(event.metadata[key])}`)
 }
 
+function requestedRunIdFromLocation() {
+  return new URLSearchParams(window.location.search).get('runId') ?? ''
+}
+
 export function Runs() {
   const { workspace, workspacePath } = useWorkspace()
   const [runs, setRuns] = useState<ExecutionRun[]>([])
-  const [selectedId, setSelectedId] = useState('')
+  const [selectedId, setSelectedId] = useState(() => requestedRunIdFromLocation())
   const [query, setQuery] = useState('')
   const [error, setError] = useState('')
   const [rerunError, setRerunError] = useState('')
@@ -102,7 +106,9 @@ export function Runs() {
       const nextRuns = await listRuns(workspace.id)
       setRuns(nextRuns)
       setSelectedId((current) => (
-        nextRuns.some((run) => run.id === current) ? current : nextRuns[0]?.id ?? ''
+        nextRuns.some((run) => run.id === current)
+          ? current
+          : nextRuns.find((run) => run.id === requestedRunIdFromLocation())?.id ?? nextRuns[0]?.id ?? ''
       ))
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : '运行记录加载失败')
