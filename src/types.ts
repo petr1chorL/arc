@@ -226,6 +226,34 @@ export interface ToolSkillAssetAuditEvent {
   metadata: Record<string, unknown>
 }
 
+export interface DataObjectDefinition {
+  id: string
+  name: string
+  description: string
+  schema: Record<string, unknown>
+  status: string
+  version: string
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface DataObjectDefinitionCreateInput {
+  name: string
+  description: string
+  schema: Record<string, unknown>
+}
+
+export type DataObjectDefinitionUpdateInput = Partial<DataObjectDefinitionCreateInput>
+
+export interface DataObjectVersion {
+  id: string
+  definitionId: string
+  version: string
+  snapshot: DataObjectDefinition
+  createdAt: string
+}
+
 export interface WorkspaceAuditEvent {
   id: string
   action: string

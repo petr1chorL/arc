@@ -4076,6 +4076,29 @@ kbd {
   font-size: 0.84rem;
 }
 
+.data-object-list {
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.data-object-card {
+  min-height: 188px;
+}
+
+.data-object-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.data-object-meta span {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(94, 124, 182, 0.12);
+  color: var(--ink);
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
 .asset-test-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

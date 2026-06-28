@@ -1400,3 +1400,13 @@ Data Object Definition 新增草稿编辑 API：`PATCH /api/workspaces/{workspac
 已发布 Data Object Version 的 `snapshot` 不会被后续编辑改写。编辑 Definition 后再次发布会生成新的版本号，例如 `v1.1.0`，新版本快照反映更新后的名称与 Schema，旧版本快照保持原样。验收记录见 `docs/ACCEPTANCE_V0.25B.md`。
 
 ---
+
+## V0.25C Data Object Definition 前端资产页
+
+Data Object Definition 已新增第一版前端资产入口：`/w/:workspaceSlug/settings/data-objects`。侧边栏新增 `Data Object` 导航项，页面会读取当前 Workspace 的 Data Object Definitions，并以紧凑卡片展示名称、描述、状态、版本、更新时间和 Schema 摘要。
+
+页面支持创建、编辑和发布 Definition。创建与编辑时，Schema 输入框必须是合法 JSON 对象；非法 JSON 会在前端阻止提交并显示错误。发布成功后，卡片会即时更新为后端返回的版本号，例如 `v1.0.0`。前端 API Client 已覆盖列表、创建、更新和发布四类请求。
+
+本版本只提供 Data Object 资产管理入口，不绑定工作流节点，不展示版本历史，不提供停用/删除/影响面分析，也不把运行 Artifact 实例改造成 Data Object 实例。验收记录见 `docs/ACCEPTANCE_V0.25C.md`。
+
+---

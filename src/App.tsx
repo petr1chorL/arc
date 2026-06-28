@@ -11,6 +11,7 @@ import { ActivateInvitation } from './pages/ActivateInvitation'
 import { AuditLog } from './pages/AuditLog'
 import { AssetLibrary } from './pages/AssetLibrary'
 import { Dashboard } from './pages/Dashboard'
+import { DataObjects } from './pages/DataObjects'
 import { Evaluations } from './pages/Evaluations'
 import { Login } from './pages/Login'
 import { Members } from './pages/Members'
@@ -82,6 +83,7 @@ function App() {
                 <Route path="observability" element={<Observability />} />
                 <Route path="reviews" element={<Reviews />} />
                 <Route path="settings/asset-library" element={<AssetLibrary />} />
+                <Route path="settings/data-objects" element={<DataObjects />} />
                 <Route path="settings/members" element={<Members />} />
                 <Route path="settings/model-providers" element={<ModelProviders />} />
                 <Route path="settings/audit" element={<AuditLog />} />

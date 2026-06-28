@@ -6,6 +6,7 @@ import {
   ChevronDown,
   CircleHelp,
   ClipboardCheck,
+  Database,
   Gauge,
   KeyRound,
   Network,
@@ -42,6 +43,7 @@ const titles: Record<string, { title: string; eyebrow: string }> = {
   '/observability': { title: '运行观测', eyebrow: 'OBSERVABILITY' },
   '/reviews': { title: '人工审核', eyebrow: 'HUMAN IN THE LOOP' },
   '/settings/asset-library': { title: 'Tool / Skill 资产库', eyebrow: 'TOOL REGISTRY' },
+  '/settings/data-objects': { title: 'Data Object', eyebrow: 'DATA CONTRACTS' },
   '/settings/members': { title: '成员与权限', eyebrow: 'ACCESS CONTROL' },
   '/settings/model-providers': { title: '模型 Provider', eyebrow: 'MODEL ACCESS' },
   '/settings/audit': { title: '审计日志', eyebrow: 'AUDIT TRAIL' },
@@ -127,6 +129,17 @@ export function Layout() {
             >
               <Wrench size={18} strokeWidth={1.8} />
               <span>Tool / Skill</span>
+            </NavLink>
+          </CapabilityGuard>
+          <CapabilityGuard capability="agent.write">
+            <NavLink
+              to={workspacePath('settings/data-objects')}
+              title="Data Object"
+              aria-label="Data Object"
+              className={({ isActive }) => (isActive ? 'nav-item active' : 'nav-item')}
+            >
+              <Database size={18} strokeWidth={1.8} />
+              <span>Data Object</span>
             </NavLink>
           </CapabilityGuard>
           <CapabilityGuard capability="member.manage">
