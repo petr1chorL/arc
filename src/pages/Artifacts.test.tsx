@@ -245,6 +245,24 @@ describe('Artifacts page', () => {
     )
   })
 
+  it('links artifact cards directly to the source run trace', async () => {
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
+      if (url === `/api/workspaces/${workspace.id}/artifacts`) {
+        return Promise.resolve(new Response(JSON.stringify([artifact]), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+    }))
+
+    renderPage()
+
+    await screen.findByText('Structured Insight')
+    expect(screen.getByRole('link', { name: '查看 artifact-version-1 运行链路' })).toHaveAttribute(
+      'href',
+      '/w/ai-capability-center/observability?runId=run-1&nodeRunId=node-run-1',
+    )
+  })
+
   it('shows artifact source context in the list and detail dialog', async () => {
     const user = userEvent.setup()
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {

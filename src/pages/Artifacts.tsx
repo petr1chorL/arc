@@ -360,6 +360,13 @@ export function Artifacts() {
                   </div>
                   <pre className="artifact-content-preview">{artifact.content}</pre>
                   <div className="artifact-card-actions">
+                    <Link
+                      aria-label={`查看 ${artifact.artifactVersionId} 运行链路`}
+                      className="button ghost"
+                      to={artifactTracePath(artifact)}
+                    >
+                      <Route size={15} />查看运行链路
+                    </Link>
                     <button
                       aria-label={`查看 ${artifact.artifactVersionId} 详情`}
                       className="button ghost"
