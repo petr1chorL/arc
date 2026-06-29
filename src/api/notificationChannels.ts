@@ -39,3 +39,12 @@ export async function disableNotificationChannel(
     await apiFetch(workspacePath(workspaceId, `/${channelId}/disable`), jsonRequest),
   )
 }
+
+export async function enableNotificationChannel(
+  workspaceId: string,
+  channelId: string,
+): Promise<NotificationChannel> {
+  return readJson<NotificationChannel>(
+    await apiFetch(workspacePath(workspaceId, `/${channelId}/enable`), jsonRequest),
+  )
+}

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createNotificationChannel,
   disableNotificationChannel,
+  enableNotificationChannel,
   listNotificationChannels,
 } from './notificationChannels'
 
@@ -66,6 +67,24 @@ describe('Notification Channel API', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/workspaces/workspace-1/notification-channels/channel-1/disable',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'same-origin',
+      }),
+    )
+  })
+
+  it('enables notification channel assets through the workspace endpoint', async () => {
+    const enabled = { ...channel, status: 'active' }
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(enabled), { status: 200 }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(enableNotificationChannel(workspaceId, channel.id)).resolves.toEqual(enabled)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/workspaces/workspace-1/notification-channels/channel-1/enable',
       expect.objectContaining({
         method: 'POST',
         credentials: 'same-origin',

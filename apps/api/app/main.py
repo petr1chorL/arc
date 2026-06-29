@@ -3849,6 +3849,55 @@ def create_app(
         session.refresh(channel)
         return channel
 
+    @router.post(
+        "/notification-channels/{channel_id}/enable",
+        response_model=NotificationChannelRead,
+    )
+    def enable_notification_channel(
+        channel_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> NotificationChannelRecord:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "workspace.manage",
+            action="notification_channel.enable",
+            target_type="notification_channel",
+            target_id=channel_id,
+            request=request,
+        )
+        channel = session.scalar(
+            select(NotificationChannelRecord).where(
+                NotificationChannelRecord.id == channel_id,
+                NotificationChannelRecord.workspace_id == context.workspace.id,
+            ),
+        )
+        if channel is None:
+            raise HTTPException(status_code=404, detail="通知渠道不存在")
+        before_status = channel.status
+        channel.status = "active"
+        channel.updated_at = utc_now()
+        event = audit_service.record(
+            session,
+            actor=authorization_service.actor_from_context(context),
+            action="notification_channel.enable",
+            target_type="notification_channel",
+            target_id=channel.id,
+            outcome="success",
+            request=request,
+        )
+        event.before_status = before_status
+        event.after_status = channel.status
+        event.payload = {
+            "name": channel.name,
+            "channelType": channel.channel_type,
+        }
+        session.commit()
+        session.refresh(channel)
+        return channel
+
     @router.post("/notifications/outbox/dispatch", response_model=NotificationDispatchSummaryRead)
     def dispatch_notification_outbox(
         request: Request,

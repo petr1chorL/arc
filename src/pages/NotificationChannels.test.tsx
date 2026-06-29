@@ -23,6 +23,11 @@ const channel = {
   updatedAt: '2026-06-29T00:00:00Z',
 }
 
+const disabledChannel = {
+  ...channel,
+  status: 'disabled',
+}
+
 const failedNotifications = [
   {
     id: 'notification-1',
@@ -216,5 +221,38 @@ describe('NotificationChannels page', () => {
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: '停用 Webhook 告警' })).not.toBeInTheDocument()
     })
+  })
+
+  it('enables disabled channels and restores the disable action', async () => {
+    const user = userEvent.setup()
+    const enabled = { ...channel, status: 'active', updatedAt: '2026-06-29T03:00:00Z' }
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
+      if (url === `/api/workspaces/${workspace.id}/notification-channels` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([disabledChannel]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/notifications/outbox?status=failed&limit=100` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/notification-channels/${channel.id}/enable`) {
+        return Promise.resolve(new Response(JSON.stringify(enabled), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify({ detail: 'not found' }), { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage()
+
+    expect(await screen.findByText('Webhook 告警')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '恢复启用 Webhook 告警' }))
+
+    expect(await screen.findByText('active')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '停用 Webhook 告警' })).toBeInTheDocument()
+    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/workspaces/${workspace.id}/notification-channels/${channel.id}/enable`,
+      expect.objectContaining({ method: 'POST' }),
+    )
   })
 })

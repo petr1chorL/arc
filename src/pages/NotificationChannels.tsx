@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import {
   createNotificationChannel,
   disableNotificationChannel,
+  enableNotificationChannel,
   listNotificationChannels,
   type CreateNotificationChannelInput,
 } from '../api/notificationChannels'
@@ -159,6 +160,20 @@ export function NotificationChannels() {
     }
   }
 
+  async function enableChannel(channel: NotificationChannel) {
+    setIsBusy(true)
+    setError('')
+    try {
+      const enabled = await enableNotificationChannel(workspace.id, channel.id)
+      setChannels((current) => current.map((item) => item.id === enabled.id ? enabled : item))
+      setFeedback('通知渠道已恢复启用')
+    } catch (enableError) {
+      setError(enableError instanceof Error ? enableError.message : '通知渠道恢复启用失败')
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
   return (
     <div className="page-stack notification-channel-page">
       <section className="panel asset-library-intro">
@@ -265,6 +280,16 @@ export function NotificationChannels() {
                   aria-label={`停用 ${channel.name}`}
                 >
                   <Power size={14} />停用
+                </button>
+              )}
+              {channel.status === 'disabled' && (
+                <button
+                  className="button secondary compact"
+                  disabled={isBusy}
+                  onClick={() => void enableChannel(channel)}
+                  aria-label={`恢复启用 ${channel.name}`}
+                >
+                  <Power size={14} />恢复启用
                 </button>
               )}
             </article>
