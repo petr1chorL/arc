@@ -4832,6 +4832,40 @@ def create_app(
         session.refresh(task)
         return remediation_task_to_read(task)
 
+    @router.get(
+        "/evaluations/remediation-tasks/{task_id}",
+        response_model=RemediationTaskRead,
+    )
+    def get_remediation_task(
+        task_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> dict:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "asset.read",
+            action="evaluation.remediation_task.read",
+            target_type="remediation_task",
+            target_id=task_id,
+            request=request,
+        )
+        task = session.scalar(
+            select(RemediationTaskRecord).where(
+                RemediationTaskRecord.workspace_id == context.workspace.id,
+                RemediationTaskRecord.id == task_id,
+            ),
+        )
+        if task is None:
+            raise HTTPException(status_code=404, detail="remediation task not found")
+        activities = list_remediation_task_activities(session, context.workspace.id, [task.id])
+        return remediation_task_to_read(
+            task,
+            retest_run=get_retest_run_read(session, context.workspace.id, task),
+            activities=activities.get(task.id, []),
+        )
+
     @router.post(
         "/evaluations/remediation-tasks/{task_id}/activities",
         response_model=RemediationTaskActivityRead,

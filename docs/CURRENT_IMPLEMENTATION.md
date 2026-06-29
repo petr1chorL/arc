@@ -1,7 +1,7 @@
 # ARC.ONE 当前版本实现说明
 
-> 当前版本：V0.29A 修复任务详情复测风险摘要
-> 上一阶段：V0.28F 修复任务详情运营字段编辑
+> 当前版本：V0.29B 修复任务详情 API 与深链直读
+> 上一阶段：V0.29A 修复任务详情复测风险摘要
 > 更新时间：2026-06-29
 
 ## 1. 当前版本是什么
@@ -1658,3 +1658,13 @@ Remediation Task API 响应现在包含后端派生的 `retestSummary` 字段，
 评估中心的修复任务详情区新增“复测风险摘要”卡片，展示摘要状态、失败样本、通过率和下一步建议。原有 Retest Run 数字块、复测失败回流提示、处理时间线、评论、运营字段编辑和来源反查入口保持不变。
 
 该摘要只由现有任务状态和 Retest Regression Run 派生，不新增数据库字段，不新增单独复测详情接口，也不改变 Remediation Task 的状态机、复测回流规则或任务去重语义。验收记录见 `docs/ACCEPTANCE_V0.29A.md`。
+
+---
+
+## V0.29B 修复任务详情 API 与深链直读
+
+平台新增 Workspace 级 Remediation Task 单条读取接口：`GET /api/workspaces/{workspaceId}/evaluations/remediation-tasks/{taskId}`。接口按当前 Workspace 隔离任务，读取不到或跨 Workspace 访问时返回 404；成功时返回与列表、更新和复测一致的 `RemediationTaskRead`，包含处理活动、复测 Run、复测风险摘要和逾期状态。
+
+评估中心现在在 URL 中存在 `taskId` 且当前任务列表不包含目标任务时，会主动调用单条详情接口读取目标任务，并按 ID 合并到本地任务集合。筛选列表不会被强行清空或重置，但深链任务详情会保持可见；加载期间不再提前显示“未找到定位任务”，接口失败后才展示错误提示。
+
+本版本不新增独立 Remediation Task 详情路由，不新增分页、搜索、批量详情读取、字段级权限差异或数据库字段。验收记录见 `docs/ACCEPTANCE_V0.29B.md`。

@@ -305,6 +305,69 @@ def test_remediation_tasks_can_be_created_listed_and_updated(tmp_path):
     assert done.json()["status"] == "done"
 
 
+def test_remediation_task_detail_can_be_read_by_id(tmp_path):
+    client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'arc-one.db'}")
+    other_workspace = client.post(
+        "/api/workspaces",
+        json={
+            "slug": "other-remediation-detail",
+            "name": "Other Remediation Detail",
+        },
+        headers=csrf_headers(client),
+    )
+    assert other_workspace.status_code == 201
+    other_workspace_id = other_workspace.json()["id"]
+    created = client.post(
+        workspace_url(workspace_id, "/evaluations/remediation-tasks"),
+        json={
+            "sourceRunId": "run-remediation-detail",
+            "clusterKey": "Evidence",
+            "title": "修复 Evidence 偏低",
+            "priority": "P1",
+            "sampleIds": ["sample-a"],
+            "action": "补齐证据",
+            "owner": "质量负责人",
+            "dueDate": "2099-01-01T00:00:00Z",
+        },
+        headers=csrf_headers(client),
+    )
+    assert created.status_code == 201
+    task_id = created.json()["id"]
+
+    comment = client.post(
+        workspace_url(workspace_id, f"/evaluations/remediation-tasks/{task_id}/activities"),
+        json={
+            "body": "已补充第一版证据",
+            "attachmentRefs": ["artifact://evidence-note"],
+        },
+        headers=csrf_headers(client),
+    )
+    assert comment.status_code == 201
+
+    detail = client.get(workspace_url(workspace_id, f"/evaluations/remediation-tasks/{task_id}"))
+
+    assert detail.status_code == 200
+    body = detail.json()
+    assert body["id"] == task_id
+    assert body["title"] == "修复 Evidence 偏低"
+    assert body["owner"] == "质量负责人"
+    assert body["isOverdue"] is False
+    assert body["activities"][0]["kind"] == "comment"
+    assert body["activities"][0]["body"] == "已补充第一版证据"
+    assert body["activities"][0]["attachmentRefs"] == ["artifact://evidence-note"]
+    assert body["retestRun"] is None
+    assert body["retestSummary"]["status"] == "not_run"
+    assert body["retestSummary"]["label"] == "未复测"
+
+    missing = client.get(workspace_url(workspace_id, "/evaluations/remediation-tasks/not-found"))
+    assert missing.status_code == 404
+
+    cross_workspace = client.get(
+        workspace_url(other_workspace_id, f"/evaluations/remediation-tasks/{task_id}"),
+    )
+    assert cross_workspace.status_code == 404
+
+
 def test_remediation_tasks_support_owner_due_date_and_filters(tmp_path):
     client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'arc-one.db'}")
     overdue_payload = {

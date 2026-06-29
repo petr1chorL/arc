@@ -26,6 +26,7 @@ import {
   evaluateRubric,
   getRegressionRun,
   getEvaluationOverview,
+  getRemediationTask,
   getRubrics,
   listEvaluationRecords,
   listRemediationTasks,
@@ -655,6 +656,8 @@ export function Evaluations() {
   const [remediationTasks, setRemediationTasks] = useState<RemediationTask[]>([])
   const [remediationTaskError, setRemediationTaskError] = useState('')
   const [remediationTaskBusyId, setRemediationTaskBusyId] = useState('')
+  const [isHighlightedRemediationTaskLoading, setIsHighlightedRemediationTaskLoading] = useState(false)
+  const [highlightedRemediationTaskError, setHighlightedRemediationTaskError] = useState('')
   const [remediationOwnerFilter, setRemediationOwnerFilter] = useState('all')
   const [remediationPriorityFilter, setRemediationPriorityFilter] = useState('all')
   const [remediationOverdueFilter, setRemediationOverdueFilter] = useState('all')
@@ -669,6 +672,18 @@ export function Evaluations() {
       : remediationPriorityFilter as RemediationTask['priority'],
     overdue: remediationOverdueFilter === 'all' ? undefined : remediationOverdueFilter === 'overdue',
   }), [remediationOwnerFilter, remediationOverdueFilter, remediationPriorityFilter])
+
+  const replaceRemediationTasks = useCallback((nextTasks: RemediationTask[]) => {
+    setRemediationTasks((currentTasks) => {
+      const highlightedTask = highlightedRemediationTaskId
+        ? currentTasks.find((task) => task.id === highlightedRemediationTaskId)
+        : undefined
+      if (highlightedTask && !nextTasks.some((task) => task.id === highlightedTask.id)) {
+        return [highlightedTask, ...nextTasks]
+      }
+      return nextTasks
+    })
+  }, [highlightedRemediationTaskId])
 
   const loadAssets = useCallback(async () => {
     setIsLoading(true)
@@ -694,13 +709,13 @@ export function Evaluations() {
       setEvaluationRecords(nextRecords)
       setSampleSets(nextSampleSets)
       setRegressionRuns(nextRegressionRuns)
-      setRemediationTasks(nextRemediationTasks)
+      replaceRemediationTasks(nextRemediationTasks)
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : '评估资产加载失败')
     } finally {
       setIsLoading(false)
     }
-  }, [workspace.id])
+  }, [replaceRemediationTasks, workspace.id])
 
   useEffect(() => {
     void loadAssets()
@@ -712,7 +727,7 @@ export function Evaluations() {
     void listRemediationTasks(workspace.id, remediationTaskFilters)
       .then((tasks) => {
         if (!isCancelled) {
-          setRemediationTasks(tasks)
+          replaceRemediationTasks(tasks)
         }
       })
       .catch((taskError) => {
@@ -724,7 +739,7 @@ export function Evaluations() {
     return () => {
       isCancelled = true
     }
-  }, [remediationTaskFilters, workspace.id])
+  }, [remediationTaskFilters, replaceRemediationTasks, workspace.id])
 
   const totalWeight = useMemo(
     () => form.dimensions.reduce((sum, dimension) => sum + dimension.weight, 0),
@@ -867,6 +882,45 @@ export function Evaluations() {
     () => remediationTasks.find((task) => task.id === highlightedRemediationTaskId) ?? null,
     [highlightedRemediationTaskId, remediationTasks],
   )
+
+  useEffect(() => {
+    if (!highlightedRemediationTaskId || highlightedRemediationTask) {
+      setIsHighlightedRemediationTaskLoading(false)
+      setHighlightedRemediationTaskError('')
+      return
+    }
+
+    let isCancelled = false
+    setIsHighlightedRemediationTaskLoading(true)
+    setHighlightedRemediationTaskError('')
+    void getRemediationTask(workspace.id, highlightedRemediationTaskId)
+      .then((task) => {
+        if (isCancelled) return
+        setRemediationTasks((currentTasks) => {
+          const existingIndex = currentTasks.findIndex((currentTask) => currentTask.id === task.id)
+          if (existingIndex >= 0) {
+            return currentTasks.map((currentTask) => currentTask.id === task.id ? task : currentTask)
+          }
+          return [task, ...currentTasks]
+        })
+      })
+      .catch((taskError) => {
+        if (!isCancelled) {
+          setHighlightedRemediationTaskError(
+            taskError instanceof Error ? taskError.message : '定位任务加载失败',
+          )
+        }
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setIsHighlightedRemediationTaskLoading(false)
+        }
+      })
+
+    return () => {
+      isCancelled = true
+    }
+  }, [highlightedRemediationTask, highlightedRemediationTaskId, workspace.id])
 
   const activeSelectedSamples = useMemo(
     () => selectedSampleSet?.samples.filter((sample) => sample.status === 'active') ?? [],
@@ -1533,9 +1587,14 @@ export function Evaluations() {
           当前定位任务 {highlightedRemediationTask.id}
         </div>
       )}
-      {highlightedRemediationTaskId && !highlightedRemediationTask && (
+      {highlightedRemediationTaskId && !highlightedRemediationTask && isHighlightedRemediationTaskLoading && (
+        <div className="inline-feedback" role="status">
+          正在加载定位任务 {highlightedRemediationTaskId}
+        </div>
+      )}
+      {highlightedRemediationTaskId && !highlightedRemediationTask && !isHighlightedRemediationTaskLoading && (
         <div className="inline-feedback error" role="status">
-          未找到定位任务 {highlightedRemediationTaskId}
+          {highlightedRemediationTaskError || `未找到定位任务 ${highlightedRemediationTaskId}`}
         </div>
       )}
       <div className="remediation-task-filters">

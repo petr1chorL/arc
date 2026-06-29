@@ -163,6 +163,15 @@ export async function listRemediationTasks(
   )
 }
 
+export async function getRemediationTask(
+  workspaceId: string,
+  taskId: string,
+): Promise<RemediationTask> {
+  return readJson<RemediationTask>(
+    await apiFetch(workspacePath(workspaceId, `/remediation-tasks/${taskId}`)),
+  )
+}
+
 export async function createRemediationTask(
   workspaceId: string,
   input: RemediationTaskInput,

@@ -186,6 +186,85 @@ describe('Evaluations page', () => {
     )
   })
 
+  it('loads a deep-linked remediation task detail when the filtered list does not include it', async () => {
+    const remediationTask = {
+      id: 'remediation-task-1',
+      sourceRunId: 'run-artifact-1',
+      clusterKey: 'artifact:artifact-version-2',
+      title: '修复 Artifact artifact-version-2 的结构输出',
+      priority: 'P1',
+      sampleIds: ['artifact-version-2'],
+      action: '缺少必填字段：summary',
+      status: 'open',
+      owner: '管理员',
+      dueDate: null,
+      isOverdue: false,
+      activities: [],
+      retestRunId: null,
+      retestRun: null,
+      retestSummary: {
+        status: 'not_run',
+        label: '未复测',
+        failedSamples: 0,
+        passRate: null,
+        recommendation: '标记完成后发起复测',
+      },
+      createdBy: 'user-1',
+      updatedBy: 'user-1',
+      createdAt: '2026-06-29T09:00:00Z',
+      updatedAt: '2026-06-29T09:00:00Z',
+    }
+    const filteredTask = {
+      ...remediationTask,
+      id: 'remediation-task-2',
+      sourceRunId: 'run-regression-1',
+      clusterKey: 'Evidence',
+      title: '筛选列表中的其他任务',
+      sampleIds: ['sample-1'],
+      owner: '质量负责人',
+    }
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      if (input === `/api/workspaces/${workspace.id}/evaluations/overview`) {
+        return response(overview)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/rubrics`) {
+        return response(rubricAssets)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/records`) {
+        return response([])
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/sample-sets`) {
+        return response([])
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/regression-runs`) {
+        return response([])
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/remediation-tasks/remediation-task-1`) {
+        return response(remediationTask)
+      }
+      if (String(input).split('?')[0] === `/api/workspaces/${workspace.id}/evaluations/remediation-tasks`) {
+        return response([filteredTask])
+      }
+      return response({ detail: 'not found' }, 404)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage('/w/ai-capability-center/evaluations?taskId=remediation-task-1')
+
+    const taskDetail = await screen.findByRole('region', {
+      name: '修复任务详情 remediation-task-1',
+    })
+    expect(within(taskDetail).getByText('修复 Artifact artifact-version-2 的结构输出')).toBeInTheDocument()
+    expect(screen.queryByText('未找到定位任务 remediation-task-1')).not.toBeInTheDocument()
+
+    const taskList = await screen.findByRole('region', { name: 'Remediation Tasks' })
+    expect(within(taskList).getByLabelText('修复任务 remediation-task-1')).toHaveClass('active')
+    expect(within(taskList).getByLabelText('修复任务 remediation-task-2')).toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([input]) => (
+      input === `/api/workspaces/${workspace.id}/evaluations/remediation-tasks/remediation-task-1`
+    ))).toBe(true)
+  })
+
   it('renders real feedback, golden sample overview data, and API rubric assets', async () => {
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
       if (input === `/api/workspaces/${workspace.id}/evaluations/overview`) {
