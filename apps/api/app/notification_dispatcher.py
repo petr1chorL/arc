@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Protocol
 
@@ -25,6 +25,8 @@ class NotificationDispatchResult:
     status: str
     provider_message_id: str = ""
     error: str = ""
+    channel: str = ""
+    error_code: str = ""
 
 
 class NotificationDispatcher(Protocol):
@@ -66,18 +68,24 @@ class NotificationChannelRouter:
         if adapter is None:
             return NotificationDispatchResult(
                 status="failed",
+                channel=channel,
+                error_code="channel_not_configured",
                 error=f"channel_not_configured:{channel}",
             )
         if not adapter.enabled:
             return NotificationDispatchResult(
                 status="failed",
+                channel=channel,
+                error_code="channel_disabled",
                 error=f"channel_disabled:{channel}",
             )
         try:
-            return adapter.dispatcher.send(delivery)
+            return self._with_channel(adapter.dispatcher.send(delivery), channel)
         except Exception as error:  # pragma: no cover - defensive boundary for real adapters.
             return NotificationDispatchResult(
                 status="failed",
+                channel=channel,
+                error_code="channel_error",
                 error=f"channel_error:{channel}:{error}",
             )
 
@@ -96,6 +104,20 @@ class NotificationChannelRouter:
     def _normalize_channel(channel: str) -> str:
         return channel.strip().lower()
 
+    @staticmethod
+    def _with_channel(
+        result: NotificationDispatchResult | dict,
+        channel: str,
+    ) -> NotificationDispatchResult | dict:
+        if isinstance(result, NotificationDispatchResult):
+            if result.channel:
+                return result
+            return replace(result, channel=channel)
+        return {
+            **result,
+            "channel": result.get("channel") or channel,
+        }
+
 
 def normalize_dispatch_result(result: NotificationDispatchResult | dict) -> NotificationDispatchResult:
     if isinstance(result, NotificationDispatchResult):
@@ -104,6 +126,8 @@ def normalize_dispatch_result(result: NotificationDispatchResult | dict) -> Noti
         status=str(result.get("status", "failed")),
         provider_message_id=str(result.get("provider_message_id") or result.get("providerMessageId") or ""),
         error=str(result.get("error") or ""),
+        channel=str(result.get("channel") or ""),
+        error_code=str(result.get("error_code") or result.get("errorCode") or ""),
     )
 
 
@@ -161,6 +185,8 @@ class NotificationOutboxDispatchService:
                     "status": status,
                     "providerMessageId": result.provider_message_id,
                     "error": result.error,
+                    "channel": result.channel,
+                    "errorCode": result.error_code,
                     "dispatchedAt": serialize_datetime(dispatched_at),
                 },
             }
@@ -168,6 +194,8 @@ class NotificationOutboxDispatchService:
                 "id": notification.id,
                 "event_key": notification.event_key,
                 "status": status,
+                "channel": result.channel,
+                "error_code": result.error_code,
                 "provider_message_id": result.provider_message_id,
                 "error": result.error,
             })

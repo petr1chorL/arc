@@ -1314,6 +1314,8 @@ class NotificationDispatchItemRead(BaseModel):
     id: str
     event_key: str = Field(serialization_alias="eventKey")
     status: str
+    channel: str = ""
+    error_code: str = Field(default="", serialization_alias="errorCode")
     provider_message_id: str = Field(default="", serialization_alias="providerMessageId")
     error: str = ""
 

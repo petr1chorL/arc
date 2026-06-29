@@ -24,6 +24,21 @@ class FakeNotificationDispatcher:
         }
 
 
+class FailureCodeNotificationDispatcher:
+    def __init__(self):
+        self.deliveries = []
+
+    def send(self, delivery):
+        self.deliveries.append(delivery)
+        return {
+            "status": "failed",
+            "provider_message_id": "",
+            "error": "provider timed out",
+            "error_code": "provider_timeout",
+            "channel": "email",
+        }
+
+
 def add_notification(
     client,
     *,
@@ -76,9 +91,14 @@ def test_dispatch_routes_explicit_channel_to_matching_adapter(tmp_path):
     )
 
     assert response.status_code == 200
-    assert response.json()["sent"] == 1
+    body = response.json()
+    assert body["sent"] == 1
+    assert body["items"][0]["channel"] == "webhook"
     assert [delivery.id for delivery in webhook_dispatcher.deliveries] == [notification_id]
     assert in_app_dispatcher.deliveries == []
+    with client.app.state.session_factory() as session:
+        record = session.get(NotificationOutboxRecord, notification_id)
+        assert record.payload["dispatch"]["channel"] == "webhook"
 
 
 def test_dispatch_routes_first_channel_from_channels_list(tmp_path):
@@ -161,12 +181,16 @@ def test_unknown_notification_channel_fails_without_crashing_worker(tmp_path):
     assert body["processed"] == 1
     assert body["failed"] == 1
     assert body["items"][0]["id"] == notification_id
+    assert body["items"][0]["channel"] == "sms"
+    assert body["items"][0]["errorCode"] == "channel_not_configured"
     assert "channel_not_configured:sms" in body["items"][0]["error"]
     assert in_app_dispatcher.deliveries == []
 
     with client.app.state.session_factory() as session:
         record = session.get(NotificationOutboxRecord, notification_id)
         assert record.status == "failed"
+        assert record.payload["dispatch"]["channel"] == "sms"
+        assert record.payload["dispatch"]["errorCode"] == "channel_not_configured"
         assert "channel_not_configured:sms" in record.payload["dispatch"]["error"]
 
 
@@ -196,8 +220,45 @@ def test_disabled_notification_channel_fails_without_calling_adapter(tmp_path):
     assert body["processed"] == 1
     assert body["failed"] == 1
     assert body["items"][0]["id"] == notification_id
+    assert body["items"][0]["channel"] == "email"
+    assert body["items"][0]["errorCode"] == "channel_disabled"
     assert "channel_disabled:email" in body["items"][0]["error"]
     assert email_dispatcher.deliveries == []
+
+
+def test_dict_dispatch_result_error_code_is_normalized(tmp_path):
+    email_dispatcher = FailureCodeNotificationDispatcher()
+    router = NotificationChannelRouter([
+        NotificationChannelAdapter("email", email_dispatcher),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'notification-dispatch-error-code.db'}",
+        notification_dispatcher=router,
+    )
+    notification_id = add_notification(
+        client,
+        workspace_id=workspace_id,
+        event_key="task-1:provider-timeout",
+        payload={"message": "send through email", "channel": "email"},
+    )
+
+    response = client.post(
+        workspace_url(workspace_id, "/notifications/outbox/dispatch"),
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["failed"] == 1
+    assert body["items"][0]["id"] == notification_id
+    assert body["items"][0]["channel"] == "email"
+    assert body["items"][0]["errorCode"] == "provider_timeout"
+
+    with client.app.state.session_factory() as session:
+        record = session.get(NotificationOutboxRecord, notification_id)
+        assert record.status == "failed"
+        assert record.payload["dispatch"]["channel"] == "email"
+        assert record.payload["dispatch"]["errorCode"] == "provider_timeout"
 
 
 def test_dispatches_pending_notifications_and_records_results(tmp_path):

@@ -1,7 +1,7 @@
 # ARC.ONE 当前版本实现说明
 
-> 当前版本：V0.30D Notification Channel Router
-> 上一阶段：V0.30C Notification Outbox 失败重新入队
+> 当前版本：V0.30E Notification Dispatch Metadata
+> 上一阶段：V0.30D Notification Channel Router
 > 更新时间：2026-06-29
 
 ## 1. 当前版本是什么
@@ -1738,3 +1738,13 @@ Remediation Task API 响应现在包含后端派生的 `retestSummary` 字段，
 未知渠道不会让 Worker 或 dispatch API 崩溃，而是返回失败结果并把通知标记为 `failed`，错误包含 `channel_not_configured:<channel>`；禁用渠道不会调用对应 adapter，错误包含 `channel_disabled:<channel>`。默认 app factory 现在把本地 `NoopNotificationDispatcher` 注册为 `in_app` adapter，因此默认运行仍然不访问外部网络。
 
 本版本只建立真实通知渠道接入前的本地路由边界，不新增渠道配置表、通知模板、限流、退避、幂等键、回调处理或真实飞书/邮件/Webhook SDK。验收记录见 `docs/ACCEPTANCE_V0.30D.md`。
+
+---
+
+## V0.30E Notification Dispatch Metadata
+
+Notification Outbox 的派发结果现在包含结构化渠道和失败码。`NotificationDispatchResult` 新增 `channel` 与 `error_code` 字段，dict adapter 返回的 `error_code` 或 `errorCode` 都会被规范化；dispatch API 的 item 响应会返回 `channel` 和 `errorCode`，同一组字段也会写入 `payload.dispatch.channel` 与 `payload.dispatch.errorCode`。
+
+Channel Router 的未知渠道和禁用渠道失败现在分别返回稳定失败码 `channel_not_configured` 与 `channel_disabled`，同时继续保留人类可读的 `error` 文本。这让后续排障、告警聚合和人工恢复可以依赖稳定字段，而不是解析错误字符串。
+
+本版本不新增数据库字段、前端页面、自动重试策略或真实外部渠道，也不改变 Notification Outbox 的状态机。验收记录见 `docs/ACCEPTANCE_V0.30E.md`。
