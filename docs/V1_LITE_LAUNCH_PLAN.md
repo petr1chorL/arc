@@ -102,6 +102,7 @@ V1.0 Lite 必须保留以下能力：
 
 2. **V1L-B：试点数据与资产模板**
    - 产物：Agent、Workflow、Rubric、Golden Set 的可复用模板。
+   - 当前文档：`docs/V1_LITE_ASSET_TEMPLATES.md`。
 
 3. **V1L-C：一键启动与部署 Runbook**
    - 产物：启动/停止脚本、环境变量说明、排障步骤。
