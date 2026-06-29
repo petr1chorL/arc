@@ -115,7 +115,9 @@ export function Artifacts() {
   const { workspace } = useWorkspace()
   const [artifacts, setArtifacts] = useState<ArtifactCatalogItem[]>([])
   const [filter, setFilter] = useState('')
+  const [schemaStatusFilter, setSchemaStatusFilter] = useState('')
   const [appliedFilter, setAppliedFilter] = useState('')
+  const [appliedSchemaStatusFilter, setAppliedSchemaStatusFilter] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
   const [selectedArtifact, setSelectedArtifact] = useState<ArtifactCatalogItem | null>(null)
@@ -124,11 +126,14 @@ export function Artifacts() {
   useEffect(() => {
     setIsLoading(true)
     setError('')
-    void listArtifacts(workspace.id, appliedFilter ? { dataObjectDefinitionId: appliedFilter } : {})
+    void listArtifacts(workspace.id, {
+      dataObjectDefinitionId: appliedFilter,
+      schemaValidationStatus: appliedSchemaStatusFilter as 'passed' | 'failed' | 'unchecked' | '',
+    })
       .then(setArtifacts)
       .catch((loadError) => setError(loadError instanceof Error ? loadError.message : 'Artifact 加载失败'))
       .finally(() => setIsLoading(false))
-  }, [appliedFilter, workspace.id])
+  }, [appliedFilter, appliedSchemaStatusFilter, workspace.id])
 
   const boundCount = artifacts.filter((artifact) => artifact.dataObjectDefinitionId).length
   const averageScore = useMemo(() => {
@@ -141,12 +146,20 @@ export function Artifacts() {
 
   function applyFilter() {
     setAppliedFilter(filter.trim())
+    setAppliedSchemaStatusFilter(schemaStatusFilter)
   }
 
   function clearFilter() {
     setFilter('')
+    setSchemaStatusFilter('')
     setAppliedFilter('')
+    setAppliedSchemaStatusFilter('')
   }
+
+  const activeFilters = [
+    appliedFilter ? `Definition：${appliedFilter}` : '',
+    appliedSchemaStatusFilter ? `Schema：${appliedSchemaStatusFilter}` : '',
+  ].filter(Boolean).join(' / ')
 
   return (
     <div className="page-stack artifact-catalog-page">
@@ -162,10 +175,10 @@ export function Artifacts() {
         </div>
       </section>
 
-      {(error || appliedFilter) && (
+      {(error || activeFilters) && (
         <div className={`inline-feedback ${error ? 'error' : ''}`} role="status">
           {error ? <ShieldOff size={15} /> : <Check size={15} />}
-          {error || `当前筛选：${appliedFilter}`}
+          {error || `当前筛选：${activeFilters}`}
         </div>
       )}
 
@@ -196,6 +209,19 @@ export function Artifacts() {
             onChange={(event) => setFilter(event.target.value)}
             placeholder="data-object-..."
           />
+        </label>
+        <label className="form-field">
+          <span>Schema 校验状态</span>
+          <select
+            aria-label="Schema 校验状态"
+            value={schemaStatusFilter}
+            onChange={(event) => setSchemaStatusFilter(event.target.value)}
+          >
+            <option value="">全部</option>
+            <option value="failed">失败</option>
+            <option value="passed">通过</option>
+            <option value="unchecked">未校验</option>
+          </select>
         </label>
         <button className="button primary" type="button" onClick={applyFilter}>
           <Filter size={15} />筛选

@@ -3120,10 +3120,16 @@ def create_app(
     def list_artifacts(
         request: Request,
         data_object_definition_id: str | None = Query(default=None, alias="dataObjectDefinitionId"),
+        schema_validation_status: str | None = Query(default=None, alias="schemaValidationStatus"),
         limit: int = Query(default=50, ge=1, le=200),
         context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
     ) -> list[ArtifactCatalogItemRead]:
         context, session = context_bundle
+        if schema_validation_status and schema_validation_status not in {"passed", "failed", "unchecked"}:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="schemaValidationStatus must be passed, failed, or unchecked",
+            )
         authorization_service.require_capability(
             session,
             context,
@@ -3141,14 +3147,17 @@ def create_app(
             )
             .where(ArtifactVersionRecord.workspace_id == context.workspace.id)
             .order_by(ArtifactVersionRecord.created_at.desc(), ArtifactVersionRecord.id.desc())
-            .limit(limit)
         )
         if data_object_definition_id:
             statement = statement.where(
                 ArtifactVersionRecord.data_object_definition_id == data_object_definition_id,
             )
-        return [
-            ArtifactCatalogItemRead(
+        artifacts: list[ArtifactCatalogItemRead] = []
+        for version, artifact in session.execute(statement).all():
+            schema_validation = validate_artifact_schema(version.content, version.data_object_snapshot)
+            if schema_validation_status and schema_validation["status"] != schema_validation_status:
+                continue
+            artifacts.append(ArtifactCatalogItemRead(
                 artifact_id=artifact.id,
                 artifact_version_id=version.id,
                 version=version.version,
@@ -3159,11 +3168,12 @@ def create_app(
                 data_object_definition_id=version.data_object_definition_id,
                 data_object_version_id=version.data_object_version_id,
                 data_object_snapshot=version.data_object_snapshot,
-                schema_validation=validate_artifact_schema(version.content, version.data_object_snapshot),
+                schema_validation=schema_validation,
                 created_at=version.created_at,
-            )
-            for version, artifact in session.execute(statement).all()
-        ]
+            ))
+            if len(artifacts) >= limit:
+                break
+        return artifacts
 
     @router.post(
         "/runs/batch-rerun",

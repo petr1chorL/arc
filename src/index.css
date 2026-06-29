@@ -4137,7 +4137,7 @@ kbd {
 
 .artifact-filter-panel {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto auto;
+  grid-template-columns: minmax(220px, 1fr) minmax(170px, 0.42fr) auto auto;
   align-items: end;
   gap: 12px;
 }

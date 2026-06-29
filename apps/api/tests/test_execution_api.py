@@ -497,6 +497,19 @@ def test_artifact_catalog_lists_versions_with_data_object_filter(tmp_path):
     assert failed_artifact["schemaValidation"]["label"] == "Schema 校验失败"
     assert failed_artifact["schemaValidation"]["reasons"] == ["缺少必填字段：summary"]
 
+    failed_filter_response = client.get(
+        workspace_url(
+            workspace_id,
+            f"/artifacts?dataObjectDefinitionId={definition['id']}&schemaValidationStatus=failed",
+        ),
+    )
+
+    assert failed_filter_response.status_code == 200
+    failed_filtered_artifacts = failed_filter_response.json()
+    assert len(failed_filtered_artifacts) == 1
+    assert failed_filtered_artifacts[0]["sourceNodeRunId"] == "node-run-broken"
+    assert failed_filtered_artifacts[0]["schemaValidation"]["status"] == "failed"
+
     empty_response = client.get(
         workspace_url(
             workspace_id,

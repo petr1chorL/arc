@@ -75,6 +75,9 @@ describe('Artifacts page', () => {
       if (url === `/api/workspaces/${workspace.id}/artifacts?dataObjectDefinitionId=data-object-1`) {
         return Promise.resolve(new Response(JSON.stringify([artifact]), { status: 200 }))
       }
+      if (url === `/api/workspaces/${workspace.id}/artifacts?dataObjectDefinitionId=data-object-1&schemaValidationStatus=failed`) {
+        return Promise.resolve(new Response(JSON.stringify([artifact]), { status: 200 }))
+      }
       return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
     }))
 
@@ -89,10 +92,13 @@ describe('Artifacts page', () => {
     expect(screen.getByText('{"summary":"Catalog visible structured output."}')).toBeInTheDocument()
 
     await user.type(screen.getByLabelText('Data Object Definition ID'), 'data-object-1')
+    await user.selectOptions(screen.getByLabelText('Schema 校验状态'), 'failed')
     await user.click(screen.getByRole('button', { name: '筛选' }))
 
     await waitFor(() => {
-      expect(calls).toContain(`/api/workspaces/${workspace.id}/artifacts?dataObjectDefinitionId=data-object-1`)
+      expect(calls).toContain(
+        `/api/workspaces/${workspace.id}/artifacts?dataObjectDefinitionId=data-object-1&schemaValidationStatus=failed`,
+      )
     })
   })
 

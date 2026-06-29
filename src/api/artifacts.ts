@@ -7,6 +7,7 @@ function workspacePath(workspaceId: string, path = '') {
 
 export interface ArtifactListFilters {
   dataObjectDefinitionId?: string
+  schemaValidationStatus?: 'passed' | 'failed' | 'unchecked' | ''
 }
 
 export async function listArtifacts(
@@ -17,6 +18,9 @@ export async function listArtifacts(
   const definitionId = filters.dataObjectDefinitionId?.trim()
   if (definitionId) {
     params.set('dataObjectDefinitionId', definitionId)
+  }
+  if (filters.schemaValidationStatus) {
+    params.set('schemaValidationStatus', filters.schemaValidationStatus)
   }
   const query = params.toString()
   return readJson<ArtifactCatalogItem[]>(

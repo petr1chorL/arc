@@ -33,14 +33,19 @@ describe('artifacts api', () => {
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
       calls.push({ url, init })
-      if (url === '/api/workspaces/workspace-1/artifacts?dataObjectDefinitionId=data-object-1') {
+      if (url === '/api/workspaces/workspace-1/artifacts?dataObjectDefinitionId=data-object-1&schemaValidationStatus=failed') {
         return Promise.resolve(new Response(JSON.stringify([artifact]), { status: 200 }))
       }
       return Promise.resolve(new Response(JSON.stringify({ detail: 'not found' }), { status: 404 }))
     }))
 
-    await expect(listArtifacts('workspace-1', { dataObjectDefinitionId: 'data-object-1' })).resolves.toEqual([artifact])
+    await expect(listArtifacts('workspace-1', {
+      dataObjectDefinitionId: 'data-object-1',
+      schemaValidationStatus: 'failed',
+    })).resolves.toEqual([artifact])
 
-    expect(calls[0].url).toBe('/api/workspaces/workspace-1/artifacts?dataObjectDefinitionId=data-object-1')
+    expect(calls[0].url).toBe(
+      '/api/workspaces/workspace-1/artifacts?dataObjectDefinitionId=data-object-1&schemaValidationStatus=failed',
+    )
   })
 })

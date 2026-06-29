@@ -1,7 +1,7 @@
 # ARC.ONE 当前版本实现说明
 
-> 当前版本：V0.26F Artifact Schema API 校验状态
-> 上一阶段：V0.26E Artifact Schema 轻量校验状态
+> 当前版本：V0.26G Artifact Schema 校验状态筛选
+> 上一阶段：V0.26F Artifact Schema API 校验状态
 > 更新时间：2026-06-28
 
 ## 1. 当前版本是什么
@@ -1492,5 +1492,15 @@ Artifact 目录 API 已新增后端派生的 `schemaValidation` 字段。`GET /a
 后端校验语义与 V0.26E 页面 fallback 保持一致：只支持对象 Schema、一层 `required` 和一层 `properties`，字段类型覆盖 `string`、`number`、`integer`、`boolean` 与 `object`。缺少必填字段、字段类型不匹配或内容不是合法 JSON 对象时返回失败原因；无可校验 Snapshot 或 Schema 时返回“未校验”。
 
 前端 Artifact 实例页现在优先使用 API 返回的 `schemaValidation`；旧 API 响应缺少该字段时，仍会使用 V0.26E 的本地轻量校验作为兼容 fallback。本版本不新增数据库字段，不持久化校验结果，不新增单独校验接口，也不实现完整 JSON Schema 引擎。验收记录见 `docs/ACCEPTANCE_V0.26F.md`。
+
+---
+
+## V0.26G Artifact Schema 校验状态筛选
+
+Artifact 目录 API 新增 `schemaValidationStatus` 查询参数，支持按 `passed`、`failed` 或 `unchecked` 筛选 ArtifactVersion。该筛选可以和既有 `dataObjectDefinitionId` 组合使用，便于从某个 Data Object Definition 下快速定位 Schema 校验失败或尚未校验的产出物。
+
+由于 Schema 校验状态仍是查询时派生结果，后端会先按 Workspace、Data Object Definition 和创建时间顺序读取 ArtifactVersion，再计算 `schemaValidation`、按状态过滤，并在过滤后应用 `limit`。非法状态值会返回 `422`，避免静默忽略错误筛选条件。
+
+前端 Artifact 实例页新增“Schema 校验状态”筛选控件，支持“全部 / 失败 / 通过 / 未校验”。点击筛选后会把 Data Object Definition ID 与 Schema 状态一起传给 Artifact API；点击清空会重置两个筛选条件。本版本不新增分页游标，不持久化状态，也不提供多选状态或高级查询表达式。验收记录见 `docs/ACCEPTANCE_V0.26G.md`。
 
 ---
