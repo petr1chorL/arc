@@ -39,6 +39,17 @@ const invalidArtifact = {
   createdAt: '2026-06-28T10:00:00Z',
 }
 
+const serverValidatedArtifact = {
+  ...invalidArtifact,
+  artifactId: 'artifact-3',
+  artifactVersionId: 'artifact-version-3',
+  schemaValidation: {
+    status: 'passed',
+    label: 'Schema 校验通过',
+    reasons: [],
+  },
+}
+
 function renderPage() {
   return render(
     <WorkspaceProvider workspace={workspace}>
@@ -132,5 +143,21 @@ describe('Artifacts page', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Artifact 详情' })
     expect(dialog).toHaveTextContent('Schema 校验失败')
     expect(dialog).toHaveTextContent('缺少必填字段：summary')
+  })
+
+  it('prefers schema validation returned by the artifact api', async () => {
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
+      if (url === `/api/workspaces/${workspace.id}/artifacts`) {
+        return Promise.resolve(new Response(JSON.stringify([serverValidatedArtifact]), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+    }))
+
+    renderPage()
+
+    expect(await screen.findByText('artifact-version-3 · v2')).toBeInTheDocument()
+    expect(screen.getByText('Schema 校验通过')).toBeInTheDocument()
+    expect(screen.queryByText('Schema 校验失败')).not.toBeInTheDocument()
   })
 })

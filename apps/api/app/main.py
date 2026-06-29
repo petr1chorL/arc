@@ -9,6 +9,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.access import AuthorizationService, RequestContext, RequestContextService
+from app.artifact_schema_validation import validate_artifact_schema
 from app.audit import AuditService
 from app.auth import AuthenticationService
 from app.config import Settings
@@ -3158,6 +3159,7 @@ def create_app(
                 data_object_definition_id=version.data_object_definition_id,
                 data_object_version_id=version.data_object_version_id,
                 data_object_snapshot=version.data_object_snapshot,
+                schema_validation=validate_artifact_schema(version.content, version.data_object_snapshot),
                 created_at=version.created_at,
             )
             for version, artifact in session.execute(statement).all()

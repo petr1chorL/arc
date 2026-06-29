@@ -1,7 +1,7 @@
 # ARC.ONE 当前版本实现说明
 
-> 当前版本：V0.26E Artifact Schema 轻量校验状态
-> 上一阶段：V0.26D Artifact 详情弹窗
+> 当前版本：V0.26F Artifact Schema API 校验状态
+> 上一阶段：V0.26E Artifact Schema 轻量校验状态
 > 更新时间：2026-06-28
 
 ## 1. 当前版本是什么
@@ -1482,5 +1482,15 @@ Artifact 实例页新增前端轻量 Schema 校验状态。页面会基于 Artif
 当用户打开 Artifact 详情弹窗时，详情元信息会展示 Schema 状态；如果校验失败，弹窗会列出原因，例如内容不是合法 JSON 对象、缺少必填字段或字段类型不匹配。当前校验只支持 Data Object Snapshot 中的简单对象 Schema：`type: "object"`、一层 `required` 和一层 `properties`，字段类型覆盖 `string`、`number`、`integer`、`boolean` 和 `object`。
 
 本版本不新增后端接口，不持久化校验结果，不写审计事件，也不实现完整 JSON Schema 引擎。数组、嵌套对象字段、枚举、格式、正则、默认值和组合 Schema 仍属于后续版本范围。验收记录见 `docs/ACCEPTANCE_V0.26E.md`。
+
+---
+
+## V0.26F Artifact Schema API 校验状态
+
+Artifact 目录 API 已新增后端派生的 `schemaValidation` 字段。`GET /api/workspaces/{workspaceId}/artifacts` 返回每个 ArtifactVersion 时，会基于 `content` 与 `dataObjectSnapshot` 计算轻量 Schema 校验结果，结构为 `{ status, label, reasons }`，其中 `status` 取值为 `passed`、`failed` 或 `unchecked`。
+
+后端校验语义与 V0.26E 页面 fallback 保持一致：只支持对象 Schema、一层 `required` 和一层 `properties`，字段类型覆盖 `string`、`number`、`integer`、`boolean` 与 `object`。缺少必填字段、字段类型不匹配或内容不是合法 JSON 对象时返回失败原因；无可校验 Snapshot 或 Schema 时返回“未校验”。
+
+前端 Artifact 实例页现在优先使用 API 返回的 `schemaValidation`；旧 API 响应缺少该字段时，仍会使用 V0.26E 的本地轻量校验作为兼容 fallback。本版本不新增数据库字段，不持久化校验结果，不新增单独校验接口，也不实现完整 JSON Schema 引擎。验收记录见 `docs/ACCEPTANCE_V0.26F.md`。
 
 ---

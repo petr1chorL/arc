@@ -459,6 +459,43 @@ def test_artifact_catalog_lists_versions_with_data_object_filter(tmp_path):
     assert artifacts[0]["dataObjectDefinitionId"] == definition["id"]
     assert artifacts[0]["dataObjectVersionId"] == data_object_version["id"]
     assert artifacts[0]["dataObjectSnapshot"]["schema"]["required"] == ["summary"]
+    assert artifacts[0]["schemaValidation"]["status"] == "passed"
+    assert artifacts[0]["schemaValidation"]["label"] == "Schema 校验通过"
+    assert artifacts[0]["schemaValidation"]["reasons"] == []
+
+    with client.app.state.session_factory() as session:
+        broken_artifact = ArtifactRecord(
+            workspace_id=workspace_id,
+            run_id=run["id"],
+            source_node_run_id="node-run-broken",
+            content='{"title":"Missing summary."}',
+            score=61,
+        )
+        session.add(broken_artifact)
+        session.flush()
+        session.add(ArtifactVersionRecord(
+            workspace_id=workspace_id,
+            artifact_id=broken_artifact.id,
+            version=1,
+            content='{"title":"Missing summary."}',
+            data_object_definition_id=definition["id"],
+            data_object_version_id=data_object_version["id"],
+            data_object_snapshot=data_object_version["snapshot"],
+            created_by="user-1",
+        ))
+        session.commit()
+
+    failed_response = client.get(workspace_url(workspace_id, "/artifacts"))
+
+    assert failed_response.status_code == 200
+    failed_artifact = next(
+        artifact
+        for artifact in failed_response.json()
+        if artifact["sourceNodeRunId"] == "node-run-broken"
+    )
+    assert failed_artifact["schemaValidation"]["status"] == "failed"
+    assert failed_artifact["schemaValidation"]["label"] == "Schema 校验失败"
+    assert failed_artifact["schemaValidation"]["reasons"] == ["缺少必填字段：summary"]
 
     empty_response = client.get(
         workspace_url(

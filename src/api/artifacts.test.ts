@@ -15,6 +15,11 @@ const artifact = {
     name: 'Structured Insight',
     schema: { type: 'object', required: ['summary'] },
   },
+  schemaValidation: {
+    status: 'passed',
+    label: 'Schema 校验通过',
+    reasons: [],
+  },
   createdAt: '2026-06-28T09:00:00Z',
 }
 

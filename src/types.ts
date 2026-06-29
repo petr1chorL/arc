@@ -273,6 +273,11 @@ export interface ArtifactCatalogItem {
   dataObjectDefinitionId: string | null
   dataObjectVersionId: string | null
   dataObjectSnapshot: Record<string, unknown> | null
+  schemaValidation?: {
+    status: 'passed' | 'failed' | 'unchecked'
+    label: string
+    reasons: string[]
+  }
   createdAt: string
 }
 

@@ -107,6 +107,10 @@ function validateArtifactSchema(artifact: ArtifactCatalogItem): SchemaValidation
   return { status: 'passed', label: 'Schema 校验通过', reasons: [] }
 }
 
+function schemaValidationForArtifact(artifact: ArtifactCatalogItem): SchemaValidationResult {
+  return artifact.schemaValidation ?? validateArtifactSchema(artifact)
+}
+
 export function Artifacts() {
   const { workspace } = useWorkspace()
   const [artifacts, setArtifacts] = useState<ArtifactCatalogItem[]>([])
@@ -115,7 +119,7 @@ export function Artifacts() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
   const [selectedArtifact, setSelectedArtifact] = useState<ArtifactCatalogItem | null>(null)
-  const selectedValidation = selectedArtifact ? validateArtifactSchema(selectedArtifact) : null
+  const selectedValidation = selectedArtifact ? schemaValidationForArtifact(selectedArtifact) : null
 
   useEffect(() => {
     setIsLoading(true)
@@ -211,7 +215,7 @@ export function Artifacts() {
         {!isLoading && artifacts.length > 0 && (
           <div className="artifact-catalog-list">
             {artifacts.map((artifact) => {
-              const validation = validateArtifactSchema(artifact)
+              const validation = schemaValidationForArtifact(artifact)
               return (
                 <article className="asset-library-card artifact-card" key={artifact.artifactVersionId}>
                   <div className="asset-library-card-head">

@@ -1257,6 +1257,7 @@ class ArtifactCatalogItemRead(BaseModel):
     data_object_definition_id: str | None = Field(default=None, serialization_alias="dataObjectDefinitionId")
     data_object_version_id: str | None = Field(default=None, serialization_alias="dataObjectVersionId")
     data_object_snapshot: dict | None = Field(default=None, serialization_alias="dataObjectSnapshot")
+    schema_validation: dict = Field(serialization_alias="schemaValidation")
     created_at: datetime = Field(serialization_alias="createdAt")
 
     model_config = ConfigDict(populate_by_name=True)
