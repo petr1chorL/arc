@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-当前版本已完成 Agent 与工作流的资产生命周期和不可变版本发布。
+当前版本已完成 Agent、Workflow、Human Review、Evaluation、Observability、Tool/Skill、Model Provider、Notification Outbox 等核心闭环的可运行原型。当前推进策略已调整为 **V1.0 Lite：先让一个真实业务团队跑通试点**。
 
 已实现：
 
@@ -26,14 +26,11 @@
 - 工作流 DAG 与 Agent 版本引用校验
 - 工作流不可变版本发布和版本历史
 
-尚未实现：
+V1.0 Lite 暂不追求 Kubernetes、高可用、多组织 SaaS、完整 CI/CD 和全量外部通知渠道。详细落地计划见：
 
-- 真实大模型与 Agent 执行
-- 工作流运行调度、重试和恢复
-- 登录权限和企业治理
-- 真实评估、Trace 和成本统计
-
-Agent 页面和工作流设计器来自真实 API；其他页面仍来自 `src/data/mock.ts`。
+- [V1.0 Lite 快速落地计划](docs/V1_LITE_LAUNCH_PLAN.md)
+- [V1.0 Lite 验收清单](docs/ACCEPTANCE_V1_LITE.md)
+- [V1.0 Lite 默认试点流程](docs/V1_LITE_PILOT_PROCESS.md)
 
 ## 项目文档
 
