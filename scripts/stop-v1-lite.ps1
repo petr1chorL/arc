@@ -11,6 +11,22 @@ if (-not (Test-Path $pidFile)) {
 
 $processes = Get-Content -Encoding utf8 $pidFile | ConvertFrom-Json
 
+function Stop-ProcessTree {
+  param(
+    [int]$ProcessId
+  )
+
+  $childProcesses = Get-CimInstance Win32_Process -Filter "ParentProcessId=$ProcessId" -ErrorAction SilentlyContinue
+  foreach ($child in $childProcesses) {
+    Stop-ProcessTree -ProcessId $child.ProcessId
+  }
+
+  $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+  if ($null -ne $process) {
+    Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
+  }
+}
+
 foreach ($entry in $processes) {
   $process = Get-Process -Id $entry.pid -ErrorAction SilentlyContinue
   if ($null -eq $process) {
@@ -18,7 +34,7 @@ foreach ($entry in $processes) {
     continue
   }
   Write-Host "Stopping $($entry.name) pid=$($entry.pid)"
-  Stop-Process -Id $entry.pid -Force
+  Stop-ProcessTree -ProcessId $entry.pid
 }
 
 Remove-Item -LiteralPath $pidFile -Force

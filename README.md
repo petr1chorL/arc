@@ -84,15 +84,15 @@ Superpowers：Brainstorming、Plan、TDD、Debug、Verification
 
 ```powershell
 npm install
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".\apps\api[test]"
+python -m venv .\apps\api\.venv
+.\apps\api\.venv\Scripts\python.exe -m pip install -e ".\apps\api[test]"
 ```
 
 终端 1，启动 API：
 
 ```powershell
 cd apps\api
-..\..\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000
 ```
 
 终端 2，启动前端：
@@ -105,14 +105,14 @@ npm run dev -- --host 127.0.0.1 --port 4173
 
 ```powershell
 cd apps\api
-..\..\.venv\Scripts\python.exe -m app.worker --worker-id local-worker
+.\.venv\Scripts\python.exe -m app.worker --worker-id local-worker
 ```
 
 只处理一次队列任务用于本地验收：
 
 ```powershell
 cd apps\api
-..\..\.venv\Scripts\python.exe -m app.worker --worker-id local-worker --once
+.\.venv\Scripts\python.exe -m app.worker --worker-id local-worker --once
 ```
 
 当前开发服务：
@@ -172,7 +172,7 @@ Docker Desktop daemon 未运行，因此 Compose 配置解析已验证，容器�
 
 ```powershell
 npm test -- --run
-.\.venv\Scripts\python.exe -m pytest .\apps\api\tests -q
+.\apps\api\.venv\Scripts\python.exe -m pytest .\apps\api\tests -q
 npm run lint
 npm run build
 ```
