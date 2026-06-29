@@ -23,6 +23,39 @@ const channel = {
   updatedAt: '2026-06-29T00:00:00Z',
 }
 
+const failedNotifications = [
+  {
+    id: 'notification-1',
+    eventType: 'workflow.failed',
+    recipientType: 'workspace',
+    recipientId: workspace.id,
+    status: 'failed',
+    createdAt: '2026-06-29T01:00:00Z',
+    payload: {
+      title: '工作流失败',
+      dispatch: {
+        channel: 'webhook',
+        errorCode: 'notification_channel_missing',
+      },
+    },
+  },
+  {
+    id: 'notification-2',
+    eventType: 'human_task.sla',
+    recipientType: 'reviewer',
+    recipientId: 'reviewer-1',
+    status: 'failed',
+    createdAt: '2026-06-29T02:00:00Z',
+    payload: {
+      title: 'SLA 升级失败',
+      dispatch: {
+        channel: 'webhook',
+        errorCode: 'channel_not_configured',
+      },
+    },
+  },
+]
+
 function renderPage() {
   return render(
     <WorkspaceProvider workspace={workspace}>
@@ -51,6 +84,9 @@ describe('NotificationChannels page', () => {
       if (url === `/api/workspaces/${workspace.id}/notification-channels` && !init?.method) {
         return Promise.resolve(new Response(JSON.stringify([channel]), { status: 200 }))
       }
+      if (url === `/api/workspaces/${workspace.id}/notifications/outbox?status=failed&limit=100` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
       if (url === `/api/workspaces/${workspace.id}/notification-channels` && init?.method === 'POST') {
         return Promise.resolve(new Response(JSON.stringify(created), { status: 200 }))
       }
@@ -71,7 +107,8 @@ describe('NotificationChannels page', () => {
     await user.click(screen.getByRole('button', { name: '创建通知渠道' }))
 
     expect(await screen.findByText('飞书提醒')).toBeInTheDocument()
-    const createBody = JSON.parse(String(fetchMock.mock.calls[1][1]?.body))
+    const createCall = fetchMock.mock.calls.find((call) => call[1]?.method === 'POST')
+    const createBody = JSON.parse(String(createCall?.[1]?.body))
     expect(createBody).toEqual({
       name: '飞书提醒',
       channelType: 'feishu',
@@ -82,11 +119,63 @@ describe('NotificationChannels page', () => {
     expect(createBody).not.toHaveProperty('apiKey')
   })
 
+  it('shows failed notification impact per channel and links back to notification ops', async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname + input.search : input.url
+      if (url === `/api/workspaces/${workspace.id}/notification-channels` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([channel]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/notifications/outbox?status=failed&limit=100` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify(failedNotifications), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify({ detail: 'not found' }), { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage()
+
+    const card = (await screen.findByText('Webhook 告警')).closest('article')
+    expect(card).not.toBeNull()
+    expect(card!).toHaveTextContent('失败影响')
+    expect(card!).toHaveTextContent('2 条失败通知')
+    expect(card!).toHaveTextContent('notification_channel_missing')
+    expect(card!).toHaveTextContent('channel_not_configured')
+    const impactLink = screen.getByRole('link', { name: '查看 webhook 通知失败' })
+    expect(impactLink).toHaveAttribute('href', '/w/ai-capability-center/notifications?channel=webhook')
+  })
+
+  it('keeps channel assets visible when failed impact loading fails', async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname + input.search : input.url
+      if (url === `/api/workspaces/${workspace.id}/notification-channels` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([channel]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/notifications/outbox?status=failed&limit=100` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify({ detail: 'outbox unavailable' }), { status: 500 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify({ detail: 'not found' }), { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage()
+
+    expect(await screen.findByText('Webhook 告警')).toBeInTheDocument()
+    expect(await screen.findByText('失败影响面加载失败')).toBeInTheDocument()
+  })
+
   it('blocks non-object config before submitting', async () => {
     const user = userEvent.setup()
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify([]), { status: 200 }),
-    )
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      void init
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname + input.search : input.url
+      if (url === `/api/workspaces/${workspace.id}/notification-channels`) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/notifications/outbox?status=failed&limit=100`) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify({ detail: 'not found' }), { status: 404 }))
+    })
     vi.stubGlobal('fetch', fetchMock)
 
     renderPage()
@@ -97,7 +186,7 @@ describe('NotificationChannels page', () => {
     await user.click(screen.getByRole('button', { name: '创建通知渠道' }))
 
     expect(await screen.findByText('配置 JSON 必须是 JSON 对象')).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls.some((call) => call[1]?.method === 'POST')).toBe(false)
   })
 
   it('disables active channels and removes the disable action', async () => {
@@ -107,6 +196,9 @@ describe('NotificationChannels page', () => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
       if (url === `/api/workspaces/${workspace.id}/notification-channels` && !init?.method) {
         return Promise.resolve(new Response(JSON.stringify([channel]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/notifications/outbox?status=failed&limit=100` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
       }
       if (url === `/api/workspaces/${workspace.id}/notification-channels/${channel.id}/disable`) {
         return Promise.resolve(new Response(JSON.stringify(disabled), { status: 200 }))

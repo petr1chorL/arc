@@ -6,8 +6,9 @@ import {
   listNotificationChannels,
   type CreateNotificationChannelInput,
 } from '../api/notificationChannels'
+import { listNotifications } from '../api/notifications'
 import { useWorkspace } from '../auth/workspaceContextState'
-import type { NotificationChannel, NotificationChannelType } from '../types'
+import type { NotificationChannel, NotificationChannelType, NotificationOutboxItem } from '../types'
 
 const initialForm = {
   name: '',
@@ -42,9 +43,58 @@ function compactJson(value: Record<string, unknown>) {
   return JSON.stringify(value, null, 2)
 }
 
+function dispatchPayload(notification: NotificationOutboxItem) {
+  const dispatch = notification.payload.dispatch
+  return dispatch && typeof dispatch === 'object' && !Array.isArray(dispatch)
+    ? dispatch as Record<string, unknown>
+    : {}
+}
+
+function notificationChannel(notification: NotificationOutboxItem) {
+  const dispatchChannel = dispatchPayload(notification).channel
+  if (typeof dispatchChannel === 'string' && dispatchChannel) return dispatchChannel
+  const payloadChannel = notification.payload.channel
+  if (typeof payloadChannel === 'string' && payloadChannel) return payloadChannel
+  const payloadChannels = notification.payload.channels
+  if (Array.isArray(payloadChannels)) {
+    const firstChannel = payloadChannels.find((item) => typeof item === 'string' && item)
+    if (typeof firstChannel === 'string') return firstChannel
+  }
+  return 'in_app'
+}
+
+function notificationErrorCode(notification: NotificationOutboxItem) {
+  const errorCode = dispatchPayload(notification).errorCode
+  return typeof errorCode === 'string' && errorCode ? errorCode : 'unknown'
+}
+
+interface ChannelImpact {
+  count: number
+  errorCodes: string[]
+}
+
+function buildChannelImpact(notifications: NotificationOutboxItem[]): Record<string, ChannelImpact> {
+  return notifications.reduce<Record<string, ChannelImpact>>((impact, notification) => {
+    const channel = notificationChannel(notification)
+    const errorCode = notificationErrorCode(notification)
+    const current = impact[channel] ?? { count: 0, errorCodes: [] }
+    return {
+      ...impact,
+      [channel]: {
+        count: current.count + 1,
+        errorCodes: current.errorCodes.includes(errorCode)
+          ? current.errorCodes
+          : [...current.errorCodes, errorCode],
+      },
+    }
+  }, {})
+}
+
 export function NotificationChannels() {
-  const { workspace } = useWorkspace()
+  const { workspace, workspacePath } = useWorkspace()
   const [channels, setChannels] = useState<NotificationChannel[]>([])
+  const [channelImpact, setChannelImpact] = useState<Record<string, ChannelImpact>>({})
+  const [impactError, setImpactError] = useState('')
   const [form, setForm] = useState(initialForm)
   const [isBusy, setIsBusy] = useState(false)
   const [error, setError] = useState('')
@@ -54,6 +104,18 @@ export function NotificationChannels() {
     void listNotificationChannels(workspace.id)
       .then(setChannels)
       .catch((loadError) => setError(loadError instanceof Error ? loadError.message : '通知渠道加载失败'))
+  }, [workspace.id])
+
+  useEffect(() => {
+    void listNotifications(workspace.id, { status: 'failed', limit: 100 })
+      .then((notifications) => {
+        setChannelImpact(buildChannelImpact(notifications))
+        setImpactError('')
+      })
+      .catch(() => {
+        setChannelImpact({})
+        setImpactError('失败影响面加载失败')
+      })
   }, [workspace.id])
 
   function updateForm<TField extends keyof typeof initialForm>(field: TField, value: (typeof initialForm)[TField]) {
@@ -170,6 +232,7 @@ export function NotificationChannels() {
           <span className="draft-indicator"><i />{channels.length}</span>
         </div>
         {channels.length === 0 && <div className="table-state">暂无通知渠道。</div>}
+        {impactError && <div className="inline-feedback error compact-feedback">{impactError}</div>}
         <div className="asset-library-list notification-channel-list">
           {channels.map((channel) => (
             <article className="asset-library-card notification-channel-card" key={channel.id}>
@@ -189,6 +252,11 @@ export function NotificationChannels() {
                 <div><dt>更新</dt><dd>{new Date(channel.updatedAt).toLocaleString()}</dd></div>
               </dl>
               <pre className="json-preview">{compactJson(channel.config)}</pre>
+              <ChannelImpactSummary
+                impact={channelImpact[channel.channelType]}
+                channelType={channel.channelType}
+                href={workspacePath(`notifications?channel=${channel.channelType}`)}
+              />
               {channel.status === 'active' && (
                 <button
                   className="button danger compact"
@@ -203,6 +271,36 @@ export function NotificationChannels() {
           ))}
         </div>
       </section>
+    </div>
+  )
+}
+
+function ChannelImpactSummary({
+  impact,
+  channelType,
+  href,
+}: {
+  impact?: ChannelImpact
+  channelType: NotificationChannelType
+  href: string
+}) {
+  const count = impact?.count ?? 0
+  const errorCodes = impact?.errorCodes ?? []
+
+  return (
+    <div className={`notification-channel-impact ${count > 0 ? 'has-impact' : ''}`}>
+      <div>
+        <span>失败影响</span>
+        <strong>{count > 0 ? `${count} 条失败通知` : '暂无失败通知'}</strong>
+      </div>
+      {errorCodes.length > 0 && (
+        <div className="notification-channel-impact-codes">
+          {errorCodes.map((errorCode) => <em key={errorCode}>{errorCode}</em>)}
+        </div>
+      )}
+      <a href={href} aria-label={`查看 ${channelType} 通知失败`}>
+        查看通知运维
+      </a>
     </div>
   )
 }

@@ -3741,6 +3741,10 @@ kbd {
   background: var(--red-soft);
 }
 
+.compact-feedback {
+  margin: 0 20px 14px;
+}
+
 .asset-detail-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 310px;
@@ -4141,6 +4145,60 @@ kbd {
   font-weight: 700;
   color: var(--text);
   overflow-wrap: anywhere;
+}
+
+.notification-channel-impact {
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+  border-radius: 8px;
+  background: rgba(246, 249, 253, 0.74);
+  box-shadow: inset 2px 2px 5px rgba(141, 156, 184, 0.16), inset -2px -2px 5px rgba(255, 255, 255, 0.72);
+}
+
+.notification-channel-impact.has-impact {
+  background: var(--red-soft);
+}
+
+.notification-channel-impact > div:first-child {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.notification-channel-impact span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.notification-channel-impact strong {
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
+.notification-channel-impact-codes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.notification-channel-impact-codes em {
+  padding: 4px 7px;
+  border-radius: 999px;
+  color: var(--red);
+  background: rgba(255, 255, 255, 0.68);
+  font-size: 0.7rem;
+  font-style: normal;
+  overflow-wrap: anywhere;
+}
+
+.notification-channel-impact a {
+  justify-self: start;
+  color: var(--accent);
+  font-size: 0.74rem;
+  font-weight: 800;
+  text-decoration: none;
 }
 
 .json-preview {
