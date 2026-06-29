@@ -1,6 +1,11 @@
 import type { NotificationOutboxItem } from '../types'
 import { apiFetch, readJson } from './http'
 
+const jsonRequest = {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+} as const
+
 export interface NotificationFilters {
   status?: string
   channel?: string
@@ -23,5 +28,18 @@ export async function listNotifications(
   params.set('limit', String(filters.limit ?? 50))
   return readJson<NotificationOutboxItem[]>(
     await apiFetch(workspacePath(workspaceId, `/outbox?${params.toString()}`)),
+  )
+}
+
+export async function requeueNotification(
+  workspaceId: string,
+  notificationId: string,
+  reason: string,
+): Promise<NotificationOutboxItem> {
+  return readJson<NotificationOutboxItem>(
+    await apiFetch(workspacePath(workspaceId, `/outbox/${notificationId}/requeue`), {
+      ...jsonRequest,
+      body: JSON.stringify({ reason }),
+    }),
   )
 }

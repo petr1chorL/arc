@@ -143,4 +143,104 @@ describe('Notifications page', () => {
     await user.click(screen.getByRole('button', { name: '刷新' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('查询失败')
   })
+
+  it('requires a reason before requeueing a failed notification and refreshes the list', async () => {
+    const user = userEvent.setup()
+    const refreshedNotifications = [{
+      ...notifications[0],
+      status: 'pending',
+      payload: {
+        ...notifications[0].payload,
+        dispatch: {
+          status: 'pending',
+          channel: 'webhook',
+          reason: '渠道配置已恢复',
+        },
+      },
+    }, notifications[1], notifications[2]]
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = typeof input === 'string' ? input : input instanceof URL ? input.pathname + input.search : input.url
+      if (path === '/api/workspaces/workspace-1/notifications/outbox?limit=50') {
+        const getCount = fetchMock.mock.calls.filter(([calledInput]) => {
+          const calledPath = typeof calledInput === 'string'
+            ? calledInput
+            : calledInput instanceof URL
+              ? calledInput.pathname + calledInput.search
+              : calledInput.url
+          return calledPath === '/api/workspaces/workspace-1/notifications/outbox?limit=50'
+        }).length
+        return new Response(JSON.stringify(getCount > 1 ? refreshedNotifications : notifications), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/notifications/outbox/notification-failed/requeue') {
+        return new Response(JSON.stringify(refreshedNotifications[0]), { status: 200 })
+      }
+      throw new Error(`Unexpected fetch: ${path} ${init?.method ?? 'GET'}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage()
+
+    expect(await screen.findByText('notification-failed')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /重新入队 notification-pending/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /重新入队 notification-sent/ })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '重新入队 notification-failed' }))
+    await user.click(screen.getByRole('button', { name: '确认重新入队' }))
+
+    expect(screen.getByText('请填写重新入队原因')).toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      '/api/workspaces/workspace-1/notifications/outbox/notification-failed/requeue',
+      expect.anything(),
+    )
+
+    await user.type(screen.getByLabelText('重新入队原因'), '渠道配置已恢复')
+    await user.click(screen.getByRole('button', { name: '确认重新入队' }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/workspaces/workspace-1/notifications/outbox/notification-failed/requeue',
+        expect.objectContaining({
+          method: 'POST',
+          credentials: 'same-origin',
+          body: JSON.stringify({ reason: '渠道配置已恢复' }),
+        }),
+      )
+    })
+    await waitFor(() => {
+      const listCalls = fetchMock.mock.calls.filter(([calledInput]) => {
+        const calledPath = typeof calledInput === 'string'
+          ? calledInput
+          : calledInput instanceof URL
+            ? calledInput.pathname + calledInput.search
+            : calledInput.url
+        return calledPath === '/api/workspaces/workspace-1/notifications/outbox?limit=50'
+      })
+      expect(listCalls).toHaveLength(2)
+    })
+  })
+
+  it('keeps the requeue reason visible when the API fails', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = typeof input === 'string' ? input : input instanceof URL ? input.pathname + input.search : input.url
+      if (path === '/api/workspaces/workspace-1/notifications/outbox?limit=50') {
+        return new Response(JSON.stringify([notifications[0]]), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/notifications/outbox/notification-failed/requeue') {
+        return new Response(JSON.stringify({ detail: '重新入队失败' }), { status: 500 })
+      }
+      throw new Error(`Unexpected fetch: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage()
+
+    expect(await screen.findByText('notification-failed')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '重新入队 notification-failed' }))
+    await user.type(screen.getByLabelText('重新入队原因'), '渠道仍在恢复中')
+    await user.click(screen.getByRole('button', { name: '确认重新入队' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('重新入队失败')
+    expect(screen.getByLabelText('重新入队原因')).toHaveValue('渠道仍在恢复中')
+  })
 })

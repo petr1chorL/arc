@@ -1,6 +1,7 @@
-import { AlertTriangle, Bell, CheckCircle2, Clock3, Filter, RefreshCw } from 'lucide-react'
+import { AlertTriangle, Bell, CheckCircle2, Clock3, Filter, RefreshCw, RotateCcw } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { listNotifications } from '../api/notifications'
+import type { ReactNode } from 'react'
+import { listNotifications, requeueNotification } from '../api/notifications'
 import { useWorkspace } from '../auth/workspaceContextState'
 import { StatusBadge } from '../components/StatusBadge'
 import type { NotificationOutboxItem } from '../types'
@@ -76,6 +77,11 @@ export function Notifications() {
   const [errorCode, setErrorCode] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
+  const [activeRequeueId, setActiveRequeueId] = useState('')
+  const [requeueReason, setRequeueReason] = useState('')
+  const [requeueValidationError, setRequeueValidationError] = useState('')
+  const [requeueError, setRequeueError] = useState('')
+  const [submittingRequeueId, setSubmittingRequeueId] = useState('')
 
   const loadNotifications = useCallback(async () => {
     setIsLoading(true)
@@ -98,6 +104,41 @@ export function Notifications() {
   useEffect(() => {
     void loadNotifications()
   }, [loadNotifications])
+
+  const beginRequeue = useCallback((notificationId: string) => {
+    setActiveRequeueId(notificationId)
+    setRequeueReason('')
+    setRequeueValidationError('')
+    setRequeueError('')
+  }, [])
+
+  const cancelRequeue = useCallback(() => {
+    setActiveRequeueId('')
+    setRequeueReason('')
+    setRequeueValidationError('')
+    setRequeueError('')
+  }, [])
+
+  const submitRequeue = useCallback(async () => {
+    if (!activeRequeueId) return
+    const reason = requeueReason.trim()
+    if (!reason) {
+      setRequeueValidationError('请填写重新入队原因')
+      return
+    }
+    setRequeueValidationError('')
+    setRequeueError('')
+    setSubmittingRequeueId(activeRequeueId)
+    try {
+      await requeueNotification(workspace.id, activeRequeueId, reason)
+      cancelRequeue()
+      await loadNotifications()
+    } catch (submitError) {
+      setRequeueError(submitError instanceof Error ? submitError.message : '重新入队失败')
+    } finally {
+      setSubmittingRequeueId('')
+    }
+  }, [activeRequeueId, cancelRequeue, loadNotifications, requeueReason, workspace.id])
 
   const summary = useMemo(() => ({
     total: items.length,
@@ -174,7 +215,19 @@ export function Notifications() {
                     <strong>{item.id}</strong>
                     <span>{item.eventType} / {messageText(item)}</span>
                   </div>
-                  <StatusBadge status={item.status} />
+                  <div className="notification-row-actions">
+                    <StatusBadge status={item.status} />
+                    {item.status === 'failed' && (
+                      <button
+                        aria-label={`重新入队 ${item.id}`}
+                        className="button secondary notification-requeue-trigger"
+                        type="button"
+                        onClick={() => beginRequeue(item.id)}
+                      >
+                        <RotateCcw size={14} />重新入队
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div className="notification-row-grid">
                   <span><em>接收人</em>{item.recipientType} / {item.recipientId}</span>
@@ -183,6 +236,37 @@ export function Notifications() {
                   <span><em>创建时间</em>{formatTime(item.createdAt)}</span>
                 </div>
                 <p>{notificationError(item)}</p>
+                {activeRequeueId === item.id && (
+                  <div className="notification-requeue-panel">
+                    <label>
+                      <span>重新入队原因</span>
+                      <textarea
+                        aria-label="重新入队原因"
+                        value={requeueReason}
+                        onChange={(event) => {
+                          setRequeueReason(event.target.value)
+                          setRequeueValidationError('')
+                        }}
+                        placeholder="例如：已确认渠道配置恢复，允许重新发送"
+                      />
+                    </label>
+                    {requeueValidationError && <div className="form-error" role="alert">{requeueValidationError}</div>}
+                    {requeueError && <div className="form-error" role="alert">{requeueError}</div>}
+                    <div className="notification-requeue-actions">
+                      <button
+                        className="button primary"
+                        type="button"
+                        onClick={() => void submitRequeue()}
+                        disabled={submittingRequeueId === item.id}
+                      >
+                        {submittingRequeueId === item.id ? '重新入队中...' : '确认重新入队'}
+                      </button>
+                      <button className="button secondary" type="button" onClick={cancelRequeue}>
+                        取消
+                      </button>
+                    </div>
+                  </div>
+                )}
               </article>
             ))}
           </div>
@@ -200,7 +284,7 @@ function SummaryCard({
 }: {
   label: string
   value: number
-  icon: React.ReactNode
+  icon: ReactNode
   tone?: 'neutral' | 'warning' | 'danger'
 }) {
   return (
