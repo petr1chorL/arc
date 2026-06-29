@@ -1,9 +1,11 @@
-import { Check, Database, Eye, FileJson, Filter, RotateCcw, Route, ShieldOff, X } from 'lucide-react'
+import { Check, Database, Eye, FileJson, Filter, RotateCcw, Route, ShieldOff, Wrench, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { listArtifacts } from '../api/artifacts'
+import { createRemediationTask } from '../api/evaluations'
 import { useWorkspace } from '../auth/workspaceContextState'
 import type { ArtifactCatalogItem } from '../types'
+import type { RemediationTask } from '../types'
 
 type SchemaValidationStatus = 'passed' | 'failed' | 'unchecked'
 type SchemaStatusFilterValue = SchemaValidationStatus | ''
@@ -120,6 +122,23 @@ function schemaValidationForArtifact(artifact: ArtifactCatalogItem): SchemaValid
   return artifact.schemaValidation ?? validateArtifactSchema(artifact)
 }
 
+function shouldOfferRemediation(artifact: ArtifactCatalogItem, validation: SchemaValidationResult) {
+  return validation.status === 'failed' || (artifact.score ?? 100) < 75
+}
+
+function remediationActionForArtifact(artifact: ArtifactCatalogItem, validation: SchemaValidationResult) {
+  const reasons = validation.reasons.length > 0
+    ? validation.reasons.join('；')
+    : `当前得分 ${artifact.score ?? '待评估'}，需要复核产出质量。`
+  return [
+    `检查 Artifact ${artifact.artifactVersionId} 的输出结构。`,
+    `Run：${artifact.runId}`,
+    `NodeRun：${artifact.sourceNodeRunId}`,
+    `来源节点：${artifact.sourceNodeName ?? '未知'}`,
+    `失败原因：${reasons}`,
+  ].join('\n')
+}
+
 function schemaStatusFilterFromParams(searchParams: URLSearchParams): SchemaStatusFilterValue {
   const status = searchParams.get('schemaValidationStatus')
   if (status === 'passed' || status === 'failed' || status === 'unchecked') return status
@@ -143,6 +162,9 @@ export function Artifacts() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
   const [selectedArtifact, setSelectedArtifact] = useState<ArtifactCatalogItem | null>(null)
+  const [remediationTasksByArtifact, setRemediationTasksByArtifact] = useState<Record<string, RemediationTask>>({})
+  const [remediationBusyArtifactId, setRemediationBusyArtifactId] = useState('')
+  const [remediationErrorByArtifact, setRemediationErrorByArtifact] = useState<Record<string, string>>({})
   const selectedArtifactVersionId = searchParams.get('artifactVersionId')
   const selectedValidation = selectedArtifact ? schemaValidationForArtifact(selectedArtifact) : null
 
@@ -244,6 +266,35 @@ export function Artifacts() {
     return workspacePath(`observability?${params.toString()}`)
   }
 
+  async function createArtifactRemediationTask(
+    artifact: ArtifactCatalogItem,
+    validation: SchemaValidationResult,
+  ) {
+    setRemediationBusyArtifactId(artifact.artifactVersionId)
+    setRemediationErrorByArtifact((current) => ({ ...current, [artifact.artifactVersionId]: '' }))
+    try {
+      const task = await createRemediationTask(workspace.id, {
+        sourceRunId: artifact.runId,
+        clusterKey: `artifact:${artifact.artifactVersionId}`,
+        title: `修复 Artifact ${artifact.artifactVersionId} 的结构输出`,
+        priority: validation.status === 'failed' ? 'P1' : 'P2',
+        sampleIds: [artifact.artifactVersionId],
+        action: remediationActionForArtifact(artifact, validation),
+      })
+      setRemediationTasksByArtifact((current) => ({
+        ...current,
+        [artifact.artifactVersionId]: task,
+      }))
+    } catch (taskError) {
+      setRemediationErrorByArtifact((current) => ({
+        ...current,
+        [artifact.artifactVersionId]: taskError instanceof Error ? taskError.message : '修复任务创建失败',
+      }))
+    } finally {
+      setRemediationBusyArtifactId('')
+    }
+  }
+
   const activeFilters = [
     appliedFilter ? `Definition：${appliedFilter}` : '',
     appliedSchemaStatusFilter ? `Schema：${appliedSchemaStatusFilter}` : '',
@@ -332,6 +383,9 @@ export function Artifacts() {
           <div className="artifact-catalog-list">
             {artifacts.map((artifact) => {
               const validation = schemaValidationForArtifact(artifact)
+              const remediationTask = remediationTasksByArtifact[artifact.artifactVersionId]
+              const remediationError = remediationErrorByArtifact[artifact.artifactVersionId]
+              const isRemediationBusy = remediationBusyArtifactId === artifact.artifactVersionId
               return (
                 <article className="asset-library-card artifact-card" key={artifact.artifactVersionId}>
                   <div className="asset-library-card-head">
@@ -367,6 +421,17 @@ export function Artifacts() {
                     >
                       <Route size={15} />查看运行链路
                     </Link>
+                    {shouldOfferRemediation(artifact, validation) && !remediationTask && (
+                      <button
+                        aria-label={`创建 ${artifact.artifactVersionId} 修复任务`}
+                        className="button ghost"
+                        disabled={isRemediationBusy}
+                        type="button"
+                        onClick={() => void createArtifactRemediationTask(artifact, validation)}
+                      >
+                        <Wrench size={15} />{isRemediationBusy ? '创建中' : '创建修复任务'}
+                      </button>
+                    )}
                     <button
                       aria-label={`查看 ${artifact.artifactVersionId} 详情`}
                       className="button ghost"
@@ -376,6 +441,16 @@ export function Artifacts() {
                       <Eye size={15} />查看详情
                     </button>
                   </div>
+                  {remediationTask && (
+                    <div className="inline-feedback" role="status">
+                      <Check size={15} />已创建修复任务 {remediationTask.id}
+                    </div>
+                  )}
+                  {remediationError && (
+                    <div className="inline-feedback error" role="alert">
+                      <ShieldOff size={15} />{remediationError}
+                    </div>
+                  )}
                 </article>
               )
             })}

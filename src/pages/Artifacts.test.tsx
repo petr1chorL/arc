@@ -263,6 +263,62 @@ describe('Artifacts page', () => {
     )
   })
 
+  it('creates a remediation task from a failed artifact card', async () => {
+    const user = userEvent.setup()
+    const remediationTask = {
+      id: 'remediation-task-1',
+      sourceRunId: 'run-2',
+      clusterKey: 'artifact:artifact-version-2',
+      title: '修复 Artifact artifact-version-2 的结构输出',
+      priority: 'P1',
+      sampleIds: ['artifact-version-2'],
+      action: '检查 Artifact artifact-version-2 的输出结构。',
+      status: 'open',
+      owner: '管理员',
+      dueDate: null,
+      isOverdue: false,
+      retestRunId: null,
+      retestRun: null,
+      activities: [],
+      createdBy: 'user-1',
+      updatedBy: 'user-1',
+      createdAt: '2026-06-29T09:00:00Z',
+      updatedAt: '2026-06-29T09:00:00Z',
+    }
+    const calls: Array<{ url: string, body?: unknown }> = []
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
+      calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined })
+      if (url === `/api/workspaces/${workspace.id}/artifacts`) {
+        return Promise.resolve(new Response(JSON.stringify([invalidArtifact]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/evaluations/remediation-tasks`) {
+        return Promise.resolve(new Response(JSON.stringify(remediationTask), { status: 201 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+    }))
+
+    renderPage()
+
+    await screen.findByText('artifact-version-2 · v2')
+    await user.click(screen.getByRole('button', { name: '创建 artifact-version-2 修复任务' }))
+
+    await screen.findByText('已创建修复任务 remediation-task-1')
+    expect(calls).toContainEqual(expect.objectContaining({
+      url: `/api/workspaces/${workspace.id}/evaluations/remediation-tasks`,
+      body: expect.objectContaining({
+        sourceRunId: 'run-2',
+        clusterKey: 'artifact:artifact-version-2',
+        title: '修复 Artifact artifact-version-2 的结构输出',
+        priority: 'P1',
+        sampleIds: ['artifact-version-2'],
+      }),
+    }))
+    expect(calls.at(-1)?.body).toEqual(expect.objectContaining({
+      action: expect.stringContaining('缺少必填字段：summary'),
+    }))
+  })
+
   it('shows artifact source context in the list and detail dialog', async () => {
     const user = userEvent.setup()
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
