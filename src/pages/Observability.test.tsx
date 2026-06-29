@@ -539,6 +539,36 @@ describe('Observability', () => {
     }
   })
 
+  it('uses the nodeRunId query parameter to highlight a node span', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
+      if (path === '/api/workspaces/workspace-1/observability/overview') {
+        return new Response(JSON.stringify(overview), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/observability/human-sla') {
+        return new Response(JSON.stringify(humanSla), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/observability/cost-usage') {
+        return new Response(JSON.stringify(costUsage), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/execution-jobs') {
+        return new Response(JSON.stringify(executionJobs), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/observability/runs/run-failed') {
+        return new Response(JSON.stringify(detail), { status: 200 })
+      }
+      throw new Error(`Unexpected fetch: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage('/w/ai-capability-center/observability?runId=run-failed&nodeRunId=node-1')
+
+    await screen.findByText('Trace 链路索引')
+    expect(screen.getByLabelText('节点 Span span-agent')).toHaveClass('selected-trace-target')
+    expect(screen.getByLabelText('Trace 卡片 Span span-agent')).toHaveClass('active')
+    expect(screen.getByLabelText('当前筛选参数')).toHaveTextContent('nodeRunId=node-1')
+  })
+
   it('filters execution queue jobs by selected status', async () => {
     const user = userEvent.setup()
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {

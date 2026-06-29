@@ -217,6 +217,14 @@ export function Artifacts() {
     setSearchParams(nextParams)
   }
 
+  function artifactTracePath(artifact: ArtifactCatalogItem) {
+    const params = new URLSearchParams({
+      runId: artifact.runId,
+      nodeRunId: artifact.sourceNodeRunId,
+    })
+    return workspacePath(`observability?${params.toString()}`)
+  }
+
   const activeFilters = [
     appliedFilter ? `Definition：${appliedFilter}` : '',
     appliedSchemaStatusFilter ? `Schema：${appliedSchemaStatusFilter}` : '',
@@ -358,7 +366,7 @@ export function Artifacts() {
               <div className="artifact-detail-actions">
                 <Link
                   className="button ghost"
-                  to={workspacePath(`observability?runId=${encodeURIComponent(selectedArtifact.runId)}`)}
+                  to={artifactTracePath(selectedArtifact)}
                 >
                   <Route size={15} />查看运行链路
                 </Link>

@@ -240,6 +240,7 @@ export function Observability() {
   const riskFilter = searchParams.get('risk') || 'all'
   const failureFilter = searchParams.get('failure') || 'all'
   const requestedRunId = searchParams.get('runId') || ''
+  const requestedNodeRunId = searchParams.get('nodeRunId') || ''
 
   const writeSearchParams = useCallback((updates: Record<string, string>) => {
     setSearchParams((current) => {
@@ -643,6 +644,7 @@ export function Observability() {
                 risk: '',
                 failure: '',
                 runId: '',
+                nodeRunId: '',
               })}
             >
               清空筛选
@@ -664,7 +666,7 @@ export function Observability() {
                   className={`observability-run-card ${selectedRunId === risk.runId ? 'selected' : ''}`}
                   onClick={() => {
                     setSelectedRunId(risk.runId)
-                    writeSearchParams({ runId: risk.runId })
+                    writeSearchParams({ runId: risk.runId, nodeRunId: '' })
                   }}
                 >
                   <span className={`risk-dot ${risk.severity}`} />
@@ -690,7 +692,7 @@ export function Observability() {
                 className={`observability-run-row ${selectedRunId === run.id ? 'selected' : ''}`}
                 onClick={() => {
                   setSelectedRunId(run.id)
-                  writeSearchParams({ runId: run.id })
+                  writeSearchParams({ runId: run.id, nodeRunId: '' })
                 }}
               >
                 <span>
@@ -711,6 +713,7 @@ export function Observability() {
             <RunTroubleshooting
               detail={detail}
               auditHref={workspacePath(`settings/audit?traceId=${encodeURIComponent(detail.traceId)}`)}
+              targetNodeRunId={requestedNodeRunId}
             />
           )}
         </section>
@@ -1265,18 +1268,29 @@ function MetricCard({
 function RunTroubleshooting({
   detail,
   auditHref,
+  targetNodeRunId,
 }: {
   detail: ObservabilityRunDetail
   auditHref: string
+  targetNodeRunId: string
 }) {
   const resultText = detail.output || detail.error || '本次运行暂无产出或错误信息。'
-  const [activeSpanId, setActiveSpanId] = useState('')
+  const targetSpanId = useMemo(() => (
+    targetNodeRunId
+      ? detail.nodes.find((node) => node.id === targetNodeRunId)?.spanId ?? ''
+      : ''
+  ), [detail.nodes, targetNodeRunId])
+  const [activeSpanId, setActiveSpanId] = useState(targetSpanId)
 
   const scrollToTraceTarget = useCallback((spanId: string) => {
     setActiveSpanId(spanId)
     const targetId = spanId === 'root' ? 'trace-target-root' : `trace-target-${spanId}`
     document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [])
+
+  useEffect(() => {
+    setActiveSpanId(targetSpanId)
+  }, [targetSpanId])
 
   return (
     <>

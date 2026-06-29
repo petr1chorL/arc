@@ -214,7 +214,7 @@ describe('Artifacts page', () => {
     expect(await screen.findByRole('dialog', { name: 'Artifact 详情' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: '查看运行链路' })).toHaveAttribute(
       'href',
-      '/w/ai-capability-center/observability?runId=run-1',
+      '/w/ai-capability-center/observability?runId=run-1&nodeRunId=node-run-1',
     )
   })
 
