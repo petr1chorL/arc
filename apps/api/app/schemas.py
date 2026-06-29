@@ -1342,6 +1342,41 @@ class NotificationOutboxRequeueRequest(BaseModel):
         return value.strip()
 
 
+class NotificationChannelCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    channel_type: Literal["in_app", "webhook", "email", "feishu"] = Field(alias="channelType")
+    config: dict = Field(default_factory=dict)
+    secret_ref: str = Field(default="", alias="secretRef", max_length=160)
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    @field_validator("name", "secret_ref")
+    @classmethod
+    def normalize_channel_text(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("name")
+    @classmethod
+    def reject_blank_channel_name(cls, value: str) -> str:
+        if not value:
+            raise ValueError("字段不能为空")
+        return value
+
+
+class NotificationChannelRead(BaseModel):
+    id: str
+    workspace_id: str | None = Field(serialization_alias="workspaceId")
+    name: str
+    channel_type: str = Field(serialization_alias="channelType")
+    status: str
+    config: dict
+    secret_ref: str = Field(serialization_alias="secretRef")
+    created_at: datetime = Field(serialization_alias="createdAt")
+    updated_at: datetime = Field(serialization_alias="updatedAt")
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
 class HumanTaskDetailRead(HumanTaskRead):
     artifact: ArtifactVersionSummary
     run: HumanTaskRunSummary

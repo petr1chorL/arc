@@ -36,6 +36,7 @@ WORKSPACE_TABLES = (
     "resume_requests",
     "audit_events",
     "notification_outbox",
+    "notification_channels",
     "feedback_candidates",
     "golden_samples",
     "regression_sample_sets",

@@ -37,6 +37,7 @@ from app.models import (
     HumanTaskRecord,
     ModelProviderRecord,
     NodeRunRecord,
+    NotificationChannelRecord,
     NotificationOutboxRecord,
     RegressionRunRecord,
     RegressionSampleRecord,
@@ -107,6 +108,8 @@ from app.schemas import (
     ModelProviderUpdate,
     ModelProviderVersionImpactRead,
     NodeRunRead,
+    NotificationChannelCreate,
+    NotificationChannelRead,
     NotificationDispatchSummaryRead,
     NotificationOutboxRead,
     NotificationOutboxRequeueRequest,
@@ -3720,6 +3723,130 @@ def create_app(
                 for group in groups
             ],
         )
+
+    @router.get("/notification-channels", response_model=list[NotificationChannelRead])
+    def list_notification_channels(
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> list[NotificationChannelRecord]:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "workspace.manage",
+            action="notification_channel.list",
+            target_type="workspace",
+            target_id=context.workspace.id,
+            request=request,
+        )
+        return list(session.scalars(
+            select(NotificationChannelRecord)
+            .where(NotificationChannelRecord.workspace_id == context.workspace.id)
+            .order_by(NotificationChannelRecord.created_at.desc(), NotificationChannelRecord.id.desc()),
+        ))
+
+    @router.post("/notification-channels", response_model=NotificationChannelRead)
+    def create_notification_channel(
+        payload: NotificationChannelCreate,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> NotificationChannelRecord:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "workspace.manage",
+            action="notification_channel.create",
+            target_type="notification_channel",
+            target_id=None,
+            request=request,
+        )
+        existing = session.scalar(
+            select(NotificationChannelRecord).where(
+                NotificationChannelRecord.workspace_id == context.workspace.id,
+                NotificationChannelRecord.name == payload.name,
+            ),
+        )
+        if existing is not None:
+            raise HTTPException(status_code=409, detail="通知渠道名称已存在")
+        now = utc_now()
+        record = NotificationChannelRecord(
+            workspace_id=context.workspace.id,
+            name=payload.name,
+            channel_type=payload.channel_type,
+            status="active",
+            config=payload.config,
+            secret_ref=payload.secret_ref,
+            created_by=context.user.id,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(record)
+        session.flush()
+        record_success(
+            session,
+            context,
+            action="notification_channel.create",
+            target_type="notification_channel",
+            target_id=record.id,
+            request=request,
+            metadata={
+                "name": record.name,
+                "channelType": record.channel_type,
+            },
+        )
+        session.commit()
+        session.refresh(record)
+        return record
+
+    @router.post(
+        "/notification-channels/{channel_id}/disable",
+        response_model=NotificationChannelRead,
+    )
+    def disable_notification_channel(
+        channel_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> NotificationChannelRecord:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "workspace.manage",
+            action="notification_channel.disable",
+            target_type="notification_channel",
+            target_id=channel_id,
+            request=request,
+        )
+        channel = session.scalar(
+            select(NotificationChannelRecord).where(
+                NotificationChannelRecord.id == channel_id,
+                NotificationChannelRecord.workspace_id == context.workspace.id,
+            ),
+        )
+        if channel is None:
+            raise HTTPException(status_code=404, detail="通知渠道不存在")
+        before_status = channel.status
+        channel.status = "disabled"
+        channel.updated_at = utc_now()
+        event = audit_service.record(
+            session,
+            actor=authorization_service.actor_from_context(context),
+            action="notification_channel.disable",
+            target_type="notification_channel",
+            target_id=channel.id,
+            outcome="success",
+            request=request,
+        )
+        event.before_status = before_status
+        event.after_status = channel.status
+        event.payload = {
+            "name": channel.name,
+            "channelType": channel.channel_type,
+        }
+        session.commit()
+        session.refresh(channel)
+        return channel
 
     @router.post("/notifications/outbox/dispatch", response_model=NotificationDispatchSummaryRead)
     def dispatch_notification_outbox(

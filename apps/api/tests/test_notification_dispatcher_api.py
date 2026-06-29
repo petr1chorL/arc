@@ -3,7 +3,7 @@ from datetime import timedelta
 from sqlalchemy import select
 
 from api_test_support import FIXED_NOW, create_authenticated_client, csrf_headers, workspace_url
-from app.models import AuditEventRecord, NotificationOutboxRecord, WorkspaceRecord
+from app.models import AuditEventRecord, NotificationChannelRecord, NotificationOutboxRecord, WorkspaceRecord
 from app.notification_dispatcher import NotificationChannelAdapter, NotificationChannelRouter
 
 
@@ -568,3 +568,196 @@ def test_cross_workspace_notification_requeue_returns_not_found(tmp_path):
 
     assert response.status_code == 404
     assert response.json()["detail"] == "通知不存在"
+
+
+def test_creates_and_lists_notification_channels_for_current_workspace(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'notification-channels.db'}",
+    )
+    with client.app.state.session_factory() as session:
+        other_workspace = WorkspaceRecord(
+            organization_id=session.scalar(select(WorkspaceRecord.organization_id)),
+            name="其他空间",
+            slug="other-notification-space",
+            status="active",
+            created_by="user-1",
+        )
+        session.add(other_workspace)
+        session.commit()
+        session.refresh(other_workspace)
+
+    first_response = client.post(
+        workspace_url(workspace_id, "/notification-channels"),
+        json={
+            "name": "站内通知",
+            "channelType": "in_app",
+            "config": {"mode": "noop"},
+            "secretRef": "",
+        },
+        headers=csrf_headers(client),
+    )
+    second_response = client.post(
+        workspace_url(workspace_id, "/notification-channels"),
+        json={
+            "name": "Webhook 告警",
+            "channelType": "webhook",
+            "config": {"urlRef": "WEBHOOK_URL"},
+            "secretRef": "WEBHOOK_SECRET",
+        },
+        headers=csrf_headers(client),
+    )
+    with client.app.state.session_factory() as session:
+        session.add(NotificationChannelRecord(
+            workspace_id=other_workspace.id,
+            name="其他空间渠道",
+            channel_type="email",
+            status="active",
+            config={"from": "ops@example.com"},
+            secret_ref="SMTP_PASSWORD",
+            created_by="user-1",
+            created_at=FIXED_NOW + timedelta(minutes=1),
+            updated_at=FIXED_NOW + timedelta(minutes=1),
+        ))
+        session.commit()
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    body = second_response.json()
+    assert body["workspaceId"] == workspace_id
+    assert body["name"] == "Webhook 告警"
+    assert body["channelType"] == "webhook"
+    assert body["status"] == "active"
+    assert body["config"] == {"urlRef": "WEBHOOK_URL"}
+    assert body["secretRef"] == "WEBHOOK_SECRET"
+    assert body["createdAt"]
+    assert body["updatedAt"]
+
+    list_response = client.get(
+        workspace_url(workspace_id, "/notification-channels"),
+        headers=csrf_headers(client),
+    )
+
+    assert list_response.status_code == 200
+    channels = list_response.json()
+    assert [channel["id"] for channel in channels] == [
+        second_response.json()["id"],
+        first_response.json()["id"],
+    ]
+    assert {channel["name"] for channel in channels} == {"站内通知", "Webhook 告警"}
+
+
+def test_notification_channel_create_rejects_duplicate_name_and_non_object_config(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'notification-channel-guards.db'}",
+    )
+    create_response = client.post(
+        workspace_url(workspace_id, "/notification-channels"),
+        json={
+            "name": "Webhook 告警",
+            "channelType": "webhook",
+            "config": {"urlRef": "WEBHOOK_URL"},
+            "secretRef": "WEBHOOK_SECRET",
+        },
+        headers=csrf_headers(client),
+    )
+    duplicate_response = client.post(
+        workspace_url(workspace_id, "/notification-channels"),
+        json={
+            "name": "Webhook 告警",
+            "channelType": "webhook",
+            "config": {"urlRef": "OTHER_WEBHOOK_URL"},
+            "secretRef": "OTHER_WEBHOOK_SECRET",
+        },
+        headers=csrf_headers(client),
+    )
+    invalid_config_response = client.post(
+        workspace_url(workspace_id, "/notification-channels"),
+        json={
+            "name": "数组配置",
+            "channelType": "webhook",
+            "config": ["not", "an", "object"],
+            "secretRef": "WEBHOOK_SECRET",
+        },
+        headers=csrf_headers(client),
+    )
+
+    assert create_response.status_code == 200
+    assert duplicate_response.status_code == 409
+    assert duplicate_response.json()["detail"] == "通知渠道名称已存在"
+    assert invalid_config_response.status_code == 422
+
+
+def test_disables_notification_channel_and_records_audit_event(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'notification-channel-disable.db'}",
+    )
+    create_response = client.post(
+        workspace_url(workspace_id, "/notification-channels"),
+        json={
+            "name": "Webhook 告警",
+            "channelType": "webhook",
+            "config": {"urlRef": "WEBHOOK_URL"},
+            "secretRef": "WEBHOOK_SECRET",
+        },
+        headers=csrf_headers(client),
+    )
+    channel_id = create_response.json()["id"]
+
+    response = client.post(
+        workspace_url(workspace_id, f"/notification-channels/{channel_id}/disable"),
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == channel_id
+    assert body["status"] == "disabled"
+    with client.app.state.session_factory() as session:
+        audit_event = session.query(AuditEventRecord).filter_by(
+            target_type="notification_channel",
+            target_id=channel_id,
+            action="notification_channel.disable",
+        ).one()
+        assert audit_event.before_status == "active"
+        assert audit_event.after_status == "disabled"
+        assert audit_event.payload["name"] == "Webhook 告警"
+        assert audit_event.payload["channelType"] == "webhook"
+
+
+def test_cross_workspace_notification_channel_disable_returns_not_found(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'notification-channel-cross-workspace.db'}",
+    )
+    with client.app.state.session_factory() as session:
+        other_workspace = WorkspaceRecord(
+            organization_id=session.scalar(select(WorkspaceRecord.organization_id)),
+            name="其他空间",
+            slug="other-notification-disable",
+            status="active",
+            created_by="user-1",
+        )
+        session.add(other_workspace)
+        session.commit()
+        session.refresh(other_workspace)
+    with client.app.state.session_factory() as session:
+        record = NotificationChannelRecord(
+            workspace_id=other_workspace.id,
+            name="其他空间渠道",
+            channel_type="webhook",
+            status="active",
+            config={"urlRef": "OTHER_WEBHOOK_URL"},
+            secret_ref="OTHER_WEBHOOK_SECRET",
+            created_by="user-1",
+        )
+        session.add(record)
+        session.commit()
+        session.refresh(record)
+        channel_id = record.id
+
+    response = client.post(
+        workspace_url(workspace_id, f"/notification-channels/{channel_id}/disable"),
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "通知渠道不存在"

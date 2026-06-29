@@ -607,6 +607,24 @@ class NotificationOutboxRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class NotificationChannelRecord(Base):
+    __tablename__ = "notification_channels"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "name", name="uq_notification_channel_workspace_name"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    channel_type: Mapped[str] = mapped_column(String(32), index=True)
+    status: Mapped[str] = mapped_column(String(32), default="active", index=True)
+    config: Mapped[dict] = mapped_column(JSON, default=dict)
+    secret_ref: Mapped[str] = mapped_column(String(160), default="")
+    created_by: Mapped[str] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class FeedbackCandidateRecord(Base):
     __tablename__ = "feedback_candidates"
     __table_args__ = (
