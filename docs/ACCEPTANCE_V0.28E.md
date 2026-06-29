@@ -20,6 +20,7 @@ npm run test -- src/pages/Evaluations.test.tsx -t "shows failed sample clusters 
 npm run test -- src/pages/Evaluations.test.tsx src/pages/Artifacts.test.tsx --run
 npm run test -- src/api/artifacts.test.ts --run
 npm run test -- src/components/Layout.test.tsx --run
+npm run test -- --run src/pages/Observability.test.tsx --reporter verbose
 $env:ARC_ONE_PORT='4201'; apps/api/.venv/Scripts/python.exe C:\Users\a\.codex\skills\webapp-testing\scripts\with_server.py --server "npm run dev -- --host 127.0.0.1 --port 4201" --port 4201 -- node .scratch\v0.26c-artifact-catalog-ui\browser-check.mjs
 npm run lint
 npm run build
@@ -33,11 +34,11 @@ git diff --check
 - Evaluations + Artifacts 回归通过：30 个用例通过。
 - Artifact API 回归通过：2 个用例通过。
 - Layout 回归通过：6 个用例通过。
+- Observability 回归通过：12 个用例通过。为避免 `vitest <file> --run` 在本地挂住，本记录使用 `vitest --run <file>` 参数顺序。
 - 浏览器端到端验收通过，覆盖 Artifact 创建修复任务、进入评估中心、展示修复任务详情、检查详情评论/附件输入、检查详情状态按钮、检查来源链接、进入运行链路和反向查看产出物。
 - `npm run lint` 通过。
 - `npm run build` 通过；仅保留 Vite chunk size warning，非失败。
 - `git diff --check` 通过；仅输出 Windows 换行提示，非空白错误。
-- `src/pages/Observability.test.tsx` 单独运行两次均在 180 秒左右超时，未作为通过证据；本版未修改 Observability 代码，浏览器验收已覆盖从修复任务详情进入运行链路的关键路径。
 
 ## 当前限制
 

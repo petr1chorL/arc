@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, useLocation } from 'react-router-dom'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkspaceProvider } from '../auth/WorkspaceContext'
 import { Observability } from './Observability'
 
@@ -361,8 +361,19 @@ function renderPage(initialPath = '/w/ai-capability-center/observability') {
   )
 }
 
+async function waitForQueueActionPanelToClose() {
+  await waitFor(() => {
+    expect(screen.queryByText('记录队列操作原因')).not.toBeInTheDocument()
+  })
+}
+
 describe('Observability', () => {
+  beforeEach(() => {
+    vi.spyOn(document, 'cookie', 'get').mockReturnValue('')
+  })
+
   afterEach(() => {
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
 
@@ -458,6 +469,7 @@ describe('Observability', () => {
         expect.objectContaining({ method: 'POST' }),
       )
     })
+    await waitForQueueActionPanelToClose()
     const cancelButtons = screen.getAllByRole('button', { name: '取消任务' })
     await user.click(cancelButtons[cancelButtons.length - 1])
     await user.type(screen.getByLabelText('操作原因'), '详情页验证取消任务')
@@ -468,6 +480,7 @@ describe('Observability', () => {
         expect.objectContaining({ method: 'POST' }),
       )
     })
+    await waitForQueueActionPanelToClose()
     expect(screen.getByText('节点执行链路')).toBeInTheDocument()
     expect(screen.getByText('Trace ID')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: '查看审计日志' })).toHaveAttribute(
@@ -672,6 +685,7 @@ describe('Observability', () => {
         expect.objectContaining({ method: 'POST' }),
       )
     })
+    await waitForQueueActionPanelToClose()
   })
 
   it('shows troubleshooting guidance for dead-letter execution jobs', async () => {
