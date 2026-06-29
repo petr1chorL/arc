@@ -58,6 +58,7 @@ from app.models import (
 from app.notification_dispatcher import (
     NoopNotificationDispatcher,
     NotificationDispatcher,
+    NotificationOutboxConflict,
     NotificationOutboxDispatchService,
 )
 from app.tool_runtime import HttpToolGateway, HttpxToolGateway, McpToolGateway, ToolRuntimeExecutor
@@ -105,6 +106,8 @@ from app.schemas import (
     ModelProviderVersionImpactRead,
     NodeRunRead,
     NotificationDispatchSummaryRead,
+    NotificationOutboxRead,
+    NotificationOutboxRequeueRequest,
     ObservabilityAuditEventRead,
     ObservabilityAlertRead,
     ObservabilityCostUsageGroupRead,
@@ -3719,6 +3722,67 @@ def create_app(
         )
         session.commit()
         return NotificationDispatchSummaryRead.model_validate(summary)
+
+    @router.post(
+        "/notifications/outbox/{notification_id}/requeue",
+        response_model=NotificationOutboxRead,
+    )
+    def requeue_notification_outbox(
+        notification_id: str,
+        request: Request,
+        operation: NotificationOutboxRequeueRequest | None = None,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> NotificationOutboxRecord:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "workspace.manage",
+            action="notification_outbox.requeue",
+            target_type="notification_outbox",
+            target_id=notification_id,
+            request=request,
+        )
+        before_record = session.scalar(
+            select(NotificationOutboxRecord).where(
+                NotificationOutboxRecord.id == notification_id,
+                NotificationOutboxRecord.workspace_id == context.workspace.id,
+            ),
+        )
+        before_status = before_record.status if before_record is not None else ""
+        reason = operation.reason if operation and operation.reason else "手动重新入队"
+        try:
+            notification = notification_dispatch_service.requeue_failed(
+                session,
+                workspace_id=context.workspace.id,
+                notification_id=notification_id,
+                reason=reason,
+            )
+        except NotificationOutboxConflict as error:
+            raise HTTPException(status_code=409, detail=str(error)) from None
+        if notification is None:
+            raise HTTPException(status_code=404, detail="通知不存在")
+        event = audit_service.record(
+            session,
+            actor=authorization_service.actor_from_context(context),
+            action="notification_outbox.requeue",
+            target_type="notification_outbox",
+            target_id=notification.id,
+            outcome="success",
+            request=request,
+        )
+        event.before_status = before_status
+        event.after_status = notification.status
+        event.reason = reason
+        event.payload = {
+            "eventKey": notification.event_key,
+            "eventType": notification.event_type,
+            "recipientType": notification.recipient_type,
+            "recipientId": notification.recipient_id,
+        }
+        session.commit()
+        session.refresh(notification)
+        return notification
 
     @router.get("/observability/cost-usage", response_model=ObservabilityCostUsageRead)
     def observability_cost_usage(

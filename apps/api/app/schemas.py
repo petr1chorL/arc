@@ -1329,6 +1329,17 @@ class NotificationDispatchSummaryRead(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class NotificationOutboxRequeueRequest(BaseModel):
+    reason: str = Field(default="", max_length=1000)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_reason(cls, value: str) -> str:
+        return value.strip()
+
+
 class HumanTaskDetailRead(HumanTaskRead):
     artifact: ArtifactVersionSummary
     run: HumanTaskRunSummary

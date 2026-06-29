@@ -121,6 +121,47 @@ class NotificationOutboxDispatchService:
             "items": items,
         }
 
+    def requeue_failed(
+        self,
+        session: Session,
+        *,
+        workspace_id: str,
+        notification_id: str,
+        reason: str,
+    ) -> NotificationOutboxRecord | None:
+        notification = session.scalar(
+            select(NotificationOutboxRecord).where(
+                NotificationOutboxRecord.id == notification_id,
+                NotificationOutboxRecord.workspace_id == workspace_id,
+            ),
+        )
+        if notification is None:
+            return None
+        if notification.status != "failed":
+            raise NotificationOutboxConflict("只有发送失败的通知可以重新入队")
+        payload = notification.payload or {}
+        previous_dispatch = payload.get("dispatch")
+        history = list(payload.get("dispatchHistory") or [])
+        if previous_dispatch:
+            history.append(previous_dispatch)
+        notification.status = "pending"
+        notification.payload = {
+            **payload,
+            "dispatchHistory": history,
+            "dispatch": {
+                "status": "pending",
+                "providerMessageId": "",
+                "error": "",
+                "requeuedAt": serialize_datetime(self.clock()),
+                "reason": reason,
+            },
+        }
+        return notification
+
+
+class NotificationOutboxConflict(RuntimeError):
+    pass
+
 
 def serialize_datetime(value: datetime) -> str:
     return value.isoformat()

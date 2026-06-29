@@ -1,7 +1,7 @@
 from sqlalchemy import select
 
 from api_test_support import FIXED_NOW, create_authenticated_client, csrf_headers, workspace_url
-from app.models import NotificationOutboxRecord, WorkspaceRecord
+from app.models import AuditEventRecord, NotificationOutboxRecord, WorkspaceRecord
 
 
 class FakeNotificationDispatcher:
@@ -142,3 +142,105 @@ def test_dispatch_returns_empty_summary_when_no_pending_notifications(tmp_path):
         "items": [],
     }
     assert dispatcher.deliveries == []
+
+
+def test_failed_notification_can_be_requeued_with_audit_reason(tmp_path):
+    dispatcher = FakeNotificationDispatcher()
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'notification-requeue.db'}",
+        notification_dispatcher=dispatcher,
+    )
+    notification_id = add_notification(
+        client,
+        workspace_id=workspace_id,
+        event_key="task-1:escalated",
+        event_type="escalated",
+    )
+    dispatch_response = client.post(
+        workspace_url(workspace_id, "/notifications/outbox/dispatch"),
+        headers=csrf_headers(client),
+    )
+    assert dispatch_response.json()["failed"] == 1
+
+    response = client.post(
+        workspace_url(workspace_id, f"/notifications/outbox/{notification_id}/requeue"),
+        json={"reason": "Webhook 配置已修复，重新发送"},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == notification_id
+    assert body["status"] == "pending"
+    assert body["payload"]["dispatch"]["status"] == "pending"
+    assert body["payload"]["dispatch"]["reason"] == "Webhook 配置已修复，重新发送"
+    assert body["payload"]["dispatchHistory"][0]["status"] == "failed"
+    assert body["payload"]["dispatchHistory"][0]["error"] == "webhook rejected"
+
+    with client.app.state.session_factory() as session:
+        record = session.get(NotificationOutboxRecord, notification_id)
+        assert record.status == "pending"
+        assert record.payload["dispatch"]["status"] == "pending"
+        audit_event = session.query(AuditEventRecord).filter_by(
+            target_type="notification_outbox",
+            target_id=notification_id,
+            action="notification_outbox.requeue",
+        ).one()
+        assert audit_event.before_status == "failed"
+        assert audit_event.after_status == "pending"
+        assert audit_event.reason == "Webhook 配置已修复，重新发送"
+        assert audit_event.payload["eventKey"] == "task-1:escalated"
+
+
+def test_sent_notification_cannot_be_requeued(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'notification-requeue-sent.db'}",
+    )
+    notification_id = add_notification(
+        client,
+        workspace_id=workspace_id,
+        event_key="task-1:due_soon",
+        status="sent",
+    )
+
+    response = client.post(
+        workspace_url(workspace_id, f"/notifications/outbox/{notification_id}/requeue"),
+        json={"reason": "不应重复发送已成功通知"},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "只有发送失败的通知可以重新入队"
+
+
+def test_cross_workspace_notification_requeue_returns_not_found(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'notification-requeue-cross-workspace.db'}",
+    )
+    with client.app.state.session_factory() as session:
+        other_workspace = WorkspaceRecord(
+            organization_id=session.scalar(select(WorkspaceRecord.organization_id)),
+            name="其他空间",
+            slug="other-workspace",
+            status="active",
+            created_by="user-1",
+        )
+        session.add(other_workspace)
+        session.commit()
+        session.refresh(other_workspace)
+        other_workspace_id = other_workspace.id
+    notification_id = add_notification(
+        client,
+        workspace_id=other_workspace_id,
+        event_key="other:due_soon",
+        status="failed",
+    )
+
+    response = client.post(
+        workspace_url(workspace_id, f"/notifications/outbox/{notification_id}/requeue"),
+        json={"reason": "跨空间不允许"},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "通知不存在"
