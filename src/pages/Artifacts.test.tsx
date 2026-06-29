@@ -170,6 +170,26 @@ describe('Artifacts page', () => {
     })
   })
 
+  it('initializes artifact run lineage filters from the url', async () => {
+    const calls: string[] = []
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
+      calls.push(url)
+      if (url === `/api/workspaces/${workspace.id}/artifacts?runId=run-2&sourceNodeRunId=node-run-2`) {
+        return Promise.resolve(new Response(JSON.stringify([invalidArtifact]), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+    }))
+
+    renderPage('/artifacts?runId=run-2&sourceNodeRunId=node-run-2')
+
+    await screen.findByText('artifact-version-2 · v2')
+    expect(screen.getByText('当前筛选：Run：run-2 / NodeRun：node-run-2')).toBeInTheDocument()
+    expect(calls).toContain(
+      `/api/workspaces/${workspace.id}/artifacts?runId=run-2&sourceNodeRunId=node-run-2`,
+    )
+  })
+
   it('opens an artifact detail dialog with formatted content and snapshot', async () => {
     const user = userEvent.setup()
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {

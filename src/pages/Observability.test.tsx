@@ -568,6 +568,10 @@ describe('Observability', () => {
     expect(screen.getByLabelText('Trace 卡片 Span span-agent')).toHaveClass('active')
     expect(screen.getByLabelText('执行事件 node-node-1')).toHaveClass('active')
     expect(screen.getByLabelText('执行事件 human-task-task-1')).not.toHaveClass('active')
+    expect(screen.getByRole('link', { name: '查看数据清洗 Agent 产出物' })).toHaveAttribute(
+      'href',
+      '/w/ai-capability-center/artifacts?runId=run-failed&sourceNodeRunId=node-1',
+    )
     expect(screen.getByLabelText('当前筛选参数')).toHaveTextContent('nodeRunId=node-1')
   })
 

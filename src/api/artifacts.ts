@@ -8,6 +8,8 @@ function workspacePath(workspaceId: string, path = '') {
 export interface ArtifactListFilters {
   dataObjectDefinitionId?: string
   schemaValidationStatus?: 'passed' | 'failed' | 'unchecked' | ''
+  runId?: string
+  sourceNodeRunId?: string
 }
 
 export async function listArtifacts(
@@ -21,6 +23,14 @@ export async function listArtifacts(
   }
   if (filters.schemaValidationStatus) {
     params.set('schemaValidationStatus', filters.schemaValidationStatus)
+  }
+  const runId = filters.runId?.trim()
+  if (runId) {
+    params.set('runId', runId)
+  }
+  const sourceNodeRunId = filters.sourceNodeRunId?.trim()
+  if (sourceNodeRunId) {
+    params.set('sourceNodeRunId', sourceNodeRunId)
   }
   const query = params.toString()
   return readJson<ArtifactCatalogItem[]>(

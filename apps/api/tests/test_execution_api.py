@@ -510,6 +510,19 @@ def test_artifact_catalog_lists_versions_with_data_object_filter(tmp_path):
     assert failed_filtered_artifacts[0]["sourceNodeRunId"] == "node-run-broken"
     assert failed_filtered_artifacts[0]["schemaValidation"]["status"] == "failed"
 
+    node_run_filter_response = client.get(
+        workspace_url(
+            workspace_id,
+            f"/artifacts?runId={run['id']}&sourceNodeRunId=node-run-broken",
+        ),
+    )
+
+    assert node_run_filter_response.status_code == 200
+    node_run_artifacts = node_run_filter_response.json()
+    assert len(node_run_artifacts) == 1
+    assert node_run_artifacts[0]["runId"] == run["id"]
+    assert node_run_artifacts[0]["sourceNodeRunId"] == "node-run-broken"
+
     empty_response = client.get(
         workspace_url(
             workspace_id,

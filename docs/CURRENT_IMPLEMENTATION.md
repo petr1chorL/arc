@@ -1,7 +1,7 @@
 # ARC.ONE 当前版本实现说明
 
-> 当前版本：V0.27E NodeRun 执行事件流高亮
-> 上一阶段：V0.27D Artifact 节点级追溯锚点
+> 当前版本：V0.27F Observability 反向查看产出物
+> 上一阶段：V0.27E NodeRun 执行事件流高亮
 > 更新时间：2026-06-29
 
 ## 1. 当前版本是什么
@@ -59,6 +59,8 @@ flowchart LR
 Agent、工作流、运行记录、Human Task、审核决定、审计事件和反馈数据通过本机 `/api` 发送到 FastAPI，并保存到默认 SQLite 文件 `apps/api/data/arc_one.db`。刷新页面或重启 API 后会重新读取持久化记录。
 
 运行观测详情会把 Workflow Run、Node Run、Human Task 和 Audit Event 派生成统一执行事件流，按 Trace 时间顺序展示。Workspace 级执行事件查询也会把 Remediation Task、修复处理活动和复测 Regression Run 纳入同一事件模型，便于从一个 Trace 复盘完整业务链路。
+
+Artifact 目录已支持按 `runId` 和 `sourceNodeRunId` 过滤。运行观测详情的每个 NodeRun 卡片提供“查看产出物”入口，会跳转到 `/artifacts?runId=<runId>&sourceNodeRunId=<nodeRunId>`，Artifact 页面会从 URL 初始化筛选、请求对应产出物并展示当前 Run / NodeRun 筛选条件；原有 Data Object、Schema 状态和 Artifact 详情深链能力保持不变。
 
 ## 2. 启动链路
 

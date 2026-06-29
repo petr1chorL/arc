@@ -48,4 +48,25 @@ describe('artifacts api', () => {
       '/api/workspaces/workspace-1/artifacts?dataObjectDefinitionId=data-object-1&schemaValidationStatus=failed',
     )
   })
+
+  it('lists artifacts with run and node run filters', async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = []
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
+      calls.push({ url, init })
+      if (url === '/api/workspaces/workspace-1/artifacts?runId=run-1&sourceNodeRunId=node-run-1') {
+        return Promise.resolve(new Response(JSON.stringify([artifact]), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify({ detail: 'not found' }), { status: 404 }))
+    }))
+
+    await expect(listArtifacts('workspace-1', {
+      runId: 'run-1',
+      sourceNodeRunId: 'node-run-1',
+    })).resolves.toEqual([artifact])
+
+    expect(calls[0].url).toBe(
+      '/api/workspaces/workspace-1/artifacts?runId=run-1&sourceNodeRunId=node-run-1',
+    )
+  })
 })

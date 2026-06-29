@@ -124,11 +124,15 @@ export function Artifacts() {
   const [searchParams, setSearchParams] = useSearchParams()
   const filterParam = searchParams.get('dataObjectDefinitionId') ?? ''
   const schemaStatusFilterParam = schemaStatusFilterFromParams(searchParams)
+  const runIdParam = searchParams.get('runId') ?? ''
+  const sourceNodeRunIdParam = searchParams.get('sourceNodeRunId') ?? ''
   const [artifacts, setArtifacts] = useState<ArtifactCatalogItem[]>([])
   const [filter, setFilter] = useState(filterParam)
   const [schemaStatusFilter, setSchemaStatusFilter] = useState<SchemaStatusFilterValue>(schemaStatusFilterParam)
   const [appliedFilter, setAppliedFilter] = useState(filterParam)
   const [appliedSchemaStatusFilter, setAppliedSchemaStatusFilter] = useState<SchemaStatusFilterValue>(schemaStatusFilterParam)
+  const [appliedRunId, setAppliedRunId] = useState(runIdParam)
+  const [appliedSourceNodeRunId, setAppliedSourceNodeRunId] = useState(sourceNodeRunIdParam)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
   const [selectedArtifact, setSelectedArtifact] = useState<ArtifactCatalogItem | null>(null)
@@ -140,7 +144,9 @@ export function Artifacts() {
     setSchemaStatusFilter(schemaStatusFilterParam)
     setAppliedFilter(filterParam)
     setAppliedSchemaStatusFilter(schemaStatusFilterParam)
-  }, [filterParam, schemaStatusFilterParam])
+    setAppliedRunId(runIdParam)
+    setAppliedSourceNodeRunId(sourceNodeRunIdParam)
+  }, [filterParam, runIdParam, schemaStatusFilterParam, sourceNodeRunIdParam])
 
   useEffect(() => {
     setIsLoading(true)
@@ -148,11 +154,13 @@ export function Artifacts() {
     void listArtifacts(workspace.id, {
       dataObjectDefinitionId: appliedFilter,
       schemaValidationStatus: appliedSchemaStatusFilter,
+      runId: appliedRunId,
+      sourceNodeRunId: appliedSourceNodeRunId,
     })
       .then(setArtifacts)
       .catch((loadError) => setError(loadError instanceof Error ? loadError.message : 'Artifact 加载失败'))
       .finally(() => setIsLoading(false))
-  }, [appliedFilter, appliedSchemaStatusFilter, workspace.id])
+  }, [appliedFilter, appliedRunId, appliedSchemaStatusFilter, appliedSourceNodeRunId, workspace.id])
 
   useEffect(() => {
     if (!selectedArtifactVersionId) {
@@ -196,10 +204,14 @@ export function Artifacts() {
     const nextParams = new URLSearchParams(searchParams)
     nextParams.delete('dataObjectDefinitionId')
     nextParams.delete('schemaValidationStatus')
+    nextParams.delete('runId')
+    nextParams.delete('sourceNodeRunId')
     setFilter('')
     setSchemaStatusFilter('')
     setAppliedFilter('')
     setAppliedSchemaStatusFilter('')
+    setAppliedRunId('')
+    setAppliedSourceNodeRunId('')
     setSearchParams(nextParams)
   }
 
@@ -228,6 +240,8 @@ export function Artifacts() {
   const activeFilters = [
     appliedFilter ? `Definition：${appliedFilter}` : '',
     appliedSchemaStatusFilter ? `Schema：${appliedSchemaStatusFilter}` : '',
+    appliedRunId ? `Run：${appliedRunId}` : '',
+    appliedSourceNodeRunId ? `NodeRun：${appliedSourceNodeRunId}` : '',
   ].filter(Boolean).join(' / ')
 
   return (

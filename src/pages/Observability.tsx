@@ -713,6 +713,9 @@ export function Observability() {
             <RunTroubleshooting
               detail={detail}
               auditHref={workspacePath(`settings/audit?traceId=${encodeURIComponent(detail.traceId)}`)}
+              artifactPathForNodeRun={(nodeRunId) => workspacePath(
+                `artifacts?runId=${encodeURIComponent(detail.id)}&sourceNodeRunId=${encodeURIComponent(nodeRunId)}`,
+              )}
               targetNodeRunId={requestedNodeRunId}
             />
           )}
@@ -1268,10 +1271,12 @@ function MetricCard({
 function RunTroubleshooting({
   detail,
   auditHref,
+  artifactPathForNodeRun,
   targetNodeRunId,
 }: {
   detail: ObservabilityRunDetail
   auditHref: string
+  artifactPathForNodeRun: (nodeRunId: string) => string
   targetNodeRunId: string
 }) {
   const resultText = detail.output || detail.error || '本次运行暂无产出或错误信息。'
@@ -1358,6 +1363,13 @@ function RunTroubleshooting({
                 <em>父 Span {node.parentSpanId ?? 'root'}</em>
               </div>
               <StatusBadge status={node.status} />
+              <Link
+                aria-label={`查看${node.nodeName} 产出物`}
+                className="button ghost compact"
+                to={artifactPathForNodeRun(node.id)}
+              >
+                查看产出物
+              </Link>
               <p>{node.output || node.error || node.input}</p>
             </article>
           ))}

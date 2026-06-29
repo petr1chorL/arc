@@ -3121,6 +3121,8 @@ def create_app(
         request: Request,
         data_object_definition_id: str | None = Query(default=None, alias="dataObjectDefinitionId"),
         schema_validation_status: str | None = Query(default=None, alias="schemaValidationStatus"),
+        run_id: str | None = Query(default=None, alias="runId"),
+        source_node_run_id: str | None = Query(default=None, alias="sourceNodeRunId"),
         limit: int = Query(default=50, ge=1, le=200),
         context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
     ) -> list[ArtifactCatalogItemRead]:
@@ -3152,6 +3154,10 @@ def create_app(
             statement = statement.where(
                 ArtifactVersionRecord.data_object_definition_id == data_object_definition_id,
             )
+        if run_id:
+            statement = statement.where(ArtifactRecord.run_id == run_id)
+        if source_node_run_id:
+            statement = statement.where(ArtifactRecord.source_node_run_id == source_node_run_id)
         artifacts: list[ArtifactCatalogItemRead] = []
         for version, artifact in session.execute(statement).all():
             schema_validation = validate_artifact_schema(version.content, version.data_object_snapshot)
