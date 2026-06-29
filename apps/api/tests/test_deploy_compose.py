@@ -26,6 +26,20 @@ def test_compose_defines_api_and_execution_worker_services():
     assert "--worker-id" in worker["command"]
 
 
+def test_compose_defines_notification_worker_service():
+    compose = yaml.safe_load((ROOT / "compose.yaml").read_text(encoding="utf-8"))
+    services = compose["services"]
+
+    assert "notification-worker" in services
+    api = services["api"]
+    notification_worker = services["notification-worker"]
+    assert notification_worker["build"] == api["build"]
+    assert notification_worker["environment"]["DATABASE_URL"] == api["environment"]["DATABASE_URL"]
+    assert notification_worker["depends_on"]["postgres"]["condition"] == "service_healthy"
+    assert notification_worker["command"][:3] == ["python", "-m", "app.notification_worker"]
+    assert "--poll-interval" in notification_worker["command"]
+
+
 def test_api_dockerfile_installs_postgres_extra_and_starts_api_by_default():
     dockerfile = (ROOT / "apps/api/Dockerfile").read_text(encoding="utf-8")
 

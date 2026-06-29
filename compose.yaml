@@ -37,5 +37,15 @@ services:
         condition: service_healthy
     command: ["python", "-m", "app.worker", "--worker-id", "compose-worker", "--poll-interval", "2"]
 
+  notification-worker:
+    build:
+      context: ./apps/api
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-arc_one}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-arc_one}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["python", "-m", "app.notification_worker", "--poll-interval", "2"]
+
 volumes:
   arc_one_postgres:

@@ -1,7 +1,7 @@
 # ARC.ONE 当前版本实现说明
 
-> 当前版本：V0.30A Notification Outbox 发送器第一切片
-> 上一阶段：V0.29E 修复任务无效深链恢复
+> 当前版本：V0.30B Notification Outbox Worker 入口
+> 上一阶段：V0.30A Notification Outbox 发送器第一切片
 > 更新时间：2026-06-29
 
 ## 1. 当前版本是什么
@@ -1708,3 +1708,13 @@ Remediation Task API 响应现在包含后端派生的 `retestSummary` 字段，
 发送成功的通知会更新为 `sent`，发送失败的通知会更新为 `failed`；两类结果都会在 `payload.dispatch` 中记录 `status`、`providerMessageId`、`error` 和 `dispatchedAt`。API 响应返回 `processed`、`sent`、`failed` 和逐条结果，便于后续 worker、CLI 或外部通知适配器复用。默认发送器是 `NoopNotificationDispatcher`，本地触发 dispatch 时不会访问飞书、邮件或外部网络。
 
 本版本是后端发送器第一切片，不新增数据库字段，不新增前端页面，不接入真实飞书/邮件 SDK，不实现自动定时消费、重试策略或失败通知重新入队。验收记录见 `docs/ACCEPTANCE_V0.30A.md`。
+
+---
+
+## V0.30B Notification Outbox Worker 入口
+
+平台新增 `app.notification_worker` 模块，提供 `NotificationOutboxWorker`、`create_notification_outbox_worker` 和命令行入口。Worker 会读取所有 active Workspace，复用 V0.30A 的 `NotificationOutboxDispatchService` 消费 pending 通知并提交状态回写。它支持单轮处理、处理到空队列和常驻轮询三种模式。
+
+本地可以使用 `python -m app.notification_worker --once` 或 console script `arc-one-notification-worker` 触发一次通知消费；`apps/api/pyproject.toml` 已暴露 `arc-one-notification-worker = "app.notification_worker:main"`。`compose.yaml` 新增 `notification-worker` 服务，与 API 和 execution-worker 共用同一个 PostgreSQL 连接配置。
+
+本版本仍使用默认 Noop 发送器，不连接真实飞书、邮件、Webhook 或外部网络 SDK；也不新增通知模板、渠道配置、失败重试和发送频率控制。验收记录见 `docs/ACCEPTANCE_V0.30B.md`。
