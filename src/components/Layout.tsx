@@ -11,6 +11,7 @@ import {
   Gauge,
   KeyRound,
   Network,
+  RadioTower,
   Search,
   Settings,
   ShieldAlert,
@@ -51,6 +52,7 @@ const titles: Record<string, { title: string; eyebrow: string }> = {
   '/settings/data-objects': { title: 'Data Object', eyebrow: 'DATA CONTRACTS' },
   '/settings/members': { title: '成员与权限', eyebrow: 'ACCESS CONTROL' },
   '/settings/model-providers': { title: '模型 Provider', eyebrow: 'MODEL ACCESS' },
+  '/settings/notification-channels': { title: '通知渠道', eyebrow: 'CHANNEL SETTINGS' },
   '/settings/audit': { title: '审计日志', eyebrow: 'AUDIT TRAIL' },
 }
 
@@ -123,6 +125,17 @@ export function Layout() {
             >
               <KeyRound size={18} strokeWidth={1.8} />
               <span>模型 Provider</span>
+            </NavLink>
+          </CapabilityGuard>
+          <CapabilityGuard capability="member.manage">
+            <NavLink
+              to={workspacePath('settings/notification-channels')}
+              title="通知渠道"
+              aria-label="通知渠道"
+              className={({ isActive }) => (isActive ? 'nav-item active' : 'nav-item')}
+            >
+              <RadioTower size={18} strokeWidth={1.8} />
+              <span>通知渠道</span>
             </NavLink>
           </CapabilityGuard>
           <CapabilityGuard capability="agent.write">

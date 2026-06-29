@@ -113,6 +113,17 @@ describe('Layout', () => {
     expect(dataObjectLink).toHaveAttribute('href', '/w/ai-capability-center/settings/data-objects')
   })
 
+  it('links to notification channel settings inside the current workspace', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([]), { status: 200 }),
+    ))
+
+    renderLayout()
+
+    const channelLink = await screen.findByRole('link', { name: '通知渠道' })
+    expect(channelLink).toHaveAttribute('href', '/w/ai-capability-center/settings/notification-channels')
+  })
+
   it('links to artifact instances inside the current workspace', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
       new Response(JSON.stringify([]), { status: 200 }),

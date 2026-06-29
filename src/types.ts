@@ -378,6 +378,20 @@ export interface ModelProviderAuditEvent {
   metadata: Record<string, unknown>
 }
 
+export type NotificationChannelType = 'in_app' | 'webhook' | 'email' | 'feishu'
+
+export interface NotificationChannel {
+  id: string
+  workspaceId: string
+  name: string
+  channelType: NotificationChannelType
+  status: string
+  config: Record<string, unknown>
+  secretRef: string
+  createdAt: string
+  updatedAt: string
+}
+
 export interface WorkflowNodeContract {
   id: string
   type: string

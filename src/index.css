@@ -4117,6 +4117,43 @@ kbd {
   margin-left: auto;
 }
 
+.notification-channel-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.notification-channel-meta div {
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(235, 240, 248, 0.62);
+  box-shadow: inset 2px 2px 5px rgba(141, 156, 184, 0.16), inset -2px -2px 5px rgba(255, 255, 255, 0.72);
+}
+
+.notification-channel-meta dt {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.notification-channel-meta dd {
+  margin: 4px 0 0;
+  font-weight: 700;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.json-preview {
+  margin: 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: rgba(246, 249, 253, 0.76);
+  color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  box-shadow: var(--shadow-inset);
+}
+
 .asset-edit-form,
 .asset-impact {
   display: grid;

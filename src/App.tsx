@@ -17,6 +17,7 @@ import { Evaluations } from './pages/Evaluations'
 import { Login } from './pages/Login'
 import { Members } from './pages/Members'
 import { ModelProviders } from './pages/ModelProviders'
+import { NotificationChannels } from './pages/NotificationChannels'
 import { Notifications } from './pages/Notifications'
 import { Observability } from './pages/Observability'
 import { Reviews } from './pages/Reviews'
@@ -92,6 +93,7 @@ function App() {
                 <Route path="settings/data-objects" element={<DataObjects />} />
                 <Route path="settings/members" element={<Members />} />
                 <Route path="settings/model-providers" element={<ModelProviders />} />
+                <Route path="settings/notification-channels" element={<NotificationChannels />} />
                 <Route path="settings/audit" element={<AuditLog />} />
               </Route>
             </Route>
