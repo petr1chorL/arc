@@ -1,7 +1,7 @@
 # ARC.ONE 当前版本实现说明
 
-> 当前版本：V0.27B Artifact 筛选 URL 同步
-> 上一阶段：V0.27A Artifact 详情深链接
+> 当前版本：V0.27C Artifact 运行链路入口
+> 上一阶段：V0.27B Artifact 筛选 URL 同步
 > 更新时间：2026-06-29
 
 ## 1. 当前版本是什么
@@ -1522,5 +1522,15 @@ Artifact 实例页新增筛选条件 URL 同步能力。用户访问 `/w/:worksp
 用户点击“筛选”时，页面会把当前 Data Object Definition ID 与 Schema 校验状态写入地址栏；点击“清空”时，仅移除这两个筛选参数。该能力会保留 `artifactVersionId` 等其他 query 参数，使“某个筛选结果 + 某个 Artifact 详情弹窗”可以被复制分享。
 
 本版本不新增后端 API，不新增分页或高级查询表达式，也不在本地持久化筛选状态。非法的 `schemaValidationStatus` query 值会在前端回退为“全部”，后端仍沿用 V0.26G 的非法参数 `422` 校验。验收记录见 `docs/ACCEPTANCE_V0.27B.md`。
+
+---
+
+## V0.27C Artifact 运行链路入口
+
+Artifact 详情弹窗新增“查看运行链路”入口。用户在产出物详情中查看 ArtifactVersion、Run、NodeRun、Schema 状态和内容时，可以直接跳转到当前 Workspace 的 Observability 页面，并带上该 Artifact 的 `runId` query 参数。
+
+该入口使用 Artifact 列表数据中已有的 `runId`，链接格式为 `/w/:workspaceSlug/observability?runId=<runId>`，并对 `runId` 做 URL 编码。它不改变 Artifact 详情弹窗本身的 URL 深链接和筛选 URL 同步能力。
+
+本版本不新增后端 API，不新增 NodeRun 级锚点，也不扩展 Observability 页面功能；后续如果 Observability 支持节点级定位，可以继续把 `sourceNodeRunId` 纳入链接参数。验收记录见 `docs/ACCEPTANCE_V0.27C.md`。
 
 ---

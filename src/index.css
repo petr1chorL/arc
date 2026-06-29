@@ -4259,6 +4259,12 @@ kbd {
   margin: 4px 0 0;
 }
 
+.artifact-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .artifact-detail-meta {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);

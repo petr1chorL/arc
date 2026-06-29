@@ -1,6 +1,6 @@
-import { Check, Database, Eye, FileJson, Filter, RotateCcw, ShieldOff, X } from 'lucide-react'
+import { Check, Database, Eye, FileJson, Filter, RotateCcw, Route, ShieldOff, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { listArtifacts } from '../api/artifacts'
 import { useWorkspace } from '../auth/workspaceContextState'
 import type { ArtifactCatalogItem } from '../types'
@@ -120,7 +120,7 @@ function schemaStatusFilterFromParams(searchParams: URLSearchParams): SchemaStat
 }
 
 export function Artifacts() {
-  const { workspace } = useWorkspace()
+  const { workspace, workspacePath } = useWorkspace()
   const [searchParams, setSearchParams] = useSearchParams()
   const filterParam = searchParams.get('dataObjectDefinitionId') ?? ''
   const schemaStatusFilterParam = schemaStatusFilterFromParams(searchParams)
@@ -355,14 +355,22 @@ export function Artifacts() {
                 <span className="section-kicker">ARTIFACT DETAIL</span>
                 <h3>Artifact 详情</h3>
               </div>
-              <button
-                aria-label="关闭 Artifact 详情"
-                className="icon-button"
-                type="button"
-                onClick={closeArtifactDetail}
-              >
-                <X size={17} />
-              </button>
+              <div className="artifact-detail-actions">
+                <Link
+                  className="button ghost"
+                  to={workspacePath(`observability?runId=${encodeURIComponent(selectedArtifact.runId)}`)}
+                >
+                  <Route size={15} />查看运行链路
+                </Link>
+                <button
+                  aria-label="关闭 Artifact 详情"
+                  className="icon-button"
+                  type="button"
+                  onClick={closeArtifactDetail}
+                >
+                  <X size={17} />
+                </button>
+              </div>
             </header>
             <div className="artifact-detail-meta">
               <span>ArtifactVersion</span><strong>{selectedArtifact.artifactVersionId}</strong>

@@ -196,6 +196,28 @@ describe('Artifacts page', () => {
     expect(screen.queryByRole('dialog', { name: 'Artifact 详情' })).not.toBeInTheDocument()
   })
 
+  it('links artifact detail to the source run trace', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
+      if (url === `/api/workspaces/${workspace.id}/artifacts`) {
+        return Promise.resolve(new Response(JSON.stringify([artifact]), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+    }))
+
+    renderPage()
+
+    await screen.findByText('Structured Insight')
+    await user.click(screen.getByRole('button', { name: '查看 artifact-version-1 详情' }))
+
+    expect(await screen.findByRole('dialog', { name: 'Artifact 详情' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '查看运行链路' })).toHaveAttribute(
+      'href',
+      '/w/ai-capability-center/observability?runId=run-1',
+    )
+  })
+
   it('opens artifact detail from artifactVersionId in the url', async () => {
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
