@@ -1391,7 +1391,7 @@ export function Evaluations() {
     }
   }
 
-  function closeRemediationTaskDetail() {
+  function clearRemediationTaskLocation() {
     setSearchParams((current) => {
       const next = new URLSearchParams(current)
       next.delete('taskId')
@@ -1431,7 +1431,7 @@ export function Evaluations() {
           <button
             className="button secondary small"
             type="button"
-            onClick={closeRemediationTaskDetail}
+            onClick={clearRemediationTaskLocation}
           >
             <X size={14} />
             关闭详情
@@ -1648,7 +1648,14 @@ export function Evaluations() {
       )}
       {highlightedRemediationTaskId && !highlightedRemediationTask && !isHighlightedRemediationTaskLoading && (
         <div className="inline-feedback error" role="status">
-          {highlightedRemediationTaskError || `未找到定位任务 ${highlightedRemediationTaskId}`}
+          <span>{highlightedRemediationTaskError || `未找到定位任务 ${highlightedRemediationTaskId}`}</span>
+          <button
+            className="button secondary small"
+            type="button"
+            onClick={clearRemediationTaskLocation}
+          >
+            清除定位
+          </button>
         </div>
       )}
       <div className="remediation-task-filters">

@@ -265,6 +265,72 @@ describe('Evaluations page', () => {
     ))).toBe(true)
   })
 
+  it('clears an invalid remediation task deep link', async () => {
+    const user = userEvent.setup()
+    const visibleTask = {
+      id: 'remediation-task-2',
+      sourceRunId: 'run-regression-1',
+      clusterKey: 'Evidence',
+      title: '筛选列表中的其他任务',
+      priority: 'P2',
+      sampleIds: ['sample-1'],
+      action: '补充引用证据',
+      status: 'open',
+      owner: '质量负责人',
+      dueDate: null,
+      isOverdue: false,
+      activities: [],
+      retestRunId: null,
+      retestRun: null,
+      retestSummary: {
+        status: 'not_run',
+        label: '未复测',
+        failedSamples: 0,
+        passRate: null,
+        recommendation: '标记完成后发起复测',
+      },
+      createdBy: 'user-1',
+      updatedBy: 'user-1',
+      createdAt: '2026-06-29T09:00:00Z',
+      updatedAt: '2026-06-29T09:00:00Z',
+    }
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      if (input === `/api/workspaces/${workspace.id}/evaluations/overview`) {
+        return response(overview)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/rubrics`) {
+        return response(rubricAssets)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/records`) {
+        return response([])
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/sample-sets`) {
+        return response([])
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/regression-runs`) {
+        return response([])
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/remediation-tasks/missing-task`) {
+        return response({ detail: 'not found' }, 404)
+      }
+      if (String(input).split('?')[0] === `/api/workspaces/${workspace.id}/evaluations/remediation-tasks`) {
+        return response([visibleTask])
+      }
+      return response({ detail: 'not found' }, 404)
+    }))
+
+    renderPage('/w/ai-capability-center/evaluations?taskId=missing-task')
+
+    const taskList = await screen.findByRole('region', { name: 'Remediation Tasks' })
+    expect(within(taskList).getByText('not found')).toBeInTheDocument()
+    await user.click(within(taskList).getByRole('button', { name: '清除定位' }))
+
+    await waitFor(() => {
+      expect(screen.queryByText('not found')).not.toBeInTheDocument()
+    })
+    expect(within(taskList).getByLabelText('修复任务 remediation-task-2')).toBeInTheDocument()
+  })
+
   it('copies the remediation task detail link', async () => {
     const user = userEvent.setup()
     const writeText = vi.fn().mockResolvedValue(undefined)
