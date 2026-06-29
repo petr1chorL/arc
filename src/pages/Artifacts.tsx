@@ -19,6 +19,13 @@ function formatDate(value: string) {
   return value.slice(0, 16).replace('T', ' ')
 }
 
+function formatDuration(durationMs: number | null) {
+  if (durationMs === null || durationMs === undefined) return '-'
+  if (durationMs <= 0) return '0 ms'
+  if (durationMs < 1000) return `${durationMs} ms`
+  return `${(durationMs / 1000).toFixed(2)} s`
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
@@ -341,6 +348,11 @@ export function Artifacts() {
                     <span>{schemaSummary(artifact.dataObjectSnapshot)}</span>
                     <span className={`schema-status-pill ${validation.status}`}>{validation.label}</span>
                   </div>
+                  <div className="artifact-source-context-row">
+                    <span>工作流</span><strong>{artifact.workflowName ?? artifact.runId}</strong>
+                    <span>节点</span><strong>{artifact.sourceNodeName ?? artifact.sourceNodeRunId}</strong>
+                    <span>{artifact.sourceNodeStatus ?? artifact.runStatus ?? '未知状态'}</span>
+                  </div>
                   <div className="artifact-source-row">
                     <span>Run</span><strong>{artifact.runId}</strong>
                     <span>NodeRun</span><strong>{artifact.sourceNodeRunId}</strong>
@@ -403,6 +415,18 @@ export function Artifacts() {
               <span>Score</span><strong>{selectedArtifact.score ?? '-'}</strong>
               <span>Schema 状态</span><strong>{selectedValidation?.label}</strong>
             </div>
+            <section className="artifact-source-context-box">
+              <h4>来源上下文</h4>
+              <div className="artifact-detail-meta">
+                <span>工作流</span><strong>{selectedArtifact.workflowName ?? selectedArtifact.runId}</strong>
+                <span>运行状态</span><strong>{selectedArtifact.runStatus ?? '未知'}</strong>
+                <span>节点</span><strong>{selectedArtifact.sourceNodeName ?? selectedArtifact.sourceNodeRunId}</strong>
+                <span>节点类型</span><strong>{selectedArtifact.sourceNodeType ?? '未知'}</strong>
+                <span>节点状态</span><strong>{selectedArtifact.sourceNodeStatus ?? '未知'}</strong>
+                <span>节点耗时</span><strong>{formatDuration(selectedArtifact.sourceNodeDurationMs)}</strong>
+                <span>节点得分</span><strong>{selectedArtifact.sourceNodeScore ?? '-'}</strong>
+              </div>
+            </section>
             {selectedValidation && selectedValidation.reasons.length > 0 && (
               <section className={`artifact-validation-box ${selectedValidation.status}`}>
                 <h4>校验原因</h4>

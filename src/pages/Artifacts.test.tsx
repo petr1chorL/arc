@@ -26,6 +26,13 @@ const artifact = {
     name: 'Structured Insight',
     schema: { type: 'object', required: ['summary'] },
   },
+  workflowName: 'Artifact trace workflow',
+  runStatus: '已完成',
+  sourceNodeName: '数据清洗 Agent',
+  sourceNodeType: 'agent',
+  sourceNodeStatus: '已完成',
+  sourceNodeDurationMs: 1200,
+  sourceNodeScore: 94,
   createdAt: '2026-06-28T09:00:00Z',
 }
 
@@ -236,6 +243,32 @@ describe('Artifacts page', () => {
       'href',
       '/w/ai-capability-center/observability?runId=run-1&nodeRunId=node-run-1',
     )
+  })
+
+  it('shows artifact source context in the list and detail dialog', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
+      if (url === `/api/workspaces/${workspace.id}/artifacts`) {
+        return Promise.resolve(new Response(JSON.stringify([artifact]), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+    }))
+
+    renderPage()
+
+    await screen.findByText('Artifact trace workflow')
+    expect(screen.getByText('数据清洗 Agent')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '查看 artifact-version-1 详情' }))
+
+    const dialog = await screen.findByRole('dialog', { name: 'Artifact 详情' })
+    expect(dialog).toHaveTextContent('来源上下文')
+    expect(dialog).toHaveTextContent('Artifact trace workflow')
+    expect(dialog).toHaveTextContent('数据清洗 Agent')
+    expect(dialog).toHaveTextContent('已完成')
+    expect(dialog).toHaveTextContent('1.20 s')
+    expect(dialog).toHaveTextContent('94')
   })
 
   it('opens artifact detail from artifactVersionId in the url', async () => {

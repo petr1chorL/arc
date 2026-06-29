@@ -268,6 +268,13 @@ export interface ArtifactCatalogItem {
   version: number
   runId: string
   sourceNodeRunId: string
+  workflowName: string | null
+  runStatus: string | null
+  sourceNodeName: string | null
+  sourceNodeType: string | null
+  sourceNodeStatus: string | null
+  sourceNodeDurationMs: number | null
+  sourceNodeScore: number | null
   content: string
   score: number | null
   dataObjectDefinitionId: string | null

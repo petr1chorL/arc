@@ -1252,6 +1252,13 @@ class ArtifactCatalogItemRead(BaseModel):
     version: int
     run_id: str = Field(serialization_alias="runId")
     source_node_run_id: str = Field(serialization_alias="sourceNodeRunId")
+    workflow_name: str | None = Field(default=None, serialization_alias="workflowName")
+    run_status: str | None = Field(default=None, serialization_alias="runStatus")
+    source_node_name: str | None = Field(default=None, serialization_alias="sourceNodeName")
+    source_node_type: str | None = Field(default=None, serialization_alias="sourceNodeType")
+    source_node_status: str | None = Field(default=None, serialization_alias="sourceNodeStatus")
+    source_node_duration_ms: int | None = Field(default=None, serialization_alias="sourceNodeDurationMs")
+    source_node_score: int | None = Field(default=None, serialization_alias="sourceNodeScore")
     content: str
     score: int | None
     data_object_definition_id: str | None = Field(default=None, serialization_alias="dataObjectDefinitionId")

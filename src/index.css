@@ -4173,6 +4173,7 @@ kbd {
 }
 
 .artifact-contract-row,
+.artifact-source-context-row,
 .artifact-source-row {
   display: flex;
   flex-wrap: wrap;
@@ -4183,12 +4184,18 @@ kbd {
 }
 
 .artifact-contract-row span,
+.artifact-source-context-row strong,
+.artifact-source-context-row span,
 .artifact-source-row strong,
 .artifact-source-row span {
   padding: 6px 9px;
   border-radius: 999px;
   background: rgba(255,255,255,0.5);
   box-shadow: var(--shadow-inset);
+}
+
+.artifact-source-context-row strong {
+  color: var(--ink);
 }
 
 .schema-status-pill {
@@ -4285,6 +4292,15 @@ kbd {
   color: var(--ink);
   font: 12px var(--mono);
   overflow-wrap: anywhere;
+}
+
+.artifact-source-context-box {
+  margin-top: 14px;
+}
+
+.artifact-source-context-box h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
 }
 
 .artifact-validation-box {

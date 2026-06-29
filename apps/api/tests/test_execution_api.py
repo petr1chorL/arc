@@ -462,6 +462,22 @@ def test_artifact_catalog_lists_versions_with_data_object_filter(tmp_path):
     assert artifacts[0]["schemaValidation"]["status"] == "passed"
     assert artifacts[0]["schemaValidation"]["label"] == "Schema 校验通过"
     assert artifacts[0]["schemaValidation"]["reasons"] == []
+    with client.app.state.session_factory() as session:
+        run_record = session.scalar(
+            select(WorkflowRunRecord).where(WorkflowRunRecord.id == run["id"]),
+        )
+        source_node = session.scalar(
+            select(NodeRunRecord).where(NodeRunRecord.id == artifacts[0]["sourceNodeRunId"]),
+        )
+        assert run_record is not None
+        assert source_node is not None
+        assert artifacts[0]["workflowName"] == run_record.name
+        assert artifacts[0]["runStatus"] == run_record.status
+        assert artifacts[0]["sourceNodeName"] == source_node.node_name
+        assert artifacts[0]["sourceNodeType"] == source_node.node_type
+        assert artifacts[0]["sourceNodeStatus"] == source_node.status
+        assert artifacts[0]["sourceNodeDurationMs"] == source_node.duration_ms
+        assert artifacts[0]["sourceNodeScore"] == source_node.score
 
     with client.app.state.session_factory() as session:
         broken_artifact = ArtifactRecord(
@@ -496,6 +512,13 @@ def test_artifact_catalog_lists_versions_with_data_object_filter(tmp_path):
     assert failed_artifact["schemaValidation"]["status"] == "failed"
     assert failed_artifact["schemaValidation"]["label"] == "Schema 校验失败"
     assert failed_artifact["schemaValidation"]["reasons"] == ["缺少必填字段：summary"]
+    assert failed_artifact["workflowName"] == run["name"]
+    assert failed_artifact["runStatus"] == run["status"]
+    assert failed_artifact["sourceNodeName"] is None
+    assert failed_artifact["sourceNodeType"] is None
+    assert failed_artifact["sourceNodeStatus"] is None
+    assert failed_artifact["sourceNodeDurationMs"] is None
+    assert failed_artifact["sourceNodeScore"] is None
 
     failed_filter_response = client.get(
         workspace_url(

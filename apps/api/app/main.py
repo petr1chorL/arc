@@ -3163,12 +3163,32 @@ def create_app(
             schema_validation = validate_artifact_schema(version.content, version.data_object_snapshot)
             if schema_validation_status and schema_validation["status"] != schema_validation_status:
                 continue
+            run = session.scalar(
+                select(WorkflowRunRecord).where(
+                    WorkflowRunRecord.id == artifact.run_id,
+                    WorkflowRunRecord.workspace_id == context.workspace.id,
+                ),
+            )
+            source_node = session.scalar(
+                select(NodeRunRecord).where(
+                    NodeRunRecord.id == artifact.source_node_run_id,
+                    NodeRunRecord.run_id == artifact.run_id,
+                    NodeRunRecord.workspace_id == context.workspace.id,
+                ),
+            )
             artifacts.append(ArtifactCatalogItemRead(
                 artifact_id=artifact.id,
                 artifact_version_id=version.id,
                 version=version.version,
                 run_id=artifact.run_id,
                 source_node_run_id=artifact.source_node_run_id,
+                workflow_name=run.name if run else None,
+                run_status=run.status if run else None,
+                source_node_name=source_node.node_name if source_node else None,
+                source_node_type=source_node.node_type if source_node else None,
+                source_node_status=source_node.status if source_node else None,
+                source_node_duration_ms=source_node.duration_ms if source_node else None,
+                source_node_score=source_node.score if source_node else None,
                 content=version.content,
                 score=artifact.score,
                 data_object_definition_id=version.data_object_definition_id,
