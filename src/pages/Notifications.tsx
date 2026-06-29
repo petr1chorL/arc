@@ -191,9 +191,47 @@ export function Notifications() {
         <section className="notification-dispatch-result" aria-label="发送器结果">
           {dispatchSummary && (
             <>
-              <span>本次处理 {dispatchSummary.processed} 条</span>
-              <span>已发送 {dispatchSummary.sent} 条</span>
-              <span>失败 {dispatchSummary.failed} 条</span>
+              <div className="notification-dispatch-summary">
+                <span>本次处理 {dispatchSummary.processed} 条</span>
+                <span>已发送 {dispatchSummary.sent} 条</span>
+                <span>失败 {dispatchSummary.failed} 条</span>
+              </div>
+              <div className="notification-dispatch-details">
+                <strong>本次明细</strong>
+                {dispatchSummary.items.length === 0 ? (
+                  <p>本次没有返回明细</p>
+                ) : (
+                  <div className="notification-dispatch-items">
+                    {dispatchSummary.items.map((item) => (
+                      <article className={`notification-dispatch-item ${item.status}`} key={`${item.id}-${item.eventKey}`}>
+                        <div>
+                          <b>{item.id}</b>
+                          <span>{item.eventKey}</span>
+                        </div>
+                        <dl>
+                          <div>
+                            <dt>状态</dt>
+                            <dd>{item.status}</dd>
+                          </div>
+                          <div>
+                            <dt>渠道</dt>
+                            <dd>{item.channel || '无'}</dd>
+                          </div>
+                          <div>
+                            <dt>失败码</dt>
+                            <dd>{item.errorCode || '无'}</dd>
+                          </div>
+                          <div>
+                            <dt>Provider ID</dt>
+                            <dd>{item.providerMessageId || '无'}</dd>
+                          </div>
+                        </dl>
+                        <p>{item.error || '无错误文本'}</p>
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </div>
             </>
           )}
           {dispatchError && <div className="table-state error" role="alert">{dispatchError}</div>}

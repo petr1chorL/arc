@@ -7086,17 +7086,22 @@ kbd {
 }
 
 .notification-dispatch-result {
-  display: flex;
-  align-items: center;
+  display: grid;
   gap: 12px;
-  flex-wrap: wrap;
   padding: 14px 16px;
   border-radius: 8px;
   background: var(--surface);
   box-shadow: var(--shadow-soft);
 }
 
-.notification-dispatch-result > span {
+.notification-dispatch-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.notification-dispatch-summary > span {
   display: inline-flex;
   align-items: center;
   min-height: 32px;
@@ -7111,6 +7116,93 @@ kbd {
 .notification-dispatch-result .table-state {
   width: 100%;
   min-height: 42px;
+}
+
+.notification-dispatch-details {
+  display: grid;
+  gap: 10px;
+  padding-top: 2px;
+}
+
+.notification-dispatch-details > strong {
+  color: #46536b;
+  font-size: 13px;
+}
+
+.notification-dispatch-details > p {
+  margin: 0;
+  color: #7b879d;
+  font-size: 12px;
+}
+
+.notification-dispatch-items {
+  display: grid;
+  gap: 10px;
+}
+
+.notification-dispatch-item {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-left: 4px solid #9ab0d4;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 88%, #dfe8f6);
+  box-shadow: var(--shadow-inset);
+}
+
+.notification-dispatch-item.failed {
+  border-left-color: #d98878;
+}
+
+.notification-dispatch-item.sent {
+  border-left-color: #7fb398;
+}
+
+.notification-dispatch-item b,
+.notification-dispatch-item span {
+  display: block;
+}
+
+.notification-dispatch-item b {
+  color: #39465e;
+  font: 600 13px var(--mono);
+  word-break: break-all;
+}
+
+.notification-dispatch-item span,
+.notification-dispatch-item p {
+  color: #7b879d;
+  font-size: 12px;
+}
+
+.notification-dispatch-item dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.notification-dispatch-item dt,
+.notification-dispatch-item dd {
+  margin: 0;
+}
+
+.notification-dispatch-item dt {
+  color: #8f9bb0;
+  font: 10px var(--mono);
+  text-transform: uppercase;
+}
+
+.notification-dispatch-item dd {
+  margin-top: 4px;
+  color: #46536b;
+  font-size: 12px;
+  word-break: break-word;
+}
+
+.notification-dispatch-item p {
+  margin: 0;
+  line-height: 1.6;
 }
 
 .notification-summary-grid {
@@ -7343,7 +7435,8 @@ kbd {
 
   .notification-summary-grid,
   .notification-filter-bar,
-  .notification-row-grid {
+  .notification-row-grid,
+  .notification-dispatch-item dl {
     grid-template-columns: 1fr;
   }
 

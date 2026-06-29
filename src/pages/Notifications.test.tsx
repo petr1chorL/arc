@@ -264,7 +264,23 @@ describe('Notifications page', () => {
           processed: 2,
           sent: 1,
           failed: 1,
-          items: [],
+          items: [{
+            id: 'notification-failed',
+            eventKey: 'task-1:webhook',
+            status: 'failed',
+            channel: 'webhook',
+            errorCode: 'channel_not_configured',
+            providerMessageId: '',
+            error: 'channel_not_configured:webhook',
+          }, {
+            id: 'notification-sent',
+            eventKey: 'task-2:in_app',
+            status: 'sent',
+            channel: 'in_app',
+            errorCode: '',
+            providerMessageId: 'provider-1',
+            error: '',
+          }],
         }), { status: 200 })
       }
       throw new Error(`Unexpected fetch: ${path} ${init?.method ?? 'GET'}`)
@@ -279,6 +295,15 @@ describe('Notifications page', () => {
     expect(await screen.findByText('本次处理 2 条')).toBeInTheDocument()
     expect(screen.getByText('已发送 1 条')).toBeInTheDocument()
     expect(screen.getByText('失败 1 条')).toBeInTheDocument()
+    const dispatchResult = within(screen.getByLabelText('发送器结果'))
+    expect(dispatchResult.getByText('本次明细')).toBeInTheDocument()
+    expect(dispatchResult.getByText('notification-failed')).toBeInTheDocument()
+    expect(dispatchResult.getByText('task-1:webhook')).toBeInTheDocument()
+    expect(dispatchResult.getByText('failed')).toBeInTheDocument()
+    expect(dispatchResult.getByText('webhook')).toBeInTheDocument()
+    expect(dispatchResult.getByText('channel_not_configured')).toBeInTheDocument()
+    expect(dispatchResult.getByText('channel_not_configured:webhook')).toBeInTheDocument()
+    expect(dispatchResult.getByText('provider-1')).toBeInTheDocument()
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         '/api/workspaces/workspace-1/notifications/outbox/dispatch',
@@ -299,6 +324,33 @@ describe('Notifications page', () => {
       })
       expect(listCalls).toHaveLength(2)
     })
+  })
+
+  it('shows an empty dispatch detail state when the dispatcher returns no items', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = typeof input === 'string' ? input : input instanceof URL ? input.pathname + input.search : input.url
+      if (path === '/api/workspaces/workspace-1/notifications/outbox?limit=50') {
+        return new Response(JSON.stringify(notifications), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/notifications/outbox/dispatch') {
+        return new Response(JSON.stringify({
+          processed: 0,
+          sent: 0,
+          failed: 0,
+          items: [],
+        }), { status: 200 })
+      }
+      throw new Error(`Unexpected fetch: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage()
+
+    expect(await screen.findByText('notification-pending')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '触发发送器' }))
+
+    expect(await screen.findByText('本次没有返回明细')).toBeInTheDocument()
   })
 
   it('shows a dispatch error without rendering a fresh success summary', async () => {
