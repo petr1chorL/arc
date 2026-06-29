@@ -526,6 +526,9 @@ def test_failed_remediation_retest_reopens_task_and_can_be_retested_again(tmp_pa
         },
         headers=csrf_headers(client),
     ).json()
+    assert created["retestSummary"]["status"] == "not_run"
+    assert created["retestSummary"]["label"] == "未复测"
+    assert "发起复测" in created["retestSummary"]["recommendation"]
 
     blocked = client.post(
         workspace_url(workspace_id, f"/evaluations/remediation-tasks/{created['id']}/retest"),
@@ -555,6 +558,11 @@ def test_failed_remediation_retest_reopens_task_and_can_be_retested_again(tmp_pa
     assert task["retestRun"]["failedSamples"] == 1
     assert task["retestRun"]["records"][0]["subjectId"] == "sample-fail"
     assert task["retestRun"]["records"][0]["artifactText"] == "Thin draft."
+    assert task["retestSummary"]["status"] == "failed"
+    assert task["retestSummary"]["label"] == "复测未通过"
+    assert task["retestSummary"]["failedSamples"] == 1
+    assert task["retestSummary"]["passRate"] == 0
+    assert "继续修复失败样本" in task["retestSummary"]["recommendation"]
     assert [activity["kind"] for activity in task["activities"]][-2:] == [
         "retest_failed",
         "status_change",
@@ -568,6 +576,8 @@ def test_failed_remediation_retest_reopens_task_and_can_be_retested_again(tmp_pa
     assert listed_task["status"] == "in_progress"
     assert listed_task["retestRunId"] == task["retestRunId"]
     assert listed_task["retestRun"]["failedSamples"] == 1
+    assert listed_task["retestSummary"]["status"] == "failed"
+    assert listed_task["retestSummary"]["failedSamples"] == 1
     assert listed_task["activities"][-2]["kind"] == "retest_failed"
 
     repeated = client.post(

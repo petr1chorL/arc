@@ -1642,6 +1642,17 @@ class RemediationTaskActivityRead(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
+class RemediationRetestSummaryRead(BaseModel):
+    status: str
+    label: str
+    recommendation: str
+    run_id: str | None = Field(default=None, serialization_alias="runId")
+    failed_samples: int = Field(default=0, serialization_alias="failedSamples")
+    pass_rate: int | None = Field(default=None, serialization_alias="passRate")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class RemediationTaskRead(BaseModel):
     id: str
     source_run_id: str = Field(serialization_alias="sourceRunId")
@@ -1656,6 +1667,7 @@ class RemediationTaskRead(BaseModel):
     is_overdue: bool = Field(serialization_alias="isOverdue")
     retest_run_id: str | None = Field(default=None, serialization_alias="retestRunId")
     retest_run: RegressionRunRead | None = Field(default=None, serialization_alias="retestRun")
+    retest_summary: RemediationRetestSummaryRead = Field(serialization_alias="retestSummary")
     activities: list[RemediationTaskActivityRead] = Field(default_factory=list)
     created_by: str = Field(serialization_alias="createdBy")
     updated_by: str = Field(serialization_alias="updatedBy")

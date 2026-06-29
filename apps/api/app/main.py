@@ -4365,6 +4365,7 @@ def create_app(
             "is_overdue": is_remediation_task_overdue(task),
             "retest_run_id": task.retest_run_id,
             "retest_run": retest_run,
+            "retest_summary": build_remediation_retest_summary(retest_run),
             "activities": [
                 remediation_task_activity_to_read(activity)
                 for activity in (activities or [])
@@ -4373,6 +4374,36 @@ def create_app(
             "updated_by": task.updated_by,
             "created_at": task.created_at,
             "updated_at": task.updated_at,
+        }
+
+    def build_remediation_retest_summary(retest_run: dict | None) -> dict:
+        if retest_run is None:
+            return {
+                "status": "not_run",
+                "label": "未复测",
+                "recommendation": "标记完成后发起复测，验证修复是否关闭风险",
+                "run_id": None,
+                "failed_samples": 0,
+                "pass_rate": None,
+            }
+        failed_samples = int(retest_run.get("failed_samples") or 0)
+        pass_rate = int(retest_run.get("pass_rate") or 0)
+        if failed_samples > 0:
+            return {
+                "status": "failed",
+                "label": "复测未通过",
+                "recommendation": "继续修复失败样本，保持任务处理中",
+                "run_id": retest_run.get("id"),
+                "failed_samples": failed_samples,
+                "pass_rate": pass_rate,
+            }
+        return {
+            "status": "passed",
+            "label": "复测通过",
+            "recommendation": "复测已通过，可以保留记录并关闭风险",
+            "run_id": retest_run.get("id"),
+            "failed_samples": 0,
+            "pass_rate": pass_rate,
         }
 
     def remediation_task_activity_to_read(activity: RemediationTaskActivityRecord) -> dict:

@@ -1510,6 +1510,14 @@ describe('Evaluations page', () => {
       }>
       retestRunId: string | null
       retestRun: unknown | null
+      retestSummary: {
+        status: string
+        label: string
+        recommendation: string
+        runId: string | null
+        failedSamples: number
+        passRate: number | null
+      }
       createdBy: string
       updatedBy: string
       createdAt: string
@@ -1596,6 +1604,14 @@ describe('Evaluations page', () => {
             status: 'open',
             retestRunId: null,
             retestRun: null,
+            retestSummary: {
+              status: 'not_run',
+              label: '未复测',
+              recommendation: '标记完成后发起复测，验证修复是否关闭风险',
+              runId: null,
+              failedSamples: 0,
+              passRate: null,
+            },
             createdBy: 'user-1',
             updatedBy: 'user-1',
             createdAt: '2026-06-27T00:30:00Z',
@@ -1684,6 +1700,14 @@ describe('Evaluations page', () => {
             createdBy: 'user-1',
             createdAt: '2026-06-27T00:32:00Z',
             completedAt: '2026-06-27T00:32:00Z',
+          },
+          retestSummary: {
+            status: 'failed',
+            label: '复测未通过',
+            recommendation: '继续修复失败样本，保持任务处理中',
+            runId: 'run-retest-1',
+            failedSamples: 1,
+            passRate: 0,
           },
           activities: [
             ...(remediationTasks[0].activities ?? []),
@@ -1790,6 +1814,12 @@ describe('Evaluations page', () => {
     expect(await within(taskList).findByText('done')).toBeInTheDocument()
 
     await user.click(within(taskDetail).getByRole('button', { name: '发起复测' }))
+    const retestSummary = (await within(taskDetail).findByText('复测风险摘要')).closest('.remediation-retest-summary')
+    expect(retestSummary).not.toBeNull()
+    expect(within(retestSummary as HTMLElement).getByText('复测未通过')).toBeInTheDocument()
+    expect(within(retestSummary as HTMLElement).getByText('失败样本 1')).toBeInTheDocument()
+    expect(within(retestSummary as HTMLElement).getByText('通过率 0%')).toBeInTheDocument()
+    expect(within(retestSummary as HTMLElement).getByText('继续修复失败样本，保持任务处理中')).toBeInTheDocument()
     expect(await within(taskDetail).findByText('复测失败已回流')).toBeInTheDocument()
     expect(await within(taskList).findByText('Retest Run')).toBeInTheDocument()
     expect(within(taskList).getByText('复测失败已回流')).toBeInTheDocument()

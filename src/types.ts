@@ -782,6 +782,15 @@ export interface RemediationTaskActivity {
   createdAt: string
 }
 
+export interface RemediationRetestSummary {
+  status: 'not_run' | 'failed' | 'passed'
+  label: string
+  recommendation: string
+  runId: string | null
+  failedSamples: number
+  passRate: number | null
+}
+
 export interface RemediationTask {
   id: string
   sourceRunId: string
@@ -797,6 +806,7 @@ export interface RemediationTask {
   activities: RemediationTaskActivity[]
   retestRunId: string | null
   retestRun: RegressionRun | null
+  retestSummary: RemediationRetestSummary
   createdBy: string
   updatedBy: string
   createdAt: string

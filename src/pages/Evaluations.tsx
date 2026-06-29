@@ -241,6 +241,38 @@ function toRemediationTaskMetadataDraft(task: RemediationTask): RemediationTaskM
   }
 }
 
+function getRemediationRetestSummary(task: RemediationTask): RemediationTask['retestSummary'] {
+  if (task.retestSummary) return task.retestSummary
+  if (!task.retestRun) {
+    return {
+      status: 'not_run',
+      label: '未复测',
+      recommendation: '标记完成后发起复测，验证修复是否关闭风险',
+      runId: null,
+      failedSamples: 0,
+      passRate: null,
+    }
+  }
+  if (task.retestRun.failedSamples > 0) {
+    return {
+      status: 'failed',
+      label: '复测未通过',
+      recommendation: '继续修复失败样本，保持任务处理中',
+      runId: task.retestRun.id,
+      failedSamples: task.retestRun.failedSamples,
+      passRate: task.retestRun.passRate,
+    }
+  }
+  return {
+    status: 'passed',
+    label: '复测通过',
+    recommendation: '复测已通过，可以保留记录并关闭风险',
+    runId: task.retestRun.id,
+    failedSamples: 0,
+    passRate: task.retestRun.passRate,
+  }
+}
+
 function getArtifactVersionIdFromTask(task: RemediationTask) {
   const prefix = 'artifact:'
   return task.clusterKey.startsWith(prefix) ? task.clusterKey.slice(prefix.length) : ''
@@ -1288,6 +1320,7 @@ export function Evaluations() {
     const tracePath = getTaskTracePath(highlightedRemediationTask)
     const metadataDraft = remediationMetadataByTaskId[highlightedRemediationTask.id]
       ?? toRemediationTaskMetadataDraft(highlightedRemediationTask)
+    const retestSummary = getRemediationRetestSummary(highlightedRemediationTask)
     const updateMetadataDraft = (patch: Partial<RemediationTaskMetadataDraft>) => {
       setRemediationMetadataByTaskId((current) => {
         const currentDraft = current[highlightedRemediationTask.id]
@@ -1363,6 +1396,13 @@ export function Evaluations() {
           </button>
         </div>
         <p>{highlightedRemediationTask.action}</p>
+        <div className={`remediation-retest-summary ${retestSummary.status}`}>
+          <span>复测风险摘要</span>
+          <strong>{retestSummary.label}</strong>
+          <em>失败样本 {retestSummary.failedSamples}</em>
+          <em>通过率 {retestSummary.passRate === null ? '未复测' : `${retestSummary.passRate}%`}</em>
+          <p>{retestSummary.recommendation}</p>
+        </div>
         <div className="remediation-task-actions">
           {artifactPath && (
             <Link
