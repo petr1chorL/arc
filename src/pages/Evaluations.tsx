@@ -1224,6 +1224,93 @@ export function Evaluations() {
     }
   }
 
+  function getTaskArtifactPath(task: RemediationTask) {
+    const artifactVersionId = getArtifactVersionIdFromTask(task)
+    if (!artifactVersionId) {
+      return ''
+    }
+    return workspacePath(`artifacts?${new URLSearchParams({ artifactVersionId }).toString()}`)
+  }
+
+  function getTaskTracePath(task: RemediationTask) {
+    return workspacePath(`observability?${new URLSearchParams({ runId: task.sourceRunId }).toString()}`)
+  }
+
+  function getTaskDetailPath(task: RemediationTask) {
+    return workspacePath(`evaluations?${new URLSearchParams({ taskId: task.id }).toString()}`)
+  }
+
+  const remediationTaskDetail = highlightedRemediationTask ? (() => {
+    const artifactPath = getTaskArtifactPath(highlightedRemediationTask)
+    const tracePath = getTaskTracePath(highlightedRemediationTask)
+    return (
+      <section
+        aria-label={`修复任务详情 ${highlightedRemediationTask.id}`}
+        className="remediation-task-detail"
+      >
+        <header>
+          <div>
+            <span className="eyebrow">REMEDIATION DETAIL</span>
+            <h4>修复任务详情</h4>
+          </div>
+          <span className={`remediation-priority ${highlightedRemediationTask.priority.toLowerCase()}`}>
+            {highlightedRemediationTask.priority}
+          </span>
+        </header>
+        <strong>{highlightedRemediationTask.title}</strong>
+        <div className="remediation-task-meta">
+          <span>优先级 {highlightedRemediationTask.priority}</span>
+          <span>状态 {highlightedRemediationTask.status}</span>
+          <span>负责人 {highlightedRemediationTask.owner ?? '未分配'}</span>
+          <span>截止 {formatDateOnly(highlightedRemediationTask.dueDate)}</span>
+          <span>来源 Run {highlightedRemediationTask.sourceRunId}</span>
+          <span>聚类 {highlightedRemediationTask.clusterKey}</span>
+          <span>样本 {highlightedRemediationTask.sampleIds.length} 个</span>
+        </div>
+        <p>{highlightedRemediationTask.action}</p>
+        <div className="remediation-task-actions">
+          {artifactPath && (
+            <Link
+              aria-label={`查看 ${highlightedRemediationTask.id} 产出物`}
+              className="button secondary small"
+              to={artifactPath}
+            >
+              <FileText size={14} />
+              查看产出物
+            </Link>
+          )}
+          <Link
+            aria-label={`查看 ${highlightedRemediationTask.id} 运行链路`}
+            className="button secondary small"
+            to={tracePath}
+          >
+            <ArrowRight size={14} />
+            查看运行链路
+          </Link>
+        </div>
+        <div className="remediation-activity-panel">
+          <h5>处理时间线</h5>
+          {(highlightedRemediationTask.activities ?? []).length > 0 ? (
+            <div className="remediation-activity-list">
+              {highlightedRemediationTask.activities.map((activity) => (
+                <article className="remediation-activity-item" key={activity.id}>
+                  <div>
+                    <span>{activity.kind === 'comment' ? '评论' : '处理记录'}</span>
+                    <strong>{activity.actorDisplayName}</strong>
+                    <time>{formatDateOnly(activity.createdAt)}</time>
+                  </div>
+                  <p>{activity.body}</p>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p>暂无处理记录</p>
+          )}
+        </div>
+      </section>
+    )
+  })() : null
+
   const remediationTaskBoard = remediationTasks.length > 0 ? (
     <div className="remediation-task-board" role="region" aria-label="Remediation Tasks">
       <header>
@@ -1286,9 +1373,9 @@ export function Evaluations() {
       <div className="remediation-task-list">
         {remediationTasks.map((task) => {
           const isHighlightedTask = task.id === highlightedRemediationTaskId
-          const artifactVersionId = getArtifactVersionIdFromTask(task)
-          const artifactParams = new URLSearchParams({ artifactVersionId })
-          const traceParams = new URLSearchParams({ runId: task.sourceRunId })
+          const artifactPath = getTaskArtifactPath(task)
+          const tracePath = getTaskTracePath(task)
+          const detailPath = getTaskDetailPath(task)
           return (
             <article
               aria-label={`修复任务 ${task.id}`}
@@ -1311,11 +1398,11 @@ export function Evaluations() {
                 <span>{task.isOverdue ? '已逾期' : '未逾期'}</span>
               </div>
               <div className="remediation-task-actions">
-                {artifactVersionId && (
+                {artifactPath && (
                   <Link
                     aria-label={`查看 ${task.id} 产出物`}
                     className="button secondary small"
-                    to={workspacePath(`artifacts?${artifactParams.toString()}`)}
+                    to={artifactPath}
                   >
                     <FileText size={14} />
                     查看产出物
@@ -1324,10 +1411,18 @@ export function Evaluations() {
                 <Link
                   aria-label={`查看 ${task.id} 运行链路`}
                   className="button secondary small"
-                  to={workspacePath(`observability?${traceParams.toString()}`)}
+                  to={tracePath}
                 >
                   <ArrowRight size={14} />
                   查看运行链路
+                </Link>
+                <Link
+                  aria-label={`打开 ${task.id} 详情`}
+                  className="button secondary small"
+                  to={detailPath}
+                >
+                  <FileText size={14} />
+                  打开详情
                 </Link>
                 <button
                   className="button secondary small"
@@ -2042,6 +2137,7 @@ export function Evaluations() {
             </div>
           </div>
         )}
+        {remediationTaskDetail}
         {remediationTaskBoard}
         {regressionRuns.length > 1 && (
           <div className="regression-run-comparison-controls">

@@ -120,9 +120,40 @@ describe('Evaluations page', () => {
 
     renderPage('/w/ai-capability-center/evaluations?taskId=remediation-task-1')
 
+    const taskDetail = await screen.findByRole('region', {
+      name: '修复任务详情 remediation-task-1',
+    })
+    expect(within(taskDetail).getByRole('heading', { name: '修复任务详情' })).toBeInTheDocument()
+    expect(within(taskDetail).getByText('修复 Artifact artifact-version-2 的结构输出')).toBeInTheDocument()
+    expect(within(taskDetail).getByText('优先级 P1')).toBeInTheDocument()
+    expect(within(taskDetail).getByText('状态 open')).toBeInTheDocument()
+    expect(within(taskDetail).getByText('负责人 管理员')).toBeInTheDocument()
+    expect(within(taskDetail).getByText('来源 Run run-artifact-1')).toBeInTheDocument()
+    expect(within(taskDetail).getByText('聚类 artifact:artifact-version-2')).toBeInTheDocument()
+    expect(within(taskDetail).getByText('样本 1 个')).toBeInTheDocument()
+    expect(within(taskDetail).getByText('缺少必填字段：summary')).toBeInTheDocument()
+    expect(within(taskDetail).getByRole('link', {
+      name: '查看 remediation-task-1 产出物',
+    })).toHaveAttribute(
+      'href',
+      '/w/ai-capability-center/artifacts?artifactVersionId=artifact-version-2',
+    )
+    expect(within(taskDetail).getByRole('link', {
+      name: '查看 remediation-task-1 运行链路',
+    })).toHaveAttribute(
+      'href',
+      '/w/ai-capability-center/observability?runId=run-artifact-1',
+    )
+
     const taskList = await screen.findByRole('region', { name: 'Remediation Tasks' })
     expect(within(taskList).getByText('当前定位任务 remediation-task-1')).toBeInTheDocument()
     expect(within(taskList).getByLabelText('修复任务 remediation-task-1')).toHaveClass('active')
+    expect(within(taskList).getByRole('link', {
+      name: '打开 remediation-task-1 详情',
+    })).toHaveAttribute(
+      'href',
+      '/w/ai-capability-center/evaluations?taskId=remediation-task-1',
+    )
     const artifactLink = within(taskList).getByRole('link', {
       name: '查看 remediation-task-1 产出物',
     })
@@ -146,6 +177,12 @@ describe('Evaluations page', () => {
     })).toHaveAttribute(
       'href',
       '/w/ai-capability-center/observability?runId=run-regression-1',
+    )
+    expect(within(nonArtifactTask).getByRole('link', {
+      name: '打开 remediation-task-2 详情',
+    })).toHaveAttribute(
+      'href',
+      '/w/ai-capability-center/evaluations?taskId=remediation-task-2',
     )
   })
 
