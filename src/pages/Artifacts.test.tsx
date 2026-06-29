@@ -1,5 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useEffect } from 'react'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WorkspaceProvider } from '../auth/WorkspaceContext'
 import { Artifacts } from './Artifacts'
@@ -50,11 +52,25 @@ const serverValidatedArtifact = {
   },
 }
 
-function renderPage() {
+function LocationProbe({ onSearchChange }: { onSearchChange?: (search: string) => void }) {
+  const location = useLocation()
+  useEffect(() => {
+    onSearchChange?.(location.search)
+  }, [location.search, onSearchChange])
+  return null
+}
+
+function renderPage(
+  initialEntry = '/artifacts',
+  onSearchChange?: (search: string) => void,
+) {
   return render(
-    <WorkspaceProvider workspace={workspace}>
-      <Artifacts />
-    </WorkspaceProvider>,
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <WorkspaceProvider workspace={workspace}>
+        <LocationProbe onSearchChange={onSearchChange} />
+        <Artifacts />
+      </WorkspaceProvider>
+    </MemoryRouter>,
   )
 }
 
@@ -125,6 +141,64 @@ describe('Artifacts page', () => {
     expect(dialog).toHaveTextContent('"name": "Structured Insight"')
 
     await user.click(screen.getByRole('button', { name: '关闭 Artifact 详情' }))
+    expect(screen.queryByRole('dialog', { name: 'Artifact 详情' })).not.toBeInTheDocument()
+  })
+
+  it('opens artifact detail from artifactVersionId in the url', async () => {
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
+      if (url === `/api/workspaces/${workspace.id}/artifacts`) {
+        return Promise.resolve(new Response(JSON.stringify([artifact]), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+    }))
+
+    renderPage('/artifacts?artifactVersionId=artifact-version-1')
+
+    const dialog = await screen.findByRole('dialog', { name: 'Artifact 详情' })
+    expect(dialog).toHaveTextContent('artifact-version-1')
+    expect(dialog).toHaveTextContent('"summary": "Catalog visible structured output."')
+  })
+
+  it('syncs artifact detail open and close with the url', async () => {
+    const user = userEvent.setup()
+    const searches: string[] = []
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
+      if (url === `/api/workspaces/${workspace.id}/artifacts`) {
+        return Promise.resolve(new Response(JSON.stringify([artifact]), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+    }))
+
+    renderPage('/artifacts', (search) => searches.push(search))
+
+    await screen.findByText('Structured Insight')
+    await user.click(screen.getByRole('button', { name: '查看 artifact-version-1 详情' }))
+
+    await waitFor(() => {
+      expect(searches).toContain('?artifactVersionId=artifact-version-1')
+    })
+
+    await user.click(screen.getByRole('button', { name: '关闭 Artifact 详情' }))
+
+    await waitFor(() => {
+      expect(searches.at(-1)).toBe('')
+    })
+  })
+
+  it('keeps the list visible when artifactVersionId is not in the current list', async () => {
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
+      if (url === `/api/workspaces/${workspace.id}/artifacts`) {
+        return Promise.resolve(new Response(JSON.stringify([artifact]), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+    }))
+
+    renderPage('/artifacts?artifactVersionId=missing-artifact-version')
+
+    expect(await screen.findByText('Structured Insight')).toBeInTheDocument()
     expect(screen.queryByRole('dialog', { name: 'Artifact 详情' })).not.toBeInTheDocument()
   })
 

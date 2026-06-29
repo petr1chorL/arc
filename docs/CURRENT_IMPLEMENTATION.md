@@ -1,7 +1,7 @@
 # ARC.ONE 当前版本实现说明
 
-> 当前版本：V0.26G Artifact Schema 校验状态筛选
-> 上一阶段：V0.26F Artifact Schema API 校验状态
+> 当前版本：V0.27A Artifact 详情深链接
+> 上一阶段：V0.26G Artifact Schema 校验状态筛选
 > 更新时间：2026-06-28
 
 ## 1. 当前版本是什么
@@ -1502,5 +1502,15 @@ Artifact 目录 API 新增 `schemaValidationStatus` 查询参数，支持按 `pa
 由于 Schema 校验状态仍是查询时派生结果，后端会先按 Workspace、Data Object Definition 和创建时间顺序读取 ArtifactVersion，再计算 `schemaValidation`、按状态过滤，并在过滤后应用 `limit`。非法状态值会返回 `422`，避免静默忽略错误筛选条件。
 
 前端 Artifact 实例页新增“Schema 校验状态”筛选控件，支持“全部 / 失败 / 通过 / 未校验”。点击筛选后会把 Data Object Definition ID 与 Schema 状态一起传给 Artifact API；点击清空会重置两个筛选条件。本版本不新增分页游标，不持久化状态，也不提供多选状态或高级查询表达式。验收记录见 `docs/ACCEPTANCE_V0.26G.md`。
+
+---
+
+## V0.27A Artifact 详情深链接
+
+Artifact 实例页新增 `artifactVersionId` query 参数深链接能力。用户访问 `/w/:workspaceSlug/artifacts?artifactVersionId=<id>` 时，页面会先加载当前 Artifact 列表，然后在该列表中找到匹配的 ArtifactVersion 并自动打开详情弹窗。
+
+用户从列表点击“查看详情”时，页面会把对应 ArtifactVersion ID 写入地址栏；关闭详情弹窗时会移除 `artifactVersionId`，回到普通 Artifact 列表 URL。该能力保留地址栏中的其他 query 参数，便于后续继续扩展筛选条件的 URL 化。
+
+本版本仍然不新增独立 `/artifacts/:id` 路由，也不新增后端详情 API；如果 `artifactVersionId` 指向当前列表中不存在的记录，页面保持列表状态，不打断加载。验收记录见 `docs/ACCEPTANCE_V0.27A.md`。
 
 ---

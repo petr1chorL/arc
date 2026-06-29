@@ -1,5 +1,6 @@
 import { Check, Database, Eye, FileJson, Filter, RotateCcw, ShieldOff, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { listArtifacts } from '../api/artifacts'
 import { useWorkspace } from '../auth/workspaceContextState'
 import type { ArtifactCatalogItem } from '../types'
@@ -113,6 +114,7 @@ function schemaValidationForArtifact(artifact: ArtifactCatalogItem): SchemaValid
 
 export function Artifacts() {
   const { workspace } = useWorkspace()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [artifacts, setArtifacts] = useState<ArtifactCatalogItem[]>([])
   const [filter, setFilter] = useState('')
   const [schemaStatusFilter, setSchemaStatusFilter] = useState('')
@@ -121,6 +123,7 @@ export function Artifacts() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
   const [selectedArtifact, setSelectedArtifact] = useState<ArtifactCatalogItem | null>(null)
+  const selectedArtifactVersionId = searchParams.get('artifactVersionId')
   const selectedValidation = selectedArtifact ? schemaValidationForArtifact(selectedArtifact) : null
 
   useEffect(() => {
@@ -134,6 +137,17 @@ export function Artifacts() {
       .catch((loadError) => setError(loadError instanceof Error ? loadError.message : 'Artifact 加载失败'))
       .finally(() => setIsLoading(false))
   }, [appliedFilter, appliedSchemaStatusFilter, workspace.id])
+
+  useEffect(() => {
+    if (!selectedArtifactVersionId) {
+      setSelectedArtifact(null)
+      return
+    }
+    const artifact = artifacts.find((item) => item.artifactVersionId === selectedArtifactVersionId)
+    if (artifact) {
+      setSelectedArtifact(artifact)
+    }
+  }, [artifacts, selectedArtifactVersionId])
 
   const boundCount = artifacts.filter((artifact) => artifact.dataObjectDefinitionId).length
   const averageScore = useMemo(() => {
@@ -154,6 +168,20 @@ export function Artifacts() {
     setSchemaStatusFilter('')
     setAppliedFilter('')
     setAppliedSchemaStatusFilter('')
+  }
+
+  function openArtifactDetail(artifact: ArtifactCatalogItem) {
+    const nextParams = new URLSearchParams(searchParams)
+    nextParams.set('artifactVersionId', artifact.artifactVersionId)
+    setSelectedArtifact(artifact)
+    setSearchParams(nextParams)
+  }
+
+  function closeArtifactDetail() {
+    const nextParams = new URLSearchParams(searchParams)
+    nextParams.delete('artifactVersionId')
+    setSelectedArtifact(null)
+    setSearchParams(nextParams)
   }
 
   const activeFilters = [
@@ -269,7 +297,7 @@ export function Artifacts() {
                       aria-label={`查看 ${artifact.artifactVersionId} 详情`}
                       className="button ghost"
                       type="button"
-                      onClick={() => setSelectedArtifact(artifact)}
+                      onClick={() => openArtifactDetail(artifact)}
                     >
                       <Eye size={15} />查看详情
                     </button>
@@ -298,7 +326,7 @@ export function Artifacts() {
                 aria-label="关闭 Artifact 详情"
                 className="icon-button"
                 type="button"
-                onClick={() => setSelectedArtifact(null)}
+                onClick={closeArtifactDetail}
               >
                 <X size={17} />
               </button>
