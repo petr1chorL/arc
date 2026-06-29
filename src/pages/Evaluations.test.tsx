@@ -265,6 +265,139 @@ describe('Evaluations page', () => {
     ))).toBe(true)
   })
 
+  it('copies the remediation task detail link', async () => {
+    const user = userEvent.setup()
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+    const remediationTask = {
+      id: 'remediation-task-1',
+      sourceRunId: 'run-artifact-1',
+      clusterKey: 'artifact:artifact-version-2',
+      title: '修复 Artifact artifact-version-2 的结构输出',
+      priority: 'P1',
+      sampleIds: ['artifact-version-2'],
+      action: '缺少必填字段：summary',
+      status: 'open',
+      owner: '管理员',
+      dueDate: null,
+      isOverdue: false,
+      activities: [],
+      retestRunId: null,
+      retestRun: null,
+      retestSummary: {
+        status: 'not_run',
+        label: '未复测',
+        failedSamples: 0,
+        passRate: null,
+        recommendation: '标记完成后发起复测',
+      },
+      createdBy: 'user-1',
+      updatedBy: 'user-1',
+      createdAt: '2026-06-29T09:00:00Z',
+      updatedAt: '2026-06-29T09:00:00Z',
+    }
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      if (input === `/api/workspaces/${workspace.id}/evaluations/overview`) {
+        return response(overview)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/rubrics`) {
+        return response(rubricAssets)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/records`) {
+        return response([])
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/sample-sets`) {
+        return response([])
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/regression-runs`) {
+        return response([])
+      }
+      if (String(input).split('?')[0] === `/api/workspaces/${workspace.id}/evaluations/remediation-tasks`) {
+        return response([remediationTask])
+      }
+      return response({ detail: 'not found' }, 404)
+    }))
+
+    renderPage('/w/ai-capability-center/evaluations?taskId=remediation-task-1')
+
+    const taskDetail = await screen.findByRole('region', {
+      name: '修复任务详情 remediation-task-1',
+    })
+    await user.click(within(taskDetail).getByRole('button', { name: '复制任务链接' }))
+
+    const copiedUrl = new URL(writeText.mock.calls[0]?.[0] as string)
+    expect(copiedUrl.origin).toBe(window.location.origin)
+    expect(copiedUrl.pathname).toBe('/w/ai-capability-center/evaluations')
+    expect(copiedUrl.searchParams.get('taskId')).toBe('remediation-task-1')
+    expect(within(taskDetail).getByText('已复制修复任务链接')).toBeInTheDocument()
+  })
+
+  it('shows an error when copying the remediation task detail link fails', async () => {
+    const user = userEvent.setup()
+    const writeText = vi.fn().mockRejectedValue(new Error('clipboard denied'))
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+    const remediationTask = {
+      id: 'remediation-task-1',
+      sourceRunId: 'run-artifact-1',
+      clusterKey: 'artifact:artifact-version-2',
+      title: '修复 Artifact artifact-version-2 的结构输出',
+      priority: 'P1',
+      sampleIds: ['artifact-version-2'],
+      action: '缺少必填字段：summary',
+      status: 'open',
+      owner: '管理员',
+      dueDate: null,
+      isOverdue: false,
+      activities: [],
+      retestRunId: null,
+      retestRun: null,
+      retestSummary: {
+        status: 'not_run',
+        label: '未复测',
+        failedSamples: 0,
+        passRate: null,
+        recommendation: '标记完成后发起复测',
+      },
+      createdBy: 'user-1',
+      updatedBy: 'user-1',
+      createdAt: '2026-06-29T09:00:00Z',
+      updatedAt: '2026-06-29T09:00:00Z',
+    }
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      if (input === `/api/workspaces/${workspace.id}/evaluations/overview`) {
+        return response(overview)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/rubrics`) {
+        return response(rubricAssets)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/records`) {
+        return response([])
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/sample-sets`) {
+        return response([])
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/regression-runs`) {
+        return response([])
+      }
+      if (String(input).split('?')[0] === `/api/workspaces/${workspace.id}/evaluations/remediation-tasks`) {
+        return response([remediationTask])
+      }
+      return response({ detail: 'not found' }, 404)
+    }))
+
+    renderPage('/w/ai-capability-center/evaluations?taskId=remediation-task-1')
+
+    const taskDetail = await screen.findByRole('region', {
+      name: '修复任务详情 remediation-task-1',
+    })
+    await user.click(within(taskDetail).getByRole('button', { name: '复制任务链接' }))
+
+    const copiedUrl = new URL(writeText.mock.calls[0]?.[0] as string)
+    expect(copiedUrl.pathname).toBe('/w/ai-capability-center/evaluations')
+    expect(copiedUrl.searchParams.get('taskId')).toBe('remediation-task-1')
+    expect(within(taskDetail).getByRole('alert')).toHaveTextContent('复制失败，请手动复制地址栏链接')
+  })
+
   it('renders real feedback, golden sample overview data, and API rubric assets', async () => {
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
       if (input === `/api/workspaces/${workspace.id}/evaluations/overview`) {

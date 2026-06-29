@@ -4,6 +4,7 @@ import {
   ArrowRight,
   Beaker,
   CheckCircle2,
+  Copy,
   FileText,
   FlaskConical,
   Plus,
@@ -664,6 +665,8 @@ export function Evaluations() {
   const [remediationCommentTextByTaskId, setRemediationCommentTextByTaskId] = useState<Record<string, string>>({})
   const [remediationAttachmentRefsByTaskId, setRemediationAttachmentRefsByTaskId] = useState<Record<string, string>>({})
   const [remediationMetadataByTaskId, setRemediationMetadataByTaskId] = useState<Record<string, RemediationTaskMetadataDraft>>({})
+  const [remediationShareLinkMessage, setRemediationShareLinkMessage] = useState('')
+  const [remediationShareLinkTone, setRemediationShareLinkTone] = useState<'success' | 'error'>('success')
 
   const remediationTaskFilters = useMemo<RemediationTaskFilters>(() => ({
     owner: remediationOwnerFilter === 'all' ? undefined : remediationOwnerFilter,
@@ -921,6 +924,10 @@ export function Evaluations() {
       isCancelled = true
     }
   }, [highlightedRemediationTask, highlightedRemediationTaskId, workspace.id])
+
+  useEffect(() => {
+    setRemediationShareLinkMessage('')
+  }, [highlightedRemediationTaskId])
 
   const activeSelectedSamples = useMemo(
     () => selectedSampleSet?.samples.filter((sample) => sample.status === 'active') ?? [],
@@ -1369,6 +1376,21 @@ export function Evaluations() {
     return workspacePath(`evaluations?${new URLSearchParams({ taskId: task.id }).toString()}`)
   }
 
+  function getTaskDetailUrl(task: RemediationTask) {
+    return `${window.location.origin}${getTaskDetailPath(task)}`
+  }
+
+  async function copyRemediationTaskLink(task: RemediationTask) {
+    try {
+      await navigator.clipboard.writeText(getTaskDetailUrl(task))
+      setRemediationShareLinkTone('success')
+      setRemediationShareLinkMessage('已复制修复任务链接')
+    } catch {
+      setRemediationShareLinkTone('error')
+      setRemediationShareLinkMessage('复制失败，请手动复制地址栏链接')
+    }
+  }
+
   const remediationTaskDetail = highlightedRemediationTask ? (() => {
     const artifactPath = getTaskArtifactPath(highlightedRemediationTask)
     const tracePath = getTaskTracePath(highlightedRemediationTask)
@@ -1479,6 +1501,14 @@ export function Evaluations() {
           <button
             className="button secondary small"
             type="button"
+            onClick={() => void copyRemediationTaskLink(highlightedRemediationTask)}
+          >
+            <Copy size={14} />
+            复制任务链接
+          </button>
+          <button
+            className="button secondary small"
+            type="button"
             disabled={highlightedRemediationTask.status !== 'open' || remediationTaskBusyId === highlightedRemediationTask.id}
             onClick={() => void updateTaskStatus(highlightedRemediationTask, 'in_progress')}
           >
@@ -1503,6 +1533,14 @@ export function Evaluations() {
             </button>
           )}
         </div>
+        {remediationShareLinkMessage && (
+          <div
+            className={`inline-feedback ${remediationShareLinkTone === 'error' ? 'error' : ''}`}
+            role={remediationShareLinkTone === 'error' ? 'alert' : 'status'}
+          >
+            {remediationShareLinkMessage}
+          </div>
+        )}
         <div className="remediation-activity-panel">
           <h5>处理时间线</h5>
           {(highlightedRemediationTask.activities ?? []).length > 0 ? (
