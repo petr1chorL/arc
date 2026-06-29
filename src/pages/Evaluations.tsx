@@ -603,7 +603,7 @@ function buildRegressionRunComparison(
 
 export function Evaluations() {
   const { workspace, workspacePath } = useWorkspace()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const highlightedRemediationTaskId = searchParams.get('taskId') ?? ''
   const [overview, setOverview] = useState<EvaluationOverview>(emptyOverview)
   const [rubrics, setRubrics] = useState<Rubric[]>([])
@@ -1391,6 +1391,14 @@ export function Evaluations() {
     }
   }
 
+  function closeRemediationTaskDetail() {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current)
+      next.delete('taskId')
+      return next.toString() === current.toString() ? current : next
+    }, { replace: true })
+  }
+
   const remediationTaskDetail = highlightedRemediationTask ? (() => {
     const artifactPath = getTaskArtifactPath(highlightedRemediationTask)
     const tracePath = getTaskTracePath(highlightedRemediationTask)
@@ -1420,6 +1428,14 @@ export function Evaluations() {
           <span className={`remediation-priority ${highlightedRemediationTask.priority.toLowerCase()}`}>
             {highlightedRemediationTask.priority}
           </span>
+          <button
+            className="button secondary small"
+            type="button"
+            onClick={closeRemediationTaskDetail}
+          >
+            <X size={14} />
+            关闭详情
+          </button>
         </header>
         <strong>{highlightedRemediationTask.title}</strong>
         <div className="remediation-task-meta">
