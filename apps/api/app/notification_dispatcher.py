@@ -40,6 +40,63 @@ class NoopNotificationDispatcher:
         )
 
 
+@dataclass(frozen=True)
+class NotificationChannelAdapter:
+    name: str
+    dispatcher: NotificationDispatcher
+    enabled: bool = True
+
+
+class NotificationChannelRouter:
+    def __init__(
+        self,
+        adapters: list[NotificationChannelAdapter],
+        *,
+        default_channel: str = "in_app",
+    ) -> None:
+        self.adapters = {
+            self._normalize_channel(adapter.name): adapter
+            for adapter in adapters
+        }
+        self.default_channel = self._normalize_channel(default_channel)
+
+    def send(self, delivery: NotificationDelivery) -> NotificationDispatchResult | dict:
+        channel = self._resolve_channel(delivery.payload)
+        adapter = self.adapters.get(channel)
+        if adapter is None:
+            return NotificationDispatchResult(
+                status="failed",
+                error=f"channel_not_configured:{channel}",
+            )
+        if not adapter.enabled:
+            return NotificationDispatchResult(
+                status="failed",
+                error=f"channel_disabled:{channel}",
+            )
+        try:
+            return adapter.dispatcher.send(delivery)
+        except Exception as error:  # pragma: no cover - defensive boundary for real adapters.
+            return NotificationDispatchResult(
+                status="failed",
+                error=f"channel_error:{channel}:{error}",
+            )
+
+    def _resolve_channel(self, payload: dict) -> str:
+        explicit_channel = payload.get("channel")
+        if isinstance(explicit_channel, str) and explicit_channel.strip():
+            return self._normalize_channel(explicit_channel)
+        channels = payload.get("channels")
+        if isinstance(channels, list):
+            for channel in channels:
+                if isinstance(channel, str) and channel.strip():
+                    return self._normalize_channel(channel)
+        return self.default_channel
+
+    @staticmethod
+    def _normalize_channel(channel: str) -> str:
+        return channel.strip().lower()
+
+
 def normalize_dispatch_result(result: NotificationDispatchResult | dict) -> NotificationDispatchResult:
     if isinstance(result, NotificationDispatchResult):
         return result

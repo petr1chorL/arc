@@ -57,6 +57,8 @@ from app.models import (
 )
 from app.notification_dispatcher import (
     NoopNotificationDispatcher,
+    NotificationChannelAdapter,
+    NotificationChannelRouter,
     NotificationDispatcher,
     NotificationOutboxConflict,
     NotificationOutboxDispatchService,
@@ -269,8 +271,11 @@ def create_app(
         execution_service,
         human_task_service,
     )
+    resolved_notification_dispatcher = notification_dispatcher or NotificationChannelRouter([
+        NotificationChannelAdapter("in_app", NoopNotificationDispatcher()),
+    ])
     notification_dispatch_service = NotificationOutboxDispatchService(
-        notification_dispatcher or NoopNotificationDispatcher(),
+        resolved_notification_dispatcher,
     )
     with session_factory() as session:
         workspace_ids = list(

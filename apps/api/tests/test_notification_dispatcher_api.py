@@ -2,6 +2,7 @@ from sqlalchemy import select
 
 from api_test_support import FIXED_NOW, create_authenticated_client, csrf_headers, workspace_url
 from app.models import AuditEventRecord, NotificationOutboxRecord, WorkspaceRecord
+from app.notification_dispatcher import NotificationChannelAdapter, NotificationChannelRouter
 
 
 class FakeNotificationDispatcher:
@@ -30,7 +31,9 @@ def add_notification(
     event_key,
     event_type="due_soon",
     status="pending",
+    payload=None,
 ):
+    notification_payload = payload or {"message": f"payload for {event_key}"}
     with client.app.state.session_factory() as session:
         record = NotificationOutboxRecord(
             workspace_id=workspace_id,
@@ -39,7 +42,7 @@ def add_notification(
             event_type=event_type,
             recipient_type="reviewer",
             recipient_id="reviewer-1",
-            payload={"message": f"payload for {event_key}"},
+            payload=notification_payload,
             status=status,
             created_at=FIXED_NOW,
         )
@@ -47,6 +50,154 @@ def add_notification(
         session.commit()
         session.refresh(record)
         return record.id
+
+
+def test_dispatch_routes_explicit_channel_to_matching_adapter(tmp_path):
+    in_app_dispatcher = FakeNotificationDispatcher()
+    webhook_dispatcher = FakeNotificationDispatcher()
+    router = NotificationChannelRouter([
+        NotificationChannelAdapter("in_app", in_app_dispatcher),
+        NotificationChannelAdapter("webhook", webhook_dispatcher),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'notification-channel-webhook.db'}",
+        notification_dispatcher=router,
+    )
+    notification_id = add_notification(
+        client,
+        workspace_id=workspace_id,
+        event_key="task-1:webhook",
+        payload={"message": "send through webhook", "channel": "webhook"},
+    )
+
+    response = client.post(
+        workspace_url(workspace_id, "/notifications/outbox/dispatch"),
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["sent"] == 1
+    assert [delivery.id for delivery in webhook_dispatcher.deliveries] == [notification_id]
+    assert in_app_dispatcher.deliveries == []
+
+
+def test_dispatch_routes_first_channel_from_channels_list(tmp_path):
+    email_dispatcher = FakeNotificationDispatcher()
+    webhook_dispatcher = FakeNotificationDispatcher()
+    router = NotificationChannelRouter([
+        NotificationChannelAdapter("email", email_dispatcher),
+        NotificationChannelAdapter("webhook", webhook_dispatcher),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'notification-channel-list.db'}",
+        notification_dispatcher=router,
+    )
+    notification_id = add_notification(
+        client,
+        workspace_id=workspace_id,
+        event_key="task-1:email",
+        payload={"message": "send through email", "channels": ["email", "webhook"]},
+    )
+
+    response = client.post(
+        workspace_url(workspace_id, "/notifications/outbox/dispatch"),
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["sent"] == 1
+    assert [delivery.id for delivery in email_dispatcher.deliveries] == [notification_id]
+    assert webhook_dispatcher.deliveries == []
+
+
+def test_dispatch_uses_in_app_channel_when_no_channel_declared(tmp_path):
+    in_app_dispatcher = FakeNotificationDispatcher()
+    router = NotificationChannelRouter([
+        NotificationChannelAdapter("in_app", in_app_dispatcher),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'notification-channel-default.db'}",
+        notification_dispatcher=router,
+    )
+    notification_id = add_notification(
+        client,
+        workspace_id=workspace_id,
+        event_key="task-1:default",
+    )
+
+    response = client.post(
+        workspace_url(workspace_id, "/notifications/outbox/dispatch"),
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["sent"] == 1
+    assert [delivery.id for delivery in in_app_dispatcher.deliveries] == [notification_id]
+
+
+def test_unknown_notification_channel_fails_without_crashing_worker(tmp_path):
+    in_app_dispatcher = FakeNotificationDispatcher()
+    router = NotificationChannelRouter([
+        NotificationChannelAdapter("in_app", in_app_dispatcher),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'notification-channel-unknown.db'}",
+        notification_dispatcher=router,
+    )
+    notification_id = add_notification(
+        client,
+        workspace_id=workspace_id,
+        event_key="task-1:unknown",
+        payload={"message": "send through unknown channel", "channel": "sms"},
+    )
+
+    response = client.post(
+        workspace_url(workspace_id, "/notifications/outbox/dispatch"),
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["processed"] == 1
+    assert body["failed"] == 1
+    assert body["items"][0]["id"] == notification_id
+    assert "channel_not_configured:sms" in body["items"][0]["error"]
+    assert in_app_dispatcher.deliveries == []
+
+    with client.app.state.session_factory() as session:
+        record = session.get(NotificationOutboxRecord, notification_id)
+        assert record.status == "failed"
+        assert "channel_not_configured:sms" in record.payload["dispatch"]["error"]
+
+
+def test_disabled_notification_channel_fails_without_calling_adapter(tmp_path):
+    email_dispatcher = FakeNotificationDispatcher()
+    router = NotificationChannelRouter([
+        NotificationChannelAdapter("email", email_dispatcher, enabled=False),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'notification-channel-disabled.db'}",
+        notification_dispatcher=router,
+    )
+    notification_id = add_notification(
+        client,
+        workspace_id=workspace_id,
+        event_key="task-1:disabled",
+        payload={"message": "send through disabled channel", "channel": "email"},
+    )
+
+    response = client.post(
+        workspace_url(workspace_id, "/notifications/outbox/dispatch"),
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["processed"] == 1
+    assert body["failed"] == 1
+    assert body["items"][0]["id"] == notification_id
+    assert "channel_disabled:email" in body["items"][0]["error"]
+    assert email_dispatcher.deliveries == []
 
 
 def test_dispatches_pending_notifications_and_records_results(tmp_path):

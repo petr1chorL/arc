@@ -1,7 +1,7 @@
 # ARC.ONE 当前版本实现说明
 
-> 当前版本：V0.30C Notification Outbox 失败重新入队
-> 上一阶段：V0.30B Notification Outbox Worker 入口
+> 当前版本：V0.30D Notification Channel Router
+> 上一阶段：V0.30C Notification Outbox 失败重新入队
 > 更新时间：2026-06-29
 
 ## 1. 当前版本是什么
@@ -1728,3 +1728,13 @@ Remediation Task API 响应现在包含后端派生的 `retestSummary` 字段，
 重新入队时，系统会把上一轮 `payload.dispatch` 追加到 `payload.dispatchHistory`，再把当前 `payload.dispatch` 改为 `pending`，并记录 `requeuedAt` 与操作原因。成功操作会写入 `notification_outbox.requeue` 审计事件，包含前后状态、原因、事件 Key、事件类型和接收人信息。
 
 本版本是手动恢复入口，不实现自动重试、退避、渠道限流、幂等发送键或真实外部通知发送。验收记录见 `docs/ACCEPTANCE_V0.30C.md`。
+
+---
+
+## V0.30D Notification Channel Router
+
+平台新增 `NotificationChannelRouter` 和 `NotificationChannelAdapter`，让 Notification Outbox 派发可以根据通知 payload 中声明的渠道选择对应 adapter。当前支持读取 `payload.channel`，也支持读取 `payload.channels` 的第一个有效渠道；未声明渠道时默认走 `in_app`。
+
+未知渠道不会让 Worker 或 dispatch API 崩溃，而是返回失败结果并把通知标记为 `failed`，错误包含 `channel_not_configured:<channel>`；禁用渠道不会调用对应 adapter，错误包含 `channel_disabled:<channel>`。默认 app factory 现在把本地 `NoopNotificationDispatcher` 注册为 `in_app` adapter，因此默认运行仍然不访问外部网络。
+
+本版本只建立真实通知渠道接入前的本地路由边界，不新增渠道配置表、通知模板、限流、退避、幂等键、回调处理或真实飞书/邮件/Webhook SDK。验收记录见 `docs/ACCEPTANCE_V0.30D.md`。
