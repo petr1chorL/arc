@@ -309,6 +309,7 @@ def create_app(
     ])
     notification_dispatch_service = NotificationOutboxDispatchService(
         resolved_notification_dispatcher,
+        require_channel_assets=notification_dispatcher is None,
     )
     with session_factory() as session:
         workspace_ids = list(

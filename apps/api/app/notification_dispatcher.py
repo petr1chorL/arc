@@ -5,7 +5,7 @@ from typing import Protocol
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import NotificationOutboxRecord, utc_now
+from app.models import NotificationChannelRecord, NotificationOutboxRecord, utc_now
 
 
 @dataclass(frozen=True)
@@ -42,6 +42,22 @@ class NoopNotificationDispatcher:
         )
 
 
+def resolve_notification_channel(payload: dict, *, default_channel: str = "in_app") -> str:
+    explicit_channel = payload.get("channel")
+    if isinstance(explicit_channel, str) and explicit_channel.strip():
+        return normalize_channel_name(explicit_channel)
+    channels = payload.get("channels")
+    if isinstance(channels, list):
+        for channel in channels:
+            if isinstance(channel, str) and channel.strip():
+                return normalize_channel_name(channel)
+    return normalize_channel_name(default_channel)
+
+
+def normalize_channel_name(channel: str) -> str:
+    return channel.strip().lower()
+
+
 @dataclass(frozen=True)
 class NotificationChannelAdapter:
     name: str
@@ -63,7 +79,7 @@ class NotificationChannelRouter:
         self.default_channel = self._normalize_channel(default_channel)
 
     def send(self, delivery: NotificationDelivery) -> NotificationDispatchResult | dict:
-        channel = self._resolve_channel(delivery.payload)
+        channel = resolve_notification_channel(delivery.payload, default_channel=self.default_channel)
         adapter = self.adapters.get(channel)
         if adapter is None:
             return NotificationDispatchResult(
@@ -89,20 +105,9 @@ class NotificationChannelRouter:
                 error=f"channel_error:{channel}:{error}",
             )
 
-    def _resolve_channel(self, payload: dict) -> str:
-        explicit_channel = payload.get("channel")
-        if isinstance(explicit_channel, str) and explicit_channel.strip():
-            return self._normalize_channel(explicit_channel)
-        channels = payload.get("channels")
-        if isinstance(channels, list):
-            for channel in channels:
-                if isinstance(channel, str) and channel.strip():
-                    return self._normalize_channel(channel)
-        return self.default_channel
-
     @staticmethod
     def _normalize_channel(channel: str) -> str:
-        return channel.strip().lower()
+        return normalize_channel_name(channel)
 
     @staticmethod
     def _with_channel(
@@ -137,9 +142,11 @@ class NotificationOutboxDispatchService:
         dispatcher: NotificationDispatcher,
         *,
         clock=utc_now,
+        require_channel_assets: bool = False,
     ) -> None:
         self.dispatcher = dispatcher
         self.clock = clock
+        self.require_channel_assets = require_channel_assets
 
     def dispatch_pending(
         self,
@@ -172,7 +179,13 @@ class NotificationOutboxDispatchService:
                 recipient_id=notification.recipient_id,
                 payload=notification.payload or {},
             )
-            result = normalize_dispatch_result(self.dispatcher.send(delivery))
+            result = (
+                self._validate_channel_asset(session, delivery)
+                if self.require_channel_assets
+                else None
+            )
+            if result is None:
+                result = normalize_dispatch_result(self.dispatcher.send(delivery))
             status = "sent" if result.status == "sent" else "failed"
             if status == "sent":
                 sent += 1
@@ -205,6 +218,36 @@ class NotificationOutboxDispatchService:
             "failed": failed,
             "items": items,
         }
+
+    def _validate_channel_asset(
+        self,
+        session: Session,
+        delivery: NotificationDelivery,
+    ) -> NotificationDispatchResult | None:
+        channel = resolve_notification_channel(delivery.payload)
+        if channel == "in_app":
+            return None
+        assets = list(session.scalars(
+            select(NotificationChannelRecord).where(
+                NotificationChannelRecord.workspace_id == delivery.workspace_id,
+                NotificationChannelRecord.channel_type == channel,
+            ),
+        ))
+        if not assets:
+            return NotificationDispatchResult(
+                status="failed",
+                channel=channel,
+                error_code="notification_channel_missing",
+                error=f"notification_channel_missing:{channel}",
+            )
+        if not any(asset.status == "active" for asset in assets):
+            return NotificationDispatchResult(
+                status="failed",
+                channel=channel,
+                error_code="notification_channel_disabled",
+                error=f"notification_channel_disabled:{channel}",
+            )
+        return None
 
     def requeue_failed(
         self,

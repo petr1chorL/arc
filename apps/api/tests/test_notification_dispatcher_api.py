@@ -338,6 +338,111 @@ def test_disabled_notification_channel_fails_without_calling_adapter(tmp_path):
     assert email_dispatcher.deliveries == []
 
 
+def test_default_dispatch_requires_non_default_channel_asset(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'notification-channel-asset-missing.db'}",
+    )
+    notification_id = add_notification(
+        client,
+        workspace_id=workspace_id,
+        event_key="task-1:webhook-missing-asset",
+        payload={"message": "send through webhook", "channel": "webhook"},
+    )
+
+    response = client.post(
+        workspace_url(workspace_id, "/notifications/outbox/dispatch"),
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["processed"] == 1
+    assert body["failed"] == 1
+    assert body["items"][0]["id"] == notification_id
+    assert body["items"][0]["channel"] == "webhook"
+    assert body["items"][0]["errorCode"] == "notification_channel_missing"
+    assert "notification_channel_missing:webhook" in body["items"][0]["error"]
+    with client.app.state.session_factory() as session:
+        record = session.get(NotificationOutboxRecord, notification_id)
+        assert record.status == "failed"
+        assert record.payload["dispatch"]["errorCode"] == "notification_channel_missing"
+
+
+def test_default_dispatch_fails_when_channel_asset_is_disabled(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'notification-channel-asset-disabled.db'}",
+    )
+    with client.app.state.session_factory() as session:
+        session.add(NotificationChannelRecord(
+            workspace_id=workspace_id,
+            name="Webhook 告警",
+            channel_type="webhook",
+            status="disabled",
+            config={"urlRef": "WEBHOOK_URL"},
+            secret_ref="WEBHOOK_SECRET",
+            created_by="user-1",
+        ))
+        session.commit()
+    notification_id = add_notification(
+        client,
+        workspace_id=workspace_id,
+        event_key="task-1:webhook-disabled-asset",
+        payload={"message": "send through webhook", "channel": "webhook"},
+    )
+
+    response = client.post(
+        workspace_url(workspace_id, "/notifications/outbox/dispatch"),
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["failed"] == 1
+    assert body["items"][0]["id"] == notification_id
+    assert body["items"][0]["channel"] == "webhook"
+    assert body["items"][0]["errorCode"] == "notification_channel_disabled"
+    assert "notification_channel_disabled:webhook" in body["items"][0]["error"]
+    with client.app.state.session_factory() as session:
+        record = session.get(NotificationOutboxRecord, notification_id)
+        assert record.payload["dispatch"]["errorCode"] == "notification_channel_disabled"
+
+
+def test_default_dispatch_reports_adapter_missing_when_active_asset_has_no_adapter(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'notification-channel-active-no-adapter.db'}",
+    )
+    with client.app.state.session_factory() as session:
+        session.add(NotificationChannelRecord(
+            workspace_id=workspace_id,
+            name="Webhook 告警",
+            channel_type="webhook",
+            status="active",
+            config={"urlRef": "WEBHOOK_URL"},
+            secret_ref="WEBHOOK_SECRET",
+            created_by="user-1",
+        ))
+        session.commit()
+    notification_id = add_notification(
+        client,
+        workspace_id=workspace_id,
+        event_key="task-1:webhook-active-no-adapter",
+        payload={"message": "send through webhook", "channel": "webhook"},
+    )
+
+    response = client.post(
+        workspace_url(workspace_id, "/notifications/outbox/dispatch"),
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["failed"] == 1
+    assert body["items"][0]["id"] == notification_id
+    assert body["items"][0]["channel"] == "webhook"
+    assert body["items"][0]["errorCode"] == "channel_not_configured"
+    assert "channel_not_configured:webhook" in body["items"][0]["error"]
+
+
 def test_dict_dispatch_result_error_code_is_normalized(tmp_path):
     email_dispatcher = FailureCodeNotificationDispatcher()
     router = NotificationChannelRouter([
