@@ -22,6 +22,8 @@ const channelOptions = [
 
 const errorCodeOptions = [
   { label: '全部失败码', value: '' },
+  { label: 'notification_channel_missing', value: 'notification_channel_missing' },
+  { label: 'notification_channel_disabled', value: 'notification_channel_disabled' },
   { label: 'channel_not_configured', value: 'channel_not_configured' },
   { label: 'channel_disabled', value: 'channel_disabled' },
   { label: 'provider_timeout', value: 'provider_timeout' },
@@ -69,8 +71,26 @@ function messageText(notification: NotificationOutboxItem) {
   return typeof message === 'string' && message ? message : notification.eventType
 }
 
+function remediationAdvice(errorCode: string, channel: string) {
+  if (!errorCode || errorCode === '无') return ''
+  switch (errorCode) {
+    case 'notification_channel_missing':
+      return `当前 Workspace 缺少 ${channel} 通知渠道资产，请先打开通知渠道并新增 active 渠道。`
+    case 'notification_channel_disabled':
+      return `${channel} 通知渠道资产已停用，请打开通知渠道恢复或新建 active 渠道后再重新入队。`
+    case 'channel_not_configured':
+      return `${channel} 渠道资产可能已配置，但后端 adapter 尚未接入，需要平台开发者接入真实 adapter。`
+    case 'channel_disabled':
+      return `${channel} 代码 adapter 已禁用，需要平台管理员恢复 adapter 后再重新入队。`
+    case 'provider_timeout':
+      return '外部供应商响应超时，请等待供应商恢复后重新入队。'
+    default:
+      return '保留失败证据，先确认渠道资产、adapter 状态和外部供应商可用性。'
+  }
+}
+
 export function Notifications() {
-  const { workspace } = useWorkspace()
+  const { workspace, workspacePath } = useWorkspace()
   const [items, setItems] = useState<NotificationOutboxItem[]>([])
   const [status, setStatus] = useState('')
   const [channel, setChannel] = useState('')
@@ -227,6 +247,10 @@ export function Notifications() {
                           </div>
                         </dl>
                         <p>{item.error || '无错误文本'}</p>
+                        <RemediationAdvice
+                          advice={remediationAdvice(item.errorCode, item.channel || '未声明')}
+                          settingsHref={workspacePath('settings/notification-channels')}
+                        />
                       </article>
                     ))}
                   </div>
@@ -314,6 +338,10 @@ export function Notifications() {
                   <span><em>创建时间</em>{formatTime(item.createdAt)}</span>
                 </div>
                 <p>{notificationError(item)}</p>
+                <RemediationAdvice
+                  advice={remediationAdvice(notificationErrorCode(item), notificationChannel(item))}
+                  settingsHref={workspacePath('settings/notification-channels')}
+                />
                 {activeRequeueId === item.id && (
                   <div className="notification-requeue-panel">
                     <label>
@@ -350,6 +378,23 @@ export function Notifications() {
           </div>
         )}
       </section>
+    </div>
+  )
+}
+
+function RemediationAdvice({
+  advice,
+  settingsHref,
+}: {
+  advice: string
+  settingsHref: string
+}) {
+  if (!advice) return null
+  return (
+    <div className="notification-remediation-advice">
+      <strong>排障建议</strong>
+      <span>{advice}</span>
+      <a href={settingsHref}>打开通知渠道</a>
     </div>
   )
 }

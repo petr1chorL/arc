@@ -28,6 +28,22 @@ const notifications = [{
   status: 'failed',
   createdAt: '2026-06-29T08:00:00Z',
 }, {
+  id: 'notification-missing-channel',
+  eventType: 'run_failure',
+  recipientType: 'workspace_admin',
+  recipientId: 'admin@example.com',
+  payload: {
+    message: 'Webhook 渠道资产缺失',
+    dispatch: {
+      status: 'failed',
+      channel: 'webhook',
+      errorCode: 'notification_channel_missing',
+      error: 'notification_channel_missing:webhook',
+    },
+  },
+  status: 'failed',
+  createdAt: '2026-06-29T07:55:00Z',
+}, {
   id: 'notification-pending',
   eventType: 'human_task_due',
   recipientType: 'reviewer',
@@ -94,11 +110,16 @@ describe('Notifications page', () => {
     renderPage()
 
     expect(await screen.findByRole('heading', { name: '通知运维' })).toBeInTheDocument()
-    expect(screen.getByText('3')).toBeInTheDocument()
+    expect(screen.getByText('4')).toBeInTheDocument()
     expect(screen.getByText('失败通知')).toBeInTheDocument()
     expect(screen.getByText('notification-failed')).toBeInTheDocument()
     expect(within(screen.getByLabelText('通知 Outbox 列表')).getByText('channel_not_configured')).toBeInTheDocument()
     expect(screen.getByText('channel_not_configured:webhook')).toBeInTheDocument()
+    expect(screen.getByText('当前 Workspace 缺少 webhook 通知渠道资产，请先打开通知渠道并新增 active 渠道。')).toBeInTheDocument()
+    const channelSettingsLinks = screen.getAllByRole('link', { name: '打开通知渠道' })
+    expect(channelSettingsLinks[0]).toHaveAttribute('href', '/w/ai-capability-center/settings/notification-channels')
+    expect(screen.getByRole('option', { name: 'notification_channel_missing' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'notification_channel_disabled' })).toBeInTheDocument()
 
     await user.selectOptions(screen.getByLabelText('状态筛选'), 'failed')
     await waitFor(() => {
@@ -269,9 +290,9 @@ describe('Notifications page', () => {
             eventKey: 'task-1:webhook',
             status: 'failed',
             channel: 'webhook',
-            errorCode: 'channel_not_configured',
+            errorCode: 'notification_channel_disabled',
             providerMessageId: '',
-            error: 'channel_not_configured:webhook',
+            error: 'notification_channel_disabled:webhook',
           }, {
             id: 'notification-sent',
             eventKey: 'task-2:in_app',
@@ -301,8 +322,9 @@ describe('Notifications page', () => {
     expect(dispatchResult.getByText('task-1:webhook')).toBeInTheDocument()
     expect(dispatchResult.getByText('failed')).toBeInTheDocument()
     expect(dispatchResult.getByText('webhook')).toBeInTheDocument()
-    expect(dispatchResult.getByText('channel_not_configured')).toBeInTheDocument()
-    expect(dispatchResult.getByText('channel_not_configured:webhook')).toBeInTheDocument()
+    expect(dispatchResult.getByText('notification_channel_disabled')).toBeInTheDocument()
+    expect(dispatchResult.getByText('notification_channel_disabled:webhook')).toBeInTheDocument()
+    expect(dispatchResult.getByText('webhook 通知渠道资产已停用，请打开通知渠道恢复或新建 active 渠道后再重新入队。')).toBeInTheDocument()
     expect(dispatchResult.getByText('provider-1')).toBeInTheDocument()
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
