@@ -88,6 +88,14 @@ describe('Evaluations page', () => {
       createdAt: '2026-06-29T09:00:00Z',
       updatedAt: '2026-06-29T09:00:00Z',
     }
+    const nonArtifactRemediationTask = {
+      ...remediationTask,
+      id: 'remediation-task-2',
+      sourceRunId: 'run-regression-1',
+      clusterKey: 'Evidence',
+      title: '修复证据完整性',
+      sampleIds: ['sample-1'],
+    }
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
       if (input === `/api/workspaces/${workspace.id}/evaluations/overview`) {
         return response(overview)
@@ -105,7 +113,7 @@ describe('Evaluations page', () => {
         return response([])
       }
       if (String(input).split('?')[0] === `/api/workspaces/${workspace.id}/evaluations/remediation-tasks`) {
-        return response([remediationTask])
+        return response([remediationTask, nonArtifactRemediationTask])
       }
       return response({ detail: 'not found' }, 404)
     }))
@@ -115,6 +123,30 @@ describe('Evaluations page', () => {
     const taskList = await screen.findByRole('region', { name: 'Remediation Tasks' })
     expect(within(taskList).getByText('当前定位任务 remediation-task-1')).toBeInTheDocument()
     expect(within(taskList).getByLabelText('修复任务 remediation-task-1')).toHaveClass('active')
+    const artifactLink = within(taskList).getByRole('link', {
+      name: '查看 remediation-task-1 产出物',
+    })
+    expect(artifactLink).toHaveAttribute(
+      'href',
+      '/w/ai-capability-center/artifacts?artifactVersionId=artifact-version-2',
+    )
+    const traceLink = within(taskList).getByRole('link', {
+      name: '查看 remediation-task-1 运行链路',
+    })
+    expect(traceLink).toHaveAttribute(
+      'href',
+      '/w/ai-capability-center/observability?runId=run-artifact-1',
+    )
+    const nonArtifactTask = within(taskList).getByLabelText('修复任务 remediation-task-2')
+    expect(within(nonArtifactTask).queryByRole('link', {
+      name: '查看 remediation-task-2 产出物',
+    })).not.toBeInTheDocument()
+    expect(within(nonArtifactTask).getByRole('link', {
+      name: '查看 remediation-task-2 运行链路',
+    })).toHaveAttribute(
+      'href',
+      '/w/ai-capability-center/observability?runId=run-regression-1',
+    )
   })
 
   it('renders real feedback, golden sample overview data, and API rubric assets', async () => {

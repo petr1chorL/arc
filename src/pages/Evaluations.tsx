@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   ArrowRight,
   Beaker,
@@ -220,6 +220,11 @@ function getDefaultRemediationDueDate() {
   const dueDate = new Date()
   dueDate.setDate(dueDate.getDate() + 7)
   return dueDate.toISOString()
+}
+
+function getArtifactVersionIdFromTask(task: RemediationTask) {
+  const prefix = 'artifact:'
+  return task.clusterKey.startsWith(prefix) ? task.clusterKey.slice(prefix.length) : ''
 }
 
 function parseAttachmentRefs(value: string) {
@@ -544,7 +549,7 @@ function buildRegressionRunComparison(
 }
 
 export function Evaluations() {
-  const { workspace } = useWorkspace()
+  const { workspace, workspacePath } = useWorkspace()
   const [searchParams] = useSearchParams()
   const highlightedRemediationTaskId = searchParams.get('taskId') ?? ''
   const [overview, setOverview] = useState<EvaluationOverview>(emptyOverview)
@@ -1281,6 +1286,9 @@ export function Evaluations() {
       <div className="remediation-task-list">
         {remediationTasks.map((task) => {
           const isHighlightedTask = task.id === highlightedRemediationTaskId
+          const artifactVersionId = getArtifactVersionIdFromTask(task)
+          const artifactParams = new URLSearchParams({ artifactVersionId })
+          const traceParams = new URLSearchParams({ runId: task.sourceRunId })
           return (
             <article
               aria-label={`修复任务 ${task.id}`}
@@ -1303,6 +1311,24 @@ export function Evaluations() {
                 <span>{task.isOverdue ? '已逾期' : '未逾期'}</span>
               </div>
               <div className="remediation-task-actions">
+                {artifactVersionId && (
+                  <Link
+                    aria-label={`查看 ${task.id} 产出物`}
+                    className="button secondary small"
+                    to={workspacePath(`artifacts?${artifactParams.toString()}`)}
+                  >
+                    <FileText size={14} />
+                    查看产出物
+                  </Link>
+                )}
+                <Link
+                  aria-label={`查看 ${task.id} 运行链路`}
+                  className="button secondary small"
+                  to={workspacePath(`observability?${traceParams.toString()}`)}
+                >
+                  <ArrowRight size={14} />
+                  查看运行链路
+                </Link>
                 <button
                   className="button secondary small"
                   type="button"
