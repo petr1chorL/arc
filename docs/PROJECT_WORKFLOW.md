@@ -135,10 +135,12 @@ ARC.ONE 当前是单上下文仓库：
 PRD 包含：
 
 - 问题陈述（Problem Statement）。
+- 第一性原理核查（First-principles Check）：底层目标、必要对象/状态/约束、当前切片优先级。
 - 解决方案（Solution）。
 - 完整的用户故事（User Stories）。
 - 实施决策（Implementation Decisions）。
 - 测试决策（Testing Decisions）。
+- 对抗式审查（Adversarial Review）：错误完成感、权限/审计/隔离/安全边界、失败路径和文档夸大风险。
 - 范围外事项（Out of Scope）。
 - 补充说明（Further Notes）。
 
@@ -177,6 +179,19 @@ PRD: `../PRD.md`
 ## 建设内容（What to build）
 
 一项端到端行为。
+
+## 第一性原理核查（First-principles check）
+
+- 底层目标：
+- 必要对象/状态/约束：
+- 为什么当前切片优先：
+
+## 对抗式审查（Adversarial review）
+
+- 可能制造的错误完成感：
+- 权限/审计/隔离/安全边界：
+- 必须覆盖的失败路径：
+- 文档不得夸大的能力：
 
 ## 验收标准（Acceptance criteria）
 
@@ -242,6 +257,7 @@ docs/superpowers/plans/YYYY-MM-DD-<feature>.md
 
 - 点名准确文件。
 - 拆成约 2-5 分钟的动作。
+- 明确第一性原理核查和对抗式审查如何落到测试、边界和文档。
 - 给出实际测试和实现内容。
 - 给出准确命令及预期结果。
 - 遵循 DRY、YAGNI、TDD 和频繁提交。
@@ -309,6 +325,7 @@ Issue 只有满足以下条件才能完成：
 - Lint 和构建通过。
 - 涉及界面时完成用户可见行为验证。
 - Issue 中记录新的验证证据。
+- 第一性原理核查和对抗式审查已记录，并且发现的问题已处理或明确列为范围外。
 - 当前实现说明保持准确。
 - 必要时更新领域术语或 ADR。
 - 功能状态指向下一项 Issue。
