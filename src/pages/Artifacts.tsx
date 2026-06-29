@@ -266,6 +266,11 @@ export function Artifacts() {
     return workspacePath(`observability?${params.toString()}`)
   }
 
+  function remediationTaskPath(task: RemediationTask) {
+    const params = new URLSearchParams({ taskId: task.id })
+    return workspacePath(`evaluations?${params.toString()}`)
+  }
+
   async function createArtifactRemediationTask(
     artifact: ArtifactCatalogItem,
     validation: SchemaValidationResult,
@@ -444,6 +449,13 @@ export function Artifacts() {
                   {remediationTask && (
                     <div className="inline-feedback" role="status">
                       <Check size={15} />已创建修复任务 {remediationTask.id}
+                      <Link
+                        aria-label={`查看 ${remediationTask.id} 修复任务`}
+                        className="button ghost"
+                        to={remediationTaskPath(remediationTask)}
+                      >
+                        <Route size={15} />查看修复任务
+                      </Link>
                     </div>
                   )}
                   {remediationError && (

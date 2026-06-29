@@ -52,9 +52,9 @@ function response(data: unknown, status = 200) {
   return Promise.resolve(new Response(JSON.stringify(data), { status }))
 }
 
-function renderPage() {
+function renderPage(initialEntry = '/evaluations') {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <WorkspaceProvider workspace={workspace}>
         <Evaluations />
       </WorkspaceProvider>
@@ -65,6 +65,56 @@ function renderPage() {
 describe('Evaluations page', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
+  })
+
+  it('highlights a remediation task from a remediation task deep link', async () => {
+    const remediationTask = {
+      id: 'remediation-task-1',
+      sourceRunId: 'run-artifact-1',
+      clusterKey: 'artifact:artifact-version-2',
+      title: '修复 Artifact artifact-version-2 的结构输出',
+      priority: 'P1',
+      sampleIds: ['artifact-version-2'],
+      action: '缺少必填字段：summary',
+      status: 'open',
+      owner: '管理员',
+      dueDate: null,
+      isOverdue: false,
+      activities: [],
+      retestRunId: null,
+      retestRun: null,
+      createdBy: 'user-1',
+      updatedBy: 'user-1',
+      createdAt: '2026-06-29T09:00:00Z',
+      updatedAt: '2026-06-29T09:00:00Z',
+    }
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      if (input === `/api/workspaces/${workspace.id}/evaluations/overview`) {
+        return response(overview)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/rubrics`) {
+        return response(rubricAssets)
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/records`) {
+        return response([])
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/sample-sets`) {
+        return response([])
+      }
+      if (input === `/api/workspaces/${workspace.id}/evaluations/regression-runs`) {
+        return response([])
+      }
+      if (String(input).split('?')[0] === `/api/workspaces/${workspace.id}/evaluations/remediation-tasks`) {
+        return response([remediationTask])
+      }
+      return response({ detail: 'not found' }, 404)
+    }))
+
+    renderPage('/w/ai-capability-center/evaluations?taskId=remediation-task-1')
+
+    const taskList = await screen.findByRole('region', { name: 'Remediation Tasks' })
+    expect(within(taskList).getByText('当前定位任务 remediation-task-1')).toBeInTheDocument()
+    expect(within(taskList).getByLabelText('修复任务 remediation-task-1')).toHaveClass('active')
   })
 
   it('renders real feedback, golden sample overview data, and API rubric assets', async () => {

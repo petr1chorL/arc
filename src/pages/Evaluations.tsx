@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   ArrowRight,
   Beaker,
@@ -544,6 +545,8 @@ function buildRegressionRunComparison(
 
 export function Evaluations() {
   const { workspace } = useWorkspace()
+  const [searchParams] = useSearchParams()
+  const highlightedRemediationTaskId = searchParams.get('taskId') ?? ''
   const [overview, setOverview] = useState<EvaluationOverview>(emptyOverview)
   const [rubrics, setRubrics] = useState<Rubric[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -802,6 +805,11 @@ export function Evaluations() {
     }
     return Array.from(owners).sort((left, right) => left.localeCompare(right, 'zh-CN'))
   }, [remediationOwnerFilter, remediationTasks])
+
+  const highlightedRemediationTask = useMemo(
+    () => remediationTasks.find((task) => task.id === highlightedRemediationTaskId) ?? null,
+    [highlightedRemediationTaskId, remediationTasks],
+  )
 
   const activeSelectedSamples = useMemo(
     () => selectedSampleSet?.samples.filter((sample) => sample.status === 'active') ?? [],
@@ -1210,6 +1218,190 @@ export function Evaluations() {
       setRemediationTaskBusyId('')
     }
   }
+
+  const remediationTaskBoard = remediationTasks.length > 0 ? (
+    <div className="remediation-task-board" role="region" aria-label="Remediation Tasks">
+      <header>
+        <div>
+          <span className="eyebrow">REMEDIATION TASKS</span>
+          <h4>Remediation Tasks</h4>
+        </div>
+        <span className="status-pill">{remediationTasks.length} 个任务</span>
+      </header>
+      {highlightedRemediationTask && (
+        <div className="inline-feedback" role="status">
+          当前定位任务 {highlightedRemediationTask.id}
+        </div>
+      )}
+      {highlightedRemediationTaskId && !highlightedRemediationTask && (
+        <div className="inline-feedback error" role="status">
+          未找到定位任务 {highlightedRemediationTaskId}
+        </div>
+      )}
+      <div className="remediation-task-filters">
+        <label>
+          负责人筛选
+          <select
+            aria-label="负责人筛选"
+            value={remediationOwnerFilter}
+            onChange={(event) => setRemediationOwnerFilter(event.target.value)}
+          >
+            <option value="all">全部负责人</option>
+            {remediationOwnerOptions.map((owner) => (
+              <option key={owner} value={owner}>{owner}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          优先级筛选
+          <select
+            aria-label="优先级筛选"
+            value={remediationPriorityFilter}
+            onChange={(event) => setRemediationPriorityFilter(event.target.value)}
+          >
+            <option value="all">全部优先级</option>
+            <option value="P0">P0</option>
+            <option value="P1">P1</option>
+            <option value="P2">P2</option>
+          </select>
+        </label>
+        <label>
+          逾期筛选
+          <select
+            aria-label="逾期筛选"
+            value={remediationOverdueFilter}
+            onChange={(event) => setRemediationOverdueFilter(event.target.value)}
+          >
+            <option value="all">全部状态</option>
+            <option value="overdue">只看逾期</option>
+            <option value="active">未逾期</option>
+          </select>
+        </label>
+      </div>
+      <div className="remediation-task-list">
+        {remediationTasks.map((task) => {
+          const isHighlightedTask = task.id === highlightedRemediationTaskId
+          return (
+            <article
+              aria-label={`修复任务 ${task.id}`}
+              className={`remediation-task-card ${isHighlightedTask ? 'active' : ''}`}
+              key={task.id}
+            >
+              <div>
+                <span className={`remediation-priority ${task.priority.toLowerCase()}`}>
+                  {task.priority}
+                </span>
+                <strong>{task.title}</strong>
+              </div>
+              <p>{task.action}</p>
+              <div className="remediation-task-meta">
+                <span>{task.status}</span>
+                <span>{task.sampleIds.length} samples</span>
+                <span className="mono">{task.clusterKey}</span>
+                <span>负责人 {task.owner ?? '未分配'}</span>
+                <span>截止 {formatDateOnly(task.dueDate)}</span>
+                <span>{task.isOverdue ? '已逾期' : '未逾期'}</span>
+              </div>
+              <div className="remediation-task-actions">
+                <button
+                  className="button secondary small"
+                  type="button"
+                  disabled={task.status !== 'open' || remediationTaskBusyId === task.id}
+                  onClick={() => void updateTaskStatus(task, 'in_progress')}
+                >
+                  标记处理中
+                </button>
+                <button
+                  className="button secondary small"
+                  type="button"
+                  disabled={task.status === 'done' || remediationTaskBusyId === task.id}
+                  onClick={() => void updateTaskStatus(task, 'done')}
+                >
+                  标记完成
+                </button>
+                {task.status === 'done' && !task.retestRunId && (
+                  <button
+                    className="button secondary small"
+                    type="button"
+                    disabled={remediationTaskBusyId === task.id}
+                    onClick={() => void startTaskRetest(task)}
+                  >
+                    发起复测
+                  </button>
+                )}
+              </div>
+              <div className="remediation-activity-panel">
+                <h5>处理时间线</h5>
+                {(task.activities ?? []).length > 0 ? (
+                  <div className="remediation-activity-list">
+                    {task.activities.map((activity) => (
+                      <article className="remediation-activity-item" key={activity.id}>
+                        <div>
+                          <span>{activity.kind === 'comment' ? '评论' : '处理记录'}</span>
+                          <strong>{activity.actorDisplayName}</strong>
+                          <time>{formatDateOnly(activity.createdAt)}</time>
+                        </div>
+                        <p>{activity.body}</p>
+                        {activity.attachmentRefs.map((attachmentRef) => (
+                          <em key={attachmentRef}>附件 {attachmentRef}</em>
+                        ))}
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <p>暂无处理记录</p>
+                )}
+                <div className="remediation-comment-form">
+                  <label>
+                    评论内容
+                    <textarea
+                      aria-label="评论内容"
+                      value={remediationCommentTextByTaskId[task.id] ?? ''}
+                      onChange={(event) => setRemediationCommentTextByTaskId((current) => ({
+                        ...current,
+                        [task.id]: event.target.value,
+                      }))}
+                    />
+                  </label>
+                  <label>
+                    附件引用
+                    <input
+                      aria-label="附件引用"
+                      value={remediationAttachmentRefsByTaskId[task.id] ?? ''}
+                      onChange={(event) => setRemediationAttachmentRefsByTaskId((current) => ({
+                        ...current,
+                        [task.id]: event.target.value,
+                      }))}
+                      placeholder="lark://doc/... 或 drive://artifact/..."
+                    />
+                  </label>
+                  <button
+                    className="button secondary small"
+                    type="button"
+                    disabled={remediationTaskBusyId === task.id}
+                    onClick={() => void submitTaskComment(task)}
+                  >
+                    提交评论
+                  </button>
+                </div>
+              </div>
+              {task.retestRun && (
+                <div className={`remediation-retest-result ${task.retestRun.failedSamples > 0 && task.status !== 'done' ? 'danger' : ''}`}>
+                  <span>Retest Run</span>
+                  <strong className="mono">{task.retestRun.id}</strong>
+                  <em>通过率 {task.retestRun.passRate}%</em>
+                  <em>失败 {task.retestRun.failedSamples}</em>
+                  {task.retestRun.failedSamples > 0 && task.status !== 'done' && (
+                    <em className="loopback">复测失败已回流</em>
+                  )}
+                </div>
+              )}
+            </article>
+          )
+        })}
+      </div>
+    </div>
+  ) : null
 
   const disabled = editingRubric?.status === 'disabled'
 
@@ -1758,172 +1950,6 @@ export function Evaluations() {
                 </div>
               </div>
             )}
-            {remediationTasks.length > 0 && (
-              <div className="remediation-task-board" role="region" aria-label="Remediation Tasks">
-                <header>
-                  <div>
-                    <span className="eyebrow">REMEDIATION TASKS</span>
-                    <h4>Remediation Tasks</h4>
-                  </div>
-                  <span className="status-pill">{remediationTasks.length} 个任务</span>
-                </header>
-                <div className="remediation-task-filters">
-                  <label>
-                    负责人筛选
-                    <select
-                      aria-label="负责人筛选"
-                      value={remediationOwnerFilter}
-                      onChange={(event) => setRemediationOwnerFilter(event.target.value)}
-                    >
-                      <option value="all">全部负责人</option>
-                      {remediationOwnerOptions.map((owner) => (
-                        <option key={owner} value={owner}>{owner}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    优先级筛选
-                    <select
-                      aria-label="优先级筛选"
-                      value={remediationPriorityFilter}
-                      onChange={(event) => setRemediationPriorityFilter(event.target.value)}
-                    >
-                      <option value="all">全部优先级</option>
-                      <option value="P0">P0</option>
-                      <option value="P1">P1</option>
-                      <option value="P2">P2</option>
-                    </select>
-                  </label>
-                  <label>
-                    逾期筛选
-                    <select
-                      aria-label="逾期筛选"
-                      value={remediationOverdueFilter}
-                      onChange={(event) => setRemediationOverdueFilter(event.target.value)}
-                    >
-                      <option value="all">全部状态</option>
-                      <option value="overdue">只看逾期</option>
-                      <option value="active">未逾期</option>
-                    </select>
-                  </label>
-                </div>
-                <div className="remediation-task-list">
-                  {remediationTasks.map((task) => (
-                    <article className="remediation-task-card" key={task.id}>
-                      <div>
-                        <span className={`remediation-priority ${task.priority.toLowerCase()}`}>
-                          {task.priority}
-                        </span>
-                        <strong>{task.title}</strong>
-                      </div>
-                      <p>{task.action}</p>
-                      <div className="remediation-task-meta">
-                        <span>{task.status}</span>
-                        <span>{task.sampleIds.length} samples</span>
-                        <span className="mono">{task.clusterKey}</span>
-                        <span>负责人 {task.owner ?? '未分配'}</span>
-                        <span>截止 {formatDateOnly(task.dueDate)}</span>
-                        <span>{task.isOverdue ? '已逾期' : '未逾期'}</span>
-                      </div>
-                      <div className="remediation-task-actions">
-                        <button
-                          className="button secondary small"
-                          type="button"
-                          disabled={task.status !== 'open' || remediationTaskBusyId === task.id}
-                          onClick={() => void updateTaskStatus(task, 'in_progress')}
-                        >
-                          标记处理中
-                        </button>
-                        <button
-                          className="button secondary small"
-                          type="button"
-                          disabled={task.status === 'done' || remediationTaskBusyId === task.id}
-                          onClick={() => void updateTaskStatus(task, 'done')}
-                        >
-                          标记完成
-                        </button>
-                        {task.status === 'done' && !task.retestRunId && (
-                          <button
-                            className="button secondary small"
-                            type="button"
-                            disabled={remediationTaskBusyId === task.id}
-                            onClick={() => void startTaskRetest(task)}
-                          >
-                            发起复测
-                          </button>
-                        )}
-                      </div>
-                      <div className="remediation-activity-panel">
-                        <h5>处理时间线</h5>
-                        {(task.activities ?? []).length > 0 ? (
-                          <div className="remediation-activity-list">
-                            {task.activities.map((activity) => (
-                              <article className="remediation-activity-item" key={activity.id}>
-                                <div>
-                                  <span>{activity.kind === 'comment' ? '评论' : '处理记录'}</span>
-                                  <strong>{activity.actorDisplayName}</strong>
-                                  <time>{formatDateOnly(activity.createdAt)}</time>
-                                </div>
-                                <p>{activity.body}</p>
-                                {activity.attachmentRefs.map((attachmentRef) => (
-                                  <em key={attachmentRef}>附件 {attachmentRef}</em>
-                                ))}
-                              </article>
-                            ))}
-                          </div>
-                        ) : (
-                          <p>暂无处理记录</p>
-                        )}
-                        <div className="remediation-comment-form">
-                          <label>
-                            评论内容
-                            <textarea
-                              aria-label="评论内容"
-                              value={remediationCommentTextByTaskId[task.id] ?? ''}
-                              onChange={(event) => setRemediationCommentTextByTaskId((current) => ({
-                                ...current,
-                                [task.id]: event.target.value,
-                              }))}
-                            />
-                          </label>
-                          <label>
-                            附件引用
-                            <input
-                              aria-label="附件引用"
-                              value={remediationAttachmentRefsByTaskId[task.id] ?? ''}
-                              onChange={(event) => setRemediationAttachmentRefsByTaskId((current) => ({
-                                ...current,
-                                [task.id]: event.target.value,
-                              }))}
-                              placeholder="lark://doc/... 或 drive://artifact/..."
-                            />
-                          </label>
-                          <button
-                            className="button secondary small"
-                            type="button"
-                            disabled={remediationTaskBusyId === task.id}
-                            onClick={() => void submitTaskComment(task)}
-                          >
-                            提交评论
-                          </button>
-                        </div>
-                      </div>
-                      {task.retestRun && (
-                        <div className={`remediation-retest-result ${task.retestRun.failedSamples > 0 && task.status !== 'done' ? 'danger' : ''}`}>
-                          <span>Retest Run</span>
-                          <strong className="mono">{task.retestRun.id}</strong>
-                          <em>通过率 {task.retestRun.passRate}%</em>
-                          <em>失败 {task.retestRun.failedSamples}</em>
-                          {task.retestRun.failedSamples > 0 && task.status !== 'done' && (
-                            <em className="loopback">复测失败已回流</em>
-                          )}
-                        </div>
-                      )}
-                    </article>
-                  ))}
-                </div>
-              </div>
-            )}
             {evaluationLoopBoard && (
               <div
                 className={`evaluation-loop-board ${evaluationLoopBoard.tone}`}
@@ -1990,6 +2016,7 @@ export function Evaluations() {
             </div>
           </div>
         )}
+        {remediationTaskBoard}
         {regressionRuns.length > 1 && (
           <div className="regression-run-comparison-controls">
             <label>

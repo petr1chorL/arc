@@ -304,6 +304,10 @@ describe('Artifacts page', () => {
     await user.click(screen.getByRole('button', { name: '创建 artifact-version-2 修复任务' }))
 
     await screen.findByText('已创建修复任务 remediation-task-1')
+    expect(screen.getByRole('link', { name: '查看 remediation-task-1 修复任务' })).toHaveAttribute(
+      'href',
+      '/w/ai-capability-center/evaluations?taskId=remediation-task-1',
+    )
     expect(calls).toContainEqual(expect.objectContaining({
       url: `/api/workspaces/${workspace.id}/evaluations/remediation-tasks`,
       body: expect.objectContaining({

@@ -1,7 +1,7 @@
 # ARC.ONE 当前版本实现说明
 
-> 当前版本：V0.28A Artifact 创建修复任务入口
-> 上一阶段：V0.27H Artifact 卡片直达运行链路
+> 当前版本：V0.28B 修复任务深链定位
+> 上一阶段：V0.28A Artifact 创建修复任务入口
 > 更新时间：2026-06-29
 
 ## 1. 当前版本是什么
@@ -1598,3 +1598,13 @@ Artifact 列表卡片现在可以把失败或低分产出物直接接入现有 R
 创建请求会把 ArtifactVersion ID 固定为 `clusterKey=artifact:<artifactVersionId>`，把 ArtifactVersion ID 放入 `sampleIds`，并把 Run、NodeRun、来源节点与 Schema 失败原因写入建议动作。Schema 失败的任务优先级为 `P1`，低分但未失败的任务优先级为 `P2`。创建过程中按钮会进入忙碌态，成功后卡片展示新任务 ID，失败时展示接口错误。
 
 本版本不新增后端接口，不新增批量创建，不跳转到修复任务详情页，也不在刷新页面后保留前端成功提示；后端仍沿用既有 Remediation Task 去重和权限语义。验收记录见 `docs/ACCEPTANCE_V0.28A.md`。
+
+---
+
+## V0.28B 修复任务深链定位
+
+Artifact 卡片创建修复任务成功后，现在会在成功提示内提供“查看修复任务”入口，链接指向当前 Workspace 的 `/evaluations?taskId=<remediationTaskId>`。这让用户可以从失败产出物直接进入评估中心继续处理任务，而不是复制任务 ID 后手动查找。
+
+评估中心新增 `taskId` query 定位能力。页面加载 Remediation Tasks 后，如果当前列表包含该任务，会在任务看板顶部显示“当前定位任务 <id>”，并给对应任务卡片增加高亮状态和可访问标签；如果当前筛选后的列表中没有该任务，则显示“未找到定位任务 <id>”的轻量提示，不阻断 Rubric、Regression Run 和其他评估资产加载。
+
+Remediation Tasks 看板现在可以独立于 Regression Run Trend 显示，因此从 Artifact 创建的修复任务即使没有当前回归趋势数据，也能在评估中心被看到和处理。现有负责人、优先级、逾期筛选、评论、状态流转和复测能力保持不变。本版本不新增单条任务详情页，也不新增后端读取接口。验收记录见 `docs/ACCEPTANCE_V0.28B.md`。
