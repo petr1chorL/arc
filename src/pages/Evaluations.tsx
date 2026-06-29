@@ -1287,6 +1287,32 @@ export function Evaluations() {
             <ArrowRight size={14} />
             查看运行链路
           </Link>
+          <button
+            className="button secondary small"
+            type="button"
+            disabled={highlightedRemediationTask.status !== 'open' || remediationTaskBusyId === highlightedRemediationTask.id}
+            onClick={() => void updateTaskStatus(highlightedRemediationTask, 'in_progress')}
+          >
+            标记处理中
+          </button>
+          <button
+            className="button secondary small"
+            type="button"
+            disabled={highlightedRemediationTask.status === 'done' || remediationTaskBusyId === highlightedRemediationTask.id}
+            onClick={() => void updateTaskStatus(highlightedRemediationTask, 'done')}
+          >
+            标记完成
+          </button>
+          {highlightedRemediationTask.status === 'done' && !highlightedRemediationTask.retestRunId && (
+            <button
+              className="button secondary small"
+              type="button"
+              disabled={remediationTaskBusyId === highlightedRemediationTask.id}
+              onClick={() => void startTaskRetest(highlightedRemediationTask)}
+            >
+              发起复测
+            </button>
+          )}
         </div>
         <div className="remediation-activity-panel">
           <h5>处理时间线</h5>
@@ -1300,13 +1326,60 @@ export function Evaluations() {
                     <time>{formatDateOnly(activity.createdAt)}</time>
                   </div>
                   <p>{activity.body}</p>
+                  {activity.attachmentRefs.map((attachmentRef) => (
+                    <em key={attachmentRef}>附件 {attachmentRef}</em>
+                  ))}
                 </article>
               ))}
             </div>
           ) : (
             <p>暂无处理记录</p>
           )}
+          <div className="remediation-comment-form">
+            <label>
+              详情评论内容
+              <textarea
+                aria-label="详情评论内容"
+                value={remediationCommentTextByTaskId[highlightedRemediationTask.id] ?? ''}
+                onChange={(event) => setRemediationCommentTextByTaskId((current) => ({
+                  ...current,
+                  [highlightedRemediationTask.id]: event.target.value,
+                }))}
+              />
+            </label>
+            <label>
+              详情附件引用
+              <input
+                aria-label="详情附件引用"
+                value={remediationAttachmentRefsByTaskId[highlightedRemediationTask.id] ?? ''}
+                onChange={(event) => setRemediationAttachmentRefsByTaskId((current) => ({
+                  ...current,
+                  [highlightedRemediationTask.id]: event.target.value,
+                }))}
+                placeholder="lark://doc/... 或 drive://artifact/..."
+              />
+            </label>
+            <button
+              className="button secondary small"
+              type="button"
+              disabled={remediationTaskBusyId === highlightedRemediationTask.id}
+              onClick={() => void submitTaskComment(highlightedRemediationTask)}
+            >
+              提交详情评论
+            </button>
+          </div>
         </div>
+        {highlightedRemediationTask.retestRun && (
+          <div className={`remediation-retest-result ${highlightedRemediationTask.retestRun.failedSamples > 0 && highlightedRemediationTask.status !== 'done' ? 'danger' : ''}`}>
+            <span>Retest Run</span>
+            <strong className="mono">{highlightedRemediationTask.retestRun.id}</strong>
+            <em>通过率 {highlightedRemediationTask.retestRun.passRate}%</em>
+            <em>失败 {highlightedRemediationTask.retestRun.failedSamples}</em>
+            {highlightedRemediationTask.retestRun.failedSamples > 0 && highlightedRemediationTask.status !== 'done' && (
+              <em className="loopback">复测失败已回流</em>
+            )}
+          </div>
+        )}
       </section>
     )
   })() : null

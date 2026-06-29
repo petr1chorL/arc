@@ -1713,9 +1713,15 @@ describe('Evaluations page', () => {
     expect(within(taskList).getByText('已逾期')).toBeInTheDocument()
     expect(within(taskList).getByText('处理时间线')).toBeInTheDocument()
 
-    await user.type(within(taskList).getByLabelText('评论内容'), '已补充竞品来源和截图证据')
-    await user.type(within(taskList).getByLabelText('附件引用'), 'lark://doc/evidence-note')
-    await user.click(within(taskList).getByRole('button', { name: '提交评论' }))
+    await user.click(within(taskList).getByRole('link', { name: '打开 remediation-task-1 详情' }))
+    const taskDetail = await screen.findByRole('region', { name: '修复任务详情 remediation-task-1' })
+    expect(within(taskDetail).getByText('状态 open')).toBeInTheDocument()
+
+    await user.type(within(taskDetail).getByLabelText('详情评论内容'), '已补充竞品来源和截图证据')
+    await user.type(within(taskDetail).getByLabelText('详情附件引用'), 'lark://doc/evidence-note')
+    await user.click(within(taskDetail).getByRole('button', { name: '提交详情评论' }))
+    expect(await within(taskDetail).findByText('已补充竞品来源和截图证据')).toBeInTheDocument()
+    expect(within(taskDetail).getByText('附件 lark://doc/evidence-note')).toBeInTheDocument()
     expect(await within(taskList).findByText('已补充竞品来源和截图证据')).toBeInTheDocument()
     expect(within(taskList).getByText('附件 lark://doc/evidence-note')).toBeInTheDocument()
     expect(within(taskList).getByText('Organization Admin')).toBeInTheDocument()
@@ -1730,13 +1736,16 @@ describe('Evaluations page', () => {
       )
     })
 
-    await user.click(within(taskList).getByRole('button', { name: '标记处理中' }))
+    await user.click(within(taskDetail).getByRole('button', { name: '标记处理中' }))
+    expect(await within(taskDetail).findByText('状态 in_progress')).toBeInTheDocument()
     expect(await within(taskList).findByText('in_progress')).toBeInTheDocument()
 
-    await user.click(within(taskList).getByRole('button', { name: '标记完成' }))
+    await user.click(within(taskDetail).getByRole('button', { name: '标记完成' }))
+    expect(await within(taskDetail).findByText('状态 done')).toBeInTheDocument()
     expect(await within(taskList).findByText('done')).toBeInTheDocument()
 
-    await user.click(within(taskList).getByRole('button', { name: '发起复测' }))
+    await user.click(within(taskDetail).getByRole('button', { name: '发起复测' }))
+    expect(await within(taskDetail).findByText('复测失败已回流')).toBeInTheDocument()
     expect(await within(taskList).findByText('Retest Run')).toBeInTheDocument()
     expect(within(taskList).getByText('复测失败已回流')).toBeInTheDocument()
     expect(within(taskList).getByText('in_progress')).toBeInTheDocument()
