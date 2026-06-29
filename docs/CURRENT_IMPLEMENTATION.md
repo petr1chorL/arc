@@ -1,7 +1,7 @@
 # ARC.ONE 当前版本实现说明
 
-> 当前版本：V0.29E 修复任务无效深链恢复
-> 上一阶段：V0.29D 修复任务详情关闭入口
+> 当前版本：V0.30A Notification Outbox 发送器第一切片
+> 上一阶段：V0.29E 修复任务无效深链恢复
 > 更新时间：2026-06-29
 
 ## 1. 当前版本是什么
@@ -1698,3 +1698,13 @@ Remediation Task API 响应现在包含后端派生的 `retestSummary` 字段，
 点击“清除定位”后，前端只从当前 URL query 中移除 `taskId`，错误提示随之消失；负责人、优先级、逾期等其他筛选上下文和已加载任务列表保持不变。这让用户从失效分享链接、跨 Workspace 链接或已删除任务链接进入时，可以不手动编辑地址栏就回到正常任务看板。
 
 本版本不新增后端接口、数据库字段、审计事件或权限模型，也不改变 404 / 权限失败的后端语义。验收记录见 `docs/ACCEPTANCE_V0.29E.md`。
+
+---
+
+## V0.30A Notification Outbox 发送器第一切片
+
+平台新增 Workspace 级 Notification Outbox dispatch API：`POST /api/workspaces/{workspace_id}/notifications/outbox/dispatch`。该接口只读取当前 Workspace 下 `status=pending` 的 `NotificationOutboxRecord`，逐条交给可注入 `NotificationDispatcher` 发送端口，并把结果回写到同一条通知记录。
+
+发送成功的通知会更新为 `sent`，发送失败的通知会更新为 `failed`；两类结果都会在 `payload.dispatch` 中记录 `status`、`providerMessageId`、`error` 和 `dispatchedAt`。API 响应返回 `processed`、`sent`、`failed` 和逐条结果，便于后续 worker、CLI 或外部通知适配器复用。默认发送器是 `NoopNotificationDispatcher`，本地触发 dispatch 时不会访问飞书、邮件或外部网络。
+
+本版本是后端发送器第一切片，不新增数据库字段，不新增前端页面，不接入真实飞书/邮件 SDK，不实现自动定时消费、重试策略或失败通知重新入队。验收记录见 `docs/ACCEPTANCE_V0.30A.md`。

@@ -48,6 +48,7 @@ def create_authenticated_client(
     tool_gateway=None,
     mcp_gateway=None,
     judge_gateway=None,
+    notification_dispatcher=None,
 ) -> tuple[TestClient, str]:
     engine, session_factory = create_database(database_url)
     Base.metadata.create_all(engine)
@@ -74,6 +75,7 @@ def create_authenticated_client(
             tool_gateway=tool_gateway,
             mcp_gateway=mcp_gateway,
             judge_gateway=judge_gateway,
+            notification_dispatcher=notification_dispatcher,
         ),
     )
     login_admin(client)

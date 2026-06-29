@@ -1310,6 +1310,25 @@ class NotificationOutboxRead(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
+class NotificationDispatchItemRead(BaseModel):
+    id: str
+    event_key: str = Field(serialization_alias="eventKey")
+    status: str
+    provider_message_id: str = Field(default="", serialization_alias="providerMessageId")
+    error: str = ""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class NotificationDispatchSummaryRead(BaseModel):
+    processed: int
+    sent: int
+    failed: int
+    items: list[NotificationDispatchItemRead]
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class HumanTaskDetailRead(HumanTaskRead):
     artifact: ArtifactVersionSummary
     run: HumanTaskRunSummary

@@ -55,6 +55,11 @@ from app.models import (
     WorkflowVersionRecord,
     utc_now,
 )
+from app.notification_dispatcher import (
+    NoopNotificationDispatcher,
+    NotificationDispatcher,
+    NotificationOutboxDispatchService,
+)
 from app.tool_runtime import HttpToolGateway, HttpxToolGateway, McpToolGateway, ToolRuntimeExecutor
 from app.routers.auth import (
     SessionAuthenticationError,
@@ -99,6 +104,7 @@ from app.schemas import (
     ModelProviderUpdate,
     ModelProviderVersionImpactRead,
     NodeRunRead,
+    NotificationDispatchSummaryRead,
     ObservabilityAuditEventRead,
     ObservabilityAlertRead,
     ObservabilityCostUsageGroupRead,
@@ -219,6 +225,7 @@ def create_app(
     tool_gateway: HttpToolGateway | None = None,
     mcp_gateway: McpToolGateway | None = None,
     judge_gateway: JudgeGateway | None = None,
+    notification_dispatcher: NotificationDispatcher | None = None,
 ) -> FastAPI:
     settings = Settings()
     resolved_database_url = database_url or settings.database_url
@@ -259,6 +266,9 @@ def create_app(
         execution_service,
         human_task_service,
     )
+    notification_dispatch_service = NotificationOutboxDispatchService(
+        notification_dispatcher or NoopNotificationDispatcher(),
+    )
     with session_factory() as session:
         workspace_ids = list(
             session.scalars(
@@ -274,6 +284,7 @@ def create_app(
     app.state.session_factory = session_factory
     app.state.authentication_service = authentication_service
     app.state.execution_service = execution_service
+    app.state.notification_dispatch_service = notification_dispatch_service
     app.include_router(
         create_auth_router(
             get_session,
@@ -3671,6 +3682,43 @@ def create_app(
                 for group in groups
             ],
         )
+
+    @router.post("/notifications/outbox/dispatch", response_model=NotificationDispatchSummaryRead)
+    def dispatch_notification_outbox(
+        request: Request,
+        limit: int = Query(20, ge=1, le=100),
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> NotificationDispatchSummaryRead:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "workspace.manage",
+            action="notification_outbox.dispatch",
+            target_type="workspace",
+            target_id=context.workspace.id,
+            request=request,
+        )
+        summary = notification_dispatch_service.dispatch_pending(
+            session,
+            workspace_id=context.workspace.id,
+            limit=limit,
+        )
+        record_success(
+            session,
+            context,
+            action="notification_outbox.dispatch",
+            target_type="workspace",
+            target_id=context.workspace.id,
+            request=request,
+            metadata={
+                "processed": summary["processed"],
+                "sent": summary["sent"],
+                "failed": summary["failed"],
+            },
+        )
+        session.commit()
+        return NotificationDispatchSummaryRead.model_validate(summary)
 
     @router.get("/observability/cost-usage", response_model=ObservabilityCostUsageRead)
     def observability_cost_usage(
