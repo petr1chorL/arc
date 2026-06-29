@@ -566,6 +566,8 @@ describe('Observability', () => {
     await screen.findByText('Trace 链路索引')
     expect(screen.getByLabelText('节点 Span span-agent')).toHaveClass('selected-trace-target')
     expect(screen.getByLabelText('Trace 卡片 Span span-agent')).toHaveClass('active')
+    expect(screen.getByLabelText('执行事件 node-node-1')).toHaveClass('active')
+    expect(screen.getByLabelText('执行事件 human-task-task-1')).not.toHaveClass('active')
     expect(screen.getByLabelText('当前筛选参数')).toHaveTextContent('nodeRunId=node-1')
   })
 

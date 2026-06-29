@@ -6747,6 +6747,12 @@ kbd {
   box-shadow: var(--shadow-in);
 }
 
+.execution-event.active {
+  border-color: rgba(103, 129, 182, 0.48);
+  background: linear-gradient(145deg, rgba(249, 252, 255, 0.98), rgba(223, 232, 248, 0.82));
+  box-shadow: 9px 9px 18px rgba(172, 184, 205, 0.34), -9px -9px 18px rgba(255, 255, 255, 0.86);
+}
+
 .execution-event time {
   color: var(--muted);
   font: 700 10px var(--mono);

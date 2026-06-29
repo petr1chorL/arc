@@ -1338,7 +1338,7 @@ function RunTroubleshooting({
         onSelectSpan={scrollToTraceTarget}
       />
 
-      <ExecutionEventStream events={detail.executionEvents ?? []} />
+      <ExecutionEventStream events={detail.executionEvents ?? []} activeSpanId={activeSpanId} />
 
       <section className="observability-section">
         <h4>节点执行链路</h4>
@@ -1452,7 +1452,13 @@ function TraceLinkMap({
   )
 }
 
-function ExecutionEventStream({ events }: { events: ObservabilityExecutionEvent[] }) {
+function ExecutionEventStream({
+  events,
+  activeSpanId,
+}: {
+  events: ObservabilityExecutionEvent[]
+  activeSpanId: string
+}) {
   return (
     <section
       className="observability-section execution-event-stream"
@@ -1465,7 +1471,11 @@ function ExecutionEventStream({ events }: { events: ObservabilityExecutionEvent[
         : (
           <div className="execution-event-list">
             {events.map((event) => (
-              <article className={`execution-event ${event.sourceType}`} key={event.id}>
+              <article
+                aria-label={`执行事件 ${event.id}`}
+                className={`execution-event ${event.sourceType} ${event.spanId && event.spanId === activeSpanId ? 'active' : ''}`}
+                key={event.id}
+              >
                 <time>{formatTime(event.occurredAt)}</time>
                 <div>
                   <strong>{event.title}</strong>

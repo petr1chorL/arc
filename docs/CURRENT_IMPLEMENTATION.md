@@ -1,7 +1,7 @@
 # ARC.ONE 当前版本实现说明
 
-> 当前版本：V0.27D Artifact 节点级追溯锚点
-> 上一阶段：V0.27C Artifact 运行链路入口
+> 当前版本：V0.27E NodeRun 执行事件流高亮
+> 上一阶段：V0.27D Artifact 节点级追溯锚点
 > 更新时间：2026-06-29
 
 ## 1. 当前版本是什么
@@ -1542,5 +1542,15 @@ Artifact 详情弹窗中的“查看运行链路”入口现在会同时携带 `
 Observability 页面新增 `nodeRunId` query 支持。当页面加载对应 Run 详情后，会在 `detail.nodes` 中按 NodeRun ID 匹配节点，并把该节点的 Span 设为当前 active Span，从而高亮“节点执行链路”中的节点卡片和“Trace 链路索引”中的 Span 卡片。用户手动选择其他 Run 时，页面会清除旧的 `nodeRunId`，避免跨 Run 的节点锚点残留。
 
 本版本不新增后端 API，不新增单独节点详情路由，也不高亮执行事件流中的单条事件；后续可以继续把 `nodeRunId` 传递到事件流或节点详情抽屉。验收记录见 `docs/ACCEPTANCE_V0.27D.md`。
+
+---
+
+## V0.27E NodeRun 执行事件流高亮
+
+Observability 页面在 `nodeRunId` 匹配到 active Span 后，现在会把同一个 active Span 传给“执行事件流”。事件流中 `event.spanId` 与 active Span 一致的事件会进入高亮状态，与节点执行链路和 Trace 链路索引形成一致定位。
+
+这让用户从 Artifact 详情进入运行链路时，可以同时看到产出节点、Trace 关系和该节点对应的执行事件，减少在长事件流中手动查找的成本。事件流高亮只使用前端已有的 Run Detail 数据，不新增后端接口或事件查询参数。
+
+本版本不新增单条事件详情弹窗，不高亮 root 运行级事件，也不新增独立事件锚点 URL。验收记录见 `docs/ACCEPTANCE_V0.27E.md`。
 
 ---
