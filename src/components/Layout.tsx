@@ -33,6 +33,7 @@ const navigation = [
   { path: 'runs', label: '运行中心', icon: Activity },
   { path: 'artifacts', label: '产出物', icon: Files },
   { path: 'observability', label: '运行观测', icon: ShieldAlert },
+  { path: 'notifications', label: '通知运维', icon: Bell },
   { path: 'reviews', label: '人工审核', icon: Blocks },
 ]
 
@@ -44,6 +45,7 @@ const titles: Record<string, { title: string; eyebrow: string }> = {
   '/runs': { title: '运行中心', eyebrow: 'RUNTIME' },
   '/artifacts': { title: '产出物', eyebrow: 'ARTIFACT CATALOG' },
   '/observability': { title: '运行观测', eyebrow: 'OBSERVABILITY' },
+  '/notifications': { title: '通知运维', eyebrow: 'NOTIFICATION OPS' },
   '/reviews': { title: '人工审核', eyebrow: 'HUMAN IN THE LOOP' },
   '/settings/asset-library': { title: 'Tool / Skill 资产库', eyebrow: 'TOOL REGISTRY' },
   '/settings/data-objects': { title: 'Data Object', eyebrow: 'DATA CONTRACTS' },

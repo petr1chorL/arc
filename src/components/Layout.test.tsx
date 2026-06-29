@@ -91,6 +91,17 @@ describe('Layout', () => {
     expect(observabilityLink).toHaveAttribute('href', '/w/ai-capability-center/observability')
   })
 
+  it('links to notification operations inside the current workspace', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([]), { status: 200 }),
+    ))
+
+    renderLayout()
+
+    const notificationsLink = await screen.findByRole('link', { name: '通知运维' })
+    expect(notificationsLink).toHaveAttribute('href', '/w/ai-capability-center/notifications')
+  })
+
   it('links to Data Object settings inside the current workspace', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
       new Response(JSON.stringify([]), { status: 200 }),

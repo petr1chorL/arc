@@ -17,6 +17,7 @@ import { Evaluations } from './pages/Evaluations'
 import { Login } from './pages/Login'
 import { Members } from './pages/Members'
 import { ModelProviders } from './pages/ModelProviders'
+import { Notifications } from './pages/Notifications'
 import { Observability } from './pages/Observability'
 import { Reviews } from './pages/Reviews'
 import { Runs } from './pages/Runs'
@@ -72,6 +73,7 @@ function App() {
           <Route path="/runs" element={<LegacyWorkspaceRedirect suffix="runs" />} />
           <Route path="/artifacts" element={<LegacyWorkspaceRedirect suffix="artifacts" />} />
           <Route path="/observability" element={<LegacyWorkspaceRedirect suffix="observability" />} />
+          <Route path="/notifications" element={<LegacyWorkspaceRedirect suffix="notifications" />} />
           <Route path="/reviews" element={<LegacyWorkspaceRedirect suffix="reviews" />} />
           <Route element={<ProtectedRoute />}>
             <Route path="/w/:workspaceSlug" element={<WorkspaceRoute />}>
@@ -84,6 +86,7 @@ function App() {
                 <Route path="runs" element={<Runs />} />
                 <Route path="artifacts" element={<Artifacts />} />
                 <Route path="observability" element={<Observability />} />
+                <Route path="notifications" element={<Notifications />} />
                 <Route path="reviews" element={<Reviews />} />
                 <Route path="settings/asset-library" element={<AssetLibrary />} />
                 <Route path="settings/data-objects" element={<DataObjects />} />
