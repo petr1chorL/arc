@@ -222,6 +222,36 @@ DEFAULT_RUBRICS = (
 )
 
 
+def notification_channel_matches(payload: dict, channel: str | None) -> bool:
+    if not channel:
+        return True
+    expected = channel.strip().lower()
+    dispatch = payload.get("dispatch")
+    if isinstance(dispatch, dict):
+        dispatched_channel = dispatch.get("channel")
+        if isinstance(dispatched_channel, str) and dispatched_channel.strip().lower() == expected:
+            return True
+    declared_channel = payload.get("channel")
+    if isinstance(declared_channel, str) and declared_channel.strip().lower() == expected:
+        return True
+    declared_channels = payload.get("channels")
+    if isinstance(declared_channels, list):
+        return any(
+            isinstance(candidate, str) and candidate.strip().lower() == expected
+            for candidate in declared_channels
+        )
+    return False
+
+
+def notification_error_code_matches(payload: dict, error_code: str | None) -> bool:
+    if not error_code:
+        return True
+    dispatch = payload.get("dispatch")
+    if not isinstance(dispatch, dict):
+        return False
+    return str(dispatch.get("errorCode") or dispatch.get("error_code") or "") == error_code
+
+
 def create_app(
     database_url: str | None = None,
     model_gateway: ModelGateway | None = None,
@@ -3727,6 +3757,42 @@ def create_app(
         )
         session.commit()
         return NotificationDispatchSummaryRead.model_validate(summary)
+
+    @router.get("/notifications/outbox", response_model=list[NotificationOutboxRead])
+    def list_notification_outbox(
+        request: Request,
+        status: str | None = None,
+        channel: str | None = None,
+        error_code: str | None = Query(default=None, alias="errorCode"),
+        limit: int = Query(50, ge=1, le=200),
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> list[NotificationOutboxRecord]:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "workspace.manage",
+            action="notification_outbox.read",
+            target_type="workspace",
+            target_id=context.workspace.id,
+            request=request,
+        )
+        query = select(NotificationOutboxRecord).where(
+            NotificationOutboxRecord.workspace_id == context.workspace.id,
+        )
+        if status:
+            query = query.where(NotificationOutboxRecord.status == status)
+        records = list(session.scalars(
+            query.order_by(NotificationOutboxRecord.created_at.desc(), NotificationOutboxRecord.id.desc())
+            .limit(500),
+        ))
+        filtered = [
+            record
+            for record in records
+            if notification_channel_matches(record.payload or {}, channel)
+            and notification_error_code_matches(record.payload or {}, error_code)
+        ]
+        return filtered[:limit]
 
     @router.post(
         "/notifications/outbox/{notification_id}/requeue",

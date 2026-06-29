@@ -1,7 +1,7 @@
 # ARC.ONE 当前版本实现说明
 
-> 当前版本：V0.30E Notification Dispatch Metadata
-> 上一阶段：V0.30D Notification Channel Router
+> 当前版本：V0.30F Notification Outbox Query
+> 上一阶段：V0.30E Notification Dispatch Metadata
 > 更新时间：2026-06-29
 
 ## 1. 当前版本是什么
@@ -1748,3 +1748,13 @@ Notification Outbox 的派发结果现在包含结构化渠道和失败码。`No
 Channel Router 的未知渠道和禁用渠道失败现在分别返回稳定失败码 `channel_not_configured` 与 `channel_disabled`，同时继续保留人类可读的 `error` 文本。这让后续排障、告警聚合和人工恢复可以依赖稳定字段，而不是解析错误字符串。
 
 本版本不新增数据库字段、前端页面、自动重试策略或真实外部渠道，也不改变 Notification Outbox 的状态机。验收记录见 `docs/ACCEPTANCE_V0.30E.md`。
+
+---
+
+## V0.30F Notification Outbox Query
+
+平台新增 Workspace 级 Notification Outbox 查询 API：`GET /api/workspaces/{workspace_id}/notifications/outbox`。该接口要求 `workspace.manage` 权限，只返回当前 Workspace 的通知记录，默认按 `created_at desc` 排序，并支持 `status`、`channel`、`errorCode` 和有上限的 `limit` query 参数。
+
+`status` 在数据库查询中筛选；`channel` 和 `errorCode` 基于 `payload.dispatch` 中的结构化派发结果筛选。对于尚未派发但已经在 payload 顶层声明 `channel` 或 `channels` 的 pending 通知，`channel` 筛选也可以命中，便于运维在发送前看到即将走某个渠道的通知。
+
+本版本提供通知运营和排障的数据源，不新增前端页面、数据库字段、分页游标、批量重新入队、告警发送或真实外部渠道。验收记录见 `docs/ACCEPTANCE_V0.30F.md`。

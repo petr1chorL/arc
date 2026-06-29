@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from sqlalchemy import select
 
 from api_test_support import FIXED_NOW, create_authenticated_client, csrf_headers, workspace_url
@@ -47,6 +49,7 @@ def add_notification(
     event_type="due_soon",
     status="pending",
     payload=None,
+    created_at=None,
 ):
     notification_payload = payload or {"message": f"payload for {event_key}"}
     with client.app.state.session_factory() as session:
@@ -59,12 +62,121 @@ def add_notification(
             recipient_id="reviewer-1",
             payload=notification_payload,
             status=status,
-            created_at=FIXED_NOW,
+            created_at=created_at or FIXED_NOW,
         )
         session.add(record)
         session.commit()
         session.refresh(record)
         return record.id
+
+
+def test_lists_notification_outbox_for_current_workspace_newest_first(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'notification-outbox-list.db'}",
+    )
+    older_id = add_notification(
+        client,
+        workspace_id=workspace_id,
+        event_key="task-1:older",
+        created_at=FIXED_NOW - timedelta(minutes=10),
+    )
+    newer_id = add_notification(
+        client,
+        workspace_id=workspace_id,
+        event_key="task-2:newer",
+        created_at=FIXED_NOW,
+    )
+    with client.app.state.session_factory() as session:
+        other_workspace = WorkspaceRecord(
+            organization_id=session.scalar(select(WorkspaceRecord.organization_id)),
+            name="鍏朵粬绌洪棿",
+            slug="other-workspace",
+            status="active",
+            created_by="user-1",
+        )
+        session.add(other_workspace)
+        session.commit()
+        session.refresh(other_workspace)
+        other_workspace_id = other_workspace.id
+    other_id = add_notification(
+        client,
+        workspace_id=other_workspace_id,
+        event_key="other:newer",
+        created_at=FIXED_NOW + timedelta(minutes=10),
+    )
+
+    response = client.get(
+        workspace_url(workspace_id, "/notifications/outbox"),
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 200
+    ids = [item["id"] for item in response.json()]
+    assert ids == [newer_id, older_id]
+    assert other_id not in ids
+
+
+def test_filters_notification_outbox_by_status_channel_and_error_code(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'notification-outbox-filters.db'}",
+    )
+    failed_webhook_id = add_notification(
+        client,
+        workspace_id=workspace_id,
+        event_key="task-1:failed-webhook",
+        status="failed",
+        payload={
+            "message": "failed webhook",
+            "dispatch": {
+                "status": "failed",
+                "channel": "webhook",
+                "errorCode": "channel_not_configured",
+                "error": "channel_not_configured:webhook",
+            },
+        },
+    )
+    pending_webhook_id = add_notification(
+        client,
+        workspace_id=workspace_id,
+        event_key="task-2:pending-webhook",
+        status="pending",
+        payload={"message": "pending webhook", "channel": "webhook"},
+    )
+    add_notification(
+        client,
+        workspace_id=workspace_id,
+        event_key="task-3:failed-email",
+        status="failed",
+        payload={
+            "message": "failed email",
+            "dispatch": {
+                "status": "failed",
+                "channel": "email",
+                "errorCode": "provider_timeout",
+                "error": "provider timed out",
+            },
+        },
+    )
+
+    failed_response = client.get(
+        workspace_url(workspace_id, "/notifications/outbox?status=failed"),
+        headers=csrf_headers(client),
+    )
+    channel_response = client.get(
+        workspace_url(workspace_id, "/notifications/outbox?channel=webhook"),
+        headers=csrf_headers(client),
+    )
+    error_response = client.get(
+        workspace_url(workspace_id, "/notifications/outbox?errorCode=channel_not_configured"),
+        headers=csrf_headers(client),
+    )
+
+    assert failed_response.status_code == 200
+    assert [item["status"] for item in failed_response.json()] == ["failed", "failed"]
+    assert channel_response.status_code == 200
+    assert {item["id"] for item in channel_response.json()} == {failed_webhook_id, pending_webhook_id}
+    assert error_response.status_code == 200
+    assert [item["id"] for item in error_response.json()] == [failed_webhook_id]
 
 
 def test_dispatch_routes_explicit_channel_to_matching_adapter(tmp_path):
