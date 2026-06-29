@@ -6,6 +6,7 @@ import { useWorkspace } from '../auth/workspaceContextState'
 import type { ArtifactCatalogItem } from '../types'
 
 type SchemaValidationStatus = 'passed' | 'failed' | 'unchecked'
+type SchemaStatusFilterValue = SchemaValidationStatus | ''
 
 interface SchemaValidationResult {
   status: SchemaValidationStatus
@@ -112,14 +113,22 @@ function schemaValidationForArtifact(artifact: ArtifactCatalogItem): SchemaValid
   return artifact.schemaValidation ?? validateArtifactSchema(artifact)
 }
 
+function schemaStatusFilterFromParams(searchParams: URLSearchParams): SchemaStatusFilterValue {
+  const status = searchParams.get('schemaValidationStatus')
+  if (status === 'passed' || status === 'failed' || status === 'unchecked') return status
+  return ''
+}
+
 export function Artifacts() {
   const { workspace } = useWorkspace()
   const [searchParams, setSearchParams] = useSearchParams()
+  const filterParam = searchParams.get('dataObjectDefinitionId') ?? ''
+  const schemaStatusFilterParam = schemaStatusFilterFromParams(searchParams)
   const [artifacts, setArtifacts] = useState<ArtifactCatalogItem[]>([])
-  const [filter, setFilter] = useState('')
-  const [schemaStatusFilter, setSchemaStatusFilter] = useState('')
-  const [appliedFilter, setAppliedFilter] = useState('')
-  const [appliedSchemaStatusFilter, setAppliedSchemaStatusFilter] = useState('')
+  const [filter, setFilter] = useState(filterParam)
+  const [schemaStatusFilter, setSchemaStatusFilter] = useState<SchemaStatusFilterValue>(schemaStatusFilterParam)
+  const [appliedFilter, setAppliedFilter] = useState(filterParam)
+  const [appliedSchemaStatusFilter, setAppliedSchemaStatusFilter] = useState<SchemaStatusFilterValue>(schemaStatusFilterParam)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
   const [selectedArtifact, setSelectedArtifact] = useState<ArtifactCatalogItem | null>(null)
@@ -127,11 +136,18 @@ export function Artifacts() {
   const selectedValidation = selectedArtifact ? schemaValidationForArtifact(selectedArtifact) : null
 
   useEffect(() => {
+    setFilter(filterParam)
+    setSchemaStatusFilter(schemaStatusFilterParam)
+    setAppliedFilter(filterParam)
+    setAppliedSchemaStatusFilter(schemaStatusFilterParam)
+  }, [filterParam, schemaStatusFilterParam])
+
+  useEffect(() => {
     setIsLoading(true)
     setError('')
     void listArtifacts(workspace.id, {
       dataObjectDefinitionId: appliedFilter,
-      schemaValidationStatus: appliedSchemaStatusFilter as 'passed' | 'failed' | 'unchecked' | '',
+      schemaValidationStatus: appliedSchemaStatusFilter,
     })
       .then(setArtifacts)
       .catch((loadError) => setError(loadError instanceof Error ? loadError.message : 'Artifact 加载失败'))
@@ -159,15 +175,32 @@ export function Artifacts() {
   }, [artifacts])
 
   function applyFilter() {
-    setAppliedFilter(filter.trim())
+    const nextFilter = filter.trim()
+    const nextParams = new URLSearchParams(searchParams)
+    if (nextFilter) {
+      nextParams.set('dataObjectDefinitionId', nextFilter)
+    } else {
+      nextParams.delete('dataObjectDefinitionId')
+    }
+    if (schemaStatusFilter) {
+      nextParams.set('schemaValidationStatus', schemaStatusFilter)
+    } else {
+      nextParams.delete('schemaValidationStatus')
+    }
+    setAppliedFilter(nextFilter)
     setAppliedSchemaStatusFilter(schemaStatusFilter)
+    setSearchParams(nextParams)
   }
 
   function clearFilter() {
+    const nextParams = new URLSearchParams(searchParams)
+    nextParams.delete('dataObjectDefinitionId')
+    nextParams.delete('schemaValidationStatus')
     setFilter('')
     setSchemaStatusFilter('')
     setAppliedFilter('')
     setAppliedSchemaStatusFilter('')
+    setSearchParams(nextParams)
   }
 
   function openArtifactDetail(artifact: ArtifactCatalogItem) {
@@ -243,7 +276,7 @@ export function Artifacts() {
           <select
             aria-label="Schema 校验状态"
             value={schemaStatusFilter}
-            onChange={(event) => setSchemaStatusFilter(event.target.value)}
+            onChange={(event) => setSchemaStatusFilter(event.target.value as SchemaStatusFilterValue)}
           >
             <option value="">全部</option>
             <option value="failed">失败</option>

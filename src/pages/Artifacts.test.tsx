@@ -118,6 +118,58 @@ describe('Artifacts page', () => {
     })
   })
 
+  it('initializes artifact filters from the url', async () => {
+    const calls: string[] = []
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
+      calls.push(url)
+      if (url === `/api/workspaces/${workspace.id}/artifacts?dataObjectDefinitionId=data-object-1&schemaValidationStatus=failed`) {
+        return Promise.resolve(new Response(JSON.stringify([invalidArtifact]), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+    }))
+
+    renderPage('/artifacts?dataObjectDefinitionId=data-object-1&schemaValidationStatus=failed')
+
+    await screen.findByText('artifact-version-2 · v2')
+    expect(screen.getByLabelText('Data Object Definition ID')).toHaveValue('data-object-1')
+    expect(screen.getByLabelText('Schema 校验状态')).toHaveValue('failed')
+    expect(calls).toContain(
+      `/api/workspaces/${workspace.id}/artifacts?dataObjectDefinitionId=data-object-1&schemaValidationStatus=failed`,
+    )
+  })
+
+  it('syncs artifact filters to the url and clears them', async () => {
+    const user = userEvent.setup()
+    const searches: string[] = []
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
+      if (url.startsWith(`/api/workspaces/${workspace.id}/artifacts`)) {
+        return Promise.resolve(new Response(JSON.stringify([artifact]), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+    }))
+
+    renderPage('/artifacts?artifactVersionId=artifact-version-1', (search) => searches.push(search))
+
+    await screen.findByText('Structured Insight')
+    await user.type(screen.getByLabelText('Data Object Definition ID'), 'data-object-1')
+    await user.selectOptions(screen.getByLabelText('Schema 校验状态'), 'failed')
+    await user.click(screen.getByRole('button', { name: '筛选' }))
+
+    await waitFor(() => {
+      expect(searches).toContain(
+        '?artifactVersionId=artifact-version-1&dataObjectDefinitionId=data-object-1&schemaValidationStatus=failed',
+      )
+    })
+
+    await user.click(screen.getByRole('button', { name: '清空' }))
+
+    await waitFor(() => {
+      expect(searches.at(-1)).toBe('?artifactVersionId=artifact-version-1')
+    })
+  })
+
   it('opens an artifact detail dialog with formatted content and snapshot', async () => {
     const user = userEvent.setup()
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
