@@ -68,6 +68,18 @@ http://127.0.0.1:8000/docs
 .scratch/runtime/
 ```
 
+## 自检
+
+```powershell
+.\scripts\check-v1-lite.ps1
+```
+
+自检会验证：
+
+- 前端页面是否可访问。
+- API 文档是否可访问。
+- `start-v1-lite.ps1` 管理的进程是否仍在运行。
+
 ## 停止
 
 ```powershell
@@ -135,6 +147,7 @@ docker compose up --build api execution-worker notification-worker
 
 - [ ] 前端首页可打开。
 - [ ] API 文档可打开。
+- [ ] `.\scripts\check-v1-lite.ps1` 通过。
 - [ ] 可以登录或进入已配置 Workspace。
 - [ ] 可以启动一次试点 Workflow。
 - [ ] Execution Worker 能消费运行任务。
