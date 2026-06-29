@@ -365,6 +365,65 @@ def test_remediation_tasks_support_owner_due_date_and_filters(tmp_path):
     assert [item["title"] for item in overdue_only.json()] == ["修复 Evidence 偏低"]
 
 
+def test_remediation_task_metadata_can_be_updated(tmp_path):
+    client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'arc-one.db'}")
+    created = client.post(
+        workspace_url(workspace_id, "/evaluations/remediation-tasks"),
+        json={
+            "sourceRunId": "run-remediation-metadata",
+            "clusterKey": "Evidence",
+            "title": "修复 Evidence 偏低",
+            "priority": "P1",
+            "sampleIds": ["sample-a"],
+            "action": "补齐证据",
+            "owner": "产品审核人",
+            "dueDate": "2024-01-01T00:00:00Z",
+        },
+        headers=csrf_headers(client),
+    )
+    task_id = created.json()["id"]
+
+    updated = client.patch(
+        workspace_url(workspace_id, f"/evaluations/remediation-tasks/{task_id}"),
+        json={
+            "owner": "质量负责人",
+            "priority": "P0",
+            "dueDate": "2024-01-05T00:00:00Z",
+        },
+        headers=csrf_headers(client),
+    )
+
+    assert updated.status_code == 200
+    body = updated.json()
+    assert body["owner"] == "质量负责人"
+    assert body["priority"] == "P0"
+    assert body["dueDate"].startswith("2024-01-05T00:00:00")
+    assert body["activities"][-1]["kind"] == "metadata_change"
+    assert "负责人 产品审核人 -> 质量负责人" in body["activities"][-1]["body"]
+    assert "优先级 P1 -> P0" in body["activities"][-1]["body"]
+    assert "截止 2024-01-01 -> 2024-01-05" in body["activities"][-1]["body"]
+
+    listed = client.get(workspace_url(workspace_id, "/evaluations/remediation-tasks?owner=质量负责人"))
+    assert listed.status_code == 200
+    assert listed.json()[0]["id"] == task_id
+
+    cleared = client.patch(
+        workspace_url(workspace_id, f"/evaluations/remediation-tasks/{task_id}"),
+        json={"owner": "", "dueDate": None},
+        headers=csrf_headers(client),
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["owner"] is None
+    assert cleared.json()["dueDate"] is None
+
+    empty = client.patch(
+        workspace_url(workspace_id, f"/evaluations/remediation-tasks/{task_id}"),
+        json={},
+        headers=csrf_headers(client),
+    )
+    assert empty.status_code == 422
+
+
 def test_remediation_task_activities_record_comments_and_status_changes(tmp_path):
     client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'arc-one.db'}")
     task = client.post(

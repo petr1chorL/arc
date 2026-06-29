@@ -2619,7 +2619,8 @@ kbd {
 }
 
 .remediation-comment-form input,
-.remediation-comment-form textarea {
+.remediation-comment-form textarea,
+.remediation-comment-form select {
   width: 100%;
   min-width: 0;
   border: 0;
@@ -2629,6 +2630,10 @@ kbd {
   background: rgba(255, 255, 255, 0.36);
   box-shadow: var(--shadow-inset);
   font: inherit;
+}
+
+.remediation-metadata-form {
+  grid-template-columns: minmax(0, 1fr) 112px 150px auto;
 }
 
 .remediation-comment-form textarea {

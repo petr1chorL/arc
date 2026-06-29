@@ -38,6 +38,7 @@ import {
   updateRubric,
   type RemediationTaskFilters,
   type RemediationTaskInput,
+  type RemediationTaskUpdateInput,
   type RubricInput,
 } from '../api/evaluations'
 import { useWorkspace } from '../auth/workspaceContextState'
@@ -216,10 +217,28 @@ function formatDateOnly(value: string | null) {
   return value.slice(0, 10)
 }
 
+function toDateInputValue(value: string | null) {
+  return value ? value.slice(0, 10) : ''
+}
+
 function getDefaultRemediationDueDate() {
   const dueDate = new Date()
   dueDate.setDate(dueDate.getDate() + 7)
   return dueDate.toISOString()
+}
+
+interface RemediationTaskMetadataDraft {
+  owner: string
+  priority: RemediationTask['priority']
+  dueDate: string
+}
+
+function toRemediationTaskMetadataDraft(task: RemediationTask): RemediationTaskMetadataDraft {
+  return {
+    owner: task.owner ?? '',
+    priority: task.priority,
+    dueDate: toDateInputValue(task.dueDate),
+  }
 }
 
 function getArtifactVersionIdFromTask(task: RemediationTask) {
@@ -609,6 +628,7 @@ export function Evaluations() {
   const [remediationOverdueFilter, setRemediationOverdueFilter] = useState('all')
   const [remediationCommentTextByTaskId, setRemediationCommentTextByTaskId] = useState<Record<string, string>>({})
   const [remediationAttachmentRefsByTaskId, setRemediationAttachmentRefsByTaskId] = useState<Record<string, string>>({})
+  const [remediationMetadataByTaskId, setRemediationMetadataByTaskId] = useState<Record<string, RemediationTaskMetadataDraft>>({})
 
   const remediationTaskFilters = useMemo<RemediationTaskFilters>(() => ({
     owner: remediationOwnerFilter === 'all' ? undefined : remediationOwnerFilter,
@@ -1177,9 +1197,32 @@ export function Evaluations() {
     setRemediationTaskBusyId(task.id)
     setRemediationTaskError('')
     try {
-      upsertRemediationTask(await updateRemediationTask(workspace.id, task.id, nextStatus))
+      upsertRemediationTask(await updateRemediationTask(workspace.id, task.id, { status: nextStatus }))
     } catch (taskError) {
       setRemediationTaskError(taskError instanceof Error ? taskError.message : '修复任务更新失败')
+    } finally {
+      setRemediationTaskBusyId('')
+    }
+  }
+
+  async function saveTaskMetadata(task: RemediationTask) {
+    const draft = remediationMetadataByTaskId[task.id] ?? toRemediationTaskMetadataDraft(task)
+    const input: RemediationTaskUpdateInput = {
+      owner: draft.owner.trim() || null,
+      priority: draft.priority,
+      dueDate: draft.dueDate ? `${draft.dueDate}T00:00:00.000Z` : null,
+    }
+    setRemediationTaskBusyId(task.id)
+    setRemediationTaskError('')
+    try {
+      upsertRemediationTask(await updateRemediationTask(workspace.id, task.id, input))
+      setRemediationMetadataByTaskId((current) => {
+        const next = { ...current }
+        delete next[task.id]
+        return next
+      })
+    } catch (taskError) {
+      setRemediationTaskError(taskError instanceof Error ? taskError.message : '任务信息保存失败')
     } finally {
       setRemediationTaskBusyId('')
     }
@@ -1243,6 +1286,18 @@ export function Evaluations() {
   const remediationTaskDetail = highlightedRemediationTask ? (() => {
     const artifactPath = getTaskArtifactPath(highlightedRemediationTask)
     const tracePath = getTaskTracePath(highlightedRemediationTask)
+    const metadataDraft = remediationMetadataByTaskId[highlightedRemediationTask.id]
+      ?? toRemediationTaskMetadataDraft(highlightedRemediationTask)
+    const updateMetadataDraft = (patch: Partial<RemediationTaskMetadataDraft>) => {
+      setRemediationMetadataByTaskId((current) => {
+        const currentDraft = current[highlightedRemediationTask.id]
+          ?? toRemediationTaskMetadataDraft(highlightedRemediationTask)
+        return {
+          ...current,
+          [highlightedRemediationTask.id]: { ...currentDraft, ...patch },
+        }
+      })
+    }
     return (
       <section
         aria-label={`修复任务详情 ${highlightedRemediationTask.id}`}
@@ -1266,6 +1321,46 @@ export function Evaluations() {
           <span>来源 Run {highlightedRemediationTask.sourceRunId}</span>
           <span>聚类 {highlightedRemediationTask.clusterKey}</span>
           <span>样本 {highlightedRemediationTask.sampleIds.length} 个</span>
+        </div>
+        <div className="remediation-comment-form remediation-metadata-form">
+          <label>
+            详情负责人
+            <input
+              aria-label="详情负责人"
+              value={metadataDraft.owner}
+              onChange={(event) => updateMetadataDraft({ owner: event.target.value })}
+              placeholder="未分配"
+            />
+          </label>
+          <label>
+            详情优先级
+            <select
+              aria-label="详情优先级"
+              value={metadataDraft.priority}
+              onChange={(event) => updateMetadataDraft({ priority: event.target.value as RemediationTask['priority'] })}
+            >
+              <option value="P0">P0</option>
+              <option value="P1">P1</option>
+              <option value="P2">P2</option>
+            </select>
+          </label>
+          <label>
+            详情截止日期
+            <input
+              aria-label="详情截止日期"
+              type="date"
+              value={metadataDraft.dueDate}
+              onChange={(event) => updateMetadataDraft({ dueDate: event.target.value })}
+            />
+          </label>
+          <button
+            className="button secondary small"
+            type="button"
+            disabled={remediationTaskBusyId === highlightedRemediationTask.id}
+            onClick={() => void saveTaskMetadata(highlightedRemediationTask)}
+          >
+            保存任务信息
+          </button>
         </div>
         <p>{highlightedRemediationTask.action}</p>
         <div className="remediation-task-actions">

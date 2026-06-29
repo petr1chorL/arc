@@ -1582,9 +1582,26 @@ class RemediationTaskCreate(BaseModel):
 
 
 class RemediationTaskUpdate(BaseModel):
-    status: str = Field(pattern="^(open|in_progress|done)$")
+    status: str | None = Field(default=None, pattern="^(open|in_progress|done)$")
+    owner: str | None = Field(default=None, max_length=120)
+    priority: str | None = Field(default=None, pattern="^P[0-2]$")
+    due_date: datetime | None = Field(default=None, alias="dueDate")
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    @model_validator(mode="after")
+    def require_update_field(self) -> "RemediationTaskUpdate":
+        if not self.model_fields_set:
+            raise ValueError("at least one field must be provided")
+        return self
+
+    @field_validator("owner")
+    @classmethod
+    def normalize_owner(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
 
 
 class RemediationTaskActivityCreate(BaseModel):

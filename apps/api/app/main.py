@@ -4880,19 +4880,57 @@ def create_app(
         )
         if task is None:
             raise HTTPException(status_code=404, detail="remediation task not found")
+
+        def format_due_date(value) -> str:
+            if value is None:
+                return "未设置"
+            return value.date().isoformat()
+
         previous_status = task.status
-        task.status = payload.status
-        if previous_status != "done" and payload.status == "done" and task.retest_run_id:
-            task.retest_run_id = None
+        metadata_changes: list[str] = []
+
+        if "status" in payload.model_fields_set and payload.status is not None:
+            task.status = payload.status
+            if previous_status != "done" and payload.status == "done" and task.retest_run_id:
+                task.retest_run_id = None
+
+        if "owner" in payload.model_fields_set:
+            previous_owner = task.owner
+            task.owner = payload.owner
+            if previous_owner != task.owner:
+                metadata_changes.append(f"负责人 {previous_owner or '未分配'} -> {task.owner or '未分配'}")
+
+        if "priority" in payload.model_fields_set and payload.priority is not None:
+            previous_priority = task.priority
+            task.priority = payload.priority
+            if previous_priority != task.priority:
+                metadata_changes.append(f"优先级 {previous_priority} -> {task.priority}")
+
+        if "due_date" in payload.model_fields_set:
+            previous_due_date = task.due_date
+            task.due_date = payload.due_date
+            if previous_due_date != task.due_date:
+                metadata_changes.append(
+                    f"截止 {format_due_date(previous_due_date)} -> {format_due_date(task.due_date)}",
+                )
+
         task.updated_by = context.user.id
         task.updated_at = utc_now()
-        if previous_status != payload.status:
+        if previous_status != task.status:
             create_remediation_task_activity(
                 session=session,
                 context=context,
                 task_id=task.id,
                 kind="status_change",
-                body=f"状态变更：{previous_status} -> {payload.status}",
+                body=f"状态变更：{previous_status} -> {task.status}",
+            )
+        if metadata_changes:
+            create_remediation_task_activity(
+                session=session,
+                context=context,
+                task_id=task.id,
+                kind="metadata_change",
+                body=f"任务信息更新：{'；'.join(metadata_changes)}",
             )
         record_success(
             session,

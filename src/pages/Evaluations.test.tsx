@@ -1494,6 +1494,9 @@ describe('Evaluations page', () => {
       priority: string
       sampleIds: string[]
       action: string
+      owner: string | null
+      dueDate: string | null
+      isOverdue: boolean
       status: string
       activities: Array<{
         id: string
@@ -1625,10 +1628,36 @@ describe('Evaluations page', () => {
         return response(activity, 201)
       }
       if (input === `/api/workspaces/${workspace.id}/evaluations/remediation-tasks/remediation-task-1`) {
-        const payload = JSON.parse(String(init?.body)) as { status: string }
+        const payload = JSON.parse(String(init?.body)) as {
+          status?: string
+          owner?: string | null
+          priority?: string
+          dueDate?: string | null
+        }
+        if ('owner' in payload || 'priority' in payload || 'dueDate' in payload) {
+          const activity = {
+            id: 'activity-metadata-1',
+            taskId: 'remediation-task-1',
+            kind: 'metadata_change',
+            body: '任务信息更新：负责人 产品审核人 -> 质量负责人；优先级 P1 -> P0；截止 2024-01-01 -> 2024-01-05',
+            attachmentRefs: [],
+            actorUserId: 'user-1',
+            actorDisplayName: 'Organization Admin',
+            createdAt: '2026-06-27T00:30:30Z',
+          }
+          remediationTasks[0] = {
+            ...remediationTasks[0],
+            owner: payload.owner ?? null,
+            priority: payload.priority ?? remediationTasks[0].priority,
+            dueDate: payload.dueDate ?? null,
+            activities: [...(remediationTasks[0].activities ?? []), activity],
+            updatedAt: '2026-06-27T00:30:30Z',
+          }
+          return response(remediationTasks[0])
+        }
         remediationTasks[0] = {
           ...remediationTasks[0],
-          status: payload.status,
+          status: payload.status ?? remediationTasks[0].status,
           updatedAt: '2026-06-27T00:31:00Z',
         }
         return response(remediationTasks[0])
@@ -1717,6 +1746,22 @@ describe('Evaluations page', () => {
     const taskDetail = await screen.findByRole('region', { name: '修复任务详情 remediation-task-1' })
     expect(within(taskDetail).getByText('状态 open')).toBeInTheDocument()
 
+    await user.clear(within(taskDetail).getByLabelText('详情负责人'))
+    await user.type(within(taskDetail).getByLabelText('详情负责人'), '质量负责人')
+    await user.selectOptions(within(taskDetail).getByLabelText('详情优先级'), 'P0')
+    await user.clear(within(taskDetail).getByLabelText('详情截止日期'))
+    await user.type(within(taskDetail).getByLabelText('详情截止日期'), '2024-01-05')
+    await user.click(within(taskDetail).getByRole('button', { name: '保存任务信息' }))
+    expect(await within(taskDetail).findByText('负责人 质量负责人')).toBeInTheDocument()
+    expect(within(taskDetail).getByText('优先级 P0')).toBeInTheDocument()
+    expect(within(taskDetail).getByText('截止 2024-01-05')).toBeInTheDocument()
+    expect(await within(taskList).findByText('负责人 质量负责人')).toBeInTheDocument()
+    expect(within(taskList).getAllByText('P0').length).toBeGreaterThan(0)
+    expect(within(taskList).getByText('截止 2024-01-05')).toBeInTheDocument()
+    expect(within(taskDetail).getByText(
+      '任务信息更新：负责人 产品审核人 -> 质量负责人；优先级 P1 -> P0；截止 2024-01-01 -> 2024-01-05',
+    )).toBeInTheDocument()
+
     await user.type(within(taskDetail).getByLabelText('详情评论内容'), '已补充竞品来源和截图证据')
     await user.type(within(taskDetail).getByLabelText('详情附件引用'), 'lark://doc/evidence-note')
     await user.click(within(taskDetail).getByRole('button', { name: '提交详情评论' }))
@@ -1724,15 +1769,15 @@ describe('Evaluations page', () => {
     expect(within(taskDetail).getByText('附件 lark://doc/evidence-note')).toBeInTheDocument()
     expect(await within(taskList).findByText('已补充竞品来源和截图证据')).toBeInTheDocument()
     expect(within(taskList).getByText('附件 lark://doc/evidence-note')).toBeInTheDocument()
-    expect(within(taskList).getByText('Organization Admin')).toBeInTheDocument()
+    expect(within(taskList).getAllByText('Organization Admin').length).toBeGreaterThan(0)
 
-    await user.selectOptions(within(taskList).getByLabelText('负责人筛选'), '产品审核人')
-    await user.selectOptions(within(taskList).getByLabelText('优先级筛选'), 'P1')
+    await user.selectOptions(within(taskList).getByLabelText('负责人筛选'), '质量负责人')
+    await user.selectOptions(within(taskList).getByLabelText('优先级筛选'), 'P0')
     await user.selectOptions(within(taskList).getByLabelText('逾期筛选'), 'overdue')
     await waitFor(() => {
       const requestedUrls = vi.mocked(fetch).mock.calls.map(([url]) => String(url))
       expect(requestedUrls).toContain(
-        `/api/workspaces/${workspace.id}/evaluations/remediation-tasks?owner=%E4%BA%A7%E5%93%81%E5%AE%A1%E6%A0%B8%E4%BA%BA&priority=P1&overdue=true`,
+        `/api/workspaces/${workspace.id}/evaluations/remediation-tasks?owner=%E8%B4%A8%E9%87%8F%E8%B4%9F%E8%B4%A3%E4%BA%BA&priority=P0&overdue=true`,
       )
     })
 

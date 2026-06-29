@@ -176,16 +176,23 @@ export async function createRemediationTask(
   )
 }
 
+export interface RemediationTaskUpdateInput {
+  status?: RemediationTask['status']
+  owner?: string | null
+  priority?: RemediationTask['priority']
+  dueDate?: string | null
+}
+
 export async function updateRemediationTask(
   workspaceId: string,
   taskId: string,
-  nextStatus: RemediationTask['status'],
+  input: RemediationTaskUpdateInput,
 ): Promise<RemediationTask> {
   return readJson<RemediationTask>(
     await apiFetch(workspacePath(workspaceId, `/remediation-tasks/${taskId}`), {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: nextStatus }),
+      body: JSON.stringify(input),
     }),
   )
 }
