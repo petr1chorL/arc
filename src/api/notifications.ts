@@ -1,4 +1,4 @@
-import type { NotificationOutboxItem } from '../types'
+import type { NotificationDispatchSummary, NotificationOutboxItem } from '../types'
 import { apiFetch, readJson } from './http'
 
 const jsonRequest = {
@@ -41,5 +41,11 @@ export async function requeueNotification(
       ...jsonRequest,
       body: JSON.stringify({ reason }),
     }),
+  )
+}
+
+export async function dispatchNotifications(workspaceId: string): Promise<NotificationDispatchSummary> {
+  return readJson<NotificationDispatchSummary>(
+    await apiFetch(workspacePath(workspaceId, '/outbox/dispatch'), jsonRequest),
   )
 }

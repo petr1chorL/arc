@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { listNotifications, requeueNotification } from './notifications'
+import { dispatchNotifications, listNotifications, requeueNotification } from './notifications'
 
 describe('Notifications API', () => {
   afterEach(() => {
@@ -68,5 +68,34 @@ describe('Notifications API', () => {
     )
     const request = fetchMock.mock.calls[0]?.[1] as RequestInit
     expect((request.headers as Headers).get('Content-Type')).toBe('application/json')
+  })
+
+  it('triggers a notification dispatch pass', async () => {
+    const summary = {
+      processed: 2,
+      sent: 1,
+      failed: 1,
+      items: [{
+        id: 'notification-1',
+        eventKey: 'task-1:webhook',
+        status: 'sent',
+        channel: 'webhook',
+        errorCode: '',
+        providerMessageId: 'provider-1',
+        error: '',
+      }],
+    }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(summary), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(dispatchNotifications('workspace-1')).resolves.toEqual(summary)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/workspaces/workspace-1/notifications/outbox/dispatch',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'same-origin',
+      }),
+    )
   })
 })

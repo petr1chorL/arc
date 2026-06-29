@@ -243,4 +243,84 @@ describe('Notifications page', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('重新入队失败')
     expect(screen.getByLabelText('重新入队原因')).toHaveValue('渠道仍在恢复中')
   })
+
+  it('triggers notification dispatch and refreshes the current list', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = typeof input === 'string' ? input : input instanceof URL ? input.pathname + input.search : input.url
+      if (path === '/api/workspaces/workspace-1/notifications/outbox?limit=50') {
+        const getCount = fetchMock.mock.calls.filter(([calledInput]) => {
+          const calledPath = typeof calledInput === 'string'
+            ? calledInput
+            : calledInput instanceof URL
+              ? calledInput.pathname + calledInput.search
+              : calledInput.url
+          return calledPath === '/api/workspaces/workspace-1/notifications/outbox?limit=50'
+        }).length
+        return new Response(JSON.stringify(getCount > 1 ? [notifications[0]] : notifications), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/notifications/outbox/dispatch') {
+        return new Response(JSON.stringify({
+          processed: 2,
+          sent: 1,
+          failed: 1,
+          items: [],
+        }), { status: 200 })
+      }
+      throw new Error(`Unexpected fetch: ${path} ${init?.method ?? 'GET'}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage()
+
+    expect(await screen.findByText('notification-pending')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '触发发送器' }))
+
+    expect(await screen.findByText('本次处理 2 条')).toBeInTheDocument()
+    expect(screen.getByText('已发送 1 条')).toBeInTheDocument()
+    expect(screen.getByText('失败 1 条')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/workspaces/workspace-1/notifications/outbox/dispatch',
+        expect.objectContaining({
+          method: 'POST',
+          credentials: 'same-origin',
+        }),
+      )
+    })
+    await waitFor(() => {
+      const listCalls = fetchMock.mock.calls.filter(([calledInput]) => {
+        const calledPath = typeof calledInput === 'string'
+          ? calledInput
+          : calledInput instanceof URL
+            ? calledInput.pathname + calledInput.search
+            : calledInput.url
+        return calledPath === '/api/workspaces/workspace-1/notifications/outbox?limit=50'
+      })
+      expect(listCalls).toHaveLength(2)
+    })
+  })
+
+  it('shows a dispatch error without rendering a fresh success summary', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = typeof input === 'string' ? input : input instanceof URL ? input.pathname + input.search : input.url
+      if (path === '/api/workspaces/workspace-1/notifications/outbox?limit=50') {
+        return new Response(JSON.stringify(notifications), { status: 200 })
+      }
+      if (path === '/api/workspaces/workspace-1/notifications/outbox/dispatch') {
+        return new Response(JSON.stringify({ detail: '发送器失败' }), { status: 500 })
+      }
+      throw new Error(`Unexpected fetch: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage()
+
+    expect(await screen.findByText('notification-pending')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '触发发送器' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('发送器失败')
+    expect(screen.queryByText(/本次处理/)).not.toBeInTheDocument()
+  })
 })

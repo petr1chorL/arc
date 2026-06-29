@@ -669,6 +669,23 @@ export interface NotificationOutboxItem {
   createdAt: string
 }
 
+export interface NotificationDispatchItem {
+  id: string
+  eventKey: string
+  status: string
+  channel: string
+  errorCode: string
+  providerMessageId: string
+  error: string
+}
+
+export interface NotificationDispatchSummary {
+  processed: number
+  sent: number
+  failed: number
+  items: NotificationDispatchItem[]
+}
+
 export interface HumanTaskDetail extends HumanTask {
   artifact: ArtifactVersionSummary
   run: {

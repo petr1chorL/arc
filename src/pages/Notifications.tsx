@@ -1,10 +1,10 @@
-import { AlertTriangle, Bell, CheckCircle2, Clock3, Filter, RefreshCw, RotateCcw } from 'lucide-react'
+import { AlertTriangle, Bell, CheckCircle2, Clock3, Filter, RefreshCw, RotateCcw, Send } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { listNotifications, requeueNotification } from '../api/notifications'
+import { dispatchNotifications, listNotifications, requeueNotification } from '../api/notifications'
 import { useWorkspace } from '../auth/workspaceContextState'
 import { StatusBadge } from '../components/StatusBadge'
-import type { NotificationOutboxItem } from '../types'
+import type { NotificationDispatchSummary, NotificationOutboxItem } from '../types'
 
 const statusOptions = [
   { label: '全部状态', value: '' },
@@ -77,6 +77,9 @@ export function Notifications() {
   const [errorCode, setErrorCode] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
+  const [dispatchSummary, setDispatchSummary] = useState<NotificationDispatchSummary | null>(null)
+  const [dispatchError, setDispatchError] = useState('')
+  const [isDispatching, setIsDispatching] = useState(false)
   const [activeRequeueId, setActiveRequeueId] = useState('')
   const [requeueReason, setRequeueReason] = useState('')
   const [requeueValidationError, setRequeueValidationError] = useState('')
@@ -140,6 +143,20 @@ export function Notifications() {
     }
   }, [activeRequeueId, cancelRequeue, loadNotifications, requeueReason, workspace.id])
 
+  const triggerDispatch = useCallback(async () => {
+    setIsDispatching(true)
+    setDispatchError('')
+    setDispatchSummary(null)
+    try {
+      setDispatchSummary(await dispatchNotifications(workspace.id))
+      await loadNotifications()
+    } catch (dispatchSubmitError) {
+      setDispatchError(dispatchSubmitError instanceof Error ? dispatchSubmitError.message : '发送器触发失败')
+    } finally {
+      setIsDispatching(false)
+    }
+  }, [loadNotifications, workspace.id])
+
   const summary = useMemo(() => ({
     total: items.length,
     failed: items.filter((item) => item.status === 'failed').length,
@@ -155,10 +172,33 @@ export function Notifications() {
           <h2>通知运维</h2>
           <p>按状态、渠道和失败码定位当前 Workspace 的通知记录，先把事实看清楚，再决定是否恢复或接入真实渠道。</p>
         </div>
-        <button className="button secondary" type="button" onClick={() => void loadNotifications()}>
-          <RefreshCw size={15} />刷新
-        </button>
+        <div className="notifications-hero-actions">
+          <button
+            className="button primary"
+            type="button"
+            onClick={() => void triggerDispatch()}
+            disabled={isDispatching}
+          >
+            <Send size={15} />{isDispatching ? '发送器处理中...' : '触发发送器'}
+          </button>
+          <button className="button secondary" type="button" onClick={() => void loadNotifications()}>
+            <RefreshCw size={15} />刷新
+          </button>
+        </div>
       </section>
+
+      {(dispatchSummary || dispatchError) && (
+        <section className="notification-dispatch-result" aria-label="发送器结果">
+          {dispatchSummary && (
+            <>
+              <span>本次处理 {dispatchSummary.processed} 条</span>
+              <span>已发送 {dispatchSummary.sent} 条</span>
+              <span>失败 {dispatchSummary.failed} 条</span>
+            </>
+          )}
+          {dispatchError && <div className="table-state error" role="alert">{dispatchError}</div>}
+        </section>
+      )}
 
       <section className="notification-summary-grid" aria-label="通知摘要">
         <SummaryCard label="通知总数" value={summary.total} icon={<Bell size={17} />} />
