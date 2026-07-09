@@ -13,6 +13,7 @@
 - 后端安全响应头：FastAPI 返回基础安全头；HTTPS 部署时可开启 `HSTS_ENABLED=true`。
 - 健康检查：`/api/health` 用于部署平台探活。
 - CI 验证：GitHub Actions 会运行前端测试、后端测试、lint 和 build。
+- 依赖更新：Dependabot 每周检查 npm、Python/pip 和 GitHub Actions 更新。
 
 ## 必配生产环境变量
 
@@ -63,6 +64,7 @@ MODEL_API_KEY=<set in platform secret manager>
 - [ ] `npm run deploy:check` 通过。
 - [ ] `npm run build` 通过。
 - [ ] 部署完成后设置 `FRONTEND_URL` 和 `API_URL`，运行 `npm run deploy:check:live` 通过。
+- [ ] GitHub Security 页面启用 Dependabot alerts 和 Dependabot security updates。
 
 ## 后续安全工作
 

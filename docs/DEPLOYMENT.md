@@ -120,6 +120,7 @@ https://your-api.example.com/api/health
 - `HSTS_ENABLED=true`：HTTPS 部署时启用 HSTS。
 - 前端通过 `VITE_API_BASE_URL` 指向公网后端，避免把本地 `127.0.0.1` 带到生产。
 - GitHub Actions CI：push 或 pull request 时自动运行测试、lint 和 build。
+- Dependabot：每周检查 npm、Python/pip 和 GitHub Actions 更新，降低依赖过期风险。
 
 重要限制：
 

@@ -1,0 +1,53 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    groups:
+      frontend-runtime:
+        patterns:
+          - react
+          - react-dom
+          - react-router-dom
+          - "@xyflow/*"
+      frontend-tooling:
+        patterns:
+          - "@vitejs/*"
+          - vite
+          - vitest
+          - typescript
+
+  - package-ecosystem: pip
+    directory: /apps/api
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:15"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    groups:
+      backend-runtime:
+        patterns:
+          - fastapi
+          - sqlalchemy
+          - pydantic-settings
+          - uvicorn
+          - psycopg
+      backend-security:
+        patterns:
+          - argon2-cffi
+          - httpx
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:30"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5

@@ -5,6 +5,7 @@ const root = process.cwd()
 
 const requiredFiles = [
   '.env.example',
+  '.github/dependabot.yml',
   'apps/api/.env.example',
   'docs/DEPLOYMENT.md',
   'docs/DEPLOYMENT_VALUES.template.md',
@@ -16,6 +17,17 @@ const requiredFiles = [
 ]
 
 const checks = [
+  {
+    name: 'Dependabot watches npm, pip, and GitHub Actions updates',
+    file: '.github/dependabot.yml',
+    patterns: [
+      /package-ecosystem: npm/,
+      /package-ecosystem: pip/,
+      /directory: \/apps\/api/,
+      /package-ecosystem: github-actions/,
+      /interval: weekly/,
+    ],
+  },
   {
     name: 'Cloudflare Pages Wrangler config points at the Vite build output',
     file: 'wrangler.toml',
