@@ -147,3 +147,21 @@ npm run lint
 npm run deploy:check
 npm run build
 ```
+
+## 5. 上线后验收
+
+前端和后端都有公网 URL 后，运行：
+
+```powershell
+$env:FRONTEND_URL="https://your-project.pages.dev"
+$env:API_URL="https://your-api.example.com"
+npm run deploy:check:live
+```
+
+该命令会检查：
+
+- 前端首页可访问。
+- 前端返回基础安全头和 CSP。
+- 后端 `/api/health` 返回 `{"status":"ok"}`。
+- 后端返回基础安全头。
+- 后端 CORS 允许配置的前端 origin。

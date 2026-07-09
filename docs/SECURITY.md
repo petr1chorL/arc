@@ -61,6 +61,7 @@ MODEL_API_KEY=<set in platform secret manager>
 - [ ] `npm run lint` 通过。
 - [ ] `npm run deploy:check` 通过。
 - [ ] `npm run build` 通过。
+- [ ] 部署完成后设置 `FRONTEND_URL` 和 `API_URL`，运行 `npm run deploy:check:live` 通过。
 
 ## 后续安全工作
 
