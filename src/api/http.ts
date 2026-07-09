@@ -8,6 +8,21 @@ export class ApiError extends Error {
   }
 }
 
+export function apiUrl(path: string): string {
+  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim()
+  if (!apiBaseUrl) {
+    return path
+  }
+  return `${apiBaseUrl.replace(/\/$/, '')}${path}`
+}
+
+export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  if (init === undefined) {
+    return fetch(apiUrl(path))
+  }
+  return fetch(apiUrl(path), init)
+}
+
 export async function readJson<T>(response: Response): Promise<T> {
   let data: T | { detail?: string | string[] }
   try {

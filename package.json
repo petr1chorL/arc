@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "deploy:check": "node scripts/verify-deployment.mjs",
     "lint": "oxlint",
     "test": "vitest",
     "test:watch": "vitest",

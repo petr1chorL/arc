@@ -3,9 +3,11 @@ from collections.abc import Callable
 from datetime import datetime
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.config import Settings
 from app.database import create_database, session_scope
@@ -58,9 +60,11 @@ def create_app(
     database_url: str | None = None,
     model_gateway: ModelGateway | None = None,
     human_task_clock: Callable[[], datetime] = utc_now,
+    settings: Settings | None = None,
 ) -> FastAPI:
-    settings = Settings()
+    settings = settings or Settings()
     resolved_database_url = database_url or settings.database_url
+    settings.validate_production_ready(resolved_database_url)
     engine, session_factory = create_database(resolved_database_url)
     try:
         Base.metadata.create_all(engine)
@@ -69,6 +73,7 @@ def create_app(
             raise
     ensure_current_schema(engine)
     app = FastAPI(title="ARC.ONE API")
+    configure_network_security(app, settings)
     human_task_service = HumanTaskService(human_task_clock)
     with session_factory() as bootstrap_session:
         human_task_service.ensure_default_directory(bootstrap_session)
@@ -84,6 +89,10 @@ def create_app(
 
     def get_session() -> Iterator[Session]:
         yield from session_scope(session_factory)
+
+    @app.get("/api/health")
+    def health() -> dict[str, str]:
+        return {"status": "ok"}
 
     @app.get("/api/agents", response_model=list[AgentRead])
     def list_agents(session: Session = Depends(get_session)) -> list[AgentRecord]:
@@ -582,6 +591,36 @@ def create_app(
         return review
 
     return app
+
+
+def configure_network_security(app: FastAPI, settings: Settings) -> None:
+    if settings.allowed_hosts:
+        app.add_middleware(
+            TrustedHostMiddleware,
+            allowed_hosts=settings.allowed_hosts,
+        )
+    if settings.allowed_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.allowed_origins,
+            allow_credentials=False,
+            allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
+            allow_headers=["Content-Type"],
+        )
+
+    if not settings.security_headers_enabled:
+        return
+
+    @app.middleware("http")
+    async def add_security_headers(request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        if settings.hsts_enabled:
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        return response
 
 
 app = create_app()

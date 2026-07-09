@@ -3,7 +3,7 @@ import type {
   WorkflowDraft,
   WorkflowVersion,
 } from '../types'
-import { readJson } from './http'
+import { apiFetch, readJson } from './http'
 
 export interface SaveWorkflowInput {
   name: string
@@ -12,11 +12,11 @@ export interface SaveWorkflowInput {
 }
 
 export async function listWorkflows(): Promise<WorkflowDraft[]> {
-  return readJson<WorkflowDraft[]>(await fetch('/api/workflows'))
+  return readJson<WorkflowDraft[]>(await apiFetch('/api/workflows'))
 }
 
 export async function createWorkflow(input: SaveWorkflowInput): Promise<WorkflowDraft> {
-  return readJson<WorkflowDraft>(await fetch('/api/workflows', {
+  return readJson<WorkflowDraft>(await apiFetch('/api/workflows', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -27,7 +27,7 @@ export async function updateWorkflow(
   workflowId: string,
   input: SaveWorkflowInput,
 ): Promise<WorkflowDraft> {
-  return readJson<WorkflowDraft>(await fetch(`/api/workflows/${workflowId}`, {
+  return readJson<WorkflowDraft>(await apiFetch(`/api/workflows/${workflowId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -35,17 +35,17 @@ export async function updateWorkflow(
 }
 
 export async function validateWorkflow(workflowId: string): Promise<ValidationResult> {
-  return readJson<ValidationResult>(await fetch(`/api/workflows/${workflowId}/validate`, {
+  return readJson<ValidationResult>(await apiFetch(`/api/workflows/${workflowId}/validate`, {
     method: 'POST',
   }))
 }
 
 export async function publishWorkflow(workflowId: string): Promise<WorkflowVersion> {
-  return readJson<WorkflowVersion>(await fetch(`/api/workflows/${workflowId}/publish`, {
+  return readJson<WorkflowVersion>(await apiFetch(`/api/workflows/${workflowId}/publish`, {
     method: 'POST',
   }))
 }
 
 export async function listWorkflowVersions(workflowId: string): Promise<WorkflowVersion[]> {
-  return readJson<WorkflowVersion[]>(await fetch(`/api/workflows/${workflowId}/versions`))
+  return readJson<WorkflowVersion[]>(await apiFetch(`/api/workflows/${workflowId}/versions`))
 }
