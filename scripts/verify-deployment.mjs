@@ -6,6 +6,7 @@ const root = process.cwd()
 const requiredFiles = [
   '.env.example',
   '.github/dependabot.yml',
+  'SECURITY.md',
   'apps/api/.env.example',
   'docs/DEPLOYMENT.md',
   'docs/DEPLOYMENT_VALUES.template.md',
@@ -17,6 +18,17 @@ const requiredFiles = [
 ]
 
 const checks = [
+  {
+    name: 'GitHub security policy points to the prototype security checklist',
+    file: 'SECURITY.md',
+    patterns: [
+      /Security Policy/,
+      /docs\/SECURITY\.md/,
+      /Cloudflare Access/,
+      /Known Prototype Limitations/,
+      /Do not place secrets/,
+    ],
+  },
   {
     name: 'Dependabot watches npm, pip, and GitHub Actions updates',
     file: '.github/dependabot.yml',
