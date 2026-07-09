@@ -131,8 +131,34 @@ def test_request_body_limit_allows_small_payload(tmp_path):
     assert response.status_code == 201
 
 
+def test_rate_limit_rejects_excessive_requests_from_same_client(tmp_path):
+    settings = Settings(
+        allowed_hosts=["testserver"],
+        rate_limit_requests=2,
+        rate_limit_window_seconds=60,
+    )
+    client = TestClient(
+        create_app(
+            f"sqlite:///{tmp_path / 'rate-limit.db'}",
+            settings=settings,
+        ),
+    )
+
+    assert client.get("/api/agents").status_code == 200
+    assert client.get("/api/agents").status_code == 200
+    response = client.get("/api/agents")
+
+    assert response.status_code == 429
+    assert response.json() == {"detail": "请求过于频繁"}
+    assert response.headers["retry-after"] == "60"
+
+
 def test_production_requires_explicit_network_and_secret_configuration(tmp_path):
-    settings = Settings(environment="production", model_api_key="")
+    settings = Settings(
+        environment="production",
+        model_api_key="",
+        rate_limit_enabled=False,
+    )
 
     try:
         create_app(f"sqlite:///{tmp_path / 'unsafe-production.db'}", settings=settings)
@@ -146,6 +172,7 @@ def test_production_requires_explicit_network_and_secret_configuration(tmp_path)
     assert "ALLOWED_HOSTS must include the public API host" in message
     assert "HSTS_ENABLED must be true" in message
     assert "COOKIE_SECURE must be true" in message
+    assert "RATE_LIMIT_ENABLED must be true" in message
     assert "MODEL_API_KEY must be set" in message
 
 

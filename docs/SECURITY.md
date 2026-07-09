@@ -12,6 +12,7 @@
 - 后端 Host allowlist：`ALLOWED_HOSTS` 拒绝异常 Host header。
 - 后端安全响应头：FastAPI 返回基础安全头；HTTPS 部署时可开启 `HSTS_ENABLED=true`。
 - 请求体限制：`MAX_REQUEST_BODY_BYTES` 默认限制为 1MB，超限请求在入口层返回 `413`。
+- API 限流：`RATE_LIMIT_ENABLED=true` 时按观察到的客户端地址做固定窗口限流，默认每 60 秒 120 次，超限返回 `429` 和 `Retry-After`。
 - 健康检查：`/api/health` 用于部署平台探活。
 - CI 验证：GitHub Actions 会运行前端测试、后端测试、lint 和 build。
 - 依赖更新：Dependabot 每周检查 npm、Python/pip 和 GitHub Actions 更新。
@@ -34,6 +35,9 @@ ALLOWED_HOSTS=your-api.example.com
 HSTS_ENABLED=true
 COOKIE_SECURE=true
 MAX_REQUEST_BODY_BYTES=1048576
+RATE_LIMIT_ENABLED=true
+RATE_LIMIT_REQUESTS=120
+RATE_LIMIT_WINDOW_SECONDS=60
 MODEL_API_KEY=<set in platform secret manager>
 ```
 
@@ -57,6 +61,7 @@ MODEL_API_KEY=<set in platform secret manager>
 - [ ] 后端设置了精确的 `ALLOWED_ORIGINS`，不使用 `*`。
 - [ ] 后端设置了精确的 `ALLOWED_HOSTS`。
 - [ ] 后端使用 PostgreSQL，不使用本地 SQLite 承载多人访问。
+- [ ] 后端保持 `RATE_LIMIT_ENABLED=true`，并按演示人数调整 `RATE_LIMIT_REQUESTS`。
 - [ ] `MODEL_API_KEY` 只存在于平台 Secret Manager。
 - [ ] `HSTS_ENABLED=true` 只在 HTTPS 域名可用后开启。
 - [ ] 前端和后端都被 Cloudflare Access 或等价机制保护。
@@ -74,7 +79,7 @@ MODEL_API_KEY=<set in platform secret manager>
 - User、Organization、Workspace、Membership 和 RBAC。
 - API 级授权检查，而不是只依赖页面隐藏按钮。
 - 审计事件查询、导出和保留策略。
-- 请求限流、后台任务隔离和模型调用配额。
+- 后台任务隔离和模型调用配额。
 - 数据库迁移工具和备份/恢复流程。
 - 更严格的 CSP：在最终域名确定后，把 `connect-src` 从通配 HTTPS 收紧到确切 API origin。
 
@@ -87,6 +92,7 @@ MODEL_API_KEY=<set in platform secret manager>
 - `ALLOWED_HOSTS` 没有公网 API host。
 - `HSTS_ENABLED` 不是 `true`。
 - `COOKIE_SECURE` 不是 `true`。
+- `RATE_LIMIT_ENABLED` 不是 `true`。
 - `MODEL_API_KEY` 未设置。
 
 这层保护用于防止把本地开发默认配置误部署到公网。

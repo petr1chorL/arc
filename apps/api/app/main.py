@@ -1,6 +1,7 @@
 from collections.abc import Iterator
 from collections.abc import Callable
 from datetime import datetime
+from time import monotonic
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -595,6 +596,38 @@ def create_app(
 
 
 def configure_network_security(app: FastAPI, settings: Settings) -> None:
+    rate_limit_buckets: dict[str, tuple[float, int]] = {}
+
+    @app.middleware("http")
+    async def enforce_rate_limit(request, call_next):
+        if (
+            not settings.rate_limit_enabled
+            or not request.url.path.startswith("/api/")
+            or request.url.path == "/api/health"
+            or request.method == "OPTIONS"
+        ):
+            return await call_next(request)
+
+        client_host = request.client.host if request.client else "unknown"
+        now = monotonic()
+        window_start, count = rate_limit_buckets.get(client_host, (now, 0))
+        elapsed = now - window_start
+        if elapsed >= settings.rate_limit_window_seconds:
+            window_start = now
+            count = 0
+            elapsed = 0
+
+        if count >= settings.rate_limit_requests:
+            retry_after = max(1, round(settings.rate_limit_window_seconds - elapsed))
+            return JSONResponse(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                content={"detail": "请求过于频繁"},
+                headers={"Retry-After": str(retry_after)},
+            )
+
+        rate_limit_buckets[client_host] = (window_start, count + 1)
+        return await call_next(request)
+
     @app.middleware("http")
     async def enforce_request_body_limit(request, call_next):
         content_length = request.headers.get("content-length")

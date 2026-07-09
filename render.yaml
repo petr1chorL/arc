@@ -23,6 +23,12 @@ services:
         value: "true"
       - key: MAX_REQUEST_BODY_BYTES
         value: "1048576"
+      - key: RATE_LIMIT_ENABLED
+        value: "true"
+      - key: RATE_LIMIT_REQUESTS
+        value: "120"
+      - key: RATE_LIMIT_WINDOW_SECONDS
+        value: "60"
       - key: MODEL_API_KEY
         sync: false
       - key: MODEL_BASE_URL

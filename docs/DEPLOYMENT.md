@@ -97,6 +97,9 @@ ALLOWED_ORIGINS=https://your-project.pages.dev
 ALLOWED_HOSTS=your-api.example.com
 HSTS_ENABLED=true
 MAX_REQUEST_BODY_BYTES=1048576
+RATE_LIMIT_ENABLED=true
+RATE_LIMIT_REQUESTS=120
+RATE_LIMIT_WINDOW_SECONDS=60
 MODEL_API_KEY=<set in platform secret manager>
 ```
 
@@ -119,6 +122,7 @@ https://your-api.example.com/api/health
 - `ALLOWED_HOSTS`：拒绝异常 Host header。
 - 安全响应头：`X-Content-Type-Options`、`X-Frame-Options`、`Referrer-Policy`、`Permissions-Policy`。
 - `HSTS_ENABLED=true`：HTTPS 部署时启用 HSTS。
+- `RATE_LIMIT_ENABLED=true`：为公开 API 增加基础固定窗口限流，默认每 60 秒 120 次。
 - 前端通过 `VITE_API_BASE_URL` 指向公网后端，避免把本地 `127.0.0.1` 带到生产。
 - GitHub Actions CI：push 或 pull request 时自动运行测试、lint 和 build。
 - Dependabot：每周检查 npm、Python/pip 和 GitHub Actions 更新，降低依赖过期风险。

@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     security_headers_enabled: bool = True
     hsts_enabled: bool = False
     max_request_body_bytes: int = 1_048_576
+    rate_limit_enabled: bool = True
+    rate_limit_requests: int = 120
+    rate_limit_window_seconds: int = 60
     session_cookie_name: str = "arc_one_session"
     csrf_cookie_name: str = "arc_one_csrf"
     session_idle_hours: int = 8
@@ -65,6 +68,8 @@ class Settings(BaseSettings):
             errors.append("HSTS_ENABLED must be true in production")
         if not self.cookie_secure:
             errors.append("COOKIE_SECURE must be true in production")
+        if not self.rate_limit_enabled:
+            errors.append("RATE_LIMIT_ENABLED must be true in production")
         if not self.model_api_key:
             errors.append("MODEL_API_KEY must be set in production")
 

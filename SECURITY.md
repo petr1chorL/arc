@@ -16,6 +16,7 @@ Security expectations currently covered by the repository:
 - Production API origin configuration through `VITE_API_BASE_URL`.
 - FastAPI CORS allowlist, trusted host allowlist, security headers, HSTS switch, and `/api/health`.
 - Production startup guardrails for PostgreSQL, HTTPS origins, public API hosts, secure cookies, and model API key presence.
+- Basic fixed-window API rate limiting for public prototype traffic.
 - CI checks for frontend tests, backend tests, lint, build, and deployment configuration.
 - Dependabot monitoring for npm, Python/pip, and GitHub Actions.
 
@@ -27,7 +28,7 @@ The following are not complete yet:
 - CSRF flow.
 - User, Organization, Workspace, Membership, and RBAC.
 - API-level authorization checks.
-- Request rate limiting and quota enforcement.
+- Durable quota enforcement.
 
 Until these are implemented, protect both frontend and backend behind an external access control layer.
 
