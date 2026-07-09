@@ -4,6 +4,7 @@ from datetime import datetime
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
@@ -594,6 +595,16 @@ def create_app(
 
 
 def configure_network_security(app: FastAPI, settings: Settings) -> None:
+    @app.middleware("http")
+    async def enforce_request_body_limit(request, call_next):
+        content_length = request.headers.get("content-length")
+        if content_length is not None and int(content_length) > settings.max_request_body_bytes:
+            return JSONResponse(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                content={"detail": "请求体过大"},
+            )
+        return await call_next(request)
+
     if settings.allowed_hosts:
         app.add_middleware(
             TrustedHostMiddleware,

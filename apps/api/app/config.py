@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     allowed_hosts: Annotated[list[str], NoDecode] = ["localhost", "127.0.0.1", "testserver"]
     security_headers_enabled: bool = True
     hsts_enabled: bool = False
+    max_request_body_bytes: int = 1_048_576
     session_cookie_name: str = "arc_one_session"
     csrf_cookie_name: str = "arc_one_csrf"
     session_idle_hours: int = 8

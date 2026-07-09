@@ -11,6 +11,7 @@
 - 后端 CORS allowlist：`ALLOWED_ORIGINS` 只允许指定前端 origin 从浏览器访问 API。
 - 后端 Host allowlist：`ALLOWED_HOSTS` 拒绝异常 Host header。
 - 后端安全响应头：FastAPI 返回基础安全头；HTTPS 部署时可开启 `HSTS_ENABLED=true`。
+- 请求体限制：`MAX_REQUEST_BODY_BYTES` 默认限制为 1MB，超限请求在入口层返回 `413`。
 - 健康检查：`/api/health` 用于部署平台探活。
 - CI 验证：GitHub Actions 会运行前端测试、后端测试、lint 和 build。
 - 依赖更新：Dependabot 每周检查 npm、Python/pip 和 GitHub Actions 更新。
@@ -32,6 +33,7 @@ ALLOWED_ORIGINS=https://your-project.pages.dev
 ALLOWED_HOSTS=your-api.example.com
 HSTS_ENABLED=true
 COOKIE_SECURE=true
+MAX_REQUEST_BODY_BYTES=1048576
 MODEL_API_KEY=<set in platform secret manager>
 ```
 

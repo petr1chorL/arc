@@ -78,6 +78,7 @@ const checks = [
       /ALLOWED_ORIGINS=https:\/\//,
       /ALLOWED_HOSTS=/,
       /HSTS_ENABLED=true/,
+      /MAX_REQUEST_BODY_BYTES=1048576/,
       /COOKIE_SECURE=true/,
       /MODEL_API_KEY=/,
     ],
@@ -95,6 +96,7 @@ const checks = [
       /key: ALLOWED_ORIGINS\s+sync: false/s,
       /key: ALLOWED_HOSTS\s+sync: false/s,
       /key: MODEL_API_KEY\s+sync: false/s,
+      /key: MAX_REQUEST_BODY_BYTES\s+value: "1048576"/s,
     ],
   },
   {

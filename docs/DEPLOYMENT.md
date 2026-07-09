@@ -96,6 +96,7 @@ DATABASE_URL=postgresql+psycopg://user:password@host:5432/dbname
 ALLOWED_ORIGINS=https://your-project.pages.dev
 ALLOWED_HOSTS=your-api.example.com
 HSTS_ENABLED=true
+MAX_REQUEST_BODY_BYTES=1048576
 MODEL_API_KEY=<set in platform secret manager>
 ```
 

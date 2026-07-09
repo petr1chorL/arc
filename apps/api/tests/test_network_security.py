@@ -84,6 +84,53 @@ def test_untrusted_host_is_rejected(tmp_path):
     assert response.status_code == 400
 
 
+def test_request_body_limit_rejects_oversized_payload(tmp_path):
+    settings = Settings(
+        allowed_hosts=["testserver"],
+        max_request_body_bytes=10,
+    )
+    client = TestClient(
+        create_app(
+            f"sqlite:///{tmp_path / 'body-limit.db'}",
+            settings=settings,
+        ),
+    )
+
+    response = client.post(
+        "/api/agents",
+        content='{"name":"too large"}',
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 413
+    assert response.json() == {"detail": "请求体过大"}
+
+
+def test_request_body_limit_allows_small_payload(tmp_path):
+    settings = Settings(
+        allowed_hosts=["testserver"],
+        max_request_body_bytes=10_000,
+    )
+    client = TestClient(
+        create_app(
+            f"sqlite:///{tmp_path / 'body-limit-ok.db'}",
+            settings=settings,
+        ),
+    )
+
+    response = client.post(
+        "/api/agents",
+        json={
+            "name": "安全测试 Agent",
+            "role": "验证请求体限制",
+            "owner": "平台工程组",
+            "model": "GPT-5",
+        },
+    )
+
+    assert response.status_code == 201
+
+
 def test_production_requires_explicit_network_and_secret_configuration(tmp_path):
     settings = Settings(environment="production", model_api_key="")
 
