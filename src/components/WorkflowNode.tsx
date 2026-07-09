@@ -17,7 +17,7 @@ export type WorkflowNodeData = {
   label: string
   subtitle: string
   kind: 'trigger' | 'agent' | 'tool' | 'data' | 'gate' | 'human' | 'branch' | 'code' | 'wait' | 'end'
-  status?: 'idle' | 'running' | 'success' | 'warning'
+  status?: 'idle' | 'running' | 'success' | 'warning' | 'error'
   score?: number
 }
 
@@ -36,15 +36,16 @@ const icons = {
 
 export function WorkflowNode({ data, selected }: NodeProps) {
   const nodeData = data as WorkflowNodeData
-  const Icon = icons[nodeData.kind]
+  const nodeKind = nodeData.kind ?? 'agent'
+  const Icon = icons[nodeKind] ?? Bot
 
   return (
     <div
-      className={`workflow-node ${nodeData.kind} ${nodeData.status ?? 'idle'} ${selected ? 'selected' : ''}`}
-      data-node-kind={nodeData.kind}
+      className={`workflow-node ${nodeKind} ${nodeData.status ?? 'idle'} ${selected ? 'selected' : ''}`}
+      data-node-kind={nodeKind}
       data-node-status={nodeData.status ?? 'idle'}
     >
-      {nodeData.kind !== 'trigger' && (
+      {nodeKind !== 'trigger' && (
         <Handle
           aria-label="输入连接点"
           className="node-handle target"
@@ -59,7 +60,7 @@ export function WorkflowNode({ data, selected }: NodeProps) {
         <span>{nodeData.subtitle}</span>
       </div>
       {nodeData.score !== undefined && <b className="node-score">{nodeData.score}</b>}
-      {nodeData.kind !== 'end' && (
+      {nodeKind !== 'end' && (
         <Handle
           aria-label="输出连接点"
           className="node-handle source"

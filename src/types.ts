@@ -1,6 +1,102 @@
 export type AgentStatus = '在线' | '调试中' | '已停用'
 export type RunStatus = '运行中' | '已完成' | '需介入' | '失败'
 export type ReviewStatus = '待处理' | '处理中' | '已完成' | '已驳回'
+export type ModelProviderType = 'openai-compatible' | 'anthropic-compatible'
+export type WorkspaceRole = 'viewer' | 'operator' | 'builder' | 'workspace_admin'
+export type WorkspaceCapability =
+  | 'asset.read'
+  | 'run.read'
+  | 'audit.read'
+  | 'run.execute'
+  | 'evaluation.run'
+  | 'agent.write'
+  | 'agent.publish'
+  | 'workflow.write'
+  | 'workflow.publish'
+  | 'rubric.write'
+  | 'rubric.publish'
+  | 'asset.deactivate'
+  | 'member.manage'
+  | 'reviewer.manage'
+  | 'workspace.manage'
+  | 'audit.export'
+
+export interface AuthUser {
+  id: string
+  email: string
+  displayName: string
+  isOrganizationAdmin: boolean
+  lastWorkspaceId?: string | null
+}
+
+export interface AuthSession {
+  user: AuthUser
+}
+
+export interface WorkspaceSummary {
+  id: string
+  organizationId?: string
+  name: string
+  slug: string
+  status?: string
+  createdBy?: string | null
+  createdAt?: string
+  updatedAt?: string
+  role?: WorkspaceRole
+  capabilities?: WorkspaceCapability[]
+  isOrganizationAdmin?: boolean
+}
+
+export interface InvitationPreview {
+  email: string
+  workspaceName: string
+  role: WorkspaceRole
+  expiresAt: string
+}
+
+export interface ReviewerQualification {
+  role: string
+  isExpert: boolean
+  isActive: boolean
+}
+
+export interface WorkspaceMember {
+  userId: string
+  invitationId: string | null
+  email: string
+  displayName: string
+  role: WorkspaceRole
+  userStatus: string
+  membershipStatus: string
+  reviewer: ReviewerQualification | null
+  lastLoginAt: string | null
+}
+
+export interface PermissionCapability {
+  key: string
+  label: string
+  requiredRole: WorkspaceRole
+}
+
+export interface RolePermissionMatrixRow {
+  role: WorkspaceRole
+  capabilities: Record<string, boolean>
+}
+
+export interface WorkspacePermissionMatrix {
+  roles: WorkspaceRole[]
+  capabilities: PermissionCapability[]
+  matrix: RolePermissionMatrixRow[]
+  reviewerQualificationNote: string
+}
+
+export interface InvitationLink {
+  invitationId: string
+  email: string
+  role: WorkspaceRole
+  expiresAt: string
+  activationUrl: string | null
+}
 
 export interface Agent {
   id: string
@@ -8,12 +104,19 @@ export interface Agent {
   role: string
   owner: string
   model: string
+  modelProviderId: string | null
+  modelProvider: string
+  modelBaseUrl: string
+  temperature: number
+  maxOutputTokens: number
   status: AgentStatus
   version: string
   passRate: number
   runs: number
   tools: string[]
   skills: string[]
+  toolAssetRefs?: AgentAssetRef[]
+  skillAssetRefs?: AgentAssetRef[]
   systemPrompt: string
   runtimeManifest: AgentRuntimeManifest
   createdAt: string
@@ -21,6 +124,15 @@ export interface Agent {
 }
 
 export type AgentRuntimeSourceType = 'manifest' | 'python_package'
+
+export interface AgentRuntimeDefaults {
+  modelProviderId?: string | null
+  modelProvider?: string
+  modelBaseUrl?: string
+  model?: string
+  temperature?: number
+  maxOutputTokens?: number
+}
 
 export interface AgentRuntimeManifest {
   runtime?: string
@@ -33,20 +145,283 @@ export interface AgentRuntimeManifest {
   packageVersion?: string
   packageSource?: string
   packageHash?: string
+  defaults?: AgentRuntimeDefaults
   inputSchema?: Record<string, unknown>
   outputSchema?: Record<string, unknown>
   tools?: string[]
   rawManifest?: Record<string, unknown>
 }
 
+export interface AgentAssetRef {
+  assetId: string
+  assetType: 'tool' | 'skill'
+  assetName: string
+  status: string
+  adapterType: ToolSkillAdapterType
+}
+
 export interface AssetVersion<TSnapshot = Record<string, unknown>> {
   id: string
   version: string
   snapshot: TSnapshot
+  note?: string
   createdAt: string
 }
 
 export type AgentVersion = AssetVersion<Agent>
+
+export type ToolSkillAssetType = 'tool' | 'skill'
+export type ToolSkillAdapterType = 'manual' | 'http' | 'mcp'
+
+export interface ToolSkillAsset {
+  id: string
+  assetType: ToolSkillAssetType
+  name: string
+  description: string
+  parameterSchema: Record<string, unknown>
+  adapterType: ToolSkillAdapterType
+  adapterConfig: Record<string, unknown>
+  status: string
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ToolSkillAssetCreateInput {
+  assetType: ToolSkillAssetType
+  name: string
+  description: string
+  parameterSchema: Record<string, unknown>
+  adapterType: ToolSkillAdapterType
+  adapterConfig: Record<string, unknown>
+}
+
+export type ToolSkillAssetUpdateInput = Partial<Omit<ToolSkillAssetCreateInput, 'assetType'>>
+
+export interface ToolSkillTestInvocationInput {
+  parameters: Record<string, unknown>
+}
+
+export interface ToolSkillInvocation {
+  id: string
+  assetId: string
+  assetType: ToolSkillAssetType
+  assetName: string
+  agentId: string | null
+  agentVersion: string
+  runId: string | null
+  nodeRunId: string | null
+  status: string
+  inputSummary: string
+  outputSummary: string
+  error: string
+  durationMs: number
+  createdAt: string
+}
+
+export interface ToolSkillAssetDraftAgentImpact {
+  agentId: string
+  agentName: string
+  status: string
+  version: string
+}
+
+export interface ToolSkillAssetVersionImpact {
+  agentId: string
+  agentName: string
+  versionId: string
+  version: string
+}
+
+export interface ToolSkillAssetImpact {
+  assetId: string
+  assetType: ToolSkillAssetType
+  assetName: string
+  totals: {
+    draftAgents: number
+    publishedVersions: number
+  }
+  draftAgents: ToolSkillAssetDraftAgentImpact[]
+  publishedVersions: ToolSkillAssetVersionImpact[]
+}
+
+export interface ToolSkillAssetAuditEvent {
+  id: string
+  eventType: string
+  targetType: string
+  targetId: string
+  outcome: string
+  reason: string
+  actorId: string | null
+  createdAt: string
+  metadata: Record<string, unknown>
+}
+
+export interface DataObjectDefinition {
+  id: string
+  name: string
+  description: string
+  schema: Record<string, unknown>
+  status: string
+  version: string
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface DataObjectDefinitionCreateInput {
+  name: string
+  description: string
+  schema: Record<string, unknown>
+}
+
+export type DataObjectDefinitionUpdateInput = Partial<DataObjectDefinitionCreateInput>
+
+export interface DataObjectVersion {
+  id: string
+  definitionId: string
+  version: string
+  snapshot: DataObjectDefinition
+  createdAt: string
+}
+
+export interface DataObjectNodeRef {
+  definitionId: string
+  name: string
+  version: string
+  status: string
+  schemaSummary: string
+}
+
+export interface ArtifactCatalogItem {
+  artifactId: string
+  artifactVersionId: string
+  version: number
+  runId: string
+  sourceNodeRunId: string
+  workflowName: string | null
+  runStatus: string | null
+  sourceNodeName: string | null
+  sourceNodeType: string | null
+  sourceNodeStatus: string | null
+  sourceNodeDurationMs: number | null
+  sourceNodeScore: number | null
+  content: string
+  score: number | null
+  dataObjectDefinitionId: string | null
+  dataObjectVersionId: string | null
+  dataObjectSnapshot: Record<string, unknown> | null
+  schemaValidation?: {
+    status: 'passed' | 'failed' | 'unchecked'
+    label: string
+    reasons: string[]
+  }
+  createdAt: string
+}
+
+export interface WorkspaceAuditEvent {
+  id: string
+  action: string
+  targetType: string | null
+  targetId: string | null
+  outcome: string
+  reason: string
+  actorId: string | null
+  requestId: string | null
+  traceId: string
+  spanId: string | null
+  createdAt: string
+  metadata: Record<string, unknown>
+}
+
+export interface ModelProvider {
+  id: string
+  name: string
+  providerType: ModelProviderType
+  baseUrl: string
+  defaultModel: string
+  secretRef: string
+  status: string
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ModelProviderConnectivity {
+  providerId: string
+  status: 'ready' | 'missing_secret'
+  message: string
+}
+
+export interface ModelProviderDraftAgentImpact {
+  agentId: string
+  agentName: string
+  status: string
+  version: string
+}
+
+export interface ModelProviderVersionImpact {
+  agentId: string
+  agentName: string
+  versionId: string
+  version: string
+  modelSecretRef: string
+}
+
+export interface ModelProviderImpact {
+  providerId: string
+  totals: {
+    draftAgents: number
+    publishedVersions: number
+  }
+  draftAgents: ModelProviderDraftAgentImpact[]
+  publishedVersions: ModelProviderVersionImpact[]
+}
+
+export interface ModelProviderDraftMigrationInput {
+  targetProviderId: string
+  reason: string
+}
+
+export interface ModelProviderMigratedAgent {
+  agentId: string
+  agentName: string
+  previousModel: string
+  nextModel: string
+}
+
+export interface ModelProviderDraftMigration {
+  sourceProviderId: string
+  targetProviderId: string
+  migratedCount: number
+  migratedAgents: ModelProviderMigratedAgent[]
+}
+
+export interface ModelProviderAuditEvent {
+  id: string
+  eventType: string
+  targetType: string
+  targetId: string
+  outcome: string
+  reason: string
+  actorId: string | null
+  createdAt: string
+  metadata: Record<string, unknown>
+}
+
+export type NotificationChannelType = 'in_app' | 'webhook' | 'email' | 'feishu'
+
+export interface NotificationChannel {
+  id: string
+  workspaceId: string
+  name: string
+  channelType: NotificationChannelType
+  status: string
+  config: Record<string, unknown>
+  secretRef: string
+  createdAt: string
+  updatedAt: string
+}
 
 export interface WorkflowNodeContract {
   id: string
@@ -60,6 +435,7 @@ export interface WorkflowEdgeContract {
   source: string
   target: string
   label?: string
+  data?: Record<string, unknown>
 }
 
 export interface WorkflowDraft {
@@ -69,6 +445,8 @@ export interface WorkflowDraft {
   version: string
   nodes: WorkflowNodeContract[]
   edges: WorkflowEdgeContract[]
+  inputSchema: Record<string, unknown>
+  outputSchema: Record<string, unknown>
   createdAt: string
   updatedAt: string
 }
@@ -87,7 +465,36 @@ export interface Rubric {
   dimensions: { name: string; weight: number }[]
   gate: string
   passScore: number
+  judgeType: 'deterministic' | 'llm'
+  judgeModel: string
   version: string
+  status?: string
+}
+
+export type RubricVersion = AssetVersion<Rubric>
+
+export interface EvaluationDimensionScore {
+  name: string
+  weight: number
+  score: number
+}
+
+export interface EvaluationRecord {
+  id: string
+  rubricId: string
+  rubricVersion: string
+  rubricSnapshot: Rubric
+  subjectType: string
+  subjectId: string | null
+  artifactText: string
+  dimensionScores: EvaluationDimensionScore[]
+  score: number
+  status: string
+  rationale: string
+  evaluatorType: string
+  evaluatorModel: string
+  evaluatorInput: Record<string, unknown>
+  createdAt: string
 }
 
 export interface WorkflowRun {
@@ -161,6 +568,61 @@ export interface ExecutionRun {
   nodes: NodeExecution[]
 }
 
+export interface RunOperationHistoryEvent {
+  id: string
+  action: string
+  traceId: string
+  targetType: string | null
+  targetId: string | null
+  outcome: string
+  reason: string
+  actorId: string | null
+  requestId: string | null
+  createdAt: string
+  metadata: Record<string, unknown>
+}
+
+export interface ExecutionJob {
+  id: string
+  workspaceId: string | null
+  runId: string
+  workflowId: string | null
+  workflowVersion: string | null
+  jobType: string
+  status: string
+  input: string
+  attempts: number
+  maxAttempts: number
+  error: string
+  createdBy: string
+  lockedBy: string
+  lockedUntil: string | null
+  lastHeartbeatAt: string | null
+  nextAttemptAt: string | null
+  createdAt: string
+  startedAt: string | null
+  completedAt: string | null
+  deadLetteredAt: string | null
+  canceledAt: string | null
+}
+
+export interface ExecutionJobAuditEvent {
+  id: string
+  action: string | null
+  outcome: string | null
+  reason: string
+  beforeStatus: string
+  afterStatus: string
+  payload: Record<string, unknown>
+  actorUserId: string | null
+  requestId: string | null
+  createdAt: string
+}
+
+export interface ExecutionJobDetail extends ExecutionJob {
+  auditEvents: ExecutionJobAuditEvent[]
+}
+
 export interface HumanReview {
   id: string
   runId: string
@@ -174,6 +636,7 @@ export interface HumanReview {
 
 export interface Reviewer {
   id: string
+  userId?: string | null
   name: string
   role: string
   isExpert: boolean
@@ -251,6 +714,23 @@ export interface NotificationOutboxItem {
   createdAt: string
 }
 
+export interface NotificationDispatchItem {
+  id: string
+  eventKey: string
+  status: string
+  channel: string
+  errorCode: string
+  providerMessageId: string
+  error: string
+}
+
+export interface NotificationDispatchSummary {
+  processed: number
+  sent: number
+  failed: number
+  items: NotificationDispatchItem[]
+}
+
 export interface HumanTaskDetail extends HumanTask {
   artifact: ArtifactVersionSummary
   run: {
@@ -302,4 +782,322 @@ export interface GoldenSample {
   reviewerId: string
   reason: string
   createdAt: string
+}
+
+export interface RegressionSample {
+  id: string
+  sampleSetId: string
+  name: string
+  input: string
+  expectedOutput: string
+  tags: string[]
+  sourceType: string
+  sourceId: string | null
+  status: string
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface RegressionSampleSet {
+  id: string
+  name: string
+  description: string
+  status: string
+  sampleCount: number
+  activeSampleCount: number
+  samples: RegressionSample[]
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface RegressionRun {
+  id: string
+  sampleSetId: string | null
+  sampleSetName: string
+  rubricId: string
+  rubricName: string
+  rubricVersion: string
+  status: string
+  totalSamples: number
+  passedSamples: number
+  failedSamples: number
+  passRate: number
+  evaluationIds: string[]
+  records: EvaluationRecord[]
+  createdBy: string
+  createdAt: string
+  completedAt: string
+}
+
+export type RemediationTaskStatus = 'open' | 'in_progress' | 'done'
+
+export interface RemediationTaskActivity {
+  id: string
+  taskId: string
+  kind: 'comment' | 'status_change' | string
+  body: string
+  attachmentRefs: string[]
+  actorUserId: string
+  actorDisplayName: string
+  createdAt: string
+}
+
+export interface RemediationRetestSummary {
+  status: 'not_run' | 'failed' | 'passed'
+  label: string
+  recommendation: string
+  runId: string | null
+  failedSamples: number
+  passRate: number | null
+}
+
+export interface RemediationTask {
+  id: string
+  sourceRunId: string
+  clusterKey: string
+  title: string
+  priority: 'P0' | 'P1' | 'P2'
+  sampleIds: string[]
+  action: string
+  status: RemediationTaskStatus
+  owner: string | null
+  dueDate: string | null
+  isOverdue: boolean
+  activities: RemediationTaskActivity[]
+  retestRunId: string | null
+  retestRun: RegressionRun | null
+  retestSummary: RemediationRetestSummary
+  createdBy: string
+  updatedBy: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface EvaluationOverviewTotals {
+  feedbackCandidates: number
+  pendingCandidates: number
+  confirmedCandidates: number
+  goldenSamples: number
+  coveredWorkflows: number
+  coveredAgents: number
+}
+
+export interface EvaluationFeedbackCandidateSummary {
+  id: string
+  reason: string
+  tags: string[]
+  workflowId: string | null
+  agentId: string | null
+  sourceNodeId: string
+  createdBy: string
+  status: string
+  createdAt: string
+  confirmedAt: string | null
+}
+
+export interface EvaluationOverview {
+  totals: EvaluationOverviewTotals
+  recentCandidates: EvaluationFeedbackCandidateSummary[]
+}
+
+export interface ObservabilityTotals {
+  totalRuns: number
+  succeededRuns: number
+  failedRuns: number
+  waitingForHuman: number
+  resumeFailed: number
+  averageDurationMs: number
+  totalPromptTokens: number
+  totalCompletionTokens: number
+  totalCostUsd: number
+}
+
+export interface ObservabilityRunSummary {
+  id: string
+  traceId: string
+  workflowName: string
+  status: string
+  score: number | null
+  currentNode: string
+  startedAt: string
+  completedAt: string | null
+  durationMs: number | null
+  costUsd: number
+  promptTokens: number
+  completionTokens: number
+  priority: 'critical' | 'warning' | 'normal'
+  nextAction: string
+  failureCategory: string
+  failureCategoryLabel: string
+  troubleshootingHint: string
+}
+
+export interface ObservabilityRisk {
+  runId: string
+  title: string
+  severity: 'critical' | 'warning'
+  message: string
+  nextAction: string
+}
+
+export interface ObservabilityAlert {
+  id: string
+  eventKey: string
+  eventType: string
+  severity: 'critical' | 'warning'
+  channel: string
+  status: string
+  title: string
+  message: string
+  runId: string | null
+  humanTaskId: string | null
+  nextAction: string
+  createdAt: string
+}
+
+export interface ObservabilityOverview {
+  totals: ObservabilityTotals
+  risks: ObservabilityRisk[]
+  alerts: ObservabilityAlert[]
+  recentRuns: ObservabilityRunSummary[]
+}
+
+export interface ObservabilityNodeRun {
+  id: string
+  traceId: string
+  spanId: string
+  parentSpanId: string | null
+  nodeId: string
+  nodeType: string
+  nodeName: string
+  status: string
+  input: string
+  output: string
+  error: string
+  score: number | null
+  durationMs: number
+  attempts: number
+  model: string
+  promptTokens: number
+  completionTokens: number
+  costUsd: number
+  startedAt: string
+  completedAt: string | null
+}
+
+export interface ObservabilityHumanTask {
+  id: string
+  title: string
+  status: string
+  slaStatus: string
+  dueAt: string
+  escalationAt: string
+  assigneeReviewerId: string | null
+  assigneeGroupId: string | null
+}
+
+export interface ObservabilityAuditEvent {
+  id: string
+  traceId: string
+  spanId: string | null
+  eventType: string | null
+  actorId: string | null
+  outcome: string | null
+  reason: string
+  createdAt: string
+}
+
+export interface ObservabilityExecutionEvent {
+  id: string
+  type: string
+  title: string
+  status: string | null
+  traceId: string
+  spanId: string | null
+  sourceType:
+    | 'workflow_run'
+    | 'node_run'
+    | 'human_task'
+    | 'audit_event'
+    | 'tool_skill_invocation'
+    | 'remediation_task'
+    | 'remediation_activity'
+    | 'regression_run'
+  sourceId: string
+  occurredAt: string
+  summary: string
+}
+
+export interface ObservabilityRunDetail extends ObservabilityRunSummary {
+  input: string
+  output: string
+  error: string
+  model: string
+  nodes: ObservabilityNodeRun[]
+  humanTasks: ObservabilityHumanTask[]
+  auditEvents: ObservabilityAuditEvent[]
+  executionEvents: ObservabilityExecutionEvent[]
+}
+
+export interface HumanSlaTotals {
+  activeTasks: number
+  unclaimed: number
+  inReview: number
+  dueSoon: number
+  overdue: number
+  escalated: number
+  resumeFailed: number
+}
+
+export interface HumanSlaRisk {
+  taskId: string
+  runId: string
+  title: string
+  status: string
+  slaStatus: string
+  severity: 'critical' | 'warning'
+  assigneeReviewerId: string | null
+  assigneeGroupId: string | null
+  dueAt: string
+  escalationAt: string
+  nextAction: string
+}
+
+export interface HumanSlaFilterOption {
+  id: string
+  name: string
+}
+
+export interface HumanSlaOverview {
+  totals: HumanSlaTotals
+  risks: HumanSlaRisk[]
+  reviewers: HumanSlaFilterOption[]
+  groups: HumanSlaFilterOption[]
+}
+
+export interface CostUsageTotals {
+  runs: number
+  totalPromptTokens: number
+  totalCompletionTokens: number
+  totalTokens: number
+  totalCostUsd: number
+}
+
+export interface CostUsageGroup {
+  name: string
+  runs: number
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  costUsd: number
+  averageScore: number | null
+}
+
+export interface CostUsageOverview {
+  costConfigured: boolean
+  totals: CostUsageTotals
+  byWorkflow: CostUsageGroup[]
+  byModel: CostUsageGroup[]
 }

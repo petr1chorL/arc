@@ -3,6 +3,12 @@ import { describe, expect, it } from 'vitest'
 import { renderCloudflareHeaders } from './write-cloudflare-headers.mjs'
 
 describe('renderCloudflareHeaders', () => {
+  it('uses same-origin connect-src when API base URL is not configured', () => {
+    const headers = renderCloudflareHeaders()
+
+    expect(headers).toContain("connect-src 'self';")
+  })
+
   it('tightens connect-src to the configured API origin', () => {
     const headers = renderCloudflareHeaders('https://api.example.com/v1')
 

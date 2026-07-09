@@ -1,0 +1,1506 @@
+import {
+  BarChart3,
+  AlertTriangle,
+  ArrowRight,
+  ClipboardList,
+  Clock3,
+  Coins,
+  ListChecks,
+  RefreshCw,
+  Route,
+  ShieldAlert,
+  TimerReset,
+  UserRound,
+} from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
+import { cancelExecutionJob, getExecutionJob, listExecutionJobs, requeueExecutionJob } from '../api/execution'
+import {
+  getCostUsageOverview,
+  getHumanSlaOverview,
+  getObservabilityOverview,
+  getObservabilityRunDetail,
+} from '../api/observability'
+import { useWorkspace } from '../auth/workspaceContextState'
+import { StatusBadge } from '../components/StatusBadge'
+import { displayStatus } from '../domain/statusText'
+import type {
+  CostUsageGroup,
+  CostUsageOverview,
+  ExecutionJob,
+  ExecutionJobDetail,
+  HumanSlaOverview,
+  HumanSlaRisk,
+  ObservabilityAlert,
+  ObservabilityOverview,
+  ObservabilityRisk,
+  ObservabilityRunDetail,
+  ObservabilityExecutionEvent,
+  ObservabilityNodeRun,
+  ObservabilityHumanTask,
+  ObservabilityAuditEvent,
+  ObservabilityRunSummary,
+} from '../types'
+
+function formatDuration(durationMs: number) {
+  if (durationMs <= 0) return '0 ms'
+  if (durationMs < 1000) return `${durationMs} ms`
+  return `${(durationMs / 1000).toFixed(2)} s`
+}
+
+function formatOptionalDuration(durationMs: number | null) {
+  return formatDuration(durationMs ?? 0)
+}
+
+function formatCost(value: number) {
+  return `$${value.toFixed(4)}`
+}
+
+function formatTime(value: string | null) {
+  if (!value) return '未完成'
+  return new Date(value).toLocaleString('zh-CN')
+}
+
+function executionJobStatusLabel(status: string) {
+  return {
+    queued: '排队中',
+    running: '运行中',
+    succeeded: '已完成',
+    dead_letter: '死信',
+    canceled: '已取消',
+  }[status] ?? status
+}
+
+function isExecutionJobLeaseExpired(job: ExecutionJob) {
+  if (job.status !== 'running' || !job.lockedUntil) return false
+  return new Date(job.lockedUntil).getTime() <= Date.now()
+}
+
+function buildExecutionJobTroubleshootingHints(job: ExecutionJob) {
+  const hints: string[] = []
+  if (job.status === 'dead_letter') {
+    hints.push('已进入死信队列，先复核失败原因和上游依赖，再决定是否重新入队。')
+  } else if (isExecutionJobLeaseExpired(job)) {
+    hints.push('Worker 租约已过期，任务可被其他 Worker 接管；如果长期停留运行中，请检查 Worker 进程。')
+  } else if (job.status === 'running' && job.lockedBy) {
+    hints.push(`当前由 ${job.lockedBy} 持有租约，若长时间无心跳请等待租约过期或检查 Worker。`)
+  } else if (job.status === 'queued' && job.nextAttemptAt) {
+    hints.push(`任务处于退避等待中，下次尝试时间为 ${formatTime(job.nextAttemptAt)}。`)
+  } else if (job.status === 'canceled') {
+    hints.push('任务已取消，若需要继续业务流程，请重新触发工作流而不是直接恢复该任务。')
+  } else if (job.status === 'succeeded') {
+    hints.push('任务已完成，可进入运行详情复核节点输出、成本和审计事件。')
+  }
+
+  if (job.attempts >= job.maxAttempts && job.maxAttempts > 0) {
+    hints.push(`已达到最大尝试次数 ${job.attempts}/${job.maxAttempts}，建议修复配置或输入后再重新入队。`)
+  } else if (job.attempts > 0) {
+    hints.push(`当前已尝试 ${job.attempts}/${job.maxAttempts} 次，继续失败会进入死信队列。`)
+  }
+
+  if (job.error) {
+    hints.push(`当前错误：${job.error}`)
+  } else if (!hints.length) {
+    hints.push('暂无错误信息，优先检查任务状态、Worker 租约和关联 Run 详情。')
+  }
+
+  return hints
+}
+
+function runTitle(run: ObservabilityRunSummary) {
+  return run.workflowName
+}
+
+type QueueActionIntent = {
+  type: 'requeue' | 'cancel'
+  jobId: string
+}
+
+function riskMessage(risk: ObservabilityRisk, runs: ObservabilityRunSummary[]) {
+  const relatedRun = runs.find((run) => run.id === risk.runId)
+  const [status = '', node = '未知节点'] = risk.message.split(' · ')
+  return `${displayStatus(relatedRun?.status ?? status)} · ${relatedRun?.currentNode || node}`
+}
+
+interface TraceLinkSpan {
+  node: ObservabilityNodeRun | null
+  spanId: string
+  parentSpanId: string | null
+  events: ObservabilityExecutionEvent[]
+  humanTasks: ObservabilityHumanTask[]
+  auditEvents: ObservabilityAuditEvent[]
+}
+
+function buildTraceLinkMap(detail: ObservabilityRunDetail): TraceLinkSpan[] {
+  const eventsBySpan = new Map<string, ObservabilityExecutionEvent[]>()
+  const humanTaskSpanById = new Map<string, string>()
+
+  for (const event of detail.executionEvents ?? []) {
+    const spanId = event.spanId ?? 'root'
+    eventsBySpan.set(spanId, [...(eventsBySpan.get(spanId) ?? []), event])
+    if (event.sourceType === 'human_task' && event.spanId) {
+      humanTaskSpanById.set(event.sourceId, event.spanId)
+    }
+  }
+
+  const humanTasksBySpan = new Map<string, ObservabilityHumanTask[]>()
+  for (const task of detail.humanTasks) {
+    const spanId = humanTaskSpanById.get(task.id)
+    if (spanId) {
+      humanTasksBySpan.set(spanId, [...(humanTasksBySpan.get(spanId) ?? []), task])
+    }
+  }
+
+  const auditEventsBySpan = new Map<string, ObservabilityAuditEvent[]>()
+  for (const event of detail.auditEvents) {
+    const spanId = event.spanId ?? 'root'
+    auditEventsBySpan.set(spanId, [...(auditEventsBySpan.get(spanId) ?? []), event])
+  }
+
+  return [
+    {
+      node: null,
+      spanId: 'root',
+      parentSpanId: null,
+      events: eventsBySpan.get('root') ?? [],
+      humanTasks: [],
+      auditEvents: auditEventsBySpan.get('root') ?? [],
+    },
+    ...detail.nodes.map((node) => ({
+      node,
+      spanId: node.spanId,
+      parentSpanId: node.parentSpanId,
+      events: eventsBySpan.get(node.spanId) ?? [],
+      humanTasks: humanTasksBySpan.get(node.spanId) ?? [],
+      auditEvents: auditEventsBySpan.get(node.spanId) ?? [],
+    })),
+  ]
+}
+
+const runStatusOptions = ['全部', '失败', '需介入', '恢复失败', '已完成']
+const riskOptions = [
+  { label: '全部风险', value: 'all' },
+  { label: '高风险', value: 'critical' },
+  { label: '中风险', value: 'warning' },
+  { label: '普通', value: 'normal' },
+]
+const failureOptions = [
+  { label: '全部原因', value: 'all' },
+  { label: '连接器鉴权超时', value: 'connector_auth_timeout' },
+  { label: '模型调用失败', value: 'model_call_failed' },
+  { label: '等待人工审核', value: 'human_review_blocked' },
+  { label: '恢复执行失败', value: 'resume_failed' },
+  { label: '质量门禁未通过', value: 'quality_gate_failed' },
+  { label: '未知异常', value: 'unknown' },
+  { label: '无异常', value: 'normal' },
+]
+const executionJobStatusOptions = [
+  { label: '全部队列', value: 'all' },
+  { label: '排队中', value: 'queued' },
+  { label: '运行中', value: 'running' },
+  { label: '已完成', value: 'succeeded' },
+  { label: '死信', value: 'dead_letter' },
+  { label: '已取消', value: 'canceled' },
+]
+
+export function Observability() {
+  const { workspace, workspacePath } = useWorkspace()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [overview, setOverview] = useState<ObservabilityOverview | null>(null)
+  const [selectedRunId, setSelectedRunId] = useState('')
+  const [detail, setDetail] = useState<ObservabilityRunDetail | null>(null)
+  const [humanSla, setHumanSla] = useState<HumanSlaOverview | null>(null)
+  const [costUsage, setCostUsage] = useState<CostUsageOverview | null>(null)
+  const [executionJobs, setExecutionJobs] = useState<ExecutionJob[]>([])
+  const [executionJobDetail, setExecutionJobDetail] = useState<ExecutionJobDetail | null>(null)
+  const [executionJobStatusFilter, setExecutionJobStatusFilter] = useState('all')
+  const [queueActionIntent, setQueueActionIntent] = useState<QueueActionIntent | null>(null)
+  const [queueActionReason, setQueueActionReason] = useState('')
+  const [queueActionValidationError, setQueueActionValidationError] = useState('')
+  const [reviewerId, setReviewerId] = useState('')
+  const [groupId, setGroupId] = useState('')
+  const [isLoading, setIsLoading] = useState(true)
+  const [isDetailLoading, setIsDetailLoading] = useState(false)
+  const [isHumanSlaLoading, setIsHumanSlaLoading] = useState(true)
+  const [isCostUsageLoading, setIsCostUsageLoading] = useState(true)
+  const [isExecutionJobsLoading, setIsExecutionJobsLoading] = useState(true)
+  const [isExecutionJobDetailLoading, setIsExecutionJobDetailLoading] = useState(false)
+  const [queueActionJobId, setQueueActionJobId] = useState('')
+  const [detailJobId, setDetailJobId] = useState('')
+  const [error, setError] = useState('')
+  const [detailError, setDetailError] = useState('')
+  const [humanSlaError, setHumanSlaError] = useState('')
+  const [costUsageError, setCostUsageError] = useState('')
+  const [executionJobsError, setExecutionJobsError] = useState('')
+  const [executionJobDetailError, setExecutionJobDetailError] = useState('')
+  const [queueActionError, setQueueActionError] = useState('')
+  const statusFilter = searchParams.get('status') || '全部'
+  const workflowFilter = searchParams.get('workflow') || ''
+  const riskFilter = searchParams.get('risk') || 'all'
+  const failureFilter = searchParams.get('failure') || 'all'
+  const requestedRunId = searchParams.get('runId') || ''
+  const requestedNodeRunId = searchParams.get('nodeRunId') || ''
+
+  const writeSearchParams = useCallback((updates: Record<string, string>) => {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current)
+      Object.entries(updates).forEach(([key, value]) => {
+        if (
+          !value
+          || (key === 'status' && value === '全部')
+          || (key === 'risk' && value === 'all')
+          || (key === 'failure' && value === 'all')
+        ) {
+          next.delete(key)
+        } else {
+          next.set(key, value)
+        }
+      })
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
+
+  const candidateRuns = useMemo(() => {
+    if (!overview) return []
+    const seen = new Set<string>()
+    return overview.recentRuns.filter((run) => {
+      if (seen.has(run.id)) return false
+      seen.add(run.id)
+      return true
+    })
+  }, [overview])
+
+  const filteredRuns = useMemo(() => {
+    const workflowNeedle = workflowFilter.trim().toLowerCase()
+    return candidateRuns.filter((run) => {
+      const matchesStatus = statusFilter === '全部' || displayStatus(run.status) === statusFilter
+      const matchesWorkflow = !workflowNeedle || run.workflowName.toLowerCase().includes(workflowNeedle)
+      const matchesRisk = riskFilter === 'all' || run.priority === riskFilter
+      const matchesFailure = failureFilter === 'all' || run.failureCategory === failureFilter
+      return matchesStatus && matchesWorkflow && matchesRisk && matchesFailure
+    })
+  }, [candidateRuns, failureFilter, riskFilter, statusFilter, workflowFilter])
+
+  const filteredRisks = useMemo(() => {
+    if (!overview) return []
+    const visibleRunIds = new Set(filteredRuns.map((run) => run.id))
+    return overview.risks.filter((risk) => (
+      visibleRunIds.has(risk.runId)
+      && (riskFilter === 'all' || risk.severity === riskFilter)
+    ))
+  }, [filteredRuns, overview, riskFilter])
+
+  const filteredAlerts = useMemo(() => {
+    if (!overview) return []
+    const visibleRunIds = new Set(filteredRuns.map((run) => run.id))
+    return (overview.alerts ?? []).filter((alert) => !alert.runId || visibleRunIds.has(alert.runId))
+  }, [filteredRuns, overview])
+
+  const loadOverview = useCallback(async () => {
+    setIsLoading(true)
+    setError('')
+    try {
+      const nextOverview = await getObservabilityOverview(workspace.id)
+      setOverview(nextOverview)
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : '运行观测数据加载失败')
+    } finally {
+      setIsLoading(false)
+    }
+  }, [workspace.id])
+
+  const loadHumanSla = useCallback(async () => {
+    setIsHumanSlaLoading(true)
+    setHumanSlaError('')
+    try {
+      setHumanSla(await getHumanSlaOverview(workspace.id, {
+        reviewerId: reviewerId || undefined,
+        groupId: groupId || undefined,
+      }))
+    } catch (loadError) {
+      setHumanSla(null)
+      setHumanSlaError(loadError instanceof Error ? loadError.message : '人工 SLA 数据加载失败')
+    } finally {
+      setIsHumanSlaLoading(false)
+    }
+  }, [groupId, reviewerId, workspace.id])
+
+  const loadCostUsage = useCallback(async () => {
+    setIsCostUsageLoading(true)
+    setCostUsageError('')
+    try {
+      setCostUsage(await getCostUsageOverview(workspace.id))
+    } catch (loadError) {
+      setCostUsage(null)
+      setCostUsageError(loadError instanceof Error ? loadError.message : '成本与模型调用数据加载失败')
+    } finally {
+      setIsCostUsageLoading(false)
+    }
+  }, [workspace.id])
+
+  const loadExecutionJobs = useCallback(async () => {
+    setIsExecutionJobsLoading(true)
+    setExecutionJobsError('')
+    try {
+      const status = executionJobStatusFilter === 'all' ? undefined : executionJobStatusFilter
+      setExecutionJobs(await listExecutionJobs(workspace.id, status))
+    } catch (loadError) {
+      setExecutionJobs([])
+      setExecutionJobsError(loadError instanceof Error ? loadError.message : '队列任务加载失败')
+    } finally {
+      setIsExecutionJobsLoading(false)
+    }
+  }, [executionJobStatusFilter, workspace.id])
+
+  const requeueJob = useCallback(async (jobId: string, reason: string) => {
+    setQueueActionJobId(jobId)
+    setQueueActionError('')
+    try {
+      await requeueExecutionJob(workspace.id, jobId, reason)
+      await loadExecutionJobs()
+      return true
+    } catch (actionError) {
+      setQueueActionError(actionError instanceof Error ? actionError.message : '重新入队失败')
+      return false
+    } finally {
+      setQueueActionJobId('')
+    }
+  }, [loadExecutionJobs, workspace.id])
+
+  const cancelJob = useCallback(async (jobId: string, reason: string) => {
+    setQueueActionJobId(jobId)
+    setQueueActionError('')
+    try {
+      await cancelExecutionJob(workspace.id, jobId, reason)
+      await loadExecutionJobs()
+      return true
+    } catch (actionError) {
+      setQueueActionError(actionError instanceof Error ? actionError.message : '取消任务失败')
+      return false
+    } finally {
+      setQueueActionJobId('')
+    }
+  }, [loadExecutionJobs, workspace.id])
+
+  const openExecutionJobDetail = useCallback(async (jobId: string) => {
+    setDetailJobId(jobId)
+    setExecutionJobDetailError('')
+    setIsExecutionJobDetailLoading(true)
+    try {
+      setExecutionJobDetail(await getExecutionJob(workspace.id, jobId))
+    } catch (loadError) {
+      setExecutionJobDetail(null)
+      setExecutionJobDetailError(loadError instanceof Error ? loadError.message : '队列任务详情加载失败')
+    } finally {
+      setIsExecutionJobDetailLoading(false)
+    }
+  }, [workspace.id])
+
+  const beginQueueAction = useCallback((type: QueueActionIntent['type'], jobId: string) => {
+    setQueueActionIntent({ type, jobId })
+    setQueueActionReason('')
+    setQueueActionValidationError('')
+    setQueueActionError('')
+  }, [])
+
+  const dismissQueueAction = useCallback(() => {
+    setQueueActionIntent(null)
+    setQueueActionReason('')
+    setQueueActionValidationError('')
+  }, [])
+
+  const submitQueueAction = useCallback(async () => {
+    if (!queueActionIntent) return
+    const reason = queueActionReason.trim()
+    if (!reason) {
+      setQueueActionValidationError('请填写操作原因')
+      return
+    }
+    setQueueActionValidationError('')
+    const didSucceed = queueActionIntent.type === 'requeue'
+      ? await requeueJob(queueActionIntent.jobId, reason)
+      : await cancelJob(queueActionIntent.jobId, reason)
+    if (didSucceed) dismissQueueAction()
+  }, [cancelJob, dismissQueueAction, queueActionIntent, queueActionReason, requeueJob])
+
+  useEffect(() => {
+    void loadOverview()
+  }, [loadOverview])
+
+  useEffect(() => {
+    void loadHumanSla()
+  }, [loadHumanSla])
+
+  useEffect(() => {
+    void loadCostUsage()
+  }, [loadCostUsage])
+
+  useEffect(() => {
+    void loadExecutionJobs()
+  }, [loadExecutionJobs])
+
+  useEffect(() => {
+    if (!overview) return
+    setSelectedRunId((current) => {
+      const visibleRunIds = new Set(filteredRuns.map((run) => run.id))
+      if (requestedRunId && visibleRunIds.has(requestedRunId)) return requestedRunId
+      if (current && visibleRunIds.has(current)) return current
+      const firstRiskRun = filteredRuns.find((run) => filteredRisks.some((risk) => risk.runId === run.id))
+      return firstRiskRun?.id ?? filteredRuns[0]?.id ?? ''
+    })
+  }, [filteredRisks, filteredRuns, overview, requestedRunId])
+
+  useEffect(() => {
+    if (!selectedRunId) return
+    if (searchParams.get('runId') === selectedRunId) return
+    writeSearchParams({ runId: selectedRunId })
+  }, [searchParams, selectedRunId, writeSearchParams])
+
+  useEffect(() => {
+    if (!selectedRunId) {
+      setDetail(null)
+      setDetailError('')
+      return
+    }
+
+    setIsDetailLoading(true)
+    setDetailError('')
+    void getObservabilityRunDetail(workspace.id, selectedRunId)
+      .then(setDetail)
+      .catch((loadError) => {
+        setDetail(null)
+        setDetailError(loadError instanceof Error ? loadError.message : '运行详情加载失败')
+      })
+      .finally(() => setIsDetailLoading(false))
+  }, [selectedRunId, workspace.id])
+
+  if (isLoading) {
+    return <div className="panel table-state">正在加载运行观测数据...</div>
+  }
+
+  if (error) {
+    return (
+      <div className="panel table-state error" role="alert">
+        {error}
+        <button className="button secondary" onClick={() => void loadOverview()}>
+          <RefreshCw size={15} />重试
+        </button>
+      </div>
+    )
+  }
+
+  if (!overview || candidateRuns.length === 0) {
+    return (
+      <section className="panel observability-empty">
+        <ShieldAlert size={26} />
+        <h2>暂无运行记录</h2>
+        <p>运行工作流或 Agent 后，这里会显示失败、人工介入和成本风险。</p>
+        <Link className="button primary" to={workspacePath('workflows')}>
+          去编排工作流 <ArrowRight size={15} />
+        </Link>
+      </section>
+    )
+  }
+
+  return (
+    <div className="observability page-stack">
+      <section className="observability-hero">
+        <div>
+          <span className="section-kicker">OPERATIONS COMMAND</span>
+          <h2>运行观测</h2>
+          <p>把失败、人工介入、恢复失败和成本信号聚合到一个排障入口。</p>
+        </div>
+        <button
+          className="button secondary"
+          onClick={() => {
+            void loadOverview()
+            void loadHumanSla()
+            void loadCostUsage()
+            void loadExecutionJobs()
+          }}
+        >
+          <RefreshCw size={15} />刷新
+        </button>
+      </section>
+
+      <section className="observability-metrics">
+        <MetricCard label="总运行" value={overview.totals.totalRuns} icon={<Route size={17} />} />
+        <MetricCard label="失败运行" value={overview.totals.failedRuns} icon={<AlertTriangle size={17} />} tone="danger" />
+        <MetricCard label="人工介入" value={overview.totals.waitingForHuman} icon={<ClipboardList size={17} />} tone="warning" />
+        <MetricCard label="恢复失败" value={overview.totals.resumeFailed} icon={<TimerReset size={17} />} tone="danger" />
+        <MetricCard label="平均耗时" value={formatDuration(overview.totals.averageDurationMs)} icon={<Clock3 size={17} />} />
+        <MetricCard label="模型成本" value={formatCost(overview.totals.totalCostUsd)} icon={<Coins size={17} />} />
+      </section>
+
+      <AlertOutboxPanel alerts={filteredAlerts} />
+
+      <ExecutionQueuePanel
+        jobs={executionJobs}
+        isLoading={isExecutionJobsLoading}
+        error={executionJobsError}
+        actionError={queueActionError}
+        actionJobId={queueActionJobId}
+        detailJobId={detailJobId}
+        statusFilter={executionJobStatusFilter}
+        detail={executionJobDetail}
+        isDetailLoading={isExecutionJobDetailLoading}
+        detailError={executionJobDetailError}
+        onStatusFilterChange={(nextStatus) => {
+          setExecutionJobStatusFilter(nextStatus)
+          setExecutionJobDetail(null)
+          setExecutionJobDetailError('')
+          setDetailJobId('')
+          dismissQueueAction()
+        }}
+        queueActionIntent={queueActionIntent}
+        queueActionReason={queueActionReason}
+        queueActionValidationError={queueActionValidationError}
+        onQueueActionReasonChange={(reason) => {
+          setQueueActionReason(reason)
+          if (reason.trim()) setQueueActionValidationError('')
+        }}
+        onQueueActionSubmit={() => {
+          void submitQueueAction()
+        }}
+        onQueueActionDismiss={dismissQueueAction}
+        onRequeue={(jobId) => beginQueueAction('requeue', jobId)}
+        onCancel={(jobId) => beginQueueAction('cancel', jobId)}
+        onOpenDetail={(jobId) => {
+          void openExecutionJobDetail(jobId)
+        }}
+      />
+
+      <HumanSlaPanel
+        humanSla={humanSla}
+        isLoading={isHumanSlaLoading}
+        error={humanSlaError}
+        reviewerId={reviewerId}
+        groupId={groupId}
+        onReviewerChange={setReviewerId}
+        onGroupChange={setGroupId}
+        reviewPath={workspacePath('reviews')}
+      />
+
+      <CostUsagePanel
+        costUsage={costUsage}
+        isLoading={isCostUsageLoading}
+        error={costUsageError}
+      />
+
+      <div className="observability-layout">
+        <section className="panel observability-run-list">
+          <div className="panel-header">
+            <div><span className="section-kicker">风险优先</span><h3>待排障运行</h3></div>
+            <small>{filteredRuns.length} / {candidateRuns.length} 个实例</small>
+          </div>
+
+          <div className="observability-filter-bar">
+            <label>
+              <span>运行状态</span>
+              <select
+                aria-label="运行状态筛选"
+                value={statusFilter}
+                onChange={(event) => writeSearchParams({ status: event.target.value })}
+              >
+                {runStatusOptions.map((status) => <option key={status}>{status}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>工作流名称</span>
+              <input
+                aria-label="工作流名称筛选"
+                value={workflowFilter}
+                onChange={(event) => writeSearchParams({ workflow: event.target.value })}
+                placeholder="搜索工作流"
+              />
+            </label>
+            <label>
+              <span>风险等级</span>
+              <select
+                aria-label="风险等级筛选"
+                value={riskFilter}
+                onChange={(event) => writeSearchParams({ risk: event.target.value })}
+              >
+                {riskOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>失败原因</span>
+              <select
+                aria-label="失败原因筛选"
+                value={failureFilter}
+                onChange={(event) => writeSearchParams({ failure: event.target.value })}
+              >
+                {failureOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </label>
+            <button
+              className="button ghost compact"
+              type="button"
+              onClick={() => writeSearchParams({
+                status: '',
+                workflow: '',
+                risk: '',
+                failure: '',
+                runId: '',
+                nodeRunId: '',
+              })}
+            >
+              清空筛选
+            </button>
+          </div>
+
+          {filteredRuns.length === 0 && (
+            <div className="observability-filter-empty">
+              <strong>当前筛选无运行</strong>
+              <span>换一个状态、工作流名称、风险等级或失败原因，或清空筛选查看全部运行。</span>
+            </div>
+          )}
+
+          {filteredRisks.length > 0 && (
+            <div className="observability-risk-strip">
+              {filteredRisks.map((risk) => (
+                <button
+                  key={risk.runId}
+                  className={`observability-run-card ${selectedRunId === risk.runId ? 'selected' : ''}`}
+                  onClick={() => {
+                    setSelectedRunId(risk.runId)
+                    writeSearchParams({ runId: risk.runId, nodeRunId: '' })
+                  }}
+                >
+                  <span className={`risk-dot ${risk.severity}`} />
+                  <strong>{risk.title}</strong>
+                  <small>
+                    {riskMessage(risk, overview.recentRuns)}
+                    {' / '}
+                    {overview.recentRuns.find((run) => run.id === risk.runId)?.failureCategoryLabel ?? '未分类'}
+                    {' / '}
+                    {risk.nextAction}
+                  </small>
+                  <StatusBadge status={risk.severity === 'critical' ? '高' : '中'} />
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="observability-recent-list">
+            <h4>最近运行</h4>
+            {filteredRuns.map((run) => (
+              <button
+                key={run.id}
+                className={`observability-run-row ${selectedRunId === run.id ? 'selected' : ''}`}
+                onClick={() => {
+                  setSelectedRunId(run.id)
+                  writeSearchParams({ runId: run.id, nodeRunId: '' })
+                }}
+              >
+                <span>
+                  <strong>{run.workflowName}</strong>
+                  <small>{runTitle(run)} / {run.failureCategoryLabel}</small>
+                </span>
+                <StatusBadge status={run.status} />
+                <em>{formatOptionalDuration(run.durationMs)}</em>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className="panel observability-detail">
+          {isDetailLoading && <div className="table-state">正在加载运行详情...</div>}
+          {detailError && <div className="table-state error" role="alert">{detailError}</div>}
+          {!isDetailLoading && !detailError && detail && (
+            <RunTroubleshooting
+              detail={detail}
+              auditHref={workspacePath(`settings/audit?traceId=${encodeURIComponent(detail.traceId)}`)}
+              artifactPathForNodeRun={(nodeRunId) => workspacePath(
+                `artifacts?runId=${encodeURIComponent(detail.id)}&sourceNodeRunId=${encodeURIComponent(nodeRunId)}`,
+              )}
+              targetNodeRunId={requestedNodeRunId}
+            />
+          )}
+        </section>
+      </div>
+    </div>
+  )
+}
+
+function ExecutionQueuePanel({
+  jobs,
+  isLoading,
+  error,
+  actionError,
+  actionJobId,
+  detailJobId,
+  statusFilter,
+  detail,
+  isDetailLoading,
+  detailError,
+  queueActionIntent,
+  queueActionReason,
+  queueActionValidationError,
+  onStatusFilterChange,
+  onQueueActionReasonChange,
+  onQueueActionSubmit,
+  onQueueActionDismiss,
+  onRequeue,
+  onCancel,
+  onOpenDetail,
+}: {
+  jobs: ExecutionJob[]
+  isLoading: boolean
+  error: string
+  actionError: string
+  actionJobId: string
+  detailJobId: string
+  statusFilter: string
+  detail: ExecutionJobDetail | null
+  isDetailLoading: boolean
+  detailError: string
+  queueActionIntent: QueueActionIntent | null
+  queueActionReason: string
+  queueActionValidationError: string
+  onStatusFilterChange: (status: string) => void
+  onQueueActionReasonChange: (reason: string) => void
+  onQueueActionSubmit: () => void
+  onQueueActionDismiss: () => void
+  onRequeue: (jobId: string) => void
+  onCancel: (jobId: string) => void
+  onOpenDetail: (jobId: string) => void
+}) {
+  const counts = jobs.reduce<Record<string, number>>((nextCounts, job) => {
+    nextCounts[job.status] = (nextCounts[job.status] ?? 0) + 1
+    return nextCounts
+  }, {})
+  const visibleJobs = jobs.slice(0, 6)
+
+  return (
+    <section className="panel execution-queue-panel">
+      <div className="panel-header">
+        <div>
+          <span className="section-kicker">EXECUTION QUEUE</span>
+          <h3>执行队列运营</h3>
+        </div>
+        <div className="execution-queue-toolbar">
+          <label>
+            <span>状态</span>
+            <select
+              aria-label="队列状态筛选"
+              value={statusFilter}
+              onChange={(event) => onStatusFilterChange(event.target.value)}
+            >
+              {executionJobStatusOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <small>{jobs.length} 条任务</small>
+        </div>
+      </div>
+
+      {isLoading && <div className="table-state">正在加载执行队列...</div>}
+      {error && <div className="table-state error" role="alert">{error}</div>}
+      {actionError && <div className="table-state error" role="alert">{actionError}</div>}
+      {!isLoading && !error && (
+        <>
+          <div className="execution-queue-metrics">
+            <MetricCard label="排队中" value={counts.queued ?? 0} icon={<ListChecks size={17} />} />
+            <MetricCard label="运行中" value={counts.running ?? 0} icon={<Route size={17} />} />
+            <MetricCard label="已完成" value={counts.succeeded ?? 0} icon={<ClipboardList size={17} />} />
+            <MetricCard label="死信" value={counts.dead_letter ?? 0} icon={<AlertTriangle size={17} />} tone="danger" />
+            <MetricCard label="已取消" value={counts.canceled ?? 0} icon={<TimerReset size={17} />} />
+          </div>
+          {visibleJobs.length === 0
+            ? <p className="muted-copy">暂无执行队列任务。</p>
+            : (
+              <div className="execution-queue-list">
+                {visibleJobs.map((job) => (
+                  <article className={`execution-queue-item ${job.status}`} key={job.id}>
+                    <div>
+                      <strong>{executionJobStatusLabel(job.status)} · {job.jobType}</strong>
+                      <span>Run {job.runId.slice(0, 8)} / Workflow {job.workflowId?.slice(0, 8) ?? '无'}</span>
+                      {job.error && <p>{job.error}</p>}
+                    </div>
+                    <aside>
+                      <StatusBadge status={executionJobStatusLabel(job.status)} />
+                      {isExecutionJobLeaseExpired(job) && (
+                        <em className="execution-queue-risk">租约已过期</em>
+                      )}
+                      <span>{job.attempts}/{job.maxAttempts} 次</span>
+                      <small>{job.lockedBy || '未锁定'} · {formatTime(job.lockedUntil)}</small>
+                      <button
+                        className="button ghost compact"
+                        type="button"
+                        disabled={isDetailLoading && detailJobId === job.id}
+                        onClick={() => onOpenDetail(job.id)}
+                      >
+                        {isDetailLoading && detailJobId === job.id ? '加载中' : '查看详情'}
+                      </button>
+                      {job.status === 'dead_letter' && (
+                        <button
+                          className="button ghost compact"
+                          type="button"
+                          disabled={actionJobId === job.id}
+                          onClick={() => onRequeue(job.id)}
+                        >
+                          {actionJobId === job.id ? '处理中' : '重新入队'}
+                        </button>
+                      )}
+                      {!['succeeded', 'canceled'].includes(job.status) && (
+                        <button
+                          className="button ghost compact"
+                          type="button"
+                          disabled={actionJobId === job.id}
+                          onClick={() => onCancel(job.id)}
+                        >
+                          {actionJobId === job.id ? '处理中' : '取消任务'}
+                        </button>
+                      )}
+                    </aside>
+                  </article>
+                ))}
+              </div>
+            )}
+          {(isDetailLoading || detailError || detail) && (
+            <ExecutionJobDetailPanel
+              detail={detail}
+              isLoading={isDetailLoading}
+              error={detailError}
+            />
+          )}
+          {queueActionIntent && (
+            <QueueActionReasonPanel
+              intent={queueActionIntent}
+              reason={queueActionReason}
+              validationError={queueActionValidationError}
+              isSubmitting={actionJobId === queueActionIntent.jobId}
+              onReasonChange={onQueueActionReasonChange}
+              onSubmit={onQueueActionSubmit}
+              onDismiss={onQueueActionDismiss}
+            />
+          )}
+        </>
+      )}
+    </section>
+  )
+}
+
+function QueueActionReasonPanel({
+  intent,
+  reason,
+  validationError,
+  isSubmitting,
+  onReasonChange,
+  onSubmit,
+  onDismiss,
+}: {
+  intent: QueueActionIntent
+  reason: string
+  validationError: string
+  isSubmitting: boolean
+  onReasonChange: (reason: string) => void
+  onSubmit: () => void
+  onDismiss: () => void
+}) {
+  const isRequeue = intent.type === 'requeue'
+  const submitLabel = isRequeue ? '确认重新入队' : '确认取消任务'
+  return (
+    <form
+      className="execution-queue-action-panel"
+      onSubmit={(event) => {
+        event.preventDefault()
+        onSubmit()
+      }}
+    >
+      <div className="panel-header">
+        <div>
+          <span className="section-kicker">OPERATION AUDIT</span>
+          <h3>记录队列操作原因</h3>
+        </div>
+        <StatusBadge status={isRequeue ? '重新入队' : '取消任务'} />
+      </div>
+      <label>
+        <span>操作原因</span>
+        <textarea
+          value={reason}
+          onChange={(event) => onReasonChange(event.target.value)}
+          placeholder={isRequeue ? '例如：人工确认模型恢复，重新入队' : '例如：业务方取消本次运行'}
+        />
+      </label>
+      {validationError && <div className="table-state error" role="alert">{validationError}</div>}
+      <div className="execution-queue-action-buttons">
+        <button className="button ghost compact" type="button" onClick={onDismiss}>
+          取消
+        </button>
+        <button className="button primary compact" type="submit" disabled={isSubmitting}>
+          {isSubmitting ? '处理中' : submitLabel}
+        </button>
+      </div>
+    </form>
+  )
+}
+
+function ExecutionJobDetailPanel({
+  detail,
+  isLoading,
+  error,
+}: {
+  detail: ExecutionJobDetail | null
+  isLoading: boolean
+  error: string
+}) {
+  const troubleshootingHints = detail ? buildExecutionJobTroubleshootingHints(detail) : []
+
+  return (
+    <div className="execution-job-detail-panel">
+      <div className="panel-header">
+        <div>
+          <span className="section-kicker">QUEUE DETAIL</span>
+          <h3>队列任务详情</h3>
+        </div>
+        {detail && <StatusBadge status={executionJobStatusLabel(detail.status)} />}
+      </div>
+
+      {isLoading && <div className="table-state">正在加载队列任务详情...</div>}
+      {error && <div className="table-state error" role="alert">{error}</div>}
+      {!isLoading && !error && detail && (
+        <>
+          <div className="execution-job-detail-grid">
+            <div>
+              <span>Job ID</span>
+              <strong>{detail.id}</strong>
+            </div>
+            <div>
+              <span>Run ID</span>
+              <strong>{detail.runId}</strong>
+            </div>
+            <div>
+              <span>Workflow</span>
+              <strong>{detail.workflowId ?? '无'} / {detail.workflowVersion ?? '无版本'}</strong>
+            </div>
+            <div>
+              <span>尝试次数</span>
+              <strong>{detail.attempts}/{detail.maxAttempts}</strong>
+            </div>
+            <div>
+              <span>Worker 锁</span>
+              <strong>{detail.lockedBy || '未锁定'}</strong>
+            </div>
+            <div>
+              <span>租约到期</span>
+              <strong>{formatTime(detail.lockedUntil)}</strong>
+            </div>
+            <div>
+              <span>下次尝试</span>
+              <strong>{formatTime(detail.nextAttemptAt)}</strong>
+            </div>
+            <div>
+              <span>终态时间</span>
+              <strong>{formatTime(detail.deadLetteredAt ?? detail.canceledAt ?? detail.completedAt)}</strong>
+            </div>
+          </div>
+
+          {detail.error && (
+            <div className="execution-job-detail-error">
+              <span>失败原因</span>
+              <p>{detail.error}</p>
+            </div>
+          )}
+
+          <section className="execution-job-troubleshooting" aria-label="队列排障建议">
+            <h4>队列排障建议</h4>
+            <ul>
+              {troubleshootingHints.map((hint) => (
+                <li key={hint}>{hint}</li>
+              ))}
+            </ul>
+          </section>
+
+          <section className="execution-job-audit-section" aria-label="队列审计事件">
+            <h4>审计事件</h4>
+            {detail.auditEvents.length === 0
+              ? <p className="muted-copy">暂无关联审计事件。</p>
+              : (
+                <div className="execution-job-audit-list">
+                  {detail.auditEvents.map((event) => (
+                    <article key={event.id}>
+                      <strong>{event.action ?? 'unknown'} · {event.outcome ?? 'unknown'}</strong>
+                      <span>{event.beforeStatus || 'unknown'} → {event.afterStatus || 'unknown'}</span>
+                      <p>{event.reason || '未记录原因'}</p>
+                      <small>{event.actorUserId || event.requestId || '未知操作者'} · {formatTime(event.createdAt)}</small>
+                    </article>
+                  ))}
+                </div>
+              )}
+          </section>
+        </>
+      )}
+    </div>
+  )
+}
+
+function CostUsagePanel({
+  costUsage,
+  isLoading,
+  error,
+}: {
+  costUsage: CostUsageOverview | null
+  isLoading: boolean
+  error: string
+}) {
+  return (
+    <section className="panel cost-usage-panel">
+      <div className="panel-header">
+        <div>
+          <span className="section-kicker">MODEL USAGE</span>
+          <h3>成本与模型调用</h3>
+        </div>
+        {costUsage && !costUsage.costConfigured && (
+          <span className="cost-config-warning">成本单价未配置</span>
+        )}
+      </div>
+
+      {isLoading && <div className="table-state">正在加载成本与模型调用数据...</div>}
+      {error && <div className="table-state error" role="alert">{error}</div>}
+      {!isLoading && !error && costUsage && (
+        <>
+          <div className="cost-usage-summary">
+            <MetricCard label="运行次数" value={costUsage.totals.runs} icon={<Route size={17} />} />
+            <MetricCard label="总 Token" value={costUsage.totals.totalTokens} icon={<BarChart3 size={17} />} />
+            <MetricCard label="Prompt Token" value={costUsage.totals.totalPromptTokens} icon={<BarChart3 size={17} />} />
+            <MetricCard label="Completion Token" value={costUsage.totals.totalCompletionTokens} icon={<BarChart3 size={17} />} />
+            <MetricCard label="累计成本" value={formatCost(costUsage.totals.totalCostUsd)} icon={<Coins size={17} />} />
+          </div>
+
+          <div className="cost-usage-columns">
+            <CostUsageTable title="按工作流" rows={costUsage.byWorkflow} />
+            <CostUsageTable title="按模型" rows={costUsage.byModel} />
+          </div>
+        </>
+      )}
+    </section>
+  )
+}
+
+function AlertOutboxPanel({ alerts }: { alerts: ObservabilityAlert[] }) {
+  return (
+    <section className="panel observability-alert-outbox">
+      <div className="panel-header">
+        <div>
+          <span className="section-kicker">ALERT OUTBOX</span>
+          <h3>告警 Outbox</h3>
+        </div>
+        <small>{alerts.length} 条待处理</small>
+      </div>
+
+      {alerts.length === 0
+        ? <p className="muted-copy">暂无待处理告警。</p>
+        : (
+          <div className="observability-alert-list">
+            {alerts.map((alert) => (
+              <article className={`observability-alert-item ${alert.severity}`} key={alert.id}>
+                <span className={`risk-dot ${alert.severity}`} />
+                <div>
+                  <strong>{alert.title}</strong>
+                  <p>{alert.message}</p>
+                  <em>{alert.eventType}</em>
+                </div>
+                <aside>
+                  <StatusBadge status={alert.severity === 'critical' ? '高' : '中'} />
+                  <span>{alert.channel} / {alert.status}</span>
+                  <small>{alert.nextAction}</small>
+                </aside>
+              </article>
+            ))}
+          </div>
+        )}
+    </section>
+  )
+}
+
+function CostUsageTable({
+  title,
+  rows,
+}: {
+  title: string
+  rows: CostUsageGroup[]
+}) {
+  return (
+    <div className="cost-usage-table">
+      <h4>{title}</h4>
+      {rows.length === 0
+        ? <p className="muted-copy">暂无调用记录。</p>
+        : rows.map((row) => (
+          <article key={row.name}>
+            <div>
+              <strong>{row.name}</strong>
+              <span>{row.runs} 次运行 / {row.totalTokens} Token / 均分 {row.averageScore ?? '待评估'}</span>
+            </div>
+            <em>{formatCost(row.costUsd)}</em>
+          </article>
+        ))}
+    </div>
+  )
+}
+
+function HumanSlaPanel({
+  humanSla,
+  isLoading,
+  error,
+  reviewerId,
+  groupId,
+  onReviewerChange,
+  onGroupChange,
+  reviewPath,
+}: {
+  humanSla: HumanSlaOverview | null
+  isLoading: boolean
+  error: string
+  reviewerId: string
+  groupId: string
+  onReviewerChange: (value: string) => void
+  onGroupChange: (value: string) => void
+  reviewPath: string
+}) {
+  return (
+    <section className="panel human-sla-panel">
+      <div className="panel-header human-sla-header">
+        <div>
+          <span className="section-kicker">HUMAN SLA</span>
+          <h3>人工 SLA 运营</h3>
+        </div>
+        <div className="human-sla-filters">
+          <label>
+            <span>Reviewer</span>
+            <select
+              aria-label="按 Reviewer 过滤"
+              value={reviewerId}
+              onChange={(event) => onReviewerChange(event.target.value)}
+            >
+              <option value="">全部 Reviewer</option>
+              {humanSla?.reviewers.map((reviewer) => (
+                <option key={reviewer.id} value={reviewer.id}>{reviewer.name}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>审核组</span>
+            <select
+              aria-label="按审核组过滤"
+              value={groupId}
+              onChange={(event) => onGroupChange(event.target.value)}
+            >
+              <option value="">全部审核组</option>
+              {humanSla?.groups.map((group) => (
+                <option key={group.id} value={group.id}>{group.name}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </div>
+
+      {isLoading && <div className="table-state">正在加载人工 SLA 数据...</div>}
+      {error && <div className="table-state error" role="alert">{error}</div>}
+      {!isLoading && !error && humanSla && (
+        <>
+          <div className="human-sla-metrics">
+            <MetricCard label="活跃任务" value={humanSla.totals.activeTasks} icon={<ClipboardList size={17} />} />
+            <MetricCard label="待认领" value={humanSla.totals.unclaimed} icon={<UserRound size={17} />} tone="warning" />
+            <MetricCard label="审核中" value={humanSla.totals.inReview} icon={<Clock3 size={17} />} />
+            <MetricCard label="即将到期" value={humanSla.totals.dueSoon} icon={<TimerReset size={17} />} tone="warning" />
+            <MetricCard label="已逾期" value={humanSla.totals.overdue} icon={<AlertTriangle size={17} />} tone="danger" />
+            <MetricCard label="已升级" value={humanSla.totals.escalated} icon={<ShieldAlert size={17} />} tone="danger" />
+            <MetricCard label="恢复失败" value={humanSla.totals.resumeFailed} icon={<RefreshCw size={17} />} tone="danger" />
+          </div>
+
+          <div className="human-sla-risk-list">
+            {humanSla.risks.length === 0
+              ? <p className="muted-copy">暂无即将到期、已逾期、已升级或恢复失败的人工任务。</p>
+              : humanSla.risks.map((risk) => (
+                <HumanSlaRiskRow key={risk.taskId} risk={risk} reviewPath={reviewPath} />
+              ))}
+          </div>
+        </>
+      )}
+    </section>
+  )
+}
+
+function HumanSlaRiskRow({
+  risk,
+  reviewPath,
+}: {
+  risk: HumanSlaRisk
+  reviewPath: string
+}) {
+  return (
+    <article className={`human-sla-risk ${risk.severity}`}>
+      <div>
+        <strong>{risk.title}</strong>
+        <span>
+          {displayStatus(risk.status)} / SLA：{displayStatus(risk.slaStatus)} / 截止 {formatTime(risk.dueAt)}
+        </span>
+      </div>
+      <StatusBadge status={risk.severity === 'critical' ? '高' : '中'} />
+      <Link className="button secondary compact" to={`${reviewPath}?taskId=${risk.taskId}`}>
+        {risk.nextAction}
+      </Link>
+    </article>
+  )
+}
+
+function MetricCard({
+  label,
+  value,
+  icon,
+  tone = 'neutral',
+}: {
+  label: string
+  value: number | string
+  icon: ReactNode
+  tone?: 'neutral' | 'warning' | 'danger'
+}) {
+  return (
+    <article className={`observability-metric ${tone}`}>
+      <span>{icon}{label}</span>
+      <strong>{value}</strong>
+    </article>
+  )
+}
+
+function RunTroubleshooting({
+  detail,
+  auditHref,
+  artifactPathForNodeRun,
+  targetNodeRunId,
+}: {
+  detail: ObservabilityRunDetail
+  auditHref: string
+  artifactPathForNodeRun: (nodeRunId: string) => string
+  targetNodeRunId: string
+}) {
+  const resultText = detail.output || detail.error || '本次运行暂无产出或错误信息。'
+  const targetSpanId = useMemo(() => (
+    targetNodeRunId
+      ? detail.nodes.find((node) => node.id === targetNodeRunId)?.spanId ?? ''
+      : ''
+  ), [detail.nodes, targetNodeRunId])
+  const [activeSpanId, setActiveSpanId] = useState(targetSpanId)
+
+  const scrollToTraceTarget = useCallback((spanId: string) => {
+    setActiveSpanId(spanId)
+    const targetId = spanId === 'root' ? 'trace-target-root' : `trace-target-${spanId}`
+    document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [])
+
+  useEffect(() => {
+    setActiveSpanId(targetSpanId)
+  }, [targetSpanId])
+
+  return (
+    <>
+      <header className="observability-detail-header">
+        <div>
+          <span className="mono">{detail.id}</span>
+          <h3>{detail.workflowName}</h3>
+        <p>{runTitle(detail)} / {formatTime(detail.startedAt)} 启动</p>
+          <div className="observability-trace-chip">
+            <span>Trace ID</span>
+            <strong>{detail.traceId}</strong>
+            <Link className="button ghost compact trace-audit-link" to={auditHref}>
+              查看审计日志
+            </Link>
+          </div>
+        </div>
+        <StatusBadge status={detail.status} />
+      </header>
+
+      <div className="observability-next-action">
+        <ShieldAlert size={18} />
+        <div>
+          <strong>{detail.failureCategoryLabel} · {detail.nextAction}</strong>
+          <span>当前节点：{detail.currentNode || '未记录'} / 状态：{displayStatus(detail.status)}</span>
+          <p>{detail.troubleshootingHint}</p>
+        </div>
+      </div>
+
+      <div className="observability-detail-grid">
+        <div><span>耗时</span><strong>{formatOptionalDuration(detail.durationMs)}</strong></div>
+        <div><span>质量分</span><strong>{detail.score ?? '待评估'}</strong></div>
+        <div><span>Token</span><strong>{detail.promptTokens + detail.completionTokens}</strong></div>
+        <div><span>成本</span><strong>{formatCost(detail.costUsd)}</strong></div>
+      </div>
+
+      <section className="observability-result">
+        <h4>运行输入与产出</h4>
+        <div><span>输入</span><p>{detail.input || '无输入记录'}</p></div>
+        <div><span>结果</span><p>{resultText}</p></div>
+      </section>
+
+      <TraceLinkMap
+        detail={detail}
+        activeSpanId={activeSpanId}
+        onSelectSpan={scrollToTraceTarget}
+      />
+
+      <ExecutionEventStream events={detail.executionEvents ?? []} activeSpanId={activeSpanId} />
+
+      <section className="observability-section">
+        <h4>节点执行链路</h4>
+        {detail.nodes.length === 0
+          ? <p className="muted-copy">暂无节点明细。</p>
+          : detail.nodes.map((node) => (
+            <article
+              aria-label={`节点 Span ${node.spanId}`}
+              className={`observability-node ${activeSpanId === node.spanId ? 'selected-trace-target' : ''}`}
+              id={`trace-target-${node.spanId}`}
+              key={node.id}
+            >
+              <div>
+                <strong>{node.nodeName}</strong>
+                <span>{node.nodeType} / 尝试 {node.attempts} 次 / {formatDuration(node.durationMs)}</span>
+                <em>Span {node.spanId}</em>
+                <em>父 Span {node.parentSpanId ?? 'root'}</em>
+              </div>
+              <StatusBadge status={node.status} />
+              <Link
+                aria-label={`查看${node.nodeName} 产出物`}
+                className="button ghost compact"
+                to={artifactPathForNodeRun(node.id)}
+              >
+                查看产出物
+              </Link>
+              <p>{node.output || node.error || node.input}</p>
+            </article>
+          ))}
+      </section>
+
+      <section className="observability-section">
+        <h4>人工审核任务</h4>
+        {detail.humanTasks.length === 0
+          ? <p className="muted-copy">当前运行没有关联 Human Task。</p>
+          : detail.humanTasks.map((task) => (
+            <article className="observability-human-task" key={task.id}>
+              <div>
+                <strong>{task.title}</strong>
+                <span>SLA：{displayStatus(task.slaStatus)} / 截止 {formatTime(task.dueAt)}</span>
+              </div>
+              <StatusBadge status={task.status} />
+            </article>
+          ))}
+      </section>
+
+      <section className="observability-section">
+        <h4>审计事件</h4>
+        {detail.auditEvents.length === 0
+          ? <p className="muted-copy">暂无审计事件。</p>
+          : detail.auditEvents.map((event) => (
+            <article className="observability-audit" key={event.id}>
+              <span>{formatTime(event.createdAt)}</span>
+              <strong>{event.eventType ?? '事件'}</strong>
+              <em>审计 Span {event.spanId ?? '未关联'}</em>
+              <p>{event.reason || event.outcome || '未记录原因'}</p>
+            </article>
+          ))}
+      </section>
+    </>
+  )
+}
+
+function TraceLinkMap({
+  detail,
+  activeSpanId,
+  onSelectSpan,
+}: {
+  detail: ObservabilityRunDetail
+  activeSpanId: string
+  onSelectSpan: (spanId: string) => void
+}) {
+  const spans = buildTraceLinkMap(detail)
+
+  return (
+    <section className="observability-section trace-link-map" aria-label="Trace 链路索引">
+      <h4>Trace 链路索引</h4>
+      <div className="trace-link-list">
+        {spans.map((span) => (
+          <article
+            aria-label={span.node ? `Trace 卡片 Span ${span.spanId}` : 'Trace 卡片 root'}
+            className={`trace-link-card ${span.node ? '' : 'root'} ${activeSpanId === span.spanId ? 'active' : ''}`}
+            key={span.spanId}
+          >
+            <div className="trace-link-card-main">
+              {span.node ? (
+                <>
+                  <strong>Span {span.spanId}</strong>
+                  <span>{span.node.nodeName} · {span.node.nodeType}</span>
+                  <em>父 Span {span.parentSpanId ?? 'root'}</em>
+                </>
+              ) : (
+                <>
+                  <strong>root 运行级事件</strong>
+                  <span>{detail.traceId}</span>
+                  <em>Trace root</em>
+                </>
+              )}
+            </div>
+            {span.node && <StatusBadge status={span.node.status} />}
+            <div className="trace-link-evidence">
+              <span>事件 {span.events.length}</span>
+              <span>人工任务 {span.humanTasks.length}</span>
+              <span>审计事件 {span.auditEvents.length}</span>
+            </div>
+            <button
+              aria-label={span.node ? `定位 Span ${span.spanId}` : '定位 root 运行级事件'}
+              className="button ghost compact trace-link-jump"
+              type="button"
+              onClick={() => onSelectSpan(span.spanId)}
+            >
+              定位
+            </button>
+          </article>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function ExecutionEventStream({
+  events,
+  activeSpanId,
+}: {
+  events: ObservabilityExecutionEvent[]
+  activeSpanId: string
+}) {
+  return (
+    <section
+      className="observability-section execution-event-stream"
+      aria-label="执行事件流"
+      id="trace-target-root"
+    >
+      <h4>执行事件流</h4>
+      {events.length === 0
+        ? <p className="muted-copy">暂无统一执行事件。</p>
+        : (
+          <div className="execution-event-list">
+            {events.map((event) => (
+              <article
+                aria-label={`执行事件 ${event.id}`}
+                className={`execution-event ${event.sourceType} ${event.spanId && event.spanId === activeSpanId ? 'active' : ''}`}
+                key={event.id}
+              >
+                <time>{formatTime(event.occurredAt)}</time>
+                <div>
+                  <strong>{event.title}</strong>
+                  <span>{event.sourceType} · {event.type}</span>
+                  <p>{event.summary}</p>
+                  <em>Trace {event.traceId}</em>
+                  <em>Span {event.spanId ?? 'root'}</em>
+                </div>
+                {event.status && <StatusBadge status={event.status} />}
+              </article>
+            ))}
+          </div>
+        )}
+    </section>
+  )
+}

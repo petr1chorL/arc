@@ -19,6 +19,7 @@ export function toContractGraph(nodes: Node[], edges: Edge[]): ContractGraph {
       source: edge.source,
       target: edge.target,
       ...(typeof edge.label === 'string' ? { label: edge.label } : {}),
+      ...(edge.data && Object.keys(edge.data).length > 0 ? { data: { ...edge.data } } : {}),
     })),
   }
 }
@@ -43,6 +44,7 @@ export function fromContractGraph(
       source: edge.source,
       target: edge.target,
       ...(edge.label ? { label: edge.label } : {}),
+      ...(edge.data ? { data: { ...edge.data } } : {}),
     })),
   }
 }

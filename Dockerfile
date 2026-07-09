@@ -13,10 +13,8 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8080
-ENV HSTS_ENABLED=true
 ENV COOKIE_SECURE=true
-ENV RATE_LIMIT_ENABLED=true
-ENV ALLOWED_HOSTS=localhost,127.0.0.1
+ENV PYTHONPATH=/app/api
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends gettext-base nginx \
@@ -39,4 +37,4 @@ COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 
 EXPOSE 8080
 
-CMD ["sh", "-c", "uvicorn app.main:app --app-dir /app/api --host 127.0.0.1 --port 8000 & envsubst '${PORT}' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]
+CMD ["sh", "-c", "python -m app.bootstrap && python -m app.v1_lite_seed --json && uvicorn app.main:app --app-dir /app/api --host 127.0.0.1 --port 8000 & envsubst '${PORT}' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]

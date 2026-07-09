@@ -5,6 +5,8 @@ from sqlalchemy.orm import Session
 
 from app.models import (
     AgentVersionRecord,
+    DataObjectDefinitionRecord,
+    DataObjectVersionRecord,
     ReviewGroupMemberRecord,
     ReviewGroupRecord,
 )
@@ -40,6 +42,7 @@ def validate_workflow(
     nodes: list[dict],
     edges: list[dict],
     session: Session,
+    workspace_id: str | None = None,
 ) -> list[str]:
     errors: list[str] = []
     node_ids = [node["id"] for node in nodes]
@@ -77,7 +80,49 @@ def validate_workflow(
     if node_id_set and visited != len(node_id_set):
         errors.append("工作流不能包含有向环")
 
+    def validate_data_object_ref(node: dict, field: str, label: str) -> None:
+        if not workspace_id:
+            return
+        data = node.get("data", {})
+        ref = data.get(field)
+        if not ref:
+            return
+        if not isinstance(ref, dict):
+            errors.append(f"节点 {node['id']} 的{label} Data Object 引用格式无效")
+            return
+        definition_id = ref.get("definitionId")
+        if not definition_id:
+            errors.append(f"节点 {node['id']} 的{label} Data Object 必须包含 Definition ID")
+            return
+        definition = session.scalar(
+            select(DataObjectDefinitionRecord).where(
+                DataObjectDefinitionRecord.id == definition_id,
+                DataObjectDefinitionRecord.workspace_id == workspace_id,
+            ),
+        )
+        if definition is None:
+            errors.append(f"节点 {node['id']} 的{label} Data Object {definition_id} 不存在")
+            return
+        if definition.status != "published" or definition.version == "unpublished":
+            errors.append(f"节点 {node['id']} 的{label} Data Object {definition.name} 尚未发布")
+            return
+        version = ref.get("version")
+        if not version or version == "unpublished":
+            errors.append(f"节点 {node['id']} 的{label} Data Object 必须绑定已发布版本")
+            return
+        version_record = session.scalar(
+            select(DataObjectVersionRecord).where(
+                DataObjectVersionRecord.workspace_id == workspace_id,
+                DataObjectVersionRecord.definition_id == definition_id,
+                DataObjectVersionRecord.version == version,
+            ),
+        )
+        if version_record is None:
+            errors.append(f"节点 {node['id']} 的{label} Data Object 版本 {version} 不存在")
+
     for node in nodes:
+        validate_data_object_ref(node, "inputDataObjectRef", "输入")
+        validate_data_object_ref(node, "outputDataObjectRef", "输出")
         if node["type"] == "agent":
             agent_id = node["data"].get("agentId")
             agent_version = node["data"].get("agentVersion")
@@ -105,9 +150,10 @@ def validate_workflow(
                 .order_by(ReviewGroupRecord.created_at.asc()),
             )
             group_id = default_group.id if default_group else None
-        if assignment_type not in {"direct", "group_claim", "round_robin"}:
+        direct_assignment_types = {"direct", "direct_reviewer"}
+        if assignment_type not in {*direct_assignment_types, "group_claim", "round_robin"}:
             errors.append(f"Human 节点 {node['id']} 的分配方式无效")
-        if assignment_type == "direct" and not reviewer_ids:
+        if assignment_type in direct_assignment_types and not reviewer_ids:
             errors.append(f"Human 节点 {node['id']} 直接分配必须选择审核人")
         if assignment_type == "round_robin" and not group_id:
             errors.append(f"Human 节点 {node['id']} 轮询分配必须选择审核组")
@@ -115,7 +161,7 @@ def validate_workflow(
         review_policy = data.get("reviewPolicy", "any_one")
         required_approvals = int(data.get("requiredApprovals", 1))
         participant_count = len(reviewer_ids)
-        if assignment_type != "direct" and group_id:
+        if assignment_type not in direct_assignment_types and group_id:
             participant_count = session.scalar(
                 select(func.count())
                 .select_from(ReviewGroupMemberRecord)

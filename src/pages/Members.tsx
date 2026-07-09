@@ -1,0 +1,880 @@
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { AlertTriangle, Copy, MailPlus, RefreshCcw, ShieldCheck, UserCog } from 'lucide-react'
+import {
+  disableMember,
+  disableUser,
+  enableMember,
+  enableUser,
+  getWorkspacePermissionMatrix,
+  inviteMember,
+  listMembers,
+  recordInvitationLinkCopy,
+  resendInvitation,
+  revokeInvitation,
+  revokeReviewerQualification,
+  saveReviewerQualification,
+  updateMemberRole,
+} from '../api/members'
+import { useAuth } from '../auth/authContext'
+import { useWorkspace } from '../auth/workspaceContextState'
+import type { PermissionCapability, WorkspaceMember, WorkspacePermissionMatrix, WorkspaceRole } from '../types'
+
+const roleOptions: Array<{ value: WorkspaceRole; label: string }> = [
+  { value: 'viewer', label: 'viewer' },
+  { value: 'operator', label: 'operator' },
+  { value: 'builder', label: 'builder' },
+  { value: 'workspace_admin', label: 'workspace_admin' },
+]
+
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const reviewerQualificationsUpdatedEvent = 'reviewer-qualifications-updated'
+const highRiskCapabilityKeys = new Set([
+  'audit.read',
+  'audit.export',
+  'member.manage',
+  'workspace.manage',
+  'asset.deactivate',
+  'reviewer.manage',
+])
+
+interface RoleChangeImpactResult {
+  added: PermissionCapability[]
+  removed: PermissionCapability[]
+}
+
+type PendingConfirmation =
+  | {
+    kind: 'role'
+    member: WorkspaceMember
+    nextRole: WorkspaceRole
+    highRiskCapabilities: PermissionCapability[]
+  }
+  | {
+    kind: 'membership-disable'
+    member: WorkspaceMember
+  }
+  | {
+    kind: 'user-disable'
+    member: WorkspaceMember
+  }
+
+function broadcastReviewerQualificationsUpdated(workspaceId: string) {
+  window.dispatchEvent(new CustomEvent(reviewerQualificationsUpdatedEvent, {
+    detail: { workspaceId },
+  }))
+  try {
+    localStorage.setItem(reviewerQualificationsUpdatedEvent, `${workspaceId}:${Date.now()}`)
+  } catch {
+    // Same-tab listeners are already notified; storage can be unavailable in private contexts.
+  }
+}
+
+function formatTimestamp(value: string | null) {
+  if (!value) return '从未登录'
+  return value.replace('T', ' ').replace('Z', ' UTC')
+}
+
+function qualificationLabel(member: WorkspaceMember) {
+  if (!member.reviewer) return '未授予'
+  if (!member.reviewer.isActive) return '已撤销'
+  return member.reviewer.isExpert ? `${member.reviewer.role} · 专家` : member.reviewer.role
+}
+
+function capabilitiesForRole(matrix: WorkspacePermissionMatrix, role: WorkspaceRole) {
+  const roleRow = matrix.matrix.find((row) => row.role === role)
+  return new Set(Object.entries(roleRow?.capabilities ?? {})
+    .filter(([, enabled]) => enabled)
+    .map(([key]) => key))
+}
+
+function roleChangeImpact(
+  matrix: WorkspacePermissionMatrix,
+  currentRole: WorkspaceRole,
+  nextRole: WorkspaceRole,
+): RoleChangeImpactResult | null {
+  if (currentRole === nextRole) {
+    return null
+  }
+  const currentCapabilities = capabilitiesForRole(matrix, currentRole)
+  const nextCapabilities = capabilitiesForRole(matrix, nextRole)
+  return {
+    added: matrix.capabilities.filter((capability) => (
+      nextCapabilities.has(capability.key) && !currentCapabilities.has(capability.key)
+    )),
+    removed: matrix.capabilities.filter((capability) => (
+      currentCapabilities.has(capability.key) && !nextCapabilities.has(capability.key)
+    )),
+  }
+}
+
+function highRiskCapabilitiesFromImpact(impact: RoleChangeImpactResult | null) {
+  if (!impact) return []
+  return [...impact.added, ...impact.removed].filter((capability) => (
+    highRiskCapabilityKeys.has(capability.key)
+  ))
+}
+
+function RoleCapabilityList({
+  capabilities,
+  label,
+}: {
+  capabilities: PermissionCapability[]
+  label: string
+}) {
+  if (capabilities.length === 0) return null
+  return (
+    <div className="role-change-impact-row">
+      <span>{label}</span>
+      <div className="role-change-impact-chips">
+        {capabilities.map((capability) => {
+          const isHighRisk = highRiskCapabilityKeys.has(capability.key)
+          return (
+            <span
+              className={`role-change-impact-chip ${isHighRisk ? 'high-risk' : ''}`}
+              key={capability.key}
+            >
+              {capability.label}
+              {isHighRisk && <em>高风险</em>}
+            </span>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function RoleChangeImpact({
+  currentRole,
+  email,
+  matrix,
+  nextRole,
+}: {
+  currentRole: WorkspaceRole
+  email: string
+  matrix: WorkspacePermissionMatrix | null
+  nextRole: WorkspaceRole
+}) {
+  if (!matrix) return null
+  const impact = roleChangeImpact(matrix, currentRole, nextRole)
+  if (!impact) return null
+
+  return (
+    <div className="role-change-impact" aria-label={`${email} 角色变更影响`}>
+      <div className="role-change-impact-title">
+        <AlertTriangle size={13} />
+        <strong>角色变更影响</strong>
+      </div>
+      <RoleCapabilityList label="新增权限" capabilities={impact.added} />
+      <RoleCapabilityList label="移除权限" capabilities={impact.removed} />
+    </div>
+  )
+}
+
+function confirmationCopy(confirmation: PendingConfirmation) {
+  if (confirmation.kind === 'role') {
+    return {
+      title: '确认高风险权限操作',
+      eyebrow: 'ROLE CHANGE',
+      body: `${confirmation.member.email} 的角色将变更为 ${confirmation.nextRole}。请确认这些高风险权限符合预期。`,
+      capabilities: confirmation.highRiskCapabilities,
+    }
+  }
+  if (confirmation.kind === 'membership-disable') {
+    return {
+      title: '确认停用成员',
+      eyebrow: 'MEMBERSHIP',
+      body: `停用后，${confirmation.member.email} 将不能以该 Membership 使用当前 Workspace。`,
+      capabilities: [],
+    }
+  }
+  return {
+    title: '确认停用 User',
+    eyebrow: 'USER ACCESS',
+    body: `停用 User 后，${confirmation.member.email} 将无法继续以该账号身份访问平台。`,
+    capabilities: [],
+  }
+}
+
+export function Members() {
+  const { user } = useAuth()
+  const { workspace } = useWorkspace()
+  const [members, setMembers] = useState<WorkspaceMember[]>([])
+  const [permissionMatrix, setPermissionMatrix] = useState<WorkspacePermissionMatrix | null>(null)
+  const [draftRoles, setDraftRoles] = useState<Record<string, WorkspaceRole>>({})
+  const [draftReviewerRoles, setDraftReviewerRoles] = useState<Record<string, string>>({})
+  const [draftReviewerExpertFlags, setDraftReviewerExpertFlags] = useState<Record<string, boolean>>({})
+  const [quickReviewerRole, setQuickReviewerRole] = useState('产品审核人')
+  const [quickReviewerIsExpert, setQuickReviewerIsExpert] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+  const [isInviteOpen, setIsInviteOpen] = useState(false)
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteRole, setInviteRole] = useState<WorkspaceRole>('viewer')
+  const [submitError, setSubmitError] = useState('')
+  const [statusMessage, setStatusMessage] = useState('')
+  const [activationUrl, setActivationUrl] = useState('')
+  const [activationInvitationId, setActivationInvitationId] = useState('')
+  const [busyKey, setBusyKey] = useState('')
+  const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null)
+
+  const loadMembers = useCallback(async () => {
+    setIsLoading(true)
+    setSubmitError('')
+    try {
+      const nextMembers = await listMembers(workspace.id)
+      const nextPermissionMatrix = await getWorkspacePermissionMatrix(workspace.id)
+      setMembers(nextMembers)
+      setPermissionMatrix(nextPermissionMatrix)
+      setDraftRoles(Object.fromEntries(nextMembers.map((member) => [member.userId, member.role])))
+      setDraftReviewerRoles(Object.fromEntries(
+        nextMembers.map((member) => [member.userId, member.reviewer?.role ?? '']),
+      ))
+      setDraftReviewerExpertFlags(Object.fromEntries(
+        nextMembers.map((member) => [member.userId, member.reviewer?.isExpert ?? false]),
+      ))
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : '成员列表加载失败')
+    } finally {
+      setIsLoading(false)
+    }
+  }, [workspace.id])
+
+  useEffect(() => {
+    void loadMembers()
+  }, [loadMembers])
+
+  const activeCount = useMemo(
+    () => members.filter((member) => member.membershipStatus === 'active').length,
+    [members],
+  )
+  const currentMember = members.find((member) => member.userId === user?.id)
+
+  async function copyActivationLink() {
+    if (!activationUrl || !activationInvitationId) return
+    setBusyKey('copy')
+    setSubmitError('')
+    try {
+      await navigator.clipboard.writeText(activationUrl)
+      await recordInvitationLinkCopy(workspace.id, activationInvitationId)
+      setStatusMessage('激活链接已复制。')
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : '复制失败，请检查浏览器权限。')
+    } finally {
+      setBusyKey('')
+    }
+  }
+
+  async function handleInvite(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const normalizedEmail = inviteEmail.trim().toLowerCase()
+    if (!emailPattern.test(normalizedEmail)) {
+      setSubmitError('请输入有效邮箱地址')
+      return
+    }
+    setBusyKey('invite')
+    setSubmitError('')
+    try {
+      const created = await inviteMember(workspace.id, { email: normalizedEmail, role: inviteRole })
+      if (created.activationUrl) {
+        setActivationUrl(created.activationUrl)
+        setActivationInvitationId(created.invitationId)
+        setStatusMessage('邀请已创建，激活链接仅显示这一次。')
+      } else {
+        setActivationUrl('')
+        setActivationInvitationId('')
+        setStatusMessage(`${created.email} 已加入当前 Workspace。`)
+      }
+      setInviteEmail('')
+      setInviteRole('viewer')
+      setIsInviteOpen(false)
+      await loadMembers()
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : '邀请创建失败')
+    } finally {
+      setBusyKey('')
+    }
+  }
+
+  async function executeRoleSave(member: WorkspaceMember, nextRole: WorkspaceRole) {
+    setBusyKey(`role:${member.userId}`)
+    setSubmitError('')
+    try {
+      const updated = await updateMemberRole(workspace.id, member.userId, nextRole)
+      setMembers((current) => current.map((item) => item.userId === member.userId ? updated : item))
+      setStatusMessage(`${member.email} 角色已更新。`)
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : '角色更新失败')
+    } finally {
+      setBusyKey('')
+    }
+  }
+
+  async function handleRoleSave(member: WorkspaceMember) {
+    const nextRole = draftRoles[member.userId] ?? member.role
+    const impact = permissionMatrix ? roleChangeImpact(permissionMatrix, member.role, nextRole) : null
+    const highRiskCapabilities = highRiskCapabilitiesFromImpact(impact)
+    if (highRiskCapabilities.length > 0) {
+      setPendingConfirmation({
+        kind: 'role',
+        member,
+        nextRole,
+        highRiskCapabilities,
+      })
+      return
+    }
+    await executeRoleSave(member, nextRole)
+  }
+
+  async function handleReviewerSave(member: WorkspaceMember) {
+    const nextRole = (draftReviewerRoles[member.userId] ?? member.reviewer?.role ?? '').trim()
+    if (!nextRole) {
+      setSubmitError('请填写审核资格角色')
+      return
+    }
+    setBusyKey(`reviewer:${member.userId}`)
+    setSubmitError('')
+    try {
+      const updated = await saveReviewerQualification(workspace.id, member.userId, {
+        role: nextRole,
+        isExpert: draftReviewerExpertFlags[member.userId] ?? false,
+      })
+      setMembers((current) => current.map((item) => item.userId === member.userId ? updated : item))
+      setDraftReviewerRoles((current) => ({ ...current, [member.userId]: updated.reviewer?.role ?? '' }))
+      setDraftReviewerExpertFlags((current) => ({ ...current, [member.userId]: updated.reviewer?.isExpert ?? false }))
+      broadcastReviewerQualificationsUpdated(workspace.id)
+      setStatusMessage(`${member.email} 审核资格已更新。`)
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : '审核资格更新失败')
+    } finally {
+      setBusyKey('')
+    }
+  }
+
+  async function handleCurrentReviewerBind() {
+    if (!currentMember) {
+      setSubmitError('当前账号不在成员列表中')
+      return
+    }
+    const nextRole = quickReviewerRole.trim()
+    if (!nextRole) {
+      setSubmitError('请填写当前账号审核角色')
+      return
+    }
+    setBusyKey('current-reviewer')
+    setSubmitError('')
+    try {
+      const updated = await saveReviewerQualification(workspace.id, currentMember.userId, {
+        role: nextRole,
+        isExpert: quickReviewerIsExpert,
+      })
+      setMembers((current) => current.map((item) => item.userId === currentMember.userId ? updated : item))
+      setDraftReviewerRoles((current) => ({ ...current, [currentMember.userId]: updated.reviewer?.role ?? '' }))
+      setDraftReviewerExpertFlags((current) => ({
+        ...current,
+        [currentMember.userId]: updated.reviewer?.isExpert ?? false,
+      }))
+      broadcastReviewerQualificationsUpdated(workspace.id)
+      setStatusMessage('当前账号已绑定 Reviewer 资格。')
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : '当前账号审核资格绑定失败')
+    } finally {
+      setBusyKey('')
+    }
+  }
+
+  async function handleReviewerRevoke(member: WorkspaceMember) {
+    if (!member.reviewer?.isActive) return
+    setBusyKey(`reviewer:${member.userId}`)
+    setSubmitError('')
+    try {
+      const updated = await revokeReviewerQualification(workspace.id, member.userId)
+      setMembers((current) => current.map((item) => item.userId === member.userId ? updated : item))
+      setDraftReviewerExpertFlags((current) => ({ ...current, [member.userId]: false }))
+      broadcastReviewerQualificationsUpdated(workspace.id)
+      setStatusMessage(`${member.email} 审核资格已撤销。`)
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : '审核资格撤销失败')
+    } finally {
+      setBusyKey('')
+    }
+  }
+
+  async function handleResend(member: WorkspaceMember) {
+    if (!member.invitationId) return
+    setBusyKey(`resend:${member.userId}`)
+    setSubmitError('')
+    try {
+      const resent = await resendInvitation(workspace.id, member.invitationId)
+      if (resent.activationUrl) {
+        setActivationUrl(resent.activationUrl)
+        setActivationInvitationId(resent.invitationId)
+        setStatusMessage('邀请已重发，激活链接仅显示这一次。')
+      } else {
+        setActivationUrl('')
+        setActivationInvitationId('')
+        setStatusMessage(`${resent.email} 已加入当前 Workspace。`)
+      }
+      await loadMembers()
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : '邀请重发失败')
+    } finally {
+      setBusyKey('')
+    }
+  }
+
+  async function handleRevoke(member: WorkspaceMember) {
+    if (!member.invitationId) return
+    setBusyKey(`revoke:${member.userId}`)
+    setSubmitError('')
+    try {
+      await revokeInvitation(workspace.id, member.invitationId)
+      setStatusMessage(`${member.email} 的邀请已撤销。`)
+      await loadMembers()
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : '邀请撤销失败')
+    } finally {
+      setBusyKey('')
+    }
+  }
+
+  async function executeMembershipToggle(member: WorkspaceMember) {
+    setBusyKey(`status:${member.userId}`)
+    setSubmitError('')
+    try {
+      const updated = member.membershipStatus === 'active'
+        ? await disableMember(workspace.id, member.userId)
+        : await enableMember(workspace.id, member.userId)
+      setMembers((current) => current.map((item) => item.userId === member.userId ? updated : item))
+      setStatusMessage(`${member.email} 成员状态已更新。`)
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : '成员状态更新失败')
+    } finally {
+      setBusyKey('')
+    }
+  }
+
+  async function handleMembershipToggle(member: WorkspaceMember) {
+    if (member.membershipStatus === 'active') {
+      setPendingConfirmation({ kind: 'membership-disable', member })
+      return
+    }
+    await executeMembershipToggle(member)
+  }
+
+  async function executeUserStatusToggle(member: WorkspaceMember) {
+    setBusyKey(`user:${member.userId}`)
+    setSubmitError('')
+    try {
+      const updated = member.userStatus === 'active'
+        ? await disableUser(workspace.id, member.userId)
+        : await enableUser(workspace.id, member.userId)
+      setMembers((current) => current.map((item) => item.userId === member.userId ? updated : item))
+      setStatusMessage(`${member.email} User 状态已更新。`)
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : 'User 状态更新失败')
+    } finally {
+      setBusyKey('')
+    }
+  }
+
+  async function handleUserStatusToggle(member: WorkspaceMember) {
+    if (member.userStatus === 'active') {
+      setPendingConfirmation({ kind: 'user-disable', member })
+      return
+    }
+    await executeUserStatusToggle(member)
+  }
+
+  async function handleConfirmedAction() {
+    if (!pendingConfirmation) return
+    const confirmation = pendingConfirmation
+    setPendingConfirmation(null)
+    if (confirmation.kind === 'role') {
+      await executeRoleSave(confirmation.member, confirmation.nextRole)
+      return
+    }
+    if (confirmation.kind === 'membership-disable') {
+      await executeMembershipToggle(confirmation.member)
+      return
+    }
+    await executeUserStatusToggle(confirmation.member)
+  }
+
+  if (isLoading) {
+    return <div className="panel table-state">正在加载成员列表…</div>
+  }
+
+  return (
+    <section className="members-page">
+      <div className="panel members-toolbar">
+        <div>
+          <p className="section-kicker">WORKSPACE ACCESS</p>
+          <h2>成员与权限</h2>
+          <span>{workspace.name} 当前有 {activeCount} 名有效成员。</span>
+        </div>
+        <div className="members-toolbar-actions">
+          <button className="button secondary" onClick={() => void loadMembers()}>
+            <RefreshCcw size={16} />
+            刷新
+          </button>
+          <button className="button primary" onClick={() => setIsInviteOpen(true)}>
+            <MailPlus size={16} />
+            邀请成员
+          </button>
+        </div>
+      </div>
+
+      {currentMember && (
+        <section className="panel members-current-reviewer" aria-label="当前账号审核资格">
+          <div>
+            <span className="section-kicker">REVIEWER SETUP</span>
+            <h3>
+              {currentMember.reviewer?.isActive
+                ? '当前账号已具备 Reviewer 资格'
+                : '当前账号未获得 Reviewer 资格'}
+            </h3>
+            <p>
+              {currentMember.reviewer?.isActive
+                ? `${currentMember.email} · ${currentMember.reviewer.role}${currentMember.reviewer.isExpert ? ' · 专家' : ''}`
+                : '绑定后即可回到人工审核页认领任务或提交审核决定。'}
+            </p>
+          </div>
+          {!currentMember.reviewer?.isActive && (
+            <div className="members-current-reviewer-form">
+              <label>
+                <span>审核角色</span>
+                <input
+                  aria-label="当前账号审核角色"
+                  value={quickReviewerRole}
+                  onChange={(event) => setQuickReviewerRole(event.target.value)}
+                />
+              </label>
+              <label className="members-inline-toggle">
+                <input
+                  aria-label="当前账号专家审核"
+                  type="checkbox"
+                  checked={quickReviewerIsExpert}
+                  onChange={(event) => setQuickReviewerIsExpert(event.target.checked)}
+                />
+                <span>专家</span>
+              </label>
+              <button
+                className="button primary"
+                disabled={busyKey === 'current-reviewer'}
+                onClick={() => void handleCurrentReviewerBind()}
+              >
+                <ShieldCheck size={15} />
+                绑定当前账号为 Reviewer
+              </button>
+            </div>
+          )}
+        </section>
+      )}
+
+      {permissionMatrix && (
+        <section className="panel permission-matrix-panel" aria-label="平台角色权限矩阵">
+          <div className="permission-matrix-header">
+            <div>
+              <span className="section-kicker">RBAC MATRIX</span>
+              <h3>平台角色权限矩阵</h3>
+              <p>{permissionMatrix.reviewerQualificationNote}</p>
+            </div>
+          </div>
+          <div className="permission-matrix-scroll">
+            <table className="permission-matrix-table">
+              <thead>
+                <tr>
+                  <th>能力</th>
+                  <th>最低角色</th>
+                  {permissionMatrix.roles.map((role) => (
+                    <th key={role}>{role}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {permissionMatrix.capabilities.map((capability) => (
+                  <tr key={capability.key}>
+                    <td>
+                      <strong>{capability.label}</strong>
+                      <span>{capability.key}</span>
+                    </td>
+                    <td><span className="status-chip neutral">{capability.requiredRole}</span></td>
+                    {permissionMatrix.roles.map((role) => {
+                      const roleRow = permissionMatrix.matrix.find((row) => row.role === role)
+                      const enabled = Boolean(roleRow?.capabilities[capability.key])
+                      return (
+                        <td key={`${capability.key}:${role}`}>
+                          <span
+                            className={`permission-dot ${enabled ? 'enabled' : ''}`}
+                            aria-label={`${role} ${enabled ? '具备' : '不具备'} ${capability.label}`}
+                          >
+                            {enabled ? '有' : '无'}
+                          </span>
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {(statusMessage || submitError || activationUrl) && (
+        <div className={`inline-feedback ${submitError ? 'error' : ''}`} role={submitError ? 'alert' : 'status'}>
+          <span>{submitError || statusMessage}</span>
+          {activationUrl && !submitError && (
+            <button className="button ghost compact" disabled={busyKey === 'copy'} onClick={() => void copyActivationLink()}>
+              <Copy size={15} />
+              复制激活链接
+            </button>
+          )}
+        </div>
+      )}
+
+      <div className="panel members-table-panel">
+        <table className="members-table">
+          <thead>
+            <tr>
+              <th>成员</th>
+              <th>平台角色</th>
+              <th>审核资格</th>
+              <th>User 状态</th>
+              <th>Membership 状态</th>
+              <th>最近登录</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {members.map((member) => (
+              <tr key={member.userId}>
+                <td>
+                  <div className="members-identity">
+                    <strong>{member.displayName}</strong>
+                    <span>{member.email}</span>
+                  </div>
+                </td>
+                <td>
+                  <div className="members-role-stack">
+                    <div className="members-role-cell">
+                      <select
+                        aria-label={`${member.email} 的角色`}
+                        value={draftRoles[member.userId] ?? member.role}
+                        onChange={(event) => {
+                          setDraftRoles((current) => ({
+                            ...current,
+                            [member.userId]: event.target.value as WorkspaceRole,
+                          }))
+                        }}
+                      >
+                        {roleOptions.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                      <span className="status-chip neutral">{member.role}</span>
+                    </div>
+                    <RoleChangeImpact
+                      currentRole={member.role}
+                      email={member.email}
+                      matrix={permissionMatrix}
+                      nextRole={draftRoles[member.userId] ?? member.role}
+                    />
+                  </div>
+                </td>
+                <td>
+                  <div className="members-reviewer-cell">
+                    <span className={`status-chip ${member.reviewer?.isActive ? 'success' : 'neutral'}`}>
+                      {qualificationLabel(member)}
+                    </span>
+                    <input
+                      aria-label={`${member.email} 的审核角色`}
+                      value={draftReviewerRoles[member.userId] ?? ''}
+                      placeholder="审核角色"
+                      onChange={(event) => {
+                        setDraftReviewerRoles((current) => ({
+                          ...current,
+                          [member.userId]: event.target.value,
+                        }))
+                      }}
+                    />
+                    <label className="members-inline-toggle">
+                      <input
+                        aria-label={`${member.email} 专家审核`}
+                        type="checkbox"
+                        checked={draftReviewerExpertFlags[member.userId] ?? false}
+                        onChange={(event) => {
+                          setDraftReviewerExpertFlags((current) => ({
+                            ...current,
+                            [member.userId]: event.target.checked,
+                          }))
+                        }}
+                      />
+                      <span>专家</span>
+                    </label>
+                  </div>
+                </td>
+                <td><span className="status-chip neutral">{member.userStatus}</span></td>
+                <td><span className="status-chip neutral">{member.membershipStatus}</span></td>
+                <td>{formatTimestamp(member.lastLoginAt)}</td>
+                <td>
+                  <div className="members-actions">
+                    <button
+                      className="icon-button members-action"
+                      aria-label={`保存 ${member.email} 的角色`}
+                      disabled={busyKey === `role:${member.userId}`}
+                      onClick={() => void handleRoleSave(member)}
+                      title="保存角色"
+                    >
+                      <UserCog size={16} />
+                    </button>
+                    {member.invitationId && member.membershipStatus === 'invited' && (
+                      <>
+                        <button
+                          className="button ghost compact"
+                          aria-label={`重发 ${member.email} 邀请`}
+                          disabled={busyKey === `resend:${member.userId}`}
+                          onClick={() => void handleResend(member)}
+                        >
+                          重发
+                        </button>
+                        <button
+                          className="button ghost compact"
+                          aria-label={`撤销 ${member.email} 邀请`}
+                          disabled={busyKey === `revoke:${member.userId}`}
+                          onClick={() => void handleRevoke(member)}
+                        >
+                          撤销
+                        </button>
+                      </>
+                    )}
+                    <button
+                      className="button ghost compact"
+                      aria-label={`保存 ${member.email} 审核资格`}
+                      disabled={busyKey === `reviewer:${member.userId}`}
+                      onClick={() => void handleReviewerSave(member)}
+                    >
+                      保存审核
+                    </button>
+                    {member.reviewer?.isActive && (
+                      <button
+                        className="button ghost compact"
+                        aria-label={`撤销 ${member.email} 审核资格`}
+                        disabled={busyKey === `reviewer:${member.userId}`}
+                        onClick={() => void handleReviewerRevoke(member)}
+                      >
+                        撤销审核
+                      </button>
+                    )}
+                    <button
+                      className="button ghost compact"
+                      aria-label={`${member.membershipStatus === 'active' ? '停用' : '启用'} ${member.email}`}
+                      disabled={busyKey === `status:${member.userId}`}
+                      onClick={() => void handleMembershipToggle(member)}
+                    >
+                      <ShieldCheck size={15} />
+                      {member.membershipStatus === 'active' ? '停用' : '启用'}
+                    </button>
+                    <button
+                      className="button ghost compact"
+                      aria-label={`${member.userStatus === 'active' ? '停用 User' : '启用 User'} ${member.email}`}
+                      disabled={busyKey === `user:${member.userId}`}
+                      onClick={() => void handleUserStatusToggle(member)}
+                    >
+                      {member.userStatus === 'active' ? '停用 User' : '启用 User'}
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {isInviteOpen && (
+        <div className="dialog-backdrop">
+          <section className="agent-dialog members-dialog" role="dialog" aria-modal="true" aria-labelledby="members-dialog-title">
+            <header>
+              <div>
+                <p className="eyebrow">INVITATION</p>
+                <h2 id="members-dialog-title">邀请成员</h2>
+              </div>
+            </header>
+            <form onSubmit={handleInvite}>
+              <label className="dialog-field">
+                <span>邮箱</span>
+                <input
+                  aria-label="邮箱"
+                  type="email"
+                  value={inviteEmail}
+                  onChange={(event) => setInviteEmail(event.target.value)}
+                />
+              </label>
+              <label className="dialog-field">
+                <span>平台角色</span>
+                <select
+                  aria-label="平台角色"
+                  value={inviteRole}
+                  onChange={(event) => setInviteRole(event.target.value as WorkspaceRole)}
+                >
+                  {roleOptions.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+              <footer>
+                <button className="button ghost" type="button" onClick={() => setIsInviteOpen(false)}>
+                  取消
+                </button>
+                <button className="button primary" type="submit" disabled={busyKey === 'invite'}>
+                  发送邀请
+                </button>
+              </footer>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {pendingConfirmation && (() => {
+        const copy = confirmationCopy(pendingConfirmation)
+        return (
+          <div className="dialog-backdrop">
+            <section
+              className="agent-dialog members-dialog confirmation-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="members-confirmation-title"
+            >
+              <header>
+                <div>
+                  <p className="eyebrow">{copy.eyebrow}</p>
+                  <h2 id="members-confirmation-title">{copy.title}</h2>
+                </div>
+              </header>
+              <div className="confirmation-dialog-body">
+                <p>{copy.body}</p>
+                {copy.capabilities.length > 0 && (
+                  <div className="confirmation-risk-list" aria-label="高风险权限清单">
+                    {copy.capabilities.map((capability) => (
+                      <span className="role-change-impact-chip high-risk" key={capability.key}>
+                        {capability.label}
+                        <em>高风险</em>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <footer>
+                <button className="button ghost" type="button" onClick={() => setPendingConfirmation(null)}>
+                  取消
+                </button>
+                <button className="button primary" type="button" onClick={() => void handleConfirmedAction()}>
+                  确认执行
+                </button>
+              </footer>
+            </section>
+          </div>
+        )
+      })()}
+    </section>
+  )
+}

@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import os
 from typing import Protocol
 
 import httpx
@@ -25,6 +26,12 @@ class ModelGateway(Protocol):
         system_prompt: str,
         user_input: str,
         model: str,
+        model_provider_id: str | None = None,
+        model_provider: str = "openai-compatible",
+        model_base_url: str = "",
+        model_secret_ref: str = "",
+        temperature: float = 0.2,
+        max_output_tokens: int = 2000,
     ) -> ModelResult:
         ...
 
@@ -39,18 +46,27 @@ class OpenAICompatibleGateway:
         system_prompt: str,
         user_input: str,
         model: str,
+        model_provider_id: str | None = None,
+        model_provider: str = "openai-compatible",
+        model_base_url: str = "",
+        model_secret_ref: str = "",
+        temperature: float = 0.2,
+        max_output_tokens: int = 2000,
     ) -> ModelResult:
-        if not self.settings.model_api_key or not self.settings.model_base_url:
+        effective_base_url = model_base_url.strip() or self.settings.model_base_url
+        effective_api_key = resolve_model_api_key(model_secret_ref)
+        effective_api_key = effective_api_key or self.settings.model_api_key
+        if not effective_api_key or not effective_base_url:
             raise ModelGatewayError("模型服务未配置")
         resolved_model = self.settings.model_default_model or model
         if not resolved_model:
             raise ModelGatewayError("模型名称未配置")
-        endpoint = f"{self.settings.model_base_url.rstrip('/')}/chat/completions"
+        endpoint = f"{effective_base_url.rstrip('/')}/chat/completions"
         try:
             response = httpx.post(
                 endpoint,
                 headers={
-                    "Authorization": f"Bearer {self.settings.model_api_key}",
+                    "Authorization": f"Bearer {effective_api_key}",
                     "Content-Type": "application/json",
                 },
                 json={
@@ -59,7 +75,8 @@ class OpenAICompatibleGateway:
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_input},
                     ],
-                    "temperature": 0.2,
+                    "temperature": temperature,
+                    "max_tokens": max_output_tokens,
                 },
                 timeout=self.settings.model_timeout_seconds,
             )
@@ -78,3 +95,19 @@ class OpenAICompatibleGateway:
             ) from None
         except (httpx.HTTPError, KeyError, TypeError, ValueError):
             raise ModelGatewayError("模型服务请求失败") from None
+
+
+def resolve_model_api_key(model_secret_ref: str, fallback: str = "") -> str:
+    secret_ref = model_secret_ref.strip()
+    if not secret_ref:
+        return fallback
+    env_value = os.environ.get(secret_ref, "")
+    if env_value:
+        return env_value
+    if _looks_like_inline_api_key(secret_ref):
+        return secret_ref
+    return fallback
+
+
+def _looks_like_inline_api_key(value: str) -> bool:
+    return value.lower().startswith(("sk-", "sk_"))

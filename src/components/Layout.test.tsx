@@ -1,7 +1,57 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { WorkspaceContext } from '../auth/workspaceContextState'
 import { Layout } from './Layout'
+
+vi.mock('../auth/authContext', () => ({
+  useAuth: () => ({
+    user: {
+      id: 'user-1',
+      email: 'builder@example.com',
+      displayName: 'Builder',
+      isOrganizationAdmin: true,
+    },
+    workspaces: [
+      { id: 'workspace-1', slug: 'ai-capability-center', name: 'AI 能力中心' },
+      { id: 'workspace-2', slug: 'workspace-b', name: 'Workspace B' },
+    ],
+    logout: vi.fn(),
+  }),
+}))
+
+const workspace = {
+  id: 'workspace-1',
+  slug: 'ai-capability-center',
+  name: 'AI 能力中心',
+}
+
+function renderLayout(initialEntry = `/w/${workspace.slug}`) {
+  const value = {
+    workspace,
+    workspaceApiPath(path: string) {
+      const normalized = path.startsWith('/') ? path : `/${path}`
+      return `/api/workspaces/${workspace.id}${normalized}`
+    },
+    workspacePath(path = '') {
+      const normalized = path ? (path.startsWith('/') ? path : `/${path}`) : ''
+      return `/w/${workspace.slug}${normalized}`
+    },
+  }
+
+  return render(
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <WorkspaceContext.Provider value={value}>
+        <Routes>
+          <Route path="/w/:workspaceSlug" element={<Layout />}>
+            <Route index element={<div>HOME</div>} />
+            <Route path="reviews" element={<div>REVIEWS</div>} />
+          </Route>
+        </Routes>
+      </WorkspaceContext.Provider>
+    </MemoryRouter>,
+  )
+}
 
 describe('Layout', () => {
   afterEach(() => {
@@ -19,19 +69,52 @@ describe('Layout', () => {
     )
     vi.stubGlobal('fetch', fetchMock)
 
-    render(
-      <MemoryRouter initialEntries={['/']}>
-        <Routes>
-          <Route element={<Layout />}>
-            <Route index element={<div>首页</div>} />
-          </Route>
-        </Routes>
-      </MemoryRouter>,
-    )
+    renderLayout()
 
     expect(await screen.findByText('2')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '人工审核' })).toHaveTextContent('人工审核2')
-    expect(fetchMock).toHaveBeenCalledWith('/api/human-tasks')
+    const reviewsLink = screen.getByRole('link', { name: '人工审核' })
+    expect(reviewsLink).toHaveTextContent('人工审核2')
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/workspaces/${workspace.id}/human-tasks`,
+      expect.objectContaining({ credentials: 'include' }),
+    )
+  })
+
+  it('does not expose observability as a standalone primary module', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([]), { status: 200 }),
+    ))
+
+    renderLayout()
+
+    await screen.findByText('HOME')
+    expect(screen.queryByRole('link', { name: '运行观测' })).not.toBeInTheDocument()
+  })
+
+  it('does not expose removed operations and governance modules', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([]), { status: 200 }),
+    ))
+
+    renderLayout()
+
+    await screen.findByText('HOME')
+    expect(screen.queryByRole('link', { name: '通知运维' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: '打开通知运维' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: '通知渠道' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Data Object' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: '审计日志' })).not.toBeInTheDocument()
+  })
+
+  it('does not expose artifacts as a standalone primary module', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([]), { status: 200 }),
+    ))
+
+    renderLayout()
+
+    await screen.findByText('HOME')
+    expect(screen.queryByRole('link', { name: '产出物' })).not.toBeInTheDocument()
   })
 
   it('keeps the shell usable when the human task count fails', async () => {
@@ -39,19 +122,12 @@ describe('Layout', () => {
       new Response(JSON.stringify({ detail: '服务暂不可用' }), { status: 503 }),
     ))
 
-    render(
-      <MemoryRouter initialEntries={['/']}>
-        <Routes>
-          <Route element={<Layout />}>
-            <Route index element={<div>首页</div>} />
-          </Route>
-        </Routes>
-      </MemoryRouter>,
-    )
+    renderLayout()
 
-    expect(await screen.findByText('首页')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '人工审核' })).toHaveTextContent('人工审核')
-    expect(screen.getByRole('link', { name: '人工审核' }).querySelector('em')).toBeNull()
+    expect(await screen.findByText('HOME')).toBeInTheDocument()
+    const reviewsLink = screen.getByRole('link', { name: '人工审核' })
+    expect(reviewsLink).toHaveTextContent('人工审核')
+    expect(reviewsLink.querySelector('em')).toBeNull()
   })
 
   it('refreshes the review count when a human task changes', async () => {
@@ -64,15 +140,7 @@ describe('Layout', () => {
       ]), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
-    render(
-      <MemoryRouter initialEntries={['/reviews']}>
-        <Routes>
-          <Route element={<Layout />}>
-            <Route path="/reviews" element={<div>审核工作台</div>} />
-          </Route>
-        </Routes>
-      </MemoryRouter>,
-    )
+    renderLayout(`/w/${workspace.slug}/reviews`)
 
     expect(await screen.findByText('1')).toBeInTheDocument()
 

@@ -15,6 +15,11 @@ dependencies = [
   "uvicorn[standard]>=0.34,<1",
 ]
 
+[project.scripts]
+arc-one-bootstrap = "app.bootstrap:main"
+arc-one-worker = "app.worker:main"
+arc-one-notification-worker = "app.notification_worker:main"
+
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.2,<4"]
 test = [

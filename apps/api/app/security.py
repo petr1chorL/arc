@@ -3,7 +3,7 @@ import hmac
 import secrets
 
 from argon2 import PasswordHasher
-from argon2.exceptions import InvalidHashError, VerifyMismatchError
+from argon2.exceptions import VerificationError
 
 
 class SecurityService:
@@ -16,7 +16,7 @@ class SecurityService:
     def verify_password(self, password: str, encoded: str) -> bool:
         try:
             return self.password_hasher.verify(encoded, password)
-        except (VerifyMismatchError, InvalidHashError):
+        except VerificationError:
             return False
 
     @staticmethod

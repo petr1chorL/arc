@@ -1,8 +1,16 @@
+import { displayStatus } from '../domain/statusText'
+
 export function StatusBadge({ status }: { status: string }) {
+  const label = displayStatus(status)
   const tone: Record<string, string> = {
     在线: 'success',
     调试中: 'warning',
     已停用: 'neutral',
+    已启用: 'success',
+    已发布: 'success',
+    草稿: 'warning',
+    未发布: 'neutral',
+    状态未知: 'neutral',
     运行中: 'info',
     已完成: 'success',
     需介入: 'warning',
@@ -22,5 +30,5 @@ export function StatusBadge({ status }: { status: string }) {
     低: 'neutral',
   }
 
-  return <span className={`status-badge ${tone[status] ?? 'neutral'}`}><i />{status}</span>
+  return <span className={`status-badge ${tone[label] ?? 'neutral'}`}><i />{label}</span>
 }

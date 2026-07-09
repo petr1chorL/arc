@@ -1,0 +1,7 @@
+{
+  "ok": true,
+  "runId": "2c4ec091-c269-4da3-89fe-1923f1151377",
+  "cardCount": 1,
+  "queueText": "REMEDIATION QUEUE\nFailure Remediation Queue\n1 个修复项\nP0\n修复 事实准确性 偏低\n\n3 samples · 最低分 47\n\n优先补齐 事实准确性 相关证据与判定依据\n\n253dd9ec-56d7-4a4b-a0c1-2137dd0334b9\n4f0325e0-203c-44bc-9e9c-6681cf57a8a0\n1c4f914f-b202-42ac-9e41-3f6024e8d354\n复测 3 条代表样本",
+  "screenshotPath": ".scratch/v0.10g-failure-remediation-queue.png"
+}

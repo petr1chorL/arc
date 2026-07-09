@@ -7,18 +7,27 @@ export interface CreateAgentInput {
   role: string
   owner: string
   model: string
+  modelProviderId?: string | null
+  modelProvider?: string
+  modelBaseUrl?: string
+  temperature?: number
+  maxOutputTokens?: number
   runtimeManifest?: AgentRuntimeManifest
 }
 
 export { ApiError as AgentApiError }
 
-export async function listAgents(): Promise<Agent[]> {
-  const response = await apiFetch('/api/agents')
+function workspacePath(workspaceId: string, path = '') {
+  return `/api/workspaces/${workspaceId}/agents${path}`
+}
+
+export async function listAgents(workspaceId: string): Promise<Agent[]> {
+  const response = await apiFetch(workspacePath(workspaceId))
   return readJson<Agent[]>(response)
 }
 
-export async function createAgent(input: CreateAgentInput): Promise<Agent> {
-  const response = await apiFetch('/api/agents', {
+export async function createAgent(workspaceId: string, input: CreateAgentInput): Promise<Agent> {
+  const response = await apiFetch(workspacePath(workspaceId), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -33,30 +42,46 @@ export interface UpdateAgentInput extends CreateAgentInput {
   runtimeManifest: AgentRuntimeManifest
 }
 
-export async function getAgent(agentId: string): Promise<Agent> {
-  return readJson<Agent>(await apiFetch(`/api/agents/${agentId}`))
+export async function getAgent(workspaceId: string, agentId: string): Promise<Agent> {
+  return readJson<Agent>(await apiFetch(workspacePath(workspaceId, `/${agentId}`)))
 }
 
-export async function updateAgent(agentId: string, input: UpdateAgentInput): Promise<Agent> {
-  return readJson<Agent>(await apiFetch(`/api/agents/${agentId}`, {
+export async function updateAgent(
+  workspaceId: string,
+  agentId: string,
+  input: UpdateAgentInput,
+): Promise<Agent> {
+  return readJson<Agent>(await apiFetch(workspacePath(workspaceId, `/${agentId}`), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   }))
 }
 
-export async function listAgentVersions(agentId: string): Promise<AgentVersion[]> {
-  return readJson<AgentVersion[]>(await apiFetch(`/api/agents/${agentId}/versions`))
+export async function listAgentVersions(workspaceId: string, agentId: string): Promise<AgentVersion[]> {
+  return readJson<AgentVersion[]>(await apiFetch(workspacePath(workspaceId, `/${agentId}/versions`)))
 }
 
-export async function publishAgent(agentId: string): Promise<AgentVersion> {
-  return readJson<AgentVersion>(await apiFetch(`/api/agents/${agentId}/publish`, {
+export async function publishAgent(
+  workspaceId: string,
+  agentId: string,
+  input: { note?: string } = {},
+): Promise<AgentVersion> {
+  return readJson<AgentVersion>(await apiFetch(workspacePath(workspaceId, `/${agentId}/publish`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ note: input.note ?? '' }),
+  }))
+}
+
+export async function deactivateAgent(workspaceId: string, agentId: string): Promise<Agent> {
+  return readJson<Agent>(await apiFetch(workspacePath(workspaceId, `/${agentId}/deactivate`), {
     method: 'POST',
   }))
 }
 
-export async function deactivateAgent(agentId: string): Promise<Agent> {
-  return readJson<Agent>(await apiFetch(`/api/agents/${agentId}/deactivate`, {
+export async function activateAgent(workspaceId: string, agentId: string): Promise<Agent> {
+  return readJson<Agent>(await apiFetch(workspacePath(workspaceId, `/${agentId}/activate`), {
     method: 'POST',
   }))
 }

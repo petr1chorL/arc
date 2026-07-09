@@ -10,12 +10,14 @@ import {
   Sparkles,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { useWorkspace } from '../auth/workspaceContextState'
 import { metrics, reviews, runs } from '../data/mock'
 import { StatusBadge } from '../components/StatusBadge'
 
 const chart = [42, 51, 48, 62, 57, 70, 66, 74, 78, 72, 84, 86]
 
 export function Dashboard() {
+  const { workspacePath } = useWorkspace()
   return (
     <div className="dashboard page-stack">
       <section className="command-strip">
@@ -25,8 +27,8 @@ export function Dashboard() {
           <p>系统整体稳定。1 个数据源异常，3 项决策正在等待人工审核。</p>
         </div>
         <div className="command-actions">
-          <Link className="button secondary" to="/runs"><Play size={16} />查看实时运行</Link>
-          <Link className="button primary" to="/workflows"><Network size={16} />创建工作流</Link>
+          <Link className="button secondary" to={workspacePath('runs')}><Play size={16} />查看实时运行</Link>
+          <Link className="button primary" to={workspacePath('workflows')}><Network size={16} />创建工作流</Link>
         </div>
       </section>
 
@@ -87,7 +89,7 @@ export function Dashboard() {
         <section className="panel attention-panel">
           <div className="panel-header">
             <div><span className="section-kicker">需要关注</span><h3>待办与异常</h3></div>
-            <Link to="/reviews">全部 <ArrowRight size={14} /></Link>
+            <Link to={workspacePath('reviews')}>全部 <ArrowRight size={14} /></Link>
           </div>
           <div className="attention-list">
             <div className="attention-item critical">
@@ -114,7 +116,7 @@ export function Dashboard() {
       <section className="panel">
         <div className="panel-header">
           <div><span className="section-kicker">最近活动</span><h3>工作流运行</h3></div>
-          <Link to="/runs">打开运行中心 <ArrowRight size={14} /></Link>
+          <Link to={workspacePath('runs')}>打开运行中心 <ArrowRight size={14} /></Link>
         </div>
         <div className="data-table">
           <div className="table-row table-head">

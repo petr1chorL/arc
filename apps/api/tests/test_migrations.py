@@ -2,7 +2,12 @@ from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.orm import Session
 
 from app.migrations import ensure_current_schema
-from app.models import Base, HumanTaskRecord, ReviewDecisionRecord
+from app.models import (
+    Base,
+    HumanTaskRecord,
+    ReviewDecisionRecord,
+    WorkspaceRecord,
+)
 
 
 def test_existing_human_task_table_is_upgraded_without_losing_rows(tmp_path):
@@ -88,14 +93,19 @@ def test_existing_human_task_table_is_upgraded_without_losing_rows(tmp_path):
         for column in inspect(engine).get_columns("review_decisions")
     }
     assert "tags" in decision_columns
+    assert "workspace_id" in columns
+    assert "workspace_id" in decision_columns
 
     with Session(engine) as session:
+        workspace = session.scalar(select(WorkspaceRecord))
+        assert workspace is not None
         task = session.scalar(
             select(HumanTaskRecord).where(HumanTaskRecord.id == "legacy-task"),
         )
         assert task is not None
         assert task.title == "历史审核任务"
         assert task.sla_status == "正常"
+        assert task.workspace_id == workspace.id
         decision = session.scalar(
             select(ReviewDecisionRecord).where(
                 ReviewDecisionRecord.id == "legacy-decision",
@@ -104,3 +114,4 @@ def test_existing_human_task_table_is_upgraded_without_losing_rows(tmp_path):
         assert decision is not None
         assert decision.reason == "历史决定"
         assert decision.tags == []
+        assert decision.workspace_id == workspace.id

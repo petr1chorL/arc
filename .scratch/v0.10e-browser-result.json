@@ -1,0 +1,8 @@
+{
+  "ok": true,
+  "heading": "质量风险",
+  "factCount": 3,
+  "recommendation": "建议：先修复风险 Run 中的失败样本",
+  "consoleIssues": [],
+  "screenshot": ".scratch/v0.10e-regression-run-insight.png"
+}

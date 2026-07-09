@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createWorkflow,
+  deleteWorkflow,
   listWorkflowVersions,
   listWorkflows,
   publishWorkflow,
@@ -15,11 +16,15 @@ const workflow = {
   version: '未发布',
   nodes: [],
   edges: [],
+  inputSchema: { type: 'object', properties: {} },
+  outputSchema: { type: 'object', properties: {} },
   createdAt: '2026-06-24T07:00:00Z',
   updatedAt: '2026-06-24T07:00:00Z',
 }
 
 describe('Workflow API', () => {
+  const workspaceId = 'workspace-1'
+
   afterEach(() => {
     vi.unstubAllGlobals()
   })
@@ -29,6 +34,7 @@ describe('Workflow API', () => {
       id: 'workflow-version-1',
       version: 'v1.0.0',
       snapshot: workflow,
+      note: '发布首版',
       createdAt: '2026-06-24T07:10:00Z',
     }
     const fetchMock = vi.fn()
@@ -38,14 +44,33 @@ describe('Workflow API', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ valid: true, errors: [] }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify(version), { status: 201 }))
       .mockResolvedValueOnce(new Response(JSON.stringify([version]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
     vi.stubGlobal('fetch', fetchMock)
-    const draft = { name: workflow.name, nodes: [], edges: [] }
+    const draft = {
+      name: workflow.name,
+      nodes: [],
+      edges: [],
+      inputSchema: workflow.inputSchema,
+      outputSchema: workflow.outputSchema,
+    }
 
-    await expect(listWorkflows()).resolves.toEqual([workflow])
-    await expect(createWorkflow(draft)).resolves.toEqual(workflow)
-    await expect(updateWorkflow(workflow.id, draft)).resolves.toEqual(workflow)
-    await expect(validateWorkflow(workflow.id)).resolves.toEqual({ valid: true, errors: [] })
-    await expect(publishWorkflow(workflow.id)).resolves.toEqual(version)
-    await expect(listWorkflowVersions(workflow.id)).resolves.toEqual([version])
+    await expect(listWorkflows(workspaceId)).resolves.toEqual([workflow])
+    await expect(createWorkflow(workspaceId, draft)).resolves.toEqual(workflow)
+    await expect(updateWorkflow(workspaceId, workflow.id, draft)).resolves.toEqual(workflow)
+    await expect(validateWorkflow(workspaceId, workflow.id)).resolves.toEqual({ valid: true, errors: [] })
+    await expect(publishWorkflow(workspaceId, workflow.id, { note: '发布首版' })).resolves.toEqual(version)
+    await expect(listWorkflowVersions(workspaceId, workflow.id)).resolves.toEqual([version])
+    await expect(deleteWorkflow(workspaceId, workflow.id)).resolves.toBeUndefined()
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/workspaces/${workspaceId}/workflows/${workflow.id}/publish`,
+      expect.objectContaining({
+        body: JSON.stringify({ note: '发布首版' }),
+        method: 'POST',
+      }),
+    )
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/workspaces/${workspaceId}/workflows/${workflow.id}`,
+      expect.objectContaining({ method: 'DELETE' }),
+    )
   })
 })

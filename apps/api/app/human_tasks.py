@@ -19,6 +19,8 @@ from app.models import (
     ReviewerRecord,
     ReviewGroupMemberRecord,
     ReviewGroupRecord,
+    UserRecord,
+    WorkspaceMembershipRecord,
     WorkflowRunRecord,
     utc_now,
 )
@@ -32,7 +34,27 @@ class HumanTaskValidation(RuntimeError):
     pass
 
 
-TERMINAL_TASK_STATUSES = {"已通过", "修改后通过", "已驳回", "已退回", "恢复失败"}
+class HumanTaskPermission(RuntimeError):
+    pass
+
+
+TERMINAL_TASK_STATUSES = {
+    "已通过",
+    "修改后通过",
+    "已驳回",
+    "已退回",
+    "宸查€氳繃",
+    "淇敼鍚庨€氳繃",
+    "宸查┏鍥?",
+    "宸查€€鍥?",
+}
+TASK_STATUS_WAITING = "待认领"
+TASK_STATUS_IN_REVIEW = "审核中"
+TASK_STATUS_WAITING_REVIEW = "等待审核"
+TASK_STATUS_APPROVED = "已通过"
+TASK_STATUS_MODIFIED_APPROVED = "修改后通过"
+TASK_STATUS_REJECTED = "已驳回"
+TASK_STATUS_RETURNED = "已退回"
 
 
 class HumanTaskService:
@@ -47,34 +69,59 @@ class HumanTaskService:
     def aware(value: datetime) -> datetime:
         return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
-    def ensure_default_directory(self, session: Session) -> None:
-        if session.scalar(select(func.count()).select_from(ReviewerRecord)):
+    def _group_name(self, session: Session, workspace_id: str, base_name: str) -> str:
+        exists = session.scalar(
+            select(ReviewGroupRecord).where(ReviewGroupRecord.name == base_name),
+        )
+        if exists is None:
+            return base_name
+        return f"{base_name}-{workspace_id[:8]}"
+
+    def ensure_default_directory(self, session: Session, workspace_id: str) -> None:
+        count = session.scalar(
+            select(func.count()).select_from(ReviewerRecord).where(
+                ReviewerRecord.workspace_id == workspace_id,
+            ),
+        ) or 0
+        if count:
             return
         now = self.now()
         reviewers = [
-            ReviewerRecord(name="林晓", role="产品审核人", created_at=now),
             ReviewerRecord(
-                name="陈卓",
-                role="质量专家",
+                workspace_id=workspace_id,
+                name="鏋楁檽",
+                role="浜у搧瀹℃牳浜?",
+                is_active=False,
+                created_at=now,
+            ),
+            ReviewerRecord(
+                workspace_id=workspace_id,
+                name="闄堝崜",
+                role="璐ㄩ噺涓撳",
                 is_expert=True,
+                is_active=False,
                 created_at=now + timedelta(microseconds=1),
             ),
             ReviewerRecord(
-                name="周宁",
-                role="审核负责人",
+                workspace_id=workspace_id,
+                name="鍛ㄥ畞",
+                role="瀹℃牳璐熻矗浜?",
                 is_expert=True,
+                is_active=False,
                 created_at=now + timedelta(microseconds=2),
             ),
         ]
         session.add_all(reviewers)
         session.flush()
         product_group = ReviewGroupRecord(
-            name="产品审核组",
+            workspace_id=workspace_id,
+            name=self._group_name(session, workspace_id, "浜у搧瀹℃牳缁?"),
             assignment_mode="group_claim",
             created_at=now,
         )
         escalation_group = ReviewGroupRecord(
-            name="升级审核组",
+            workspace_id=workspace_id,
+            name=self._group_name(session, workspace_id, "鍗囩骇瀹℃牳缁?"),
             assignment_mode="round_robin",
             is_escalation_group=True,
             created_at=now + timedelta(microseconds=1),
@@ -83,34 +130,41 @@ class HumanTaskService:
         session.flush()
         session.add_all([
             ReviewGroupMemberRecord(
+                workspace_id=workspace_id,
                 group_id=product_group.id,
                 reviewer_id=reviewers[0].id,
             ),
             ReviewGroupMemberRecord(
+                workspace_id=workspace_id,
                 group_id=product_group.id,
                 reviewer_id=reviewers[1].id,
-                role="专家",
+                role="涓撳",
             ),
             ReviewGroupMemberRecord(
+                workspace_id=workspace_id,
                 group_id=escalation_group.id,
                 reviewer_id=reviewers[2].id,
-                role="审核负责人",
+                role="瀹℃牳璐熻矗浜?",
             ),
         ])
         session.commit()
 
-    def list_reviewers(self, session: Session) -> list[ReviewerRecord]:
+    def list_reviewers(self, session: Session, workspace_id: str) -> list[ReviewerRecord]:
         return list(session.scalars(
-            select(ReviewerRecord).order_by(ReviewerRecord.created_at.asc()),
+            select(ReviewerRecord)
+            .where(ReviewerRecord.workspace_id == workspace_id)
+            .order_by(ReviewerRecord.created_at.asc()),
         ))
 
-    def list_groups(self, session: Session) -> list[dict]:
+    def list_groups(self, session: Session, workspace_id: str) -> list[dict]:
         groups = list(session.scalars(
-            select(ReviewGroupRecord).order_by(ReviewGroupRecord.created_at.asc()),
+            select(ReviewGroupRecord)
+            .where(ReviewGroupRecord.workspace_id == workspace_id)
+            .order_by(ReviewGroupRecord.created_at.asc()),
         ))
         result: list[dict] = []
         for group in groups:
-            reviewer_ids = self.group_reviewer_ids(session, group.id)
+            reviewer_ids = self.group_reviewer_ids(session, group.id, workspace_id)
             members = list(session.scalars(
                 select(ReviewerRecord)
                 .where(ReviewerRecord.id.in_(reviewer_ids))
@@ -125,30 +179,99 @@ class HumanTaskService:
             })
         return result
 
-    def group_reviewer_ids(self, session: Session, group_id: str) -> list[str]:
+    def group_reviewer_ids(
+        self,
+        session: Session,
+        group_id: str,
+        workspace_id: str,
+    ) -> list[str]:
         return list(session.scalars(
             select(ReviewGroupMemberRecord.reviewer_id)
             .join(
                 ReviewerRecord,
                 ReviewerRecord.id == ReviewGroupMemberRecord.reviewer_id,
             )
-            .where(ReviewGroupMemberRecord.group_id == group_id)
+            .where(
+                ReviewGroupMemberRecord.group_id == group_id,
+                ReviewGroupMemberRecord.workspace_id == workspace_id,
+            )
             .order_by(ReviewerRecord.created_at.asc()),
         ))
 
-    def default_product_group(self, session: Session) -> ReviewGroupRecord:
+    def default_product_group(self, session: Session, workspace_id: str) -> ReviewGroupRecord:
         group = session.scalar(
-            select(ReviewGroupRecord).where(ReviewGroupRecord.name == "产品审核组"),
+            select(ReviewGroupRecord).where(
+                ReviewGroupRecord.workspace_id == workspace_id,
+                ReviewGroupRecord.is_escalation_group.is_(False),
+            ),
         )
         if group is None:
-            raise RuntimeError("默认审核组不存在")
+            raise RuntimeError("榛樿瀹℃牳缁勪笉瀛樺湪")
         return group
 
-    def active_reviewer(self, session: Session, reviewer_id: str) -> ReviewerRecord:
-        reviewer = session.get(ReviewerRecord, reviewer_id)
-        if reviewer is None or not reviewer.is_active:
-            raise HumanTaskValidation("审核人不存在或已停用")
+    def active_reviewer(
+        self,
+        session: Session,
+        reviewer_id: str,
+        workspace_id: str,
+    ) -> ReviewerRecord:
+        reviewer = session.scalar(
+            select(ReviewerRecord).where(
+                ReviewerRecord.id == reviewer_id,
+                ReviewerRecord.workspace_id == workspace_id,
+            ),
+        )
+        if (
+            reviewer is None
+            or not reviewer.is_active
+        ):
+            raise HumanTaskValidation("瀹℃牳浜轰笉瀛樺湪鎴栧凡鍋滅敤")
         return reviewer
+
+    def active_reviewer_for_user(
+        self,
+        session: Session,
+        workspace_id: str,
+        user_id: str,
+    ) -> ReviewerRecord:
+        user = session.get(UserRecord, user_id)
+        membership = session.scalar(
+            select(WorkspaceMembershipRecord).where(
+                WorkspaceMembershipRecord.workspace_id == workspace_id,
+                WorkspaceMembershipRecord.user_id == user_id,
+                WorkspaceMembershipRecord.status == "active",
+            ),
+        )
+        reviewer = session.scalar(
+            select(ReviewerRecord).where(
+                ReviewerRecord.workspace_id == workspace_id,
+                ReviewerRecord.user_id == user_id,
+                ReviewerRecord.is_active.is_(True),
+            ),
+        )
+        if (
+            user is None
+            or user.status != "active"
+            or membership is None
+            or reviewer is None
+        ):
+            raise HumanTaskPermission("当前用户没有有效审核资格")
+        return reviewer
+
+    def workspace_group(
+        self,
+        session: Session,
+        workspace_id: str,
+        group_id: str | None,
+    ) -> ReviewGroupRecord | None:
+        if not group_id:
+            return None
+        return session.scalar(
+            select(ReviewGroupRecord).where(
+                ReviewGroupRecord.id == group_id,
+                ReviewGroupRecord.workspace_id == workspace_id,
+            ),
+        )
 
     def audit(
         self,
@@ -161,8 +284,22 @@ class HumanTaskService:
         before_status: str = "",
         payload: dict | None = None,
     ) -> None:
+        actor_user_id = None
+        if actor_id != "system":
+            actor_user_id = session.scalar(
+                select(ReviewerRecord.user_id).where(
+                    ReviewerRecord.id == actor_id,
+                    ReviewerRecord.workspace_id == task.workspace_id,
+                ),
+            )
         session.add(AuditEventRecord(
+            workspace_id=task.workspace_id,
             human_task_id=task.id,
+            actor_user_id=actor_user_id,
+            action=event_type,
+            target_type="human_task",
+            target_id=task.id,
+            outcome="success",
             event_type=event_type,
             actor_id=actor_id,
             reason=reason,
@@ -182,13 +319,17 @@ class HumanTaskService:
         source_node_run_id: str,
         score: int | None,
     ) -> tuple[NodeRunRecord, HumanTaskRecord]:
+        if run.workspace_id is None:
+            raise HumanTaskValidation("运行缺少 Workspace")
+        self.ensure_default_directory(session, run.workspace_id)
         now = self.now()
         node_run = NodeRunRecord(
+            workspace_id=run.workspace_id,
             run_id=run.id,
             node_id=node["id"],
             node_type="human",
             node_name=node["data"].get("label", node["id"]),
-            status="等待审核",
+            status=TASK_STATUS_WAITING_REVIEW,
             input_text=node_input,
             output_text=node_input,
             attempts=1,
@@ -198,6 +339,7 @@ class HumanTaskService:
         session.add(node_run)
         session.flush()
         artifact = ArtifactRecord(
+            workspace_id=run.workspace_id,
             run_id=run.id,
             source_node_run_id=source_node_run_id,
             content=node_input,
@@ -206,6 +348,7 @@ class HumanTaskService:
         session.add(artifact)
         session.flush()
         artifact_version = ArtifactVersionRecord(
+            workspace_id=run.workspace_id,
             artifact_id=artifact.id,
             content=node_input,
         )
@@ -216,47 +359,56 @@ class HumanTaskService:
         due_minutes = int(data.get("dueMinutes", 240))
         escalation_minutes = int(data.get("escalationMinutes", 480))
         if due_minutes <= 0 or escalation_minutes <= due_minutes:
-            raise HumanTaskValidation("SLA 升级时间必须晚于截止时间")
+            raise HumanTaskValidation("SLA 鍗囩骇鏃堕棿蹇呴』鏅氫簬鎴鏃堕棿")
         assignment_type = data.get("assignmentType", "group_claim")
         participant_snapshot = list(data.get("reviewerIds", []))
         assignee_group_id = data.get("groupId")
         group: ReviewGroupRecord | None = None
         if not participant_snapshot:
             group = (
-                session.get(ReviewGroupRecord, assignee_group_id)
+                self.workspace_group(session, run.workspace_id, assignee_group_id)
                 if assignee_group_id
-                else self.default_product_group(session)
+                else self.default_product_group(session, run.workspace_id)
             )
             if group is None:
-                raise HumanTaskValidation("审核组不存在")
+                raise HumanTaskValidation("瀹℃牳缁勪笉瀛樺湪")
             assignee_group_id = assignee_group_id or group.id
-            participant_snapshot = self.group_reviewer_ids(session, assignee_group_id)
+            participant_snapshot = self.group_reviewer_ids(
+                session,
+                assignee_group_id,
+                run.workspace_id,
+            )
         escalation_group_id = data.get("escalationGroupId")
         if not escalation_group_id:
             escalation_group = session.scalar(
                 select(ReviewGroupRecord).where(
+                    ReviewGroupRecord.workspace_id == run.workspace_id,
                     ReviewGroupRecord.is_escalation_group.is_(True),
                 ),
             )
             escalation_group_id = escalation_group.id if escalation_group else None
         assignee_reviewer_id = None
-        task_status = "待认领"
+        task_status = TASK_STATUS_WAITING
         if assignment_type == "round_robin":
-            group = group or session.get(ReviewGroupRecord, assignee_group_id)
-            if group is None or not participant_snapshot:
-                raise HumanTaskValidation("轮询分配需要包含成员的审核组")
+            group = group or self.workspace_group(session, run.workspace_id, assignee_group_id)
+            if (
+                group is None
+                or not participant_snapshot
+            ):
+                raise HumanTaskValidation("杞鍒嗛厤闇€瑕佸寘鍚垚鍛樼殑瀹℃牳缁?")
             assignee_reviewer_id = participant_snapshot[
                 group.rotation_cursor % len(participant_snapshot)
             ]
             group.rotation_cursor += 1
-            task_status = "审核中"
+            task_status = TASK_STATUS_IN_REVIEW
         task = HumanTaskRecord(
+            workspace_id=run.workspace_id,
             workflow_run_id=run.id,
             node_run_id=node_run.id,
             human_node_id=node["id"],
             source_node_id=source_node_id,
             artifact_version_id=artifact_version.id,
-            title=data.get("label", "人工审核"),
+            title=data.get("label", "浜哄伐瀹℃牳"),
             status=task_status,
             assignment_type=assignment_type,
             assignee_reviewer_id=assignee_reviewer_id,
@@ -278,7 +430,7 @@ class HumanTaskService:
             event_type="task_created",
             actor_id="system",
         )
-        run.status = "等待审核"
+        run.status = TASK_STATUS_WAITING_REVIEW
         run.current_node = node_run.node_name
         run.output_text = node_input
         run.score = score
@@ -289,6 +441,7 @@ class HumanTaskService:
     def list_tasks(
         self,
         session: Session,
+        workspace_id: str,
         *,
         status: str | None = None,
         reviewer_id: str | None = None,
@@ -296,36 +449,66 @@ class HumanTaskService:
         sla_status: str | None = None,
         active: bool = False,
     ) -> list[HumanTaskRecord]:
-        statement = select(HumanTaskRecord).order_by(HumanTaskRecord.created_at.desc())
+        statement = (
+            select(HumanTaskRecord)
+            .where(HumanTaskRecord.workspace_id == workspace_id)
+            .order_by(HumanTaskRecord.created_at.desc())
+        )
         tasks = list(session.scalars(statement))
         for task in tasks:
             self.refresh_sla(session, task)
         session.commit()
-        terminal_statuses = {"已通过", "修改后通过", "已驳回", "已退回"}
+        terminal_statuses = {
+            "已通过",
+            "修改后通过",
+            "已驳回",
+            "已退回",
+            "宸查€氳繃",
+            "淇敼鍚庨€氳繃",
+            "宸查┏鍥?",
+            "宸查€€鍥?",
+        }
         return [
             task
             for task in tasks
             if (status is None or task.status == status)
-            and (
-                reviewer_id is None
-                or task.assignee_reviewer_id == reviewer_id
-            )
+            and (reviewer_id is None or task.assignee_reviewer_id == reviewer_id)
             and (group_id is None or task.assignee_group_id == group_id)
             and (sla_status is None or task.sla_status == sla_status)
             and (not active or task.status not in terminal_statuses)
         ]
 
-    def get_task(self, session: Session, task_id: str) -> HumanTaskRecord | None:
-        return session.get(HumanTaskRecord, task_id)
+    def get_task(
+        self,
+        session: Session,
+        workspace_id: str,
+        task_id: str,
+    ) -> HumanTaskRecord | None:
+        return session.scalar(
+            select(HumanTaskRecord).where(
+                HumanTaskRecord.id == task_id,
+                HumanTaskRecord.workspace_id == workspace_id,
+            ),
+        )
 
-    def get_task_detail(self, session: Session, task_id: str) -> dict | None:
-        task = self.get_task(session, task_id)
+    def get_task_detail(self, session: Session, workspace_id: str, task_id: str) -> dict | None:
+        task = self.get_task(session, workspace_id, task_id)
         if task is None:
             return None
         self.refresh_sla(session, task)
         session.commit()
-        artifact_version = session.get(ArtifactVersionRecord, task.artifact_version_id)
-        run = session.get(WorkflowRunRecord, task.workflow_run_id)
+        artifact_version = session.scalar(
+            select(ArtifactVersionRecord).where(
+                ArtifactVersionRecord.id == task.artifact_version_id,
+                ArtifactVersionRecord.workspace_id == workspace_id,
+            ),
+        )
+        run = session.scalar(
+            select(WorkflowRunRecord).where(
+                WorkflowRunRecord.id == task.workflow_run_id,
+                WorkflowRunRecord.workspace_id == workspace_id,
+            ),
+        )
         if artifact_version is None or run is None:
             return None
         received = session.scalar(
@@ -377,6 +560,7 @@ class HumanTaskService:
         )
         if exists is None:
             session.add(NotificationOutboxRecord(
+                workspace_id=task.workspace_id,
                 event_key=event_key,
                 human_task_id=task.id,
                 event_type=event_type,
@@ -399,12 +583,16 @@ class HumanTaskService:
         before = task.sla_status
         if now >= escalation_at:
             if task.escalated_at is None:
-                group = session.get(ReviewGroupRecord, task.escalation_group_id)
+                group = self.workspace_group(session, task.workspace_id, task.escalation_group_id)
                 if group is None:
-                    raise HumanTaskValidation("升级审核组不存在")
+                    raise HumanTaskValidation("鍗囩骇瀹℃牳缁勪笉瀛樺湪")
                 task.assignee_group_id = group.id
                 task.assignee_reviewer_id = None
-                task.participant_snapshot = self.group_reviewer_ids(session, group.id)
+                task.participant_snapshot = self.group_reviewer_ids(
+                    session,
+                    group.id,
+                    task.workspace_id,
+                )
                 task.escalated_at = now
                 task.sla_status = "已升级"
                 self.audit(
@@ -463,23 +651,24 @@ class HumanTaskService:
     def claim_task(
         self,
         session: Session,
+        workspace_id: str,
         task_id: str,
-        reviewer_id: str,
+        reviewer: ReviewerRecord,
     ) -> HumanTaskRecord:
-        task = self.get_task(session, task_id)
+        reviewer_id = reviewer.id
+        task = self.get_task(session, workspace_id, task_id)
         if task is None:
-            raise HumanTaskValidation("人工任务不存在")
+            raise HumanTaskValidation("浜哄伐浠诲姟涓嶅瓨鍦?")
         self.refresh_sla(session, task)
-        self.active_reviewer(session, reviewer_id)
         if task.status in TERMINAL_TASK_STATUSES:
-            raise HumanTaskConflict("终态任务不能认领")
+            raise HumanTaskConflict("缁堟€佷换鍔′笉鑳借棰?")
         if reviewer_id not in task.participant_snapshot:
-            raise HumanTaskConflict("审核人不在当前任务参与人快照中")
+            raise HumanTaskConflict("瀹℃牳浜轰笉鍦ㄥ綋鍓嶄换鍔″弬涓庝汉蹇収涓?")
         if task.assignee_reviewer_id and task.assignee_reviewer_id != reviewer_id:
-            raise HumanTaskConflict("任务已被其他审核人认领")
+            raise HumanTaskConflict("浠诲姟宸茶鍏朵粬瀹℃牳浜鸿棰?")
         before = task.status
         task.assignee_reviewer_id = reviewer_id
-        task.status = "审核中"
+        task.status = TASK_STATUS_IN_REVIEW
         task.updated_at = self.now()
         self.audit(
             session,
@@ -495,37 +684,42 @@ class HumanTaskService:
     def transfer_task(
         self,
         session: Session,
+        workspace_id: str,
         task_id: str,
         *,
-        actor_id: str,
+        actor_reviewer: ReviewerRecord,
         reviewer_id: str | None,
         group_id: str | None,
         reason: str,
     ) -> HumanTaskRecord:
-        task = self.get_task(session, task_id)
+        actor_id = actor_reviewer.id
+        task = self.get_task(session, workspace_id, task_id)
         if task is None:
-            raise HumanTaskValidation("人工任务不存在")
+            raise HumanTaskValidation("浜哄伐浠诲姟涓嶅瓨鍦?")
         self.refresh_sla(session, task)
-        self.active_reviewer(session, actor_id)
         if task.status in TERMINAL_TASK_STATUSES:
-            raise HumanTaskConflict("终态任务不能转交")
+            raise HumanTaskConflict("缁堟€佷换鍔′笉鑳借浆浜?")
         if bool(reviewer_id) == bool(group_id):
-            raise HumanTaskValidation("必须且只能选择审核人或审核组")
+            raise HumanTaskValidation("蹇呴』涓斿彧鑳介€夋嫨瀹℃牳浜烘垨瀹℃牳缁?")
         before = task.status
         if reviewer_id:
-            self.active_reviewer(session, reviewer_id)
+            self.active_reviewer(session, reviewer_id, workspace_id)
             if reviewer_id not in task.participant_snapshot:
                 task.participant_snapshot = [*task.participant_snapshot, reviewer_id]
             task.assignee_reviewer_id = reviewer_id
-            task.status = "审核中"
+            task.status = TASK_STATUS_IN_REVIEW
         else:
-            group = session.get(ReviewGroupRecord, group_id)
+            group = self.workspace_group(session, workspace_id, group_id)
             if group is None:
-                raise HumanTaskValidation("审核组不存在")
+                raise HumanTaskValidation("瀹℃牳缁勪笉瀛樺湪")
             task.assignee_group_id = group.id
             task.assignee_reviewer_id = None
-            task.participant_snapshot = self.group_reviewer_ids(session, group.id)
-            task.status = "待认领"
+            task.participant_snapshot = self.group_reviewer_ids(
+                session,
+                group.id,
+                workspace_id,
+            )
+            task.status = TASK_STATUS_WAITING
         task.updated_at = self.now()
         self.audit(
             session,
@@ -543,9 +737,10 @@ class HumanTaskService:
     def decide_task(
         self,
         session: Session,
+        workspace_id: str,
         task_id: str,
         *,
-        reviewer_id: str,
+        reviewer: ReviewerRecord,
         decision: str,
         reason: str,
         artifact_version_id: str,
@@ -553,11 +748,11 @@ class HumanTaskService:
         modified_content: str | None = None,
         tags: list[str] | None = None,
     ) -> tuple[dict, ReviewDecisionRecord, bool]:
-        task = self.get_task(session, task_id)
+        reviewer_id = reviewer.id
+        task = self.get_task(session, workspace_id, task_id)
         if task is None:
-            raise HumanTaskValidation("人工任务不存在")
+            raise HumanTaskValidation("浜哄伐浠诲姟涓嶅瓨鍦?")
         self.refresh_sla(session, task)
-        self.active_reviewer(session, reviewer_id)
         idempotent = session.scalar(
             select(ReviewDecisionRecord).where(
                 ReviewDecisionRecord.idempotency_key == idempotency_key,
@@ -569,17 +764,17 @@ class HumanTaskService:
                 or idempotent.reviewer_id != reviewer_id
                 or idempotent.decision != decision
             ):
-                raise HumanTaskConflict("幂等键已用于其他审核决定")
-            detail = self.get_task_detail(session, task.id)
+                raise HumanTaskConflict("骞傜瓑閿凡鐢ㄤ簬鍏朵粬瀹℃牳鍐冲畾")
+            detail = self.get_task_detail(session, workspace_id, task.id)
             if detail is None:
-                raise RuntimeError("人工任务详情不可用")
+                raise RuntimeError("浜哄伐浠诲姟璇︽儏涓嶅彲鐢?")
             return detail, idempotent, False
         if task.status in TERMINAL_TASK_STATUSES:
-            raise HumanTaskConflict("终态任务不能重复决策")
+            raise HumanTaskConflict("缁堟€佷换鍔′笉鑳介噸澶嶅喅绛?")
         if reviewer_id not in task.participant_snapshot:
-            raise HumanTaskConflict("审核人不在当前任务参与人快照中")
+            raise HumanTaskConflict("瀹℃牳浜轰笉鍦ㄥ綋鍓嶄换鍔″弬涓庝汉蹇収涓?")
         if artifact_version_id != task.artifact_version_id:
-            raise HumanTaskConflict("产出物版本已更新，请刷新后重试")
+            raise HumanTaskConflict("浜у嚭鐗╃増鏈凡鏇存柊锛岃鍒锋柊鍚庨噸璇?")
         existing = session.scalar(
             select(ReviewDecisionRecord).where(
                 ReviewDecisionRecord.human_task_id == task.id,
@@ -587,19 +782,24 @@ class HumanTaskService:
             ),
         )
         if existing is not None:
-            raise HumanTaskConflict("审核人已提交决定")
+            raise HumanTaskConflict("瀹℃牳浜哄凡鎻愪氦鍐冲畾")
         before = task.status
         decision_artifact_version_id = artifact_version_id
         original_version: ArtifactVersionRecord | None = None
         modified_version: ArtifactVersionRecord | None = None
         artifact_diff: ArtifactDiffRecord | None = None
         if decision == "modify_and_approve":
-            current_version = session.get(ArtifactVersionRecord, task.artifact_version_id)
+            current_version = session.scalar(
+                select(ArtifactVersionRecord).where(
+                    ArtifactVersionRecord.id == task.artifact_version_id,
+                    ArtifactVersionRecord.workspace_id == workspace_id,
+                ),
+            )
             normalized = (modified_content or "").strip()
             if current_version is None:
-                raise HumanTaskValidation("当前产出物版本不存在")
+                raise HumanTaskValidation("褰撳墠浜у嚭鐗╃増鏈笉瀛樺湪")
             if not normalized or normalized == current_version.content.strip():
-                raise HumanTaskValidation("修改后通过必须提交不同的产出物内容")
+                raise HumanTaskValidation("淇敼鍚庨€氳繃蹇呴』鎻愪氦涓嶅悓鐨勪骇鍑虹墿鍐呭")
             next_version = (
                 session.scalar(
                     select(func.max(ArtifactVersionRecord.version)).where(
@@ -608,6 +808,7 @@ class HumanTaskService:
                 ) or 0
             ) + 1
             new_version = ArtifactVersionRecord(
+                workspace_id=task.workspace_id,
                 artifact_id=current_version.artifact_id,
                 version=next_version,
                 parent_version_id=current_version.id,
@@ -624,6 +825,7 @@ class HumanTaskService:
                 lineterm="",
             ))
             diff_record = ArtifactDiffRecord(
+                workspace_id=task.workspace_id,
                 human_task_id=task.id,
                 from_version_id=current_version.id,
                 to_version_id=new_version.id,
@@ -651,6 +853,7 @@ class HumanTaskService:
                 },
             )
         decision_record = ReviewDecisionRecord(
+            workspace_id=task.workspace_id,
             human_task_id=task.id,
             reviewer_id=reviewer_id,
             decision=decision,
@@ -667,7 +870,12 @@ class HumanTaskService:
             and modified_version is not None
             and artifact_diff is not None
         ):
-            run = session.get(WorkflowRunRecord, task.workflow_run_id)
+            run = session.scalar(
+                select(WorkflowRunRecord).where(
+                    WorkflowRunRecord.id == task.workflow_run_id,
+                    WorkflowRunRecord.workspace_id == workspace_id,
+                ),
+            )
             source_node_run = session.scalar(
                 select(NodeRunRecord)
                 .where(
@@ -677,8 +885,9 @@ class HumanTaskService:
                 .order_by(NodeRunRecord.started_at.desc()),
             )
             if run is None:
-                raise HumanTaskValidation("关联运行实例不存在")
+                raise HumanTaskValidation("鍏宠仈杩愯瀹炰緥涓嶅瓨鍦?")
             candidate = FeedbackCandidateRecord(
+                workspace_id=task.workspace_id,
                 human_task_id=task.id,
                 decision_id=decision_record.id,
                 original_version_id=original_version.id,
@@ -705,9 +914,9 @@ class HumanTaskService:
                 payload={"candidateId": candidate.id},
             )
         if decision == "reject":
-            task.status = "已驳回"
+            task.status = TASK_STATUS_REJECTED
         elif decision == "return_for_rerun":
-            task.status = "已退回"
+            task.status = TASK_STATUS_RETURNED
         else:
             received = session.scalar(
                 select(func.count()).select_from(ReviewDecisionRecord).where(
@@ -722,9 +931,9 @@ class HumanTaskService:
                         ReviewDecisionRecord.decision == "modify_and_approve",
                     ),
                 ) or 0
-                task.status = "修改后通过" if modified_count else "已通过"
+                task.status = TASK_STATUS_MODIFIED_APPROVED if modified_count else TASK_STATUS_APPROVED
             else:
-                task.status = "审核中"
+                task.status = TASK_STATUS_IN_REVIEW
         task.updated_at = self.now()
         self.audit(
             session,
@@ -736,9 +945,9 @@ class HumanTaskService:
             payload={"decision": decision},
         )
         session.commit()
-        detail = self.get_task_detail(session, task.id)
+        detail = self.get_task_detail(session, workspace_id, task.id)
         if detail is None:
-            raise RuntimeError("人工任务详情不可用")
+            raise RuntimeError("浜哄伐浠诲姟璇︽儏涓嶅彲鐢?")
         return detail, decision_record, True
 
     def feedback_candidate_payload(
@@ -746,11 +955,26 @@ class HumanTaskService:
         session: Session,
         candidate: FeedbackCandidateRecord,
     ) -> dict:
-        original = session.get(ArtifactVersionRecord, candidate.original_version_id)
-        modified = session.get(ArtifactVersionRecord, candidate.modified_version_id)
-        diff = session.get(ArtifactDiffRecord, candidate.diff_id)
+        original = session.scalar(
+            select(ArtifactVersionRecord).where(
+                ArtifactVersionRecord.id == candidate.original_version_id,
+                ArtifactVersionRecord.workspace_id == candidate.workspace_id,
+            ),
+        )
+        modified = session.scalar(
+            select(ArtifactVersionRecord).where(
+                ArtifactVersionRecord.id == candidate.modified_version_id,
+                ArtifactVersionRecord.workspace_id == candidate.workspace_id,
+            ),
+        )
+        diff = session.scalar(
+            select(ArtifactDiffRecord).where(
+                ArtifactDiffRecord.id == candidate.diff_id,
+                ArtifactDiffRecord.workspace_id == candidate.workspace_id,
+            ),
+        )
         if original is None or modified is None or diff is None:
-            raise RuntimeError("反馈候选关联版本不完整")
+            raise RuntimeError("鍙嶉鍊欓€夊叧鑱旂増鏈笉瀹屾暣")
         return {
             "id": candidate.id,
             "human_task_id": candidate.human_task_id,
@@ -771,9 +995,10 @@ class HumanTaskService:
             "confirmed_at": candidate.confirmed_at,
         }
 
-    def list_feedback_candidates(self, session: Session) -> list[dict]:
+    def list_feedback_candidates(self, session: Session, workspace_id: str) -> list[dict]:
         candidates = list(session.scalars(
             select(FeedbackCandidateRecord)
+            .where(FeedbackCandidateRecord.workspace_id == workspace_id)
             .order_by(FeedbackCandidateRecord.created_at.desc()),
         ))
         return [
@@ -784,9 +1009,15 @@ class HumanTaskService:
     def get_feedback_candidate(
         self,
         session: Session,
+        workspace_id: str,
         candidate_id: str,
     ) -> dict | None:
-        candidate = session.get(FeedbackCandidateRecord, candidate_id)
+        candidate = session.scalar(
+            select(FeedbackCandidateRecord).where(
+                FeedbackCandidateRecord.id == candidate_id,
+                FeedbackCandidateRecord.workspace_id == workspace_id,
+            ),
+        )
         return (
             self.feedback_candidate_payload(session, candidate)
             if candidate is not None
@@ -796,18 +1027,24 @@ class HumanTaskService:
     def confirm_feedback_candidate(
         self,
         session: Session,
+        workspace_id: str,
         candidate_id: str,
         *,
-        reviewer_id: str,
+        reviewer: ReviewerRecord,
         reason: str,
         idempotency_key: str,
     ) -> GoldenSampleRecord:
-        candidate = session.get(FeedbackCandidateRecord, candidate_id)
+        reviewer_id = reviewer.id
+        candidate = session.scalar(
+            select(FeedbackCandidateRecord).where(
+                FeedbackCandidateRecord.id == candidate_id,
+                FeedbackCandidateRecord.workspace_id == workspace_id,
+            ),
+        )
         if candidate is None:
-            raise HumanTaskValidation("反馈候选不存在")
-        reviewer = self.active_reviewer(session, reviewer_id)
+            raise HumanTaskValidation("鍙嶉鍊欓€変笉瀛樺湪")
         if not reviewer.is_expert:
-            raise HumanTaskValidation("只有专家审核人可以确认黄金样本")
+            raise HumanTaskPermission("只有专家审核人可以确认黄金样本")
         idempotent = session.scalar(
             select(GoldenSampleRecord).where(
                 GoldenSampleRecord.idempotency_key == idempotency_key,
@@ -818,7 +1055,7 @@ class HumanTaskService:
                 idempotent.candidate_id != candidate.id
                 or idempotent.reviewer_id != reviewer_id
             ):
-                raise HumanTaskConflict("幂等键已用于其他黄金样本")
+                raise HumanTaskConflict("骞傜瓑閿凡鐢ㄤ簬鍏朵粬榛勯噾鏍锋湰")
             return idempotent
         existing = session.scalar(
             select(GoldenSampleRecord).where(
@@ -826,13 +1063,29 @@ class HumanTaskService:
             ),
         )
         if existing is not None:
-            raise HumanTaskConflict("反馈候选已确认黄金样本")
-        modified = session.get(ArtifactVersionRecord, candidate.modified_version_id)
-        run = session.get(WorkflowRunRecord, candidate.workflow_run_id)
-        task = session.get(HumanTaskRecord, candidate.human_task_id)
+            raise HumanTaskConflict("鍙嶉鍊欓€夊凡纭榛勯噾鏍锋湰")
+        modified = session.scalar(
+            select(ArtifactVersionRecord).where(
+                ArtifactVersionRecord.id == candidate.modified_version_id,
+                ArtifactVersionRecord.workspace_id == workspace_id,
+            ),
+        )
+        run = session.scalar(
+            select(WorkflowRunRecord).where(
+                WorkflowRunRecord.id == candidate.workflow_run_id,
+                WorkflowRunRecord.workspace_id == workspace_id,
+            ),
+        )
+        task = session.scalar(
+            select(HumanTaskRecord).where(
+                HumanTaskRecord.id == candidate.human_task_id,
+                HumanTaskRecord.workspace_id == workspace_id,
+            ),
+        )
         if modified is None or run is None or task is None:
-            raise HumanTaskValidation("黄金样本来源数据不完整")
+            raise HumanTaskValidation("榛勯噾鏍锋湰鏉ユ簮鏁版嵁涓嶅畬鏁?")
         golden = GoldenSampleRecord(
+            workspace_id=task.workspace_id,
             candidate_id=candidate.id,
             input_text=run.input_text,
             expected_output=modified.content,

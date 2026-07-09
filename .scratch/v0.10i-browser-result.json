@@ -1,0 +1,12 @@
+{
+  "checkedAt": "2026-06-27T08:06:41.461Z",
+  "verifyStartedAt": "2026-06-27T08:05:36.678Z",
+  "url": "http://127.0.0.1:4173/w/ai-capability-center/evaluations",
+  "hasTaskBoard": true,
+  "hasRetestRun": true,
+  "hasPassRate": true,
+  "hasFailedCount": true,
+  "taskText": "REMEDIATION TASKS\nRemediation Tasks\n1 个任务\nP0\n修复 事实准确性 偏低\n\n优先补齐 事实准确性 相关证据与判定依据\n\ndone\n3 samples\n事实准确性\n标记处理中\n标记完成\nRETEST RUN\nf0aa12af-417c-4886-a73f-cefc277b6230\n通过率 0%\n失败 3",
+  "newConsoleIssuesDuringVerification": [],
+  "screenshot": ".scratch/v0.10i-remediation-retest.png"
+}

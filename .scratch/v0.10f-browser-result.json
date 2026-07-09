@@ -1,0 +1,7 @@
+{
+  "ok": true,
+  "runId": "a318193c-f780-4cc7-aa53-f734cd1b2685",
+  "cardCount": 1,
+  "summaryText": "FAILURE PATTERNS\nFailure Pattern Summary\n最新失败样本 3 条\n事实准确性 偏低\n\n3 samples\n\n平均分 56\n最低分 47\n8dd45061-4e16-4199-ba86-3be03fc3d00e\n8069ad3d-7362-44c9-b23d-cf33a2cb3c39\n2fd8db23-9fa1-4b64-9763-9740700cd2cd\n\n优先补齐 事实准确性 相关证据与判定依据",
+  "screenshotPath": ".scratch/v0.10f-failure-pattern-summary.png"
+}

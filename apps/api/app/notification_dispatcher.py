@@ -1,0 +1,295 @@
+from dataclasses import dataclass, replace
+from datetime import datetime
+from typing import Protocol
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.models import NotificationChannelRecord, NotificationOutboxRecord, utc_now
+
+
+@dataclass(frozen=True)
+class NotificationDelivery:
+    id: str
+    workspace_id: str | None
+    event_key: str
+    human_task_id: str
+    event_type: str
+    recipient_type: str
+    recipient_id: str
+    payload: dict
+
+
+@dataclass(frozen=True)
+class NotificationDispatchResult:
+    status: str
+    provider_message_id: str = ""
+    error: str = ""
+    channel: str = ""
+    error_code: str = ""
+
+
+class NotificationDispatcher(Protocol):
+    def send(self, delivery: NotificationDelivery) -> NotificationDispatchResult | dict:
+        """Send one notification delivery through an external channel boundary."""
+
+
+class NoopNotificationDispatcher:
+    def send(self, delivery: NotificationDelivery) -> NotificationDispatchResult:
+        return NotificationDispatchResult(
+            status="sent",
+            provider_message_id=f"noop-{delivery.id}",
+        )
+
+
+def resolve_notification_channel(payload: dict, *, default_channel: str = "in_app") -> str:
+    explicit_channel = payload.get("channel")
+    if isinstance(explicit_channel, str) and explicit_channel.strip():
+        return normalize_channel_name(explicit_channel)
+    channels = payload.get("channels")
+    if isinstance(channels, list):
+        for channel in channels:
+            if isinstance(channel, str) and channel.strip():
+                return normalize_channel_name(channel)
+    return normalize_channel_name(default_channel)
+
+
+def normalize_channel_name(channel: str) -> str:
+    return channel.strip().lower()
+
+
+@dataclass(frozen=True)
+class NotificationChannelAdapter:
+    name: str
+    dispatcher: NotificationDispatcher
+    enabled: bool = True
+
+
+class NotificationChannelRouter:
+    def __init__(
+        self,
+        adapters: list[NotificationChannelAdapter],
+        *,
+        default_channel: str = "in_app",
+    ) -> None:
+        self.adapters = {
+            self._normalize_channel(adapter.name): adapter
+            for adapter in adapters
+        }
+        self.default_channel = self._normalize_channel(default_channel)
+
+    def send(self, delivery: NotificationDelivery) -> NotificationDispatchResult | dict:
+        channel = resolve_notification_channel(delivery.payload, default_channel=self.default_channel)
+        adapter = self.adapters.get(channel)
+        if adapter is None:
+            return NotificationDispatchResult(
+                status="failed",
+                channel=channel,
+                error_code="channel_not_configured",
+                error=f"channel_not_configured:{channel}",
+            )
+        if not adapter.enabled:
+            return NotificationDispatchResult(
+                status="failed",
+                channel=channel,
+                error_code="channel_disabled",
+                error=f"channel_disabled:{channel}",
+            )
+        try:
+            return self._with_channel(adapter.dispatcher.send(delivery), channel)
+        except Exception as error:  # pragma: no cover - defensive boundary for real adapters.
+            return NotificationDispatchResult(
+                status="failed",
+                channel=channel,
+                error_code="channel_error",
+                error=f"channel_error:{channel}:{error}",
+            )
+
+    @staticmethod
+    def _normalize_channel(channel: str) -> str:
+        return normalize_channel_name(channel)
+
+    @staticmethod
+    def _with_channel(
+        result: NotificationDispatchResult | dict,
+        channel: str,
+    ) -> NotificationDispatchResult | dict:
+        if isinstance(result, NotificationDispatchResult):
+            if result.channel:
+                return result
+            return replace(result, channel=channel)
+        return {
+            **result,
+            "channel": result.get("channel") or channel,
+        }
+
+
+def normalize_dispatch_result(result: NotificationDispatchResult | dict) -> NotificationDispatchResult:
+    if isinstance(result, NotificationDispatchResult):
+        return result
+    return NotificationDispatchResult(
+        status=str(result.get("status", "failed")),
+        provider_message_id=str(result.get("provider_message_id") or result.get("providerMessageId") or ""),
+        error=str(result.get("error") or ""),
+        channel=str(result.get("channel") or ""),
+        error_code=str(result.get("error_code") or result.get("errorCode") or ""),
+    )
+
+
+class NotificationOutboxDispatchService:
+    def __init__(
+        self,
+        dispatcher: NotificationDispatcher,
+        *,
+        clock=utc_now,
+        require_channel_assets: bool = False,
+    ) -> None:
+        self.dispatcher = dispatcher
+        self.clock = clock
+        self.require_channel_assets = require_channel_assets
+
+    def dispatch_pending(
+        self,
+        session: Session,
+        *,
+        workspace_id: str,
+        limit: int = 20,
+    ) -> dict:
+        notifications = list(session.scalars(
+            select(NotificationOutboxRecord)
+            .where(
+                NotificationOutboxRecord.workspace_id == workspace_id,
+                NotificationOutboxRecord.status == "pending",
+            )
+            .order_by(NotificationOutboxRecord.created_at.asc(), NotificationOutboxRecord.id.asc())
+            .limit(limit),
+        ))
+        items = []
+        sent = 0
+        failed = 0
+        dispatched_at = self.clock()
+        for notification in notifications:
+            delivery = NotificationDelivery(
+                id=notification.id,
+                workspace_id=notification.workspace_id,
+                event_key=notification.event_key,
+                human_task_id=notification.human_task_id,
+                event_type=notification.event_type,
+                recipient_type=notification.recipient_type,
+                recipient_id=notification.recipient_id,
+                payload=notification.payload or {},
+            )
+            result = (
+                self._validate_channel_asset(session, delivery)
+                if self.require_channel_assets
+                else None
+            )
+            if result is None:
+                result = normalize_dispatch_result(self.dispatcher.send(delivery))
+            status = "sent" if result.status == "sent" else "failed"
+            if status == "sent":
+                sent += 1
+            else:
+                failed += 1
+            notification.status = status
+            notification.payload = {
+                **(notification.payload or {}),
+                "dispatch": {
+                    "status": status,
+                    "providerMessageId": result.provider_message_id,
+                    "error": result.error,
+                    "channel": result.channel,
+                    "errorCode": result.error_code,
+                    "dispatchedAt": serialize_datetime(dispatched_at),
+                },
+            }
+            items.append({
+                "id": notification.id,
+                "event_key": notification.event_key,
+                "status": status,
+                "channel": result.channel,
+                "error_code": result.error_code,
+                "provider_message_id": result.provider_message_id,
+                "error": result.error,
+            })
+        return {
+            "processed": len(items),
+            "sent": sent,
+            "failed": failed,
+            "items": items,
+        }
+
+    def _validate_channel_asset(
+        self,
+        session: Session,
+        delivery: NotificationDelivery,
+    ) -> NotificationDispatchResult | None:
+        channel = resolve_notification_channel(delivery.payload)
+        if channel == "in_app":
+            return None
+        assets = list(session.scalars(
+            select(NotificationChannelRecord).where(
+                NotificationChannelRecord.workspace_id == delivery.workspace_id,
+                NotificationChannelRecord.channel_type == channel,
+            ),
+        ))
+        if not assets:
+            return NotificationDispatchResult(
+                status="failed",
+                channel=channel,
+                error_code="notification_channel_missing",
+                error=f"notification_channel_missing:{channel}",
+            )
+        if not any(asset.status == "active" for asset in assets):
+            return NotificationDispatchResult(
+                status="failed",
+                channel=channel,
+                error_code="notification_channel_disabled",
+                error=f"notification_channel_disabled:{channel}",
+            )
+        return None
+
+    def requeue_failed(
+        self,
+        session: Session,
+        *,
+        workspace_id: str,
+        notification_id: str,
+        reason: str,
+    ) -> NotificationOutboxRecord | None:
+        notification = session.scalar(
+            select(NotificationOutboxRecord).where(
+                NotificationOutboxRecord.id == notification_id,
+                NotificationOutboxRecord.workspace_id == workspace_id,
+            ),
+        )
+        if notification is None:
+            return None
+        if notification.status != "failed":
+            raise NotificationOutboxConflict("只有发送失败的通知可以重新入队")
+        payload = notification.payload or {}
+        previous_dispatch = payload.get("dispatch")
+        history = list(payload.get("dispatchHistory") or [])
+        if previous_dispatch:
+            history.append(previous_dispatch)
+        notification.status = "pending"
+        notification.payload = {
+            **payload,
+            "dispatchHistory": history,
+            "dispatch": {
+                "status": "pending",
+                "providerMessageId": "",
+                "error": "",
+                "requeuedAt": serialize_datetime(self.clock()),
+                "reason": reason,
+            },
+        }
+        return notification
+
+
+class NotificationOutboxConflict(RuntimeError):
+    pass
+
+
+def serialize_datetime(value: datetime) -> str:
+    return value.isoformat()

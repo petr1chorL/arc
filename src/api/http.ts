@@ -8,19 +8,57 @@ export class ApiError extends Error {
   }
 }
 
-export function apiUrl(path: string): string {
-  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim()
-  if (!apiBaseUrl) {
-    return path
-  }
-  return `${apiBaseUrl.replace(/\/$/, '')}${path}`
+let didDispatchSessionExpired = false
+
+function readCookie(name: string): string | null {
+  const prefix = `${name}=`
+  const value = document.cookie
+    .split('; ')
+    .find((item) => item.startsWith(prefix))
+  if (!value) return null
+  return decodeURIComponent(value.slice(prefix.length))
 }
 
-export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
-  if (init === undefined) {
-    return fetch(apiUrl(path))
+function getRequestPath(input: RequestInfo | URL): string {
+  if (typeof input === 'string') return input
+  if (input instanceof URL) return `${input.pathname}${input.search}`
+  return input.url
+}
+
+function shouldAttachCsrfToken(method: string) {
+  return !['GET', 'HEAD', 'OPTIONS'].includes(method)
+}
+
+function shouldDispatchSessionExpired(path: string, status: number) {
+  if (status !== 401) return false
+  return path.startsWith('/api/workspaces/')
+}
+
+export async function apiFetch(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+): Promise<Response> {
+  const method = (init.method ?? 'GET').toUpperCase()
+  const headers = new Headers(init.headers)
+  const csrfToken = readCookie('arc_one_csrf')
+  if (csrfToken && shouldAttachCsrfToken(method)) {
+    headers.set('X-CSRF-Token', csrfToken)
   }
-  return fetch(apiUrl(path), init)
+  const response = await fetch(input, {
+    ...init,
+    credentials: 'include',
+    headers,
+  })
+  const path = getRequestPath(input)
+  if (shouldDispatchSessionExpired(path, response.status)) {
+    if (!didDispatchSessionExpired) {
+      didDispatchSessionExpired = true
+      window.dispatchEvent(new CustomEvent('auth-session-expired'))
+    }
+  } else {
+    didDispatchSessionExpired = false
+  }
+  return response
 }
 
 export async function readJson<T>(response: Response): Promise<T> {
