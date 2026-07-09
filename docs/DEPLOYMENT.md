@@ -99,6 +99,8 @@ HSTS_ENABLED=true
 MODEL_API_KEY=<set in platform secret manager>
 ```
 
+`DATABASE_URL` 也可以使用托管平台提供的 `postgres://` 或 `postgresql://` 形式；后端启动时会统一规范为 `postgresql+psycopg://`。
+
 健康检查地址：
 
 ```text

@@ -86,3 +86,5 @@ MODEL_API_KEY=<set in platform secret manager>
 - `MODEL_API_KEY` 未设置。
 
 这层保护用于防止把本地开发默认配置误部署到公网。
+
+部署平台提供的 `postgres://`、`postgresql://` 和 `postgresql+psycopg://` 都按 PostgreSQL 处理；运行时会使用 `psycopg` 驱动。
