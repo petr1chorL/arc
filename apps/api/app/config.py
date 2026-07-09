@@ -2,6 +2,7 @@ from pathlib import Path
 
 from pydantic import PositiveInt, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
 
 
 API_ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +28,7 @@ def _parse_string_sequence(value: str | tuple[str, ...] | list[str]) -> tuple[st
 
 
 class Settings(BaseSettings):
+    environment: str = "development"
     database_url: str = DEFAULT_DATABASE_URL
     session_cookie_name: str = "arc_one_session"
     csrf_cookie_name: str = "arc_one_csrf"
@@ -39,6 +41,17 @@ class Settings(BaseSettings):
         "http://127.0.0.1:4173",
         "http://localhost:4173",
     )
+    allowed_hosts: str | tuple[str, ...] = (
+        "localhost",
+        "127.0.0.1",
+        "testserver",
+    )
+    security_headers_enabled: bool = True
+    hsts_enabled: bool = False
+    max_request_body_bytes: PositiveInt = 1_048_576
+    rate_limit_enabled: bool = True
+    rate_limit_requests: PositiveInt = 120
+    rate_limit_window_seconds: PositiveInt = 60
     cookie_secure: bool = False
     model_api_key: str = ""
     model_base_url: str = "https://api.deepseek.com"
@@ -49,10 +62,48 @@ class Settings(BaseSettings):
     tool_http_allowed_hosts: str | tuple[str, ...] = ()
     tool_http_timeout_seconds: float = 10
 
-    @field_validator("allowed_origins", "tool_http_allowed_hosts", mode="after")
+    @field_validator(
+        "allowed_origins",
+        "allowed_hosts",
+        "tool_http_allowed_hosts",
+        mode="after",
+    )
     @classmethod
     def parse_string_sequence(cls, value: str | tuple[str, ...] | list[str]) -> tuple[str, ...]:
         return _parse_string_sequence(value)
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment.strip().lower() == "production"
+
+    def validate_production_ready(self, database_url: str) -> None:
+        if not self.is_production:
+            return
+
+        errors: list[str] = []
+        if not make_url(database_url).drivername.startswith("postgresql"):
+            errors.append("DATABASE_URL must use PostgreSQL in production")
+        if any(
+            origin == "*" or not origin.startswith("https://")
+            for origin in self.allowed_origins
+        ):
+            errors.append("ALLOWED_ORIGINS must be empty or contain only HTTPS origins")
+        public_hosts = {
+            host
+            for host in self.allowed_hosts
+            if host not in {"localhost", "127.0.0.1", "testserver"}
+        }
+        if not public_hosts or "*" in public_hosts:
+            errors.append("ALLOWED_HOSTS must include the public API host")
+        if not self.hsts_enabled:
+            errors.append("HSTS_ENABLED must be true in production")
+        if not self.cookie_secure:
+            errors.append("COOKIE_SECURE must be true in production")
+        if not self.rate_limit_enabled:
+            errors.append("RATE_LIMIT_ENABLED must be true in production")
+
+        if errors:
+            raise RuntimeError("Unsafe production configuration: " + "; ".join(errors))
 
     model_config = SettingsConfigDict(
         env_file=API_ROOT / ".env",

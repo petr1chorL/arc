@@ -53,3 +53,9 @@ def test_nginx_enables_hsts_for_public_https():
     nginx_config = (ROOT / "nginx.conf.template").read_text(encoding="utf-8")
 
     assert 'add_header Strict-Transport-Security "max-age=31536000" always;' in nginx_config
+
+
+def test_nginx_limits_public_request_bodies():
+    nginx_config = (ROOT / "nginx.conf.template").read_text(encoding="utf-8")
+
+    assert "client_max_body_size 1m;" in nginx_config

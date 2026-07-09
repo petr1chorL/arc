@@ -1,11 +1,16 @@
 import json
 from collections.abc import Callable, Iterator
 from datetime import datetime
+from hashlib import sha256
+from time import monotonic
 
 from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Query, Request, Response, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.access import AuthorizationService, RequestContext, RequestContextService
 from app.artifact_schema_validation import validate_artifact_schema
@@ -268,9 +273,11 @@ def create_app(
     mcp_gateway: McpToolGateway | None = None,
     judge_gateway: JudgeGateway | None = None,
     notification_dispatcher: NotificationDispatcher | None = None,
+    settings: Settings | None = None,
 ) -> FastAPI:
-    settings = Settings()
+    settings = settings or Settings()
     resolved_database_url = database_url or settings.database_url
+    settings.validate_production_ready(resolved_database_url)
     engine, session_factory = create_database(resolved_database_url)
     try:
         Base.metadata.create_all(engine)
@@ -279,6 +286,7 @@ def create_app(
             raise
     ensure_current_schema(engine)
     app = FastAPI(title="ARC.ONE API")
+    configure_network_security(app, settings)
     app.add_exception_handler(
         SessionAuthenticationError,
         build_session_auth_error_handler(settings),
@@ -326,6 +334,10 @@ def create_app(
 
     def get_session() -> Iterator[Session]:
         yield from session_scope(session_factory)
+
+    @app.get("/api/health")
+    def health() -> dict[str, str]:
+        return {"status": "ok"}
 
     app.state.session_factory = session_factory
     app.state.authentication_service = authentication_service
@@ -6291,6 +6303,94 @@ def create_app(
 
     app.include_router(router)
     return app
+
+
+def configure_network_security(app: FastAPI, settings: Settings) -> None:
+    rate_limit_buckets: dict[str, tuple[float, int]] = {}
+
+    @app.middleware("http")
+    async def enforce_rate_limit(request: Request, call_next):
+        if (
+            not settings.rate_limit_enabled
+            or not request.url.path.startswith("/api/")
+            or request.url.path == "/api/health"
+            or request.method == "OPTIONS"
+        ):
+            return await call_next(request)
+
+        session_token = request.cookies.get(settings.session_cookie_name)
+        client_host = request.client.host if request.client else "unknown"
+        client_key = (
+            sha256(session_token.encode("utf-8")).hexdigest()
+            if session_token
+            else client_host
+        )
+        now = monotonic()
+        window_start, count = rate_limit_buckets.get(client_key, (now, 0))
+        elapsed = now - window_start
+        if elapsed >= settings.rate_limit_window_seconds:
+            window_start = now
+            count = 0
+            elapsed = 0
+
+        if count >= settings.rate_limit_requests:
+            retry_after = max(1, round(settings.rate_limit_window_seconds - elapsed))
+            return JSONResponse(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                content={"detail": "请求过于频繁"},
+                headers={"Retry-After": str(retry_after)},
+            )
+
+        rate_limit_buckets[client_key] = (window_start, count + 1)
+        return await call_next(request)
+
+    @app.middleware("http")
+    async def enforce_request_body_limit(request: Request, call_next):
+        content_length = request.headers.get("content-length")
+        if content_length is not None:
+            try:
+                exceeds_limit = int(content_length) > settings.max_request_body_bytes
+            except ValueError:
+                return JSONResponse(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    content={"detail": "无效的 Content-Length"},
+                )
+            if exceeds_limit:
+                return JSONResponse(
+                    status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                    content={"detail": "请求体过大"},
+                )
+        return await call_next(request)
+
+    if settings.allowed_hosts:
+        app.add_middleware(
+            TrustedHostMiddleware,
+            allowed_hosts=list(settings.allowed_hosts),
+        )
+    if settings.allowed_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=list(settings.allowed_origins),
+            allow_credentials=True,
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+            allow_headers=["Content-Type", "X-CSRF-Token"],
+        )
+
+    if not settings.security_headers_enabled:
+        return
+
+    @app.middleware("http")
+    async def add_security_headers(request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        if settings.hsts_enabled:
+            response.headers["Strict-Transport-Security"] = (
+                "max-age=31536000; includeSubDomains"
+            )
+        return response
 
 
 app = create_app()

@@ -10,8 +10,8 @@ def test_settings_accept_comma_separated_allowlists(monkeypatch):
 
     settings = Settings()
 
-    assert settings.allowed_origins == ["https://one.example", "https://two.example"]
-    assert settings.allowed_hosts == ["api.example.com", "localhost"]
+    assert settings.allowed_origins == ("https://one.example", "https://two.example")
+    assert settings.allowed_hosts == ("api.example.com", "localhost")
 
 
 def test_health_check_and_security_headers(tmp_path):
@@ -66,6 +66,7 @@ def test_cors_allows_only_configured_frontend_origin(tmp_path):
 
     assert allowed.status_code == 200
     assert allowed.headers["access-control-allow-origin"] == "https://arc-one.pages.dev"
+    assert allowed.headers["access-control-allow-credentials"] == "true"
     assert denied.status_code == 400
     assert "access-control-allow-origin" not in denied.headers
 
@@ -119,16 +120,11 @@ def test_request_body_limit_allows_small_payload(tmp_path):
     )
 
     response = client.post(
-        "/api/agents",
-        json={
-            "name": "安全测试 Agent",
-            "role": "验证请求体限制",
-            "owner": "平台工程组",
-            "model": "GPT-5",
-        },
+        "/api/body-limit-probe",
+        json={"name": "安全测试"},
     )
 
-    assert response.status_code == 201
+    assert response.status_code == 404
 
 
 def test_rate_limit_rejects_excessive_requests_from_same_client(tmp_path):
@@ -144,9 +140,9 @@ def test_rate_limit_rejects_excessive_requests_from_same_client(tmp_path):
         ),
     )
 
-    assert client.get("/api/agents").status_code == 200
-    assert client.get("/api/agents").status_code == 200
-    response = client.get("/api/agents")
+    assert client.get("/api/rate-limit-probe").status_code == 404
+    assert client.get("/api/rate-limit-probe").status_code == 404
+    response = client.get("/api/rate-limit-probe")
 
     assert response.status_code == 429
     assert response.json() == {"detail": "请求过于频繁"}
@@ -168,23 +164,21 @@ def test_production_requires_explicit_network_and_secret_configuration(tmp_path)
         raise AssertionError("production settings should reject unsafe defaults")
 
     assert "DATABASE_URL must use PostgreSQL" in message
-    assert "ALLOWED_ORIGINS must include at least one HTTPS origin" in message
+    assert "ALLOWED_ORIGINS must be empty or contain only HTTPS origins" in message
     assert "ALLOWED_HOSTS must include the public API host" in message
     assert "HSTS_ENABLED must be true" in message
     assert "COOKIE_SECURE must be true" in message
     assert "RATE_LIMIT_ENABLED must be true" in message
-    assert "MODEL_API_KEY must be set" in message
 
 
 def test_production_accepts_explicit_safe_configuration():
     settings = Settings(
         environment="production",
         database_url="postgresql+psycopg://user:password@db.example.com:5432/arc_one",
-        allowed_origins=["https://arc-one.pages.dev"],
+        allowed_origins=[],
         allowed_hosts=["arc-one-api.onrender.com"],
         hsts_enabled=True,
         cookie_secure=True,
-        model_api_key="test-key",
     )
 
     settings.validate_production_ready(

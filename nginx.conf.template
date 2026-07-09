@@ -1,6 +1,7 @@
 server {
   listen ${PORT};
   server_name _;
+  client_max_body_size 1m;
 
   add_header X-Content-Type-Options "nosniff" always;
   add_header X-Frame-Options "DENY" always;
