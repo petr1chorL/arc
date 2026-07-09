@@ -14,6 +14,7 @@ import {
   type ReactFlowInstance,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
+import { useNavigate, useParams } from 'react-router-dom'
 import {
   Bot,
   Braces,
@@ -25,6 +26,7 @@ import {
   FilePlus2,
   GitBranch,
   History,
+  PencilLine,
   Plus,
   Play,
   Save,
@@ -44,6 +46,7 @@ import { useWorkspace } from '../auth/workspaceContextState'
 import { listAgentVersions, listAgents } from '../api/agents'
 import {
   createWorkflow,
+  deleteWorkflow,
   listWorkflowVersions,
   listWorkflows,
   publishWorkflow,
@@ -52,14 +55,11 @@ import {
 } from '../api/workflows'
 import { runWorkflow } from '../api/execution'
 import { listReviewers, listReviewGroups } from '../api/humanTasks'
-import { listDataObjectDefinitions } from '../api/dataObjects'
 import { WorkflowNode, type WorkflowNodeData } from '../components/WorkflowNode'
 import { fromContractGraph, toContractGraph } from '../domain/workflows'
 import { displayStatus, isWaitingForHumanReview } from '../domain/statusText'
 import type {
   AgentVersion,
-  DataObjectDefinition,
-  DataObjectNodeRef,
   ExecutionRun,
   Reviewer,
   ReviewGroup,
@@ -166,6 +166,8 @@ type PendingWorkflowNavigation =
   | { kind: 'new' }
   | { kind: 'activate'; workflowId: string }
 
+type RuntimeNodeStatus = NonNullable<WorkflowNodeData['status']>
+
 function cloneCanvasSnapshot(nodes: Node[], edges: Edge[]): CanvasSnapshot {
   return {
     nodes: sanitizeWorkflowNodes(nodes).map((node) => ({
@@ -174,6 +176,156 @@ function cloneCanvasSnapshot(nodes: Node[], edges: Edge[]): CanvasSnapshot {
       data: cloneNodeData(node.data),
     })),
     edges: edges.map((edge) => ({ ...edge })),
+  }
+}
+
+function mapRunNodeStatus(status: string): RuntimeNodeStatus {
+  switch (displayStatus(status)) {
+    case '已完成':
+    case '已通过':
+    case '修改后通过':
+      return 'success'
+    case '需介入':
+    case '等待审核':
+    case '待认领':
+    case '审核中':
+      return 'warning'
+    case '失败':
+    case '恢复失败':
+      return 'error'
+    case '运行中':
+    case '排队中':
+      return 'running'
+    default:
+      return 'idle'
+  }
+}
+
+function getRunStatusLabel(run: ExecutionRun) {
+  const status = displayStatus(run.status)
+  if (status === '已完成') return '运行完成'
+  if (status === '失败') return '运行失败'
+  if (isWaitingForHumanReview(status)) return '等待人工审核处理'
+  if (status === '运行中' && run.currentNode) return `正在运行：${run.currentNode}`
+  return status
+}
+
+function applyRunNodeStatuses(nodes: Node[], run: ExecutionRun | null) {
+  if (!run) return nodes
+  const statuses = new Map<string, RuntimeNodeStatus>()
+  for (const nodeRun of Array.isArray(run.nodes) ? run.nodes : []) {
+    statuses.set(nodeRun.nodeId, mapRunNodeStatus(nodeRun.status))
+  }
+  const runStatus = displayStatus(run.status)
+  if (runStatus === '已完成') {
+    for (const node of nodes) {
+      const data = node.data as WorkflowNodeData
+      if (data.kind === 'end' && !statuses.has(node.id)) statuses.set(node.id, 'success')
+    }
+  }
+  if (statuses.size === 0 && run.currentNode) {
+    const fallbackStatus = runStatus === '失败'
+      ? 'error'
+      : isWaitingForHumanReview(runStatus)
+        ? 'warning'
+        : 'running'
+    for (const node of nodes) {
+      const data = node.data as WorkflowNodeData
+      if (data.label === run.currentNode) statuses.set(node.id, fallbackStatus)
+    }
+  }
+  return nodes.map((node) => {
+    const runtimeStatus = statuses.get(node.id)
+    if (!runtimeStatus) return node
+    const nextData = {
+      ...node.data,
+      status: runtimeStatus,
+    }
+    return {
+      ...node,
+      className: `runtime-${runtimeStatus}`,
+      data: nextData,
+    }
+  })
+}
+
+function createPendingWorkflowRun(
+  workflow: WorkflowDraft | undefined,
+  workflowId: string,
+  workflowVersion: string | undefined,
+  input: string,
+  nodes: Node[],
+): ExecutionRun {
+  const now = new Date().toISOString()
+  const firstRuntimeNode = nodes.find((node) => {
+    const data = node.data as WorkflowNodeData
+    return data.kind !== 'trigger' && data.kind !== 'end'
+  }) ?? nodes.find((node) => {
+    const data = node.data as WorkflowNodeData
+    return data.kind !== 'end'
+  })
+  const firstRuntimeData = firstRuntimeNode?.data as WorkflowNodeData | undefined
+
+  return {
+    id: 'pending-run',
+    kind: 'workflow',
+    name: workflow?.name ?? '当前工作流',
+    workflowId,
+    workflowVersion: workflowVersion ?? null,
+    agentId: null,
+    agentVersion: null,
+    status: '运行中',
+    input,
+    output: '',
+    score: null,
+    model: '',
+    promptTokens: 0,
+    completionTokens: 0,
+    totalTokens: 0,
+    costUsd: 0,
+    durationMs: 0,
+    currentNode: firstRuntimeData?.label ?? '启动中',
+    error: '',
+    startedAt: now,
+    completedAt: null,
+    nodes: firstRuntimeNode && firstRuntimeData
+      ? [{
+        id: `pending-${firstRuntimeNode.id}`,
+        nodeId: firstRuntimeNode.id,
+        nodeType: firstRuntimeData.kind,
+        nodeName: firstRuntimeData.label,
+        status: '运行中',
+        input,
+        output: '',
+        model: '',
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        costUsd: 0,
+        durationMs: 0,
+        attempts: 1,
+        score: null,
+        error: '',
+        startedAt: now,
+        completedAt: null,
+      }]
+      : [],
+  }
+}
+
+function markPendingRunFailed(run: ExecutionRun, message: string): ExecutionRun {
+  const completedAt = new Date().toISOString()
+  return {
+    ...run,
+    status: '失败',
+    error: message,
+    completedAt,
+    nodes: run.nodes.map((node) => ({
+      ...node,
+      status: '失败',
+      error: message,
+      completedAt,
+    })),
   }
 }
 
@@ -290,28 +442,32 @@ function buildSchemaRunInput(
   }
 }
 
+function buildSimpleRunInput(text: string, fields: RunSchemaField[]) {
+  const trimmed = text.trim()
+  if (!trimmed || fields.length === 0) return trimmed
+
+  const requiredTextFields = fields.filter((field) => field.required && field.type === 'string')
+  const preferredTaskField = fields.find((field) => (
+    field.type === 'string'
+    && ['task', 'input', 'prompt', 'query', 'brief', 'sourceNotes', 'businessContext', 'desiredOutput'].includes(field.name)
+  ))
+  const payload: Record<string, unknown> = {}
+
+  requiredTextFields.forEach((field) => {
+    payload[field.name] = trimmed
+  })
+  if (preferredTaskField && !(preferredTaskField.name in payload)) {
+    payload[preferredTaskField.name] = trimmed
+  }
+  if (Object.keys(payload).length === 0) {
+    payload.task = trimmed
+  }
+
+  return JSON.stringify(payload)
+}
+
 function getRunFormTextValue(value: string | boolean | undefined) {
   return typeof value === 'string' ? value : ''
-}
-
-function getDataObjectSchemaSummary(schema: Record<string, unknown>) {
-  const required = Array.isArray(schema.required)
-    ? schema.required.filter((item): item is string => typeof item === 'string')
-    : []
-  const properties = isRecord(schema.properties) ? Object.keys(schema.properties) : []
-  if (required.length > 0) return `required: ${required.join(', ')}`
-  if (properties.length > 0) return `fields: ${properties.slice(0, 6).join(', ')}`
-  return 'object schema'
-}
-
-function toDataObjectNodeRef(definition: DataObjectDefinition): DataObjectNodeRef {
-  return {
-    definitionId: definition.id,
-    name: definition.name,
-    version: definition.version,
-    status: definition.status,
-    schemaSummary: getDataObjectSchemaSummary(definition.schema),
-  }
 }
 
 function getEdgeFieldMappings(edge: Edge): EdgeFieldMapping[] {
@@ -367,21 +523,32 @@ function createDraftSignature(
 
 export function Workflows() {
   const { workspace, workspacePath } = useWorkspace()
+  const navigate = useNavigate()
+  const { workflowId: routeWorkflowId } = useParams()
   const reactFlowRef = useRef<ReactFlowInstance | null>(null)
   const [nodes, setNodes, onNodesChange] = useNodesState(createDefaultNodes())
   const [edges, setEdges, onEdgesChange] = useEdgesState(createDefaultEdges())
   const [workflows, setWorkflows] = useState<WorkflowDraft[]>([])
   const [currentId, setCurrentId] = useState<string | null>(null)
   const [name, setName] = useState('未命名工作流')
+  const [isRenamingWorkflow, setIsRenamingWorkflow] = useState(false)
+  const [workflowNameDraft, setWorkflowNameDraft] = useState('未命名工作流')
   const [selectedNode, setSelectedNode] = useState<Node | null>(null)
   const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null)
   const [agentOptions, setAgentOptions] = useState<PublishedAgentOption[]>([])
-  const [dataObjects, setDataObjects] = useState<DataObjectDefinition[]>([])
   const [reviewers, setReviewers] = useState<Reviewer[]>([])
   const [reviewGroups, setReviewGroups] = useState<ReviewGroup[]>([])
   const [versions, setVersions] = useState<WorkflowVersion[]>([])
   const [showVersions, setShowVersions] = useState(false)
+  const [versionDialogWorkflowName, setVersionDialogWorkflowName] = useState('')
+  const [versionLoadError, setVersionLoadError] = useState('')
+  const [isLoadingVersions, setIsLoadingVersions] = useState(false)
+  const [showPublishNote, setShowPublishNote] = useState(false)
+  const [publishNote, setPublishNote] = useState('')
+  const [publishNoteError, setPublishNoteError] = useState('')
+  const [workflowDeleteCandidate, setWorkflowDeleteCandidate] = useState<WorkflowDraft | null>(null)
   const [showRun, setShowRun] = useState(false)
+  const [showAdvancedRunInput, setShowAdvancedRunInput] = useState(false)
   const [runInput, setRunInput] = useState('')
   const [runFormValues, setRunFormValues] = useState<Record<string, string | boolean>>({})
   const [runResult, setRunResult] = useState<ExecutionRun | null>(null)
@@ -395,12 +562,14 @@ export function Workflows() {
   const [keyboardDeleteNode, setKeyboardDeleteNode] = useState<Node | null>(null)
   const [undoStack, setUndoStack] = useState<CanvasSnapshot[]>([])
   const [redoStack, setRedoStack] = useState<CanvasSnapshot[]>([])
-  const renderedNodes = useMemo(() => sanitizeWorkflowNodes(nodes), [nodes])
+  const sanitizedNodes = useMemo(() => sanitizeWorkflowNodes(nodes), [nodes])
+  const renderedNodes = useMemo(() => applyRunNodeStatuses(sanitizedNodes, runResult), [runResult, sanitizedNodes])
   const draftSignature = useMemo(
-    () => createDraftSignature(name, renderedNodes, edges, inputSchemaText, outputSchemaText),
-    [edges, inputSchemaText, name, outputSchemaText, renderedNodes],
+    () => createDraftSignature(name, sanitizedNodes, edges, inputSchemaText, outputSchemaText),
+    [edges, inputSchemaText, name, outputSchemaText, sanitizedNodes],
   )
   const hasUnsavedChanges = savedDraftSignature !== '' && draftSignature !== savedDraftSignature
+  const isEditorRoute = Boolean(routeWorkflowId)
 
   const resetCanvasHistory = useCallback(() => {
     setUndoStack([])
@@ -489,6 +658,8 @@ export function Workflows() {
     const graph = fromContractGraph(workflow.nodes, workflow.edges)
     setCurrentId(workflow.id)
     setName(workflow.name)
+    setWorkflowNameDraft(workflow.name)
+    setIsRenamingWorkflow(false)
     setNodes(graph.nodes)
     setEdges(graph.edges)
     const nextInputSchemaText = schemaToText(workflow.inputSchema)
@@ -506,11 +677,70 @@ export function Workflows() {
     setSelectedEdge(null)
     setPendingNavigation(null)
     setKeyboardDeleteNode(null)
+    setRunResult(null)
     resetCanvasHistory()
     setFeedback('')
     setErrors([])
     void listWorkflowVersions(workspace.id, workflow.id).then(setVersions)
   }, [resetCanvasHistory, setEdges, setNodes, workspace.id])
+
+  const resetToNewWorkflow = useCallback(() => {
+    const defaultNodes = createDefaultNodes()
+    const defaultEdges = createDefaultEdges()
+    const defaultInputSchemaText = schemaToText(defaultWorkflowSchema())
+    const defaultOutputSchemaText = schemaToText(defaultWorkflowSchema())
+    setCurrentId(null)
+    setName('未命名工作流')
+    setWorkflowNameDraft('未命名工作流')
+    setIsRenamingWorkflow(false)
+    setNodes(defaultNodes)
+    setEdges(defaultEdges)
+    setInputSchemaText(defaultInputSchemaText)
+    setOutputSchemaText(defaultOutputSchemaText)
+    setSavedDraftSignature(createDraftSignature(
+      '未命名工作流',
+      defaultNodes,
+      defaultEdges,
+      defaultInputSchemaText,
+      defaultOutputSchemaText,
+    ))
+    resetCanvasHistory()
+    setSelectedNode(null)
+    setSelectedEdge(null)
+    setPendingNavigation(null)
+    setKeyboardDeleteNode(null)
+    setRunResult(null)
+    setVersions([])
+    setVersionDialogWorkflowName('')
+    setVersionLoadError('')
+    setErrors([])
+    setFeedback('')
+  }, [resetCanvasHistory, setEdges, setNodes])
+
+  const openWorkflowVersionsFor = useCallback(async (workflow: WorkflowDraft) => {
+    setVersionDialogWorkflowName(workflow.name)
+    setVersions([])
+    setVersionLoadError('')
+    setShowVersions(true)
+    setIsLoadingVersions(true)
+    setErrors([])
+    try {
+      const nextVersions = await listWorkflowVersions(workspace.id, workflow.id)
+      setVersions(nextVersions)
+    } catch {
+      setVersions([])
+      setVersionLoadError('版本记录加载失败')
+    } finally {
+      setIsLoadingVersions(false)
+    }
+  }, [workspace.id])
+
+  const openPublishNoteDialog = useCallback(() => {
+    setPublishNote('')
+    setPublishNoteError('')
+    setShowPublishNote(true)
+    setErrors([])
+  }, [])
 
   useEffect(() => {
     async function load() {
@@ -520,12 +750,17 @@ export function Workflows() {
         listReviewers(workspace.id).catch(() => []),
         listReviewGroups(workspace.id).catch(() => []),
       ])
-      const definitions = await listDataObjectDefinitions(workspace.id).catch(() => [])
-      setDataObjects(definitions)
       setReviewers(directoryReviewers)
       setReviewGroups(directoryGroups)
       setWorkflows(savedWorkflows)
-      if (savedWorkflows[0]) {
+      const routedWorkflow = routeWorkflowId && routeWorkflowId !== 'new'
+        ? savedWorkflows.find((workflow) => workflow.id === routeWorkflowId)
+        : null
+      if (routeWorkflowId === 'new') {
+        resetToNewWorkflow()
+      } else if (routedWorkflow) {
+        activateWorkflow(routedWorkflow)
+      } else if (!routeWorkflowId && savedWorkflows[0]) {
         activateWorkflow(savedWorkflows[0])
       }
       const versionGroups = await Promise.all(
@@ -545,16 +780,21 @@ export function Workflows() {
       )))
     }
     void load()
-  }, [activateWorkflow, workspace.id])
+  }, [activateWorkflow, resetToNewWorkflow, routeWorkflowId, workspace.id])
 
   const currentWorkflow = workflows.find((workflow) => workflow.id === currentId)
+  const requestWorkflowDelete = useCallback(() => {
+    if (!currentWorkflow) return
+    setWorkflowDeleteCandidate(currentWorkflow)
+    setErrors([])
+  }, [currentWorkflow])
   const runSchemaFields = useMemo(
     () => getRunSchemaFields(currentWorkflow?.inputSchema),
     [currentWorkflow?.inputSchema],
   )
   const hasRunSchemaForm = runSchemaFields.length > 0
   const statusText = currentWorkflow
-    ? `${currentWorkflow.status} · ${currentWorkflow.version}`
+    ? `${displayStatus(currentWorkflow.status)} · ${currentWorkflow.version}`
     : '新草稿 · 未保存'
   const selectedNodeEdgeImpact = useMemo<NodeEdgeImpact>(
     () => selectedNode ? getNodeEdgeImpact(selectedNode.id, edges) : { incoming: 0, outgoing: 0, total: 0 },
@@ -578,7 +818,7 @@ export function Workflows() {
         setErrors(validationErrors)
         return null
       }
-      const graph = toContractGraph(renderedNodes, edges)
+      const graph = toContractGraph(sanitizedNodes, edges)
       const input = {
         name: name.trim() || '未命名工作流',
         inputSchema: parsedInputSchema.value,
@@ -616,9 +856,10 @@ export function Workflows() {
     } finally {
       setIsBusy(false)
     }
-  }, [currentId, edges, inputSchemaText, name, outputSchemaText, renderedNodes, resetCanvasHistory, workspace.id])
+  }, [currentId, edges, inputSchemaText, name, outputSchemaText, resetCanvasHistory, sanitizedNodes, workspace.id])
 
-  async function publish() {
+  async function publish(note: string) {
+    const trimmedNote = note.trim()
     const saved = await saveDraft()
     if (!saved) return
     setIsBusy(true)
@@ -628,7 +869,7 @@ export function Workflows() {
         setErrors(validation.errors)
         return
       }
-      const version = await publishWorkflow(workspace.id, saved.id)
+      const version = await publishWorkflow(workspace.id, saved.id, { note: trimmedNote })
       setVersions((current) => [version, ...current])
       setWorkflows((current) => current.map((workflow) => (
         workflow.id === saved.id
@@ -636,6 +877,9 @@ export function Workflows() {
           : workflow
       )))
       setFeedback(`${version.version} 已发布`)
+      setShowPublishNote(false)
+      setPublishNote('')
+      setPublishNoteError('')
       setErrors([])
     } catch (publishError) {
       setErrors([publishError instanceof Error ? publishError.message : '工作流发布失败'])
@@ -645,61 +889,46 @@ export function Workflows() {
   }
 
   async function executeWorkflow() {
-    const schemaRunInput = hasRunSchemaForm
+    const schemaRunInput = showAdvancedRunInput && hasRunSchemaForm
       ? buildSchemaRunInput(runSchemaFields, runFormValues)
       : null
     if (schemaRunInput?.errors.length) {
       setErrors(schemaRunInput.errors)
       return
     }
-    const nextRunInput = schemaRunInput?.input ?? runInput.trim()
+    const nextRunInput = schemaRunInput?.input ?? buildSimpleRunInput(runInput, runSchemaFields)
     if (!currentId || !nextRunInput) {
       setErrors(['请输入运行任务'])
       return
     }
+    const pendingRun = createPendingWorkflowRun(
+      currentWorkflow,
+      currentId,
+      currentWorkflow?.version,
+      nextRunInput,
+      sanitizedNodes,
+    )
     setIsBusy(true)
     setErrors([])
-    setRunResult(null)
+    setRunResult(pendingRun)
+    setShowRun(false)
+    setFeedback(getRunStatusLabel(pendingRun))
     try {
       const result = await runWorkflow(workspace.id, currentId, {
         input: nextRunInput,
         version: currentWorkflow?.version,
       })
       setRunResult(result)
-      setFeedback(isWaitingForHumanReview(result.status) ? '等待人工审核处理' : '工作流运行已完成')
+      setFeedback(getRunStatusLabel(result))
+      navigate(workspacePath(`runs?runId=${encodeURIComponent(result.id)}`))
     } catch (runError) {
-      setErrors([runError instanceof Error ? runError.message : '工作流运行失败'])
+      const message = runError instanceof Error ? runError.message : '工作流运行失败'
+      setRunResult(markPendingRunFailed(pendingRun, message))
+      setErrors([message])
+      setFeedback('运行失败')
     } finally {
       setIsBusy(false)
     }
-  }
-
-  function resetToNewWorkflow() {
-    const defaultNodes = createDefaultNodes()
-    const defaultEdges = createDefaultEdges()
-    const defaultInputSchemaText = schemaToText(defaultWorkflowSchema())
-    const defaultOutputSchemaText = schemaToText(defaultWorkflowSchema())
-    setCurrentId(null)
-    setName('未命名工作流')
-    setNodes(defaultNodes)
-    setEdges(defaultEdges)
-    setInputSchemaText(defaultInputSchemaText)
-    setOutputSchemaText(defaultOutputSchemaText)
-    setSavedDraftSignature(createDraftSignature(
-      '未命名工作流',
-      defaultNodes,
-      defaultEdges,
-      defaultInputSchemaText,
-      defaultOutputSchemaText,
-    ))
-    resetCanvasHistory()
-    setSelectedNode(null)
-    setSelectedEdge(null)
-    setPendingNavigation(null)
-    setKeyboardDeleteNode(null)
-    setVersions([])
-    setErrors([])
-    setFeedback('')
   }
 
   function startNewWorkflow() {
@@ -708,6 +937,16 @@ export function Workflows() {
       return
     }
     resetToNewWorkflow()
+    navigate(workspacePath('workflows/new'))
+  }
+
+  async function confirmPublishWithNote() {
+    const trimmedNote = publishNote.trim()
+    if (!trimmedNote) {
+      setPublishNoteError('请填写发布备注')
+      return
+    }
+    await publish(trimmedNote)
   }
 
   function requestWorkflowActivation(workflowId: string) {
@@ -720,10 +959,53 @@ export function Workflows() {
     if (workflow) activateWorkflow(workflow)
   }
 
+  function openWorkflowEditor(workflowId: string) {
+    const needsConfirmation = workflowId !== currentId && hasUnsavedChanges
+    requestWorkflowActivation(workflowId)
+    if (!needsConfirmation) {
+      navigate(workspacePath(`workflows/${workflowId}`))
+    }
+  }
+
+  async function confirmWorkflowDelete() {
+    if (!workflowDeleteCandidate) return
+    setIsBusy(true)
+    setErrors([])
+    try {
+      await deleteWorkflow(workspace.id, workflowDeleteCandidate.id)
+      setWorkflows((current) => current.filter((workflow) => workflow.id !== workflowDeleteCandidate.id))
+      setWorkflowDeleteCandidate(null)
+      resetToNewWorkflow()
+      navigate(workspacePath('/workflows'))
+      setFeedback(`工作流「${workflowDeleteCandidate.name}」已删除`)
+    } catch (deleteError) {
+      setErrors([deleteError instanceof Error ? deleteError.message : '工作流删除失败'])
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  function openWorkflowRunDialogFor(workflow: WorkflowDraft) {
+    if (workflow.id !== currentId) {
+      if (hasUnsavedChanges) {
+        setPendingNavigation({ kind: 'activate', workflowId: workflow.id })
+        return
+      }
+      activateWorkflow(workflow)
+    }
+    setRunResult(null)
+    setRunInput('')
+    setRunFormValues({})
+    setErrors([])
+    setShowAdvancedRunInput(false)
+    setShowRun(true)
+  }
+
   function continueAfterDiscardingChanges() {
     if (!pendingNavigation) return
     if (pendingNavigation.kind === 'new') {
       resetToNewWorkflow()
+      navigate(workspacePath('workflows/new'))
       return
     }
     const workflow = workflows.find((item) => item.id === pendingNavigation.workflowId)
@@ -746,9 +1028,21 @@ export function Workflows() {
         position: nextPosition,
         data: {
           label,
-          subtitle: kind === 'agent' ? '尚未绑定发布版本' : '待配置',
+          subtitle: kind === 'agent'
+            ? '尚未绑定发布版本'
+            : kind === 'human'
+            ? '指定用户审核'
+            : '待配置',
           kind,
           status: kind === 'agent' ? 'warning' : 'idle',
+          ...(kind === 'human'
+            ? {
+              assignmentType: 'direct_reviewer',
+              reviewPolicy: 'any_one',
+              requiredApprovals: 1,
+              reviewerIds: [],
+            }
+            : {}),
         } satisfies WorkflowNodeData,
       },
     ]
@@ -867,32 +1161,174 @@ export function Workflows() {
     setSelectedNode(duplicate)
   }
 
+  function startRenamingWorkflow() {
+    setWorkflowNameDraft(name)
+    setIsRenamingWorkflow(true)
+  }
+
+  function confirmWorkflowName() {
+    const nextName = workflowNameDraft.trim() || '未命名工作流'
+    setName(nextName)
+    setWorkflowNameDraft(nextName)
+    setIsRenamingWorkflow(false)
+  }
+
+  function cancelWorkflowName() {
+    setWorkflowNameDraft(name)
+    setIsRenamingWorkflow(false)
+  }
+
   return (
     <div className="workflow-studio">
       {feedback && <div className="toast"><Check size={16} />{feedback}</div>}
+      {!isEditorRoute && (
+      <section className="workflow-directory-panel" aria-label="工作流列表">
+        <div className="workflow-directory-header">
+          <div>
+            <span className="eyebrow">WORKFLOW DIRECTORY</span>
+            <h2>工作流列表</h2>
+            <p>先选择一个工作流，再进入编排画布维护节点、连线和发布版本。</p>
+          </div>
+          <button className="button secondary" type="button" onClick={startNewWorkflow}>
+            <FilePlus2 size={15} />新建工作流
+          </button>
+        </div>
+        <div className="workflow-directory-list">
+          {workflows.length === 0 ? (
+            <div className="workflow-directory-empty">
+              <strong>还没有工作流</strong>
+              <span>新建后会在这里形成可进入编排的工作流资产。</span>
+            </div>
+          ) : workflows.map((workflow) => {
+            const nodeCount = Array.isArray(workflow.nodes) ? workflow.nodes.length : 0
+            const edgeCount = Array.isArray(workflow.edges) ? workflow.edges.length : 0
+            const active = workflow.id === currentId
+            return (
+              <article
+                className={`workflow-directory-row ${active ? 'active' : ''}`}
+                key={workflow.id}
+              >
+                <div className="workflow-directory-main">
+                  <span>{active ? '当前编排中' : '工作流资产'}</span>
+                  <strong>{workflow.name}</strong>
+                  <small>{new Date(workflow.updatedAt).toLocaleString('zh-CN')} 更新</small>
+                </div>
+                <div className="workflow-directory-meta" aria-label={`${workflow.name} 元信息`}>
+                  <span><small>状态</small><strong>{displayStatus(workflow.status)}</strong></span>
+                  <span><small>版本</small><strong>{workflow.version}</strong></span>
+                  <span><small>节点</small><strong>{nodeCount} 个节点</strong></span>
+                  <span><small>连线</small><strong>{edgeCount} 条连线</strong></span>
+                </div>
+                <div className="workflow-directory-actions">
+                  <button
+                    aria-label={`查看版本记录 ${workflow.name}`}
+                    className="button ghost compact"
+                    type="button"
+                    onClick={() => void openWorkflowVersionsFor(workflow)}
+                  >
+                    <History size={14} />版本记录
+                  </button>
+                  <button
+                    aria-label={`运行 ${workflow.name}`}
+                    className="button secondary compact"
+                    disabled={workflow.version === '未发布' || isBusy}
+                    type="button"
+                    onClick={() => openWorkflowRunDialogFor(workflow)}
+                  >
+                    <Play size={14} />运行
+                  </button>
+                  <button
+                    aria-label={`编辑 ${workflow.name}`}
+                    className="button primary compact"
+                    type="button"
+                    onClick={() => openWorkflowEditor(workflow.id)}
+                  >
+                    <PencilLine size={14} />编辑
+                  </button>
+                </div>
+              </article>
+            )
+          })}
+        </div>
+      </section>
+      )}
+      {isEditorRoute && (
+      <>
+      <div className="workflow-editor-return">
+        <button className="button ghost" type="button" onClick={() => navigate(workspacePath('workflows'))}>
+          返回工作流列表
+        </button>
+      </div>
       <div className="studio-toolbar">
         <div className="workflow-title">
-          <button className="workflow-icon"><GitBranch size={18} /></button>
-          <div>
-            <input aria-label="工作流名称" value={name} onChange={(event) => setName(event.target.value)} />
-            <span>{statusText}</span>
+          <button className="workflow-icon" type="button" title="当前工作流"><GitBranch size={18} /></button>
+          <div className="workflow-name-field">
+            <span className="workflow-name-label">当前工作流</span>
+            {isRenamingWorkflow ? (
+              <div className="workflow-name-edit-row">
+                <input
+                  aria-label="工作流名称"
+                  autoFocus
+                  placeholder="输入工作流名称"
+                  value={workflowNameDraft}
+                  onChange={(event) => setWorkflowNameDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') confirmWorkflowName()
+                    if (event.key === 'Escape') cancelWorkflowName()
+                  }}
+                />
+                <button className="button primary compact" type="button" onClick={confirmWorkflowName}>确认</button>
+                <button className="button ghost compact" type="button" onClick={cancelWorkflowName}>取消</button>
+              </div>
+            ) : (
+              <div className="workflow-name-view-row">
+                <strong aria-label="工作流名称">{name}</strong>
+                <span>{statusText}</span>
+                <button className="button ghost compact" type="button" onClick={startRenamingWorkflow}>
+                  <PencilLine size={14} />更改名称
+                </button>
+              </div>
+            )}
           </div>
           {workflows.length > 0 && (
-            <select
-              aria-label="切换工作流"
-              value={currentId ?? ''}
-              onChange={(event) => requestWorkflowActivation(event.target.value)}
-            >
-              {currentId === null && <option value="">新草稿</option>}
-              {workflows.map((workflow) => <option value={workflow.id} key={workflow.id}>{workflow.name}</option>)}
-            </select>
+            <label className="workflow-switch-field">
+              <span>切换已有工作流</span>
+              <select
+                aria-label="切换工作流"
+                value={currentId ?? ''}
+                onChange={(event) => requestWorkflowActivation(event.target.value)}
+              >
+                {currentId === null && <option value="">新草稿</option>}
+                {workflows.map((workflow) => <option value={workflow.id} key={workflow.id}>{workflow.name}</option>)}
+              </select>
+            </label>
           )}
         </div>
         <div className="studio-actions">
           <button className="button ghost" title="撤销上一步画布编辑" disabled={undoStack.length === 0} onClick={undoCanvasChange}><Undo2 size={15} />撤销</button>
           <button className="button ghost" title="重做刚撤销的画布编辑" disabled={redoStack.length === 0} onClick={redoCanvasChange}><Redo2 size={15} />重做</button>
           <button className="button ghost" title="新建工作流" onClick={startNewWorkflow}><FilePlus2 size={15} />新建</button>
-          <button className="button ghost" title="查看版本记录" disabled={!currentId} onClick={() => setShowVersions(true)}><History size={15} />版本记录</button>
+          <button
+            className="button ghost"
+            title="查看版本记录"
+            disabled={!currentId}
+            onClick={() => {
+              const workflow = workflows.find((item) => item.id === currentId)
+              if (workflow) void openWorkflowVersionsFor(workflow)
+            }}
+          >
+            <History size={15} />版本记录
+          </button>
+          <button
+            className="button ghost"
+            title="删除当前工作流"
+            disabled={!currentWorkflow || isBusy}
+            onClick={requestWorkflowDelete}
+          >
+            <Trash2 size={15} />删除工作流
+          </button>
+          <button className="button ghost" title="保存工作流草稿" disabled={isBusy} onClick={() => void saveDraft()}><Save size={15} />保存草稿</button>
+          <button className="button ghost" title="发布工作流版本" disabled={isBusy} onClick={openPublishNoteDialog}><Send size={15} />发布版本</button>
           <button
             className="button ghost"
             title="运行已发布工作流"
@@ -902,13 +1338,12 @@ export function Workflows() {
               setRunInput('')
               setRunFormValues({})
               setErrors([])
+              setShowAdvancedRunInput(false)
               setShowRun(true)
             }}
           >
             <Play size={15} />运行工作流
           </button>
-          <button className="button secondary" title="保存工作流草稿" disabled={isBusy} onClick={() => void saveDraft()}><Save size={15} />保存草稿</button>
-          <button className="button primary" title="发布工作流版本" disabled={isBusy} onClick={() => void publish()}><Send size={15} />发布版本</button>
         </div>
       </div>
 
@@ -925,6 +1360,33 @@ export function Workflows() {
           <div><strong>发布前需要处理</strong>{errors.map((error) => <span key={error}>{error}</span>)}</div>
           <button className="icon-button quiet" title="关闭错误提示" onClick={() => setErrors([])}><X size={16} /></button>
         </div>
+      )}
+
+      {runResult && (
+        <section className="workflow-runtime-strip" aria-label="当前工作流运行状态">
+          <div>
+            <span>当前运行</span>
+            <strong>当前运行：{getRunStatusLabel(runResult)}</strong>
+            <small>Run ID {runResult.id} · 当前节点 {runResult.currentNode || '未返回'}</small>
+          </div>
+          <span className="runtime-status-pill">{displayStatus(runResult.status)}</span>
+          <div className="workflow-runtime-legend" aria-label="节点运行状态图例">
+            <span><i className="success" />通过</span>
+            <span><i className="warning" />等待</span>
+            <span><i className="error" />报错</span>
+          </div>
+          {isWaitingForHumanReview(runResult.status) && (
+            <div className="workflow-runtime-handoff">
+              <strong>工作流已暂停在人工审核节点</strong>
+              <span>指定审核用户可到人工审核页提交通过或驳回。</span>
+              <a className="button primary" href={workspacePath('reviews')}>去人工审核处理</a>
+            </div>
+          )}
+          {(runResult.output || runResult.error) && (
+            <p className="workflow-runtime-output">{runResult.output || runResult.error}</p>
+          )}
+          <a className="button secondary" href={workspacePath('runs')}>查看运行记录</a>
+        </section>
       )}
 
       <section className="workflow-contract-panel" aria-label="工作流输入输出契约">
@@ -1017,7 +1479,6 @@ export function Workflows() {
           <NodeInspector
             node={selectedNode}
             agentOptions={agentOptions}
-            dataObjects={dataObjects}
             reviewers={reviewers}
             reviewGroups={reviewGroups}
             edgeImpact={selectedNodeEdgeImpact}
@@ -1062,6 +1523,9 @@ export function Workflows() {
         </div>
       )}
 
+      </>
+      )}
+
       {pendingNavigation && (
         <div className="dialog-backdrop">
           <section className="agent-dialog" role="dialog" aria-modal="true" aria-labelledby="discard-workflow-title">
@@ -1081,19 +1545,86 @@ export function Workflows() {
         </div>
       )}
 
+      {workflowDeleteCandidate && (
+        <div className="dialog-backdrop">
+          <section className="agent-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-workflow-title">
+            <header>
+              <div>
+                <p className="eyebrow">DELETE WORKFLOW</p>
+                <h2 id="delete-workflow-title">删除工作流？</h2>
+              </div>
+              <button className="icon-button quiet" title="关闭" onClick={() => setWorkflowDeleteCandidate(null)}><X size={18} /></button>
+            </header>
+            <p className="dialog-copy">
+              将从工作流列表中移除「{workflowDeleteCandidate.name}」。已发布版本和历史运行记录会保留用于审计追溯。
+            </p>
+            <div className="dialog-actions">
+              <button className="button secondary" disabled={isBusy} onClick={() => setWorkflowDeleteCandidate(null)}>取消</button>
+              <button className="button danger" disabled={isBusy} onClick={() => void confirmWorkflowDelete()}>
+                <Trash2 size={14} />确认删除工作流
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {showPublishNote && (
+        <div className="dialog-backdrop">
+          <section className="agent-dialog" role="dialog" aria-modal="true" aria-labelledby="publish-note-title">
+            <header>
+              <div>
+                <p className="eyebrow">VERSION NOTE</p>
+                <h2 id="publish-note-title">发布版本备注</h2>
+              </div>
+              <button className="icon-button quiet" title="关闭" onClick={() => setShowPublishNote(false)}><X size={18} /></button>
+            </header>
+            <label className="form-field">
+              <span>备注</span>
+              <textarea
+                aria-label="发布备注"
+                rows={5}
+                maxLength={500}
+                value={publishNote}
+                onChange={(event) => {
+                  setPublishNote(event.target.value)
+                  if (publishNoteError) setPublishNoteError('')
+                }}
+                placeholder="说明本次发布调整了哪些节点、契约或运行策略"
+              />
+            </label>
+            {publishNoteError && <p className="danger-text">{publishNoteError}</p>}
+            <div className="dialog-actions">
+              <button className="button secondary" disabled={isBusy} onClick={() => setShowPublishNote(false)}>取消</button>
+              <button className="button primary" disabled={isBusy} onClick={() => void confirmPublishWithNote()}>
+                <Send size={14} />确认发布版本
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
       {showVersions && (
         <div className="dialog-backdrop">
           <section className="agent-dialog workflow-version-dialog" role="dialog" aria-modal="true" aria-labelledby="workflow-version-title">
             <header>
-              <div><p className="eyebrow">IMMUTABLE SNAPSHOTS</p><h2 id="workflow-version-title">工作流版本记录</h2></div>
+              <div>
+                <p className="eyebrow">IMMUTABLE SNAPSHOTS</p>
+                <h2 id="workflow-version-title">工作流版本记录</h2>
+                {versionDialogWorkflowName && <span className="dialog-subtitle">{versionDialogWorkflowName}</span>}
+              </div>
               <button className="icon-button quiet" title="关闭" onClick={() => setShowVersions(false)}><X size={18} /></button>
             </header>
             <div className="version-list">
-              {versions.length === 0 && <div className="version-empty">尚未发布版本</div>}
+              {isLoadingVersions && <div className="version-empty">正在加载版本记录</div>}
+              {!isLoadingVersions && versionLoadError && <div className="version-empty">{versionLoadError}</div>}
+              {!isLoadingVersions && !versionLoadError && versions.length === 0 && <div className="version-empty">尚未发布版本</div>}
               {versions.map((version) => (
                 <article className="version-item" key={version.id}>
                   <div><strong>{version.version}</strong><span>{version.snapshot.nodes.length} 个节点</span></div>
                   <p>{version.snapshot.name}</p>
+                  <p className={`version-note ${version.note?.trim() ? '' : 'empty'}`}>
+                    版本备注：{version.note?.trim() || '未填写'}
+                  </p>
                   <small>{new Date(version.createdAt).toLocaleString('zh-CN')}</small>
                 </article>
               ))}
@@ -1110,6 +1641,29 @@ export function Workflows() {
               <button className="icon-button quiet" title="关闭" onClick={() => setShowRun(false)}><X size={18} /></button>
             </header>
             {hasRunSchemaForm ? (
+              <>
+              <label className="form-field">
+                <span>本次任务</span>
+                <textarea
+                  aria-label="运行输入"
+                  rows={5}
+                  value={runInput}
+                  onChange={(event) => setRunInput(event.target.value)}
+                  placeholder="描述这次希望工作流处理的任务，例如：基于安克 AI 课程笔记，产出一版 AI 赋能工作流草案"
+                />
+              </label>
+              <div className="schema-run-advanced">
+                <button
+                  className="button ghost schema-run-toggle"
+                  type="button"
+                  aria-expanded={showAdvancedRunInput}
+                  onClick={() => setShowAdvancedRunInput((current) => !current)}
+                >
+                  <Wrench size={15} />高级输入字段
+                </button>
+                <span>默认会自动把本次任务填入必填文本字段；需要精细调试时再展开。</span>
+              </div>
+              {showAdvancedRunInput && (
               <div className="schema-run-form" aria-label="结构化运行输入">
                 <div className="schema-run-form-header">
                   <strong>结构化运行输入</strong>
@@ -1145,6 +1699,8 @@ export function Workflows() {
                   )
                 ))}
               </div>
+              )}
+              </>
             ) : (
               <label className="form-field">
                 <span>运行输入</span>
@@ -1168,7 +1724,7 @@ export function Workflows() {
                   <div className="review-handoff-notice">
                     <div>
                       <strong>工作流已暂停在人工审核节点</strong>
-                      <span>系统已经创建 Human Task。下一步到人工审核页认领并提交决定，运行中心会记录暂停与恢复状态。</span>
+                      <span>系统已经创建 Human Task。下一步由指定审核用户到人工审核页提交通过或驳回，运行中心会记录暂停与恢复状态。</span>
                     </div>
                     <a className="button primary" href={workspacePath('reviews')}>去人工审核处理</a>
                     <a className="button secondary" href={workspacePath('runs')}>查看运行记录</a>
@@ -1193,7 +1749,6 @@ export function Workflows() {
 function NodeInspector({
   node,
   agentOptions,
-  dataObjects,
   reviewers,
   reviewGroups,
   edgeImpact,
@@ -1204,7 +1759,6 @@ function NodeInspector({
 }: {
   node: Node
   agentOptions: PublishedAgentOption[]
-  dataObjects: DataObjectDefinition[]
   reviewers: Reviewer[]
   reviewGroups: ReviewGroup[]
   edgeImpact: NodeEdgeImpact
@@ -1225,19 +1779,12 @@ function NodeInspector({
     dueMinutes?: number
     escalationMinutes?: number
     escalationGroupId?: string
-    inputDataObjectRef?: DataObjectNodeRef
-    outputDataObjectRef?: DataObjectNodeRef
   }
   const selectedAgent = data.agentId && data.agentVersion ? `${data.agentId}|${data.agentVersion}` : ''
-  const dataObjectOptions = useMemo(() => dataObjects, [dataObjects])
+  const activeReviewers = useMemo(() => reviewers.filter((reviewer) => reviewer.isActive), [reviewers])
   const isAgent = data.kind === 'agent'
   const isHuman = data.kind === 'human'
   const optionsByAgent = useMemo(() => agentOptions, [agentOptions])
-
-  function bindDataObjectRef(field: 'inputDataObjectRef' | 'outputDataObjectRef', definitionId: string) {
-    const definition = dataObjectOptions.find((item) => item.id === definitionId)
-    onUpdate({ [field]: definition ? toDataObjectNodeRef(definition) : undefined })
-  }
 
   useEffect(() => {
     setIsConfirmingDelete(false)
@@ -1279,7 +1826,47 @@ function NodeInspector({
       )}
       {isHuman && (
         <>
-          <div className="inspector-group">
+          <div className="inspector-group human-reviewer-lite">
+            <span className="inspector-group-title">指定审核用户</span>
+            <div className="reviewer-picker-list" aria-label="指定审核用户">
+              {activeReviewers.length === 0 && (
+                <small>暂无可选 Reviewer。请先到成员与权限中给系统用户绑定 Reviewer 资格。</small>
+              )}
+              {activeReviewers.map((reviewer) => {
+                const checked = (data.reviewerIds ?? []).includes(reviewer.id)
+                return (
+                  <label className="reviewer-picker-option" key={reviewer.id}>
+                    <input
+                      checked={checked}
+                      type="checkbox"
+                      onChange={(event) => {
+                        const currentReviewerIds = data.reviewerIds ?? []
+                        const nextReviewerIds = event.target.checked
+                          ? Array.from(new Set([...currentReviewerIds, reviewer.id]))
+                          : currentReviewerIds.filter((id) => id !== reviewer.id)
+                        onUpdate({
+                          assignmentType: 'direct_reviewer',
+                          groupId: undefined,
+                          reviewerIds: nextReviewerIds,
+                          reviewPolicy: 'any_one',
+                          requiredApprovals: 1,
+                          subtitle: nextReviewerIds.length > 0
+                            ? `${nextReviewerIds.length} 位审核用户`
+                            : '指定用户审核',
+                        })
+                      }}
+                    />
+                    <span>
+                      <strong>{reviewer.name}</strong>
+                      <small>{reviewer.role}</small>
+                    </span>
+                  </label>
+                )
+              })}
+            </div>
+            <small>运行到该节点后，选中的用户会在人工审核模块看到待审任务；本版本只保留通过和驳回。</small>
+          </div>
+          <div className="inspector-group legacy-review-config">
             <span className="inspector-group-title">分配规则</span>
             <label className="form-field">
               <span>分配方式</span>
@@ -1338,7 +1925,7 @@ function NodeInspector({
               </label>
             )}
           </div>
-          <div className="inspector-group">
+          <div className="inspector-group legacy-review-config">
             <span className="inspector-group-title">会签策略</span>
             <label className="form-field">
               <span>会签策略</span>
@@ -1424,62 +2011,6 @@ function NodeInspector({
           </div>
         </>
       )}
-      <div className="inspector-group">
-        <span className="inspector-group-title">Data Object 契约</span>
-        <label className="form-field">
-          <span>输入 Data Object</span>
-          <select
-            aria-label="输入 Data Object"
-            value={data.inputDataObjectRef?.definitionId ?? ''}
-            onChange={(event) => bindDataObjectRef('inputDataObjectRef', event.target.value)}
-          >
-            <option value="">暂不绑定输入契约</option>
-            {dataObjectOptions.map((definition) => (
-              <option value={definition.id} key={definition.id}>
-                {definition.name} · {definition.version} · {definition.status}
-              </option>
-            ))}
-          </select>
-          {data.inputDataObjectRef && (
-            <small>
-              {data.inputDataObjectRef.name} · {data.inputDataObjectRef.version} · {data.inputDataObjectRef.status} · {data.inputDataObjectRef.schemaSummary}
-            </small>
-          )}
-        </label>
-        <label className="form-field">
-          <span>输出 Data Object</span>
-          <select
-            aria-label="输出 Data Object"
-            value={data.outputDataObjectRef?.definitionId ?? ''}
-            onChange={(event) => bindDataObjectRef('outputDataObjectRef', event.target.value)}
-          >
-            <option value="">暂不绑定输出契约</option>
-            {dataObjectOptions.map((definition) => (
-              <option value={definition.id} key={definition.id}>
-                {definition.name} · {definition.version} · {definition.status}
-              </option>
-            ))}
-          </select>
-          {data.outputDataObjectRef && (
-            <small>
-              {data.outputDataObjectRef.name} · {data.outputDataObjectRef.version} · {data.outputDataObjectRef.status} · {data.outputDataObjectRef.schemaSummary}
-            </small>
-          )}
-        </label>
-        {dataObjectOptions.length === 0 && (
-          <small>当前 Workspace 还没有 Data Object，请先到 Data Object 资产页创建。</small>
-        )}
-        {(data.inputDataObjectRef || data.outputDataObjectRef) && (
-          <div className="inspector-section compact" aria-label="Data Object 绑定摘要">
-            {data.inputDataObjectRef && (
-              <div><span>输入契约</span><strong>{data.inputDataObjectRef.schemaSummary}</strong></div>
-            )}
-            {data.outputDataObjectRef && (
-              <div><span>输出契约</span><strong>{data.outputDataObjectRef.schemaSummary}</strong></div>
-            )}
-          </div>
-        )}
-      </div>
       <label className="form-field"><span>节点说明</span><input value={data.subtitle} onChange={(event) => onUpdate({ subtitle: event.target.value })} /></label>
       <div className="inspector-section">
         <div><span>节点类型</span><strong>{data.kind}</strong></div>

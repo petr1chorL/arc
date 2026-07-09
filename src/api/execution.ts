@@ -51,6 +51,10 @@ export async function listRuns(workspaceId: string): Promise<ExecutionRun[]> {
   return readJson<ExecutionRun[]>(await apiFetch(workspacePath(workspaceId, '/runs')))
 }
 
+export async function deleteRun(workspaceId: string, runId: string): Promise<void> {
+  await apiFetch(workspacePath(workspaceId, `/runs/${runId}`), { method: 'DELETE' })
+}
+
 export async function rerunWorkflowRun(
   workspaceId: string,
   runId: string,

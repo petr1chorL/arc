@@ -1,4 +1,4 @@
-import { Bot, Boxes, Filter, PencilLine, Plus, Search, Wrench } from 'lucide-react'
+import { Bot, Boxes, Filter, Plus, Search, Wrench } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useWorkspace } from '../auth/workspaceContextState'
@@ -100,13 +100,6 @@ export function Agents() {
                 <div>
                   <Link className="agent-name-link" to={workspacePath(`agents/${agent.id}`)}><strong>{agent.name}</strong></Link>
                   <span>{agent.role}</span>
-                  <Link
-                    aria-label={`编辑与发布 ${agent.name}`}
-                    className="agent-manage-link"
-                    to={workspacePath(`agents/${agent.id}`)}
-                  >
-                    <PencilLine size={12} />编辑与发布
-                  </Link>
                   {agent.tools.length > 0 && (
                     <div className="agent-tools">
                       {agent.tools.map((tool) => <span key={tool}>{tool}</span>)}

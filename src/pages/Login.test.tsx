@@ -26,6 +26,7 @@ describe('Login page', () => {
     )
 
     expect(screen.getByRole('heading', { name: '登录 ARC.ONE' })).toBeInTheDocument()
+    expect(screen.getByLabelText('ARC.ONE')).toHaveTextContent('ARC')
     expect(screen.getByLabelText('邮箱')).toBeInTheDocument()
     expect(screen.getByLabelText('密码')).toBeInTheDocument()
   })

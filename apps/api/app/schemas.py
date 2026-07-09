@@ -200,6 +200,7 @@ class AgentCreate(BaseModel):
     model_base_url: str = Field(default="", alias="modelBaseUrl", max_length=500)
     temperature: float = Field(default=0.2, ge=0, le=2)
     max_output_tokens: int = Field(default=2000, alias="maxOutputTokens", ge=1, le=200000)
+    runtime_manifest: dict = Field(default_factory=dict, alias="runtimeManifest")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -235,6 +236,7 @@ class AgentUpdate(BaseModel):
     system_prompt: str | None = Field(default=None, alias="systemPrompt", max_length=20000)
     tools: list[str] | None = None
     skills: list[str] | None = None
+    runtime_manifest: dict | None = Field(default=None, alias="runtimeManifest")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -292,6 +294,7 @@ class AgentRead(BaseModel):
         serialization_alias="skillAssetRefs",
     )
     system_prompt: str = Field(serialization_alias="systemPrompt")
+    runtime_manifest: dict = Field(serialization_alias="runtimeManifest")
     created_at: datetime = Field(serialization_alias="createdAt")
     updated_at: datetime = Field(serialization_alias="updatedAt")
 
@@ -676,6 +679,7 @@ class VersionRead(BaseModel):
     id: str
     version: str
     snapshot: dict
+    note: str = ""
     created_at: datetime = Field(serialization_alias="createdAt")
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
@@ -727,6 +731,14 @@ class WorkflowCreate(BaseModel):
 
 class WorkflowUpdate(WorkflowCreate):
     pass
+
+
+class WorkflowPublish(BaseModel):
+    note: str = Field(default="", max_length=500)
+
+
+class AgentPublish(BaseModel):
+    note: str = Field(default="", max_length=500)
 
 
 class WorkflowRead(BaseModel):

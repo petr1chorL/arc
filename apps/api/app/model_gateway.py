@@ -54,7 +54,7 @@ class OpenAICompatibleGateway:
         max_output_tokens: int = 2000,
     ) -> ModelResult:
         effective_base_url = model_base_url.strip() or self.settings.model_base_url
-        effective_api_key = os.environ.get(model_secret_ref.strip(), "") if model_secret_ref.strip() else ""
+        effective_api_key = resolve_model_api_key(model_secret_ref)
         effective_api_key = effective_api_key or self.settings.model_api_key
         if not effective_api_key or not effective_base_url:
             raise ModelGatewayError("模型服务未配置")
@@ -95,3 +95,19 @@ class OpenAICompatibleGateway:
             ) from None
         except (httpx.HTTPError, KeyError, TypeError, ValueError):
             raise ModelGatewayError("模型服务请求失败") from None
+
+
+def resolve_model_api_key(model_secret_ref: str, fallback: str = "") -> str:
+    secret_ref = model_secret_ref.strip()
+    if not secret_ref:
+        return fallback
+    env_value = os.environ.get(secret_ref, "")
+    if env_value:
+        return env_value
+    if _looks_like_inline_api_key(secret_ref):
+        return secret_ref
+    return fallback
+
+
+def _looks_like_inline_api_key(value: str) -> bool:
+    return value.lower().startswith(("sk-", "sk_"))

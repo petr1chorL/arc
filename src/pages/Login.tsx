@@ -45,7 +45,9 @@ export function Login() {
     <div className="auth-shell">
       <section className="auth-card">
         <div className="auth-copy">
-          <div className="auth-mark">CO</div>
+          <div className="auth-mark" aria-label="ARC.ONE">
+            <span>ARC</span>
+          </div>
           <p className="section-kicker">IDENTITY & ACCESS</p>
           <h1>登录 ARC.ONE</h1>
           <span>使用 Workspace 成员身份进入当前协作空间。</span>

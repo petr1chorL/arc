@@ -6,6 +6,8 @@
 
 让管理员可以在本机或单机服务器上启动 V1.0 Lite 试点环境，并能明确知道如何停止、重启和排查最常见问题。
 
+如果只想按最短路径验收，请先阅读 `docs/V1_LITE_ACCEPTANCE_ENTRYPOINT.md`。
+
 ## 第一性原理
 
 V1.0 Lite 的部署目标不是高可用生产集群，而是让试点用户能稳定进入同一个可运行环境，完成一次真实业务闭环。
@@ -50,6 +52,61 @@ python -m venv .\apps\api\.venv
 .\scripts\start-v1-lite.ps1
 ```
 
+如果当前 worktree 没有 `apps/api/.env`，但模型密钥保存在另一个本地 env 文件里，可以显式指定：
+
+```powershell
+.\scripts\start-v1-lite.ps1 -EnvFile "D:\path\to\apps\api\.env"
+```
+
+`-EnvFile` 只会在启动 API 与 Worker 子进程前把变量注入当前 PowerShell 进程，启动完成后恢复原环境；
+它不会把密钥写入 Git、日志或运行证据。
+
+如果使用 `-EnvFile` 启动服务，管理员初始化和种子化也要使用同一个 env 文件：
+
+```powershell
+$env:ARC_ONE_ADMIN_EMAIL="<试点管理员邮箱>"
+$env:ARC_ONE_ADMIN_PASSWORD="<通过安全渠道提供的密码>"
+.\scripts\bootstrap-v1-lite-admin.ps1 -EnvFile "D:\path\to\apps\api\.env"
+.\scripts\seed-v1-lite.ps1 -EnvFile "D:\path\to\apps\api\.env"
+```
+
+## 种子化试点资产
+
+首次启动前或试点资产被清空后，执行：
+
+```powershell
+.\scripts\seed-v1-lite.ps1
+```
+
+worktree 或自定义数据库场景：
+
+```powershell
+.\scripts\seed-v1-lite.ps1 -EnvFile "D:\path\to\apps\api\.env"
+```
+
+脚本要求目标 Workspace 所属组织已经存在 active 管理员账号。脚本会写入默认数据库 `apps/api/data/arc_one.db`，并输出 Workspace、Reviewer、Agent、Workflow、Rubric、Golden Set 和通知渠道 ID。它只保存非密钥配置，不读取或输出 API Key。
+
+如果使用自定义数据库：
+
+```powershell
+.\scripts\seed-v1-lite.ps1 -DatabaseUrl "sqlite:///D:/path/to/arc-one.db"
+```
+
+## 模型密钥前置条件
+
+`verify-v1-lite.ps1` 使用 FakeGateway，不需要真实模型密钥。真实服务验收和页面手工运行
+会调用 OpenAI-compatible ModelGateway，因此运行 API 的进程必须能读到模型密钥：
+
+- 使用全局模型配置时，配置 `MODEL_API_KEY`。
+- 使用 Agent Provider 时，配置该 Provider 的 `secretRef` 对应环境变量。
+
+密钥只能通过 `.env`、系统环境变量或部署平台 Secret 注入；不要写入 Git、文档、截图或
+运行证据 JSON。若 Workflow 在第一个 Agent 节点失败且 Token 为 0，优先检查运行中的 API
+进程是否拿到了这些环境变量。
+
+在 worktree 场景中，后端默认只读取当前 worktree 的 `apps/api/.env`。如果密钥保存在主仓库或其他
+本地路径，请用 `start-v1-lite.ps1 -EnvFile "<本地 env 路径>"` 启动。
+
 启动后访问：
 
 ```text
@@ -72,6 +129,28 @@ http://127.0.0.1:8000/docs
 
 ```powershell
 .\scripts\check-v1-lite.ps1
+```
+
+完整自动验收：
+
+```powershell
+.\scripts\verify-v1-lite.ps1
+```
+
+真实服务证据采集：
+
+```powershell
+$env:ARC_ONE_ACCEPTANCE_EMAIL="<试点账号邮箱>"
+$env:ARC_ONE_ACCEPTANCE_PASSWORD="<通过安全渠道提供的密码>"
+.\scripts\accept-v1-lite.ps1 -OutputPath ".scratch\runtime\v1-lite-runtime-acceptance.json"
+```
+
+如果使用自定义 API 端口：
+
+```powershell
+.\scripts\accept-v1-lite.ps1 `
+  -ApiUrl "http://127.0.0.1:8010" `
+  -OutputPath ".scratch\runtime\v1-lite-runtime-acceptance.json"
 ```
 
 自检会验证：
@@ -141,6 +220,34 @@ docker compose up --build api execution-worker notification-worker
 
 当前 Runbook 的默认推荐仍是本地 Lite 脚本，因为它更适合快速验收和问题定位。
 
+## Zeabur 同源部署
+
+公网试点建议使用仓库根目录的 `Dockerfile` 部署为单个 Web 服务：
+
+- Nginx 负责前端静态文件。
+- Nginx 将 `/api/` 反代到同容器内的 FastAPI。
+- 启动时先执行管理员初始化，再执行 V1 Lite 种子资产写入。
+
+这种同源部署是登录、Session Cookie 和 CSRF 的推荐方式。不要把前端和 API 放在不同
+子域名上承载 V1 Lite 登录版，否则浏览器无法从前端域名读取 API 域名下的 CSRF Cookie。
+
+Zeabur 服务环境变量：
+
+```text
+DATABASE_URL=<Zeabur PostgreSQL connection string>
+ALLOWED_ORIGINS=https://arc-web-lindabaoz.zeabur.app
+COOKIE_SECURE=true
+ARC_ONE_ADMIN_EMAIL=<pilot admin email>
+ARC_ONE_ADMIN_PASSWORD=<set in Zeabur secret/environment variables>
+ARC_ONE_ADMIN_DISPLAY_NAME=V1 Lite Browser Admin
+MODEL_API_KEY=<set in Zeabur secret/environment variables, optional for page browsing>
+MODEL_BASE_URL=https://api.deepseek.com
+MODEL_DEFAULT_MODEL=deepseek-v4-pro
+```
+
+`ARC_ONE_ADMIN_PASSWORD` 和 `MODEL_API_KEY` 只能通过部署平台 Secret 或环境变量注入，
+不得写入代码、文档、截图或日志。
+
 ## 验收
 
 启动后至少验证：
@@ -148,6 +255,8 @@ docker compose up --build api execution-worker notification-worker
 - [ ] 前端首页可打开。
 - [ ] API 文档可打开。
 - [ ] `.\scripts\check-v1-lite.ps1` 通过。
+- [ ] `.\scripts\seed-v1-lite.ps1` 已成功输出试点资产。
+- [ ] `.\scripts\accept-v1-lite.ps1` 已成功输出 Run ID、Human Task ID、Evaluation ID、Regression Run ID 和 Trace ID。
 - [ ] 可以登录或进入已配置 Workspace。
 - [ ] 可以启动一次试点 Workflow。
 - [ ] Execution Worker 能消费运行任务。

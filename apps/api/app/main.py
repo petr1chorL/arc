@@ -1,10 +1,9 @@
 import json
-import os
 from collections.abc import Callable, Iterator
 from datetime import datetime
 
 from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Query, Request, Response, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
@@ -19,11 +18,12 @@ from app.execution import ExecutionService, WorkflowResumeService
 from app.human_tasks import HumanTaskConflict, HumanTaskPermission, HumanTaskService, HumanTaskValidation
 from app.judge_gateway import JudgeGateway, ModelJudgeGateway
 from app.migrations import ensure_current_schema
-from app.model_gateway import ModelGateway, OpenAICompatibleGateway
+from app.model_gateway import ModelGateway, OpenAICompatibleGateway, resolve_model_api_key
 from app.models import (
     AgentRecord,
     AgentVersionRecord,
     ArtifactRecord,
+    ArtifactDiffRecord,
     ArtifactVersionRecord,
     AuditEventRecord,
     Base,
@@ -45,7 +45,9 @@ from app.models import (
     RemediationTaskActivityRecord,
     RemediationTaskRecord,
     ReviewerRecord,
+    ResumeRequestRecord,
     ReviewGroupRecord,
+    ReviewDecisionRecord,
     RubricRecord,
     RubricVersionRecord,
     ToolSkillAssetRecord,
@@ -73,6 +75,7 @@ from app.routers.auth import (
 from app.routers.workspaces import create_workspaces_router
 from app.schemas import (
     AgentCreate,
+    AgentPublish,
     AgentRead,
     AgentUpdate,
     ArtifactCatalogItemRead,
@@ -169,6 +172,7 @@ from app.schemas import (
     ValidationResult,
     VersionRead,
     WorkflowCreate,
+    WorkflowPublish,
     WorkflowRead,
     WorkflowUpdate,
 )
@@ -539,6 +543,12 @@ def create_app(
     def agent_snapshot(record: AgentRecord) -> dict:
         return AgentRead.model_validate(record).model_dump(by_alias=True, mode="json")
 
+    def model_secret_ref_snapshot_value(provider: ModelProviderRecord) -> str:
+        secret_ref = provider.secret_ref.strip()
+        if secret_ref.lower().startswith(("sk-", "sk_")):
+            return ""
+        return secret_ref
+
     def agent_version_snapshot(
         record: AgentRecord,
         *,
@@ -557,7 +567,7 @@ def create_app(
         snapshot["modelProvider"] = provider.provider_type
         snapshot["modelBaseUrl"] = provider.base_url
         snapshot["model"] = provider.default_model
-        snapshot["modelSecretRef"] = provider.secret_ref
+        snapshot["modelSecretRef"] = model_secret_ref_snapshot_value(provider)
         return snapshot
 
     def find_rubric(workspace_id: str, rubric_id: str, session: Session) -> RubricRecord:
@@ -849,6 +859,64 @@ def create_app(
         return payload.model_copy(
             update={"nodes": [NodeRunRead.model_validate(node) for node in nodes]},
         )
+
+    def delete_run_records(session: Session, run: WorkflowRunRecord) -> None:
+        node_run_ids = list(session.scalars(
+            select(NodeRunRecord.id).where(NodeRunRecord.run_id == run.id),
+        ))
+        artifact_ids = list(session.scalars(
+            select(ArtifactRecord.id).where(ArtifactRecord.run_id == run.id),
+        ))
+        human_task_ids = list(session.scalars(
+            select(HumanTaskRecord.id).where(HumanTaskRecord.workflow_run_id == run.id),
+        ))
+        decision_ids = (
+            list(session.scalars(
+                select(ReviewDecisionRecord.id).where(ReviewDecisionRecord.human_task_id.in_(human_task_ids)),
+            ))
+            if human_task_ids else []
+        )
+        diff_ids = (
+            list(session.scalars(
+                select(ArtifactDiffRecord.id).where(ArtifactDiffRecord.human_task_id.in_(human_task_ids)),
+            ))
+            if human_task_ids else []
+        )
+        candidate_filters = [FeedbackCandidateRecord.workflow_run_id == run.id]
+        if human_task_ids:
+            candidate_filters.append(FeedbackCandidateRecord.human_task_id.in_(human_task_ids))
+        if decision_ids:
+            candidate_filters.append(FeedbackCandidateRecord.decision_id.in_(decision_ids))
+        if diff_ids:
+            candidate_filters.append(FeedbackCandidateRecord.diff_id.in_(diff_ids))
+        candidate_ids = list(session.scalars(
+            select(FeedbackCandidateRecord.id).where(or_(*candidate_filters)),
+        ))
+
+        if candidate_ids:
+            session.execute(delete(GoldenSampleRecord).where(GoldenSampleRecord.candidate_id.in_(candidate_ids)))
+            session.execute(delete(FeedbackCandidateRecord).where(FeedbackCandidateRecord.id.in_(candidate_ids)))
+        if human_task_ids:
+            session.execute(delete(NotificationOutboxRecord).where(NotificationOutboxRecord.human_task_id.in_(human_task_ids)))
+            session.execute(delete(ResumeRequestRecord).where(ResumeRequestRecord.human_task_id.in_(human_task_ids)))
+            session.execute(delete(ReviewDecisionRecord).where(ReviewDecisionRecord.human_task_id.in_(human_task_ids)))
+            session.execute(delete(ArtifactDiffRecord).where(ArtifactDiffRecord.human_task_id.in_(human_task_ids)))
+            session.execute(delete(HumanTaskRecord).where(HumanTaskRecord.id.in_(human_task_ids)))
+        if artifact_ids:
+            session.execute(delete(ArtifactVersionRecord).where(ArtifactVersionRecord.artifact_id.in_(artifact_ids)))
+            session.execute(delete(ArtifactRecord).where(ArtifactRecord.id.in_(artifact_ids)))
+        if node_run_ids:
+            session.execute(delete(HumanReviewRecord).where(HumanReviewRecord.node_run_id.in_(node_run_ids)))
+            session.execute(delete(ToolSkillAssetInvocationRecord).where(ToolSkillAssetInvocationRecord.node_run_id.in_(node_run_ids)))
+        session.execute(delete(HumanReviewRecord).where(HumanReviewRecord.run_id == run.id))
+        session.execute(delete(ToolSkillAssetInvocationRecord).where(ToolSkillAssetInvocationRecord.run_id == run.id))
+        session.execute(delete(EvaluationRecord).where(
+            EvaluationRecord.subject_id == run.id,
+            EvaluationRecord.subject_type.in_(["run", "workflow_run"]),
+        ))
+        session.execute(delete(ExecutionJobRecord).where(ExecutionJobRecord.run_id == run.id))
+        session.execute(delete(NodeRunRecord).where(NodeRunRecord.run_id == run.id))
+        session.delete(run)
 
     run_operation_actions = {
         "run.rerun",
@@ -1499,6 +1567,7 @@ def create_app(
         agent_id: str,
         request: Request,
         context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+        payload: AgentPublish | None = Body(default=None),
     ) -> AgentVersionRecord:
         context, session = context_bundle
         authorization_service.require_capability(
@@ -1543,6 +1612,7 @@ def create_app(
                 session=session,
                 workspace_id=context.workspace.id,
             ),
+            note=(payload.note if payload else "").strip(),
         )
         record.version = version
         record.status = "鍦ㄧ嚎"
@@ -1584,6 +1654,43 @@ def create_app(
             session,
             context,
             action="agent.deactivate",
+            target_type="agent",
+            target_id=record.id,
+            request=request,
+        )
+        session.commit()
+        session.refresh(record)
+        return record
+
+    @router.post("/agents/{agent_id}/activate", response_model=AgentRead)
+    def activate_agent(
+        agent_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> AgentRecord:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "agent.write",
+            action="agent.activate",
+            target_type="agent",
+            target_id=agent_id,
+            request=request,
+        )
+        record = find_agent(context.workspace.id, agent_id, session)
+        published_count = session.scalar(
+            select(func.count()).select_from(AgentVersionRecord).where(
+                AgentVersionRecord.agent_id == agent_id,
+                AgentVersionRecord.workspace_id == context.workspace.id,
+            ),
+        ) or 0
+        record.status = "在线" if published_count > 0 else "调试中"
+        record.updated_at = utc_now()
+        record_success(
+            session,
+            context,
+            action="agent.activate",
             target_type="agent",
             target_id=record.id,
             request=request,
@@ -2554,7 +2661,7 @@ def create_app(
         )
         if provider is None:
             raise HTTPException(status_code=404, detail="模型 Provider 不存在")
-        secret_value = os.environ.get(provider.secret_ref)
+        secret_value = resolve_model_api_key(provider.secret_ref)
         if not secret_value:
             return ModelProviderConnectivityRead(
                 provider_id=provider.id,
@@ -2655,7 +2762,10 @@ def create_app(
         )
         statement = (
             select(WorkflowRecord)
-            .where(WorkflowRecord.workspace_id == context.workspace.id)
+            .where(
+                WorkflowRecord.workspace_id == context.workspace.id,
+                WorkflowRecord.status != "已删除",
+            )
             .order_by(WorkflowRecord.updated_at.desc())
         )
         return list(session.scalars(statement))
@@ -2756,6 +2866,36 @@ def create_app(
         session.refresh(record)
         return record
 
+    @router.delete("/workflows/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT)
+    def delete_workflow(
+        workflow_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> Response:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "workflow.write",
+            action="workflow.delete",
+            target_type="workflow",
+            target_id=workflow_id,
+            request=request,
+        )
+        record = find_workflow(context.workspace.id, workflow_id, session)
+        record.status = "已删除"
+        record.updated_at = utc_now()
+        record_success(
+            session,
+            context,
+            action="workflow.delete",
+            target_type="workflow",
+            target_id=record.id,
+            request=request,
+        )
+        session.commit()
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
     @router.post("/workflows/{workflow_id}/validate", response_model=ValidationResult)
     def validate_workflow_draft(
         workflow_id: str,
@@ -2812,6 +2952,7 @@ def create_app(
         workflow_id: str,
         request: Request,
         context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+        payload: WorkflowPublish | None = Body(default=None),
     ) -> WorkflowVersionRecord:
         context, session = context_bundle
         authorization_service.require_capability(
@@ -2839,6 +2980,7 @@ def create_app(
             workflow_id=workflow_id,
             version=version,
             snapshot=workflow_snapshot(record, session, context.workspace.id),
+            note=(payload.note if payload else "").strip(),
         )
         record.version = version
         record.status = "宸插彂甯?"
@@ -3168,6 +3310,37 @@ def create_app(
             .order_by(WorkflowRunRecord.started_at.desc())
         )
         return [run_response(run, session) for run in session.scalars(statement)]
+
+    @router.delete("/runs/{run_id}", status_code=status.HTTP_204_NO_CONTENT)
+    def delete_run(
+        run_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> Response:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "run.execute",
+            action="run.delete",
+            target_type="run",
+            target_id=run_id,
+            request=request,
+        )
+        run = find_run(context.workspace.id, run_id, session)
+        run_name = run.name
+        delete_run_records(session, run)
+        record_success(
+            session,
+            context,
+            action="run.delete",
+            target_type="run",
+            target_id=run_id,
+            request=request,
+            metadata={"runName": run_name},
+        )
+        session.commit()
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @router.get("/artifacts", response_model=list[ArtifactCatalogItemRead])
     def list_artifacts(
@@ -4483,7 +4656,16 @@ def create_app(
                 modified_content=payload.modified_content,
                 tags=payload.tags,
             )
-            if detail["status"] in {"宸查€氳繃", "淇敼鍚庨€氳繃", "宸查┏鍥?", "宸查€€鍥?"}:
+            if detail["status"] in {
+                "已通过",
+                "修改后通过",
+                "已驳回",
+                "已退回",
+                "宸查€氳繃",
+                "淇敼鍚庨€氳繃",
+                "宸查┏鍥?",
+                "宸查€€鍥?",
+            }:
                 workflow_resume_service.apply_outcome(
                     session=session,
                     workspace_id=context.workspace.id,
@@ -4700,10 +4882,46 @@ def create_app(
             "failed_samples": run.failed_samples,
             "pass_rate": run.pass_rate,
             "evaluation_ids": run.evaluation_ids,
-            "records": records or [],
+            "records": [
+                evaluation_record_to_read(record)
+                for record in (records or [])
+            ],
             "created_by": run.created_by,
             "created_at": run.created_at,
             "completed_at": run.completed_at,
+        }
+
+    def normalize_rubric_snapshot(snapshot: dict) -> dict:
+        pass_score = snapshot.get("pass_score", snapshot.get("passScore", 0))
+        judge_type = snapshot.get("judge_type", snapshot.get("judgeType", "deterministic"))
+        judge_model = snapshot.get("judge_model", snapshot.get("judgeModel", "deterministic"))
+        return {
+            **snapshot,
+            "pass_score": pass_score,
+            "judge_type": judge_type,
+            "judge_model": judge_model,
+            "passScore": pass_score,
+            "judgeType": judge_type,
+            "judgeModel": judge_model,
+        }
+
+    def evaluation_record_to_read(record: EvaluationRecord) -> dict:
+        return {
+            "id": record.id,
+            "rubric_id": record.rubric_id,
+            "rubric_version": record.rubric_version,
+            "rubric_snapshot": normalize_rubric_snapshot(record.rubric_snapshot),
+            "subject_type": record.subject_type,
+            "subject_id": record.subject_id,
+            "artifact_text": record.artifact_text,
+            "dimension_scores": record.dimension_scores,
+            "score": record.score,
+            "status": record.status,
+            "rationale": record.rationale,
+            "evaluator_type": record.evaluator_type,
+            "evaluator_model": record.evaluator_model,
+            "evaluator_input": record.evaluator_input,
+            "created_at": record.created_at,
         }
 
     def remediation_task_to_read(
@@ -5915,7 +6133,7 @@ def create_app(
     def list_evaluation_records(
         request: Request,
         context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
-    ) -> list[EvaluationRecord]:
+    ) -> list[dict]:
         context, session = context_bundle
         authorization_service.require_capability(
             session,
@@ -5926,11 +6144,14 @@ def create_app(
             target_id=context.workspace.id,
             request=request,
         )
-        return list(session.scalars(
-            select(EvaluationRecord)
-            .where(EvaluationRecord.workspace_id == context.workspace.id)
-            .order_by(EvaluationRecord.created_at.desc()),
-        ))
+        return [
+            evaluation_record_to_read(record)
+            for record in session.scalars(
+                select(EvaluationRecord)
+                .where(EvaluationRecord.workspace_id == context.workspace.id)
+                .order_by(EvaluationRecord.created_at.desc()),
+            )
+        ]
 
     @router.post(
         "/evaluations/rubrics/{rubric_id}/evaluate",
@@ -5942,7 +6163,7 @@ def create_app(
         payload: EvaluationRunCreate,
         request: Request,
         context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
-    ) -> EvaluationRecord:
+    ) -> dict:
         context, session = context_bundle
         authorization_service.require_capability(
             session,
@@ -6005,7 +6226,7 @@ def create_app(
         )
         session.commit()
         session.refresh(record)
-        return record
+        return evaluation_record_to_read(record)
 
     @router.get(
         "/feedback-candidates/{candidate_id}",

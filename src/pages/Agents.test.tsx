@@ -71,7 +71,7 @@ describe('Agents page', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
-  it('shows an explicit entry for editing and publishing each Agent', async () => {
+  it('links each Agent name to the detail page without a separate manage action', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
       new Response(JSON.stringify([existingAgent]), { status: 200 }),
     ))
@@ -82,12 +82,13 @@ describe('Agents page', () => {
       </WorkspaceProvider>,
     )
 
-    const manageLink = await screen.findByRole('link', {
-      name: '编辑与发布 已有 Agent',
+    const detailLink = await screen.findByRole('link', {
+      name: '已有 Agent',
     })
-    expect(manageLink).toHaveAttribute(
+    expect(detailLink).toHaveAttribute(
       'href',
       `/w/${workspace.slug}/agents/${existingAgent.id}`,
     )
+    expect(screen.queryByRole('link', { name: '编辑与发布 已有 Agent' })).not.toBeInTheDocument()
   })
 })

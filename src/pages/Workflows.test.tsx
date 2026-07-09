@@ -1,6 +1,7 @@
-import { createEvent, fireEvent, render, screen, within } from '@testing-library/react'
+import { createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { DragEventHandler, ReactNode } from 'react'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkspaceProvider } from '../auth/WorkspaceContext'
 import { Workflows } from './Workflows'
@@ -30,7 +31,7 @@ vi.mock('@xyflow/react', async () => {
       onInit,
       children,
     }: {
-      nodes: Array<{ id: string; data: Record<string, unknown> }>
+      nodes: Array<{ id: string; className?: string; data: Record<string, unknown> }>
       edges: Array<{ id: string; source: string; target: string }>
       onConnect?: (connection: {
         source: string
@@ -66,6 +67,8 @@ vi.mock('@xyflow/react', async () => {
           ))}
           {nodes.map((node) => (
             <button
+              className={node.className}
+              data-node-status={String(node.data.status ?? '')}
               data-testid={`flow-node-${node.id}`}
               key={node.id}
               onClick={(event) => onNodeClick?.(event, node)}
@@ -124,11 +127,32 @@ const workflow = {
   updatedAt: '2026-06-24T07:00:00Z',
 }
 
-function renderWorkflows() {
+const workflowVersion = {
+  id: 'workflow-version-1',
+  version: 'v1.0.1',
+  snapshot: {
+    ...workflow,
+    version: 'v1.0.1',
+  },
+  createdAt: '2026-06-25T08:00:00Z',
+}
+
+function LocationProbe() {
+  const location = useLocation()
+  return <output data-testid="location">{location.pathname}{location.search}</output>
+}
+
+function renderWorkflows(initialEntry = '/w/ai-capability-center/workflows/workflow-1') {
   return render(
-    <WorkspaceProvider workspace={workspace}>
-      <Workflows />
-    </WorkspaceProvider>,
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <WorkspaceProvider workspace={workspace}>
+        <Routes>
+          <Route path="/w/:workspaceSlug/workflows" element={<><Workflows /><LocationProbe /></>} />
+          <Route path="/w/:workspaceSlug/workflows/:workflowId" element={<><Workflows /><LocationProbe /></>} />
+          <Route path="/w/:workspaceSlug/runs" element={<><div>运行中心</div><LocationProbe /></>} />
+        </Routes>
+      </WorkspaceProvider>
+    </MemoryRouter>,
   )
 }
 
@@ -140,6 +164,283 @@ describe('Workflows', () => {
   afterEach(() => {
     flowMock.screenToFlowPosition.mockReset()
     vi.unstubAllGlobals()
+    window.history.pushState({}, '', '/')
+  })
+
+  it('opens workflow editing on a dedicated route from the workflow list', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === `/api/workspaces/${workspace.id}/workflows` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([workflow]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/agents` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (
+        url === `/api/workspaces/${workspace.id}/reviewers`
+        || url === `/api/workspaces/${workspace.id}/review-groups`
+      ) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWorkflows('/w/ai-capability-center/workflows')
+
+    expect(await screen.findByRole('heading', { name: '工作流列表' })).toBeInTheDocument()
+    expect(screen.queryByTestId('flow-node-human-1')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '运行 新品研究流程' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '编辑 新品研究流程' }))
+
+    expect(screen.getByTestId('location')).toHaveTextContent('/w/ai-capability-center/workflows/workflow-1')
+    expect(screen.getByLabelText('工作流名称')).toHaveTextContent('新品研究流程')
+    expect(screen.getByTestId('flow-node-human-1')).toBeInTheDocument()
+  })
+
+  it('navigates from the workflow list run action to the run center after creating a run', async () => {
+    const user = userEvent.setup()
+    const createdRun = {
+      id: 'run-from-directory',
+      kind: 'workflow',
+      name: workflow.name,
+      workflowId: workflow.id,
+      workflowVersion: workflow.version,
+      agentId: null,
+      agentVersion: null,
+      status: '已完成',
+      input: '查询长沙天气',
+      output: '天气查询完成',
+      score: 100,
+      model: 'configured-model',
+      promptTokens: 10,
+      completionTokens: 5,
+      totalTokens: 15,
+      costUsd: 0,
+      durationMs: 1000,
+      currentNode: '流程完成',
+      error: '',
+      startedAt: '2026-07-06T08:00:00Z',
+      completedAt: '2026-07-06T08:00:01Z',
+      nodes: [],
+    }
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === `/api/workspaces/${workspace.id}/workflows` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([workflow]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/agents` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (
+        url === `/api/workspaces/${workspace.id}/reviewers`
+        || url === `/api/workspaces/${workspace.id}/review-groups`
+      ) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/workflows/workflow-1/runs` && init?.method === 'POST') {
+        return Promise.resolve(new Response(JSON.stringify(createdRun), { status: 201 }))
+      }
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWorkflows('/w/ai-capability-center/workflows')
+
+    await user.click(await screen.findByRole('button', { name: '运行 新品研究流程' }))
+    await user.type(screen.getByLabelText('运行输入'), '查询长沙天气')
+    await user.click(screen.getByRole('button', { name: '开始运行' }))
+
+    await screen.findByText('运行中心')
+    expect(screen.getByTestId('location')).toHaveTextContent('/w/ai-capability-center/runs?runId=run-from-directory')
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/workspaces/${workspace.id}/workflows/workflow-1/runs`,
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
+  it('labels workflow list metadata and opens version history from the list', async () => {
+    const user = userEvent.setup()
+    const publishedWorkflow = {
+      ...workflow,
+      id: 'workflow-published',
+      name: 'Published workflow',
+      status: 'published',
+    }
+    const unknownStatusWorkflow = {
+      ...workflow,
+      id: 'workflow-unknown-status',
+      name: 'Unknown status workflow',
+      status: '???',
+    }
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === `/api/workspaces/${workspace.id}/workflows` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([
+          workflow,
+          publishedWorkflow,
+          unknownStatusWorkflow,
+        ]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/agents` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (
+        url === `/api/workspaces/${workspace.id}/reviewers`
+        || url === `/api/workspaces/${workspace.id}/review-groups`
+      ) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([workflowVersion]), { status: 200 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWorkflows('/w/ai-capability-center/workflows')
+
+    const metadata = await screen.findByLabelText('新品研究流程 元信息')
+    expect(within(metadata).getByText('状态')).toBeInTheDocument()
+    expect(within(metadata).getByText('版本')).toBeInTheDocument()
+    expect(within(metadata).getByText('节点')).toBeInTheDocument()
+    expect(within(metadata).getByText('连线')).toBeInTheDocument()
+    expect(within(metadata).getByText('v1.0.0')).toBeInTheDocument()
+    expect(within(await screen.findByLabelText('Published workflow 元信息')).getByText('已发布')).toBeInTheDocument()
+    expect(within(await screen.findByLabelText('Unknown status workflow 元信息')).getByText('状态未知')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '查看版本记录 新品研究流程' }))
+
+    const dialog = await screen.findByRole('dialog', { name: '工作流版本记录' })
+    expect(within(dialog).getAllByText('新品研究流程').length).toBeGreaterThan(0)
+    expect(within(dialog).getByText('v1.0.1')).toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([url]) => (
+      url === `/api/workspaces/${workspace.id}/workflows/workflow-1/versions`
+    ))).toBe(true)
+  })
+
+  it('publishes a workflow only after collecting a version note', async () => {
+    const user = userEvent.setup()
+    const publishedVersion = {
+      ...workflowVersion,
+      note: '补充人工审核后的收口说明',
+    }
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === `/api/workspaces/${workspace.id}/workflows` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([workflow]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/agents` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (
+        url === `/api/workspaces/${workspace.id}/reviewers`
+        || url === `/api/workspaces/${workspace.id}/review-groups`
+      ) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/workflows/workflow-1` && init?.method === 'PATCH') {
+        return Promise.resolve(new Response(JSON.stringify(workflow), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/workflows/workflow-1/validate` && init?.method === 'POST') {
+        return Promise.resolve(new Response(JSON.stringify({ valid: true, errors: [] }), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/workflows/workflow-1/publish` && init?.method === 'POST') {
+        return Promise.resolve(new Response(JSON.stringify(publishedVersion), { status: 201 }))
+      }
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([publishedVersion]), { status: 200 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWorkflows()
+
+    await user.click(await screen.findByRole('button', { name: '发布版本' }))
+    const dialog = await screen.findByRole('dialog', { name: '发布版本备注' })
+    await user.click(within(dialog).getByRole('button', { name: '确认发布版本' }))
+    expect(within(dialog).getByText('请填写发布备注')).toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([url, init]) => (
+      url === `/api/workspaces/${workspace.id}/workflows/workflow-1/publish` && init?.method === 'POST'
+    ))).toBe(false)
+
+    await user.type(within(dialog).getByLabelText('发布备注'), '补充人工审核后的收口说明')
+    await user.click(within(dialog).getByRole('button', { name: '确认发布版本' }))
+
+    await screen.findByText('v1.0.1 已发布')
+    const publishCall = fetchMock.mock.calls.find(([url, init]) => (
+      url === `/api/workspaces/${workspace.id}/workflows/workflow-1/publish` && init?.method === 'POST'
+    ))
+    expect(JSON.parse(publishCall?.[1]?.body as string)).toEqual({ note: '补充人工审核后的收口说明' })
+    await user.click(screen.getByRole('button', { name: '版本记录' }))
+    expect(await screen.findByText('版本备注：补充人工审核后的收口说明')).toBeInTheDocument()
+  })
+
+  it('requires confirmation before deleting the current workflow', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === `/api/workspaces/${workspace.id}/workflows` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([workflow]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/agents` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (
+        url === `/api/workspaces/${workspace.id}/reviewers`
+        || url === `/api/workspaces/${workspace.id}/review-groups`
+      ) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/workflows/workflow-1` && init?.method === 'DELETE') {
+        return Promise.resolve(new Response(null, { status: 204 }))
+      }
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWorkflows()
+
+    await user.click(await screen.findByRole('button', { name: '删除工作流' }))
+    const dialog = await screen.findByRole('dialog', { name: '删除工作流？' })
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'DELETE')).toBe(false)
+    await user.click(within(dialog).getByRole('button', { name: '确认删除工作流' }))
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) => (
+      url === `/api/workspaces/${workspace.id}/workflows/workflow-1` && init?.method === 'DELETE'
+    ))).toBe(true))
+    expect(screen.getByTestId('location')).toHaveTextContent('/w/ai-capability-center/workflows')
   })
 
   it('runs the selected published workflow with user input', async () => {
@@ -196,9 +497,8 @@ describe('Workflows', () => {
     await user.type(screen.getByLabelText('运行输入'), '分析新品机会')
     await user.click(screen.getByRole('button', { name: '开始运行' }))
 
-    expect(await screen.findByText('工作流真实执行完成并生成了结构化结果。')).toBeInTheDocument()
-    expect(screen.getByText('已完成')).toBeInTheDocument()
-    expect(screen.queryByText('宸插畬鎴?')).not.toBeInTheDocument()
+    await screen.findByText('运行中心')
+    expect(screen.getByTestId('location')).toHaveTextContent('/w/ai-capability-center/runs?runId=run-1')
     expect(fetchMock).toHaveBeenCalledWith(`/api/workspaces/${workspace.id}/workflows/workflow-1/runs`, expect.objectContaining({
       method: 'POST',
     }))
@@ -273,12 +573,14 @@ describe('Workflows', () => {
     renderWorkflows()
 
     await user.click(await screen.findByRole('button', { name: /运行工作流|杩愯宸ヤ綔娴/ }))
+    await user.click(screen.getByRole('button', { name: /高级输入字段|楂樼骇杈撳叆瀛楁/ }))
     await user.type(screen.getByLabelText(/ASIN/), 'B0TEST')
     await user.type(screen.getByLabelText(/机会评分/), '88')
     await user.click(screen.getByLabelText(/是否加急/))
     await user.click(screen.getByRole('button', { name: /开始运行|寮€濮嬭繍琛/ }))
 
-    expect(await screen.findByText('结构化输入已进入工作流')).toBeInTheDocument()
+    await screen.findByText('运行中心')
+    expect(screen.getByTestId('location')).toHaveTextContent('/w/ai-capability-center/runs?runId=run-schema-1')
     const runCall = fetchMock.mock.calls.find(([url, init]) => (
       url === `/api/workspaces/${workspace.id}/workflows/workflow-1/runs` && init?.method === 'POST'
     ))
@@ -290,7 +592,7 @@ describe('Workflows', () => {
     })
   })
 
-  it('blocks schema run input when required fields are empty', async () => {
+  it('runs a schema workflow from one simple task input without opening advanced fields', async () => {
     const user = userEvent.setup()
     vi.stubGlobal('ResizeObserver', class {
       observe() {}
@@ -334,12 +636,17 @@ describe('Workflows', () => {
     renderWorkflows()
 
     await user.click(await screen.findByRole('button', { name: /运行工作流|杩愯宸ヤ綔娴/ }))
+    await user.type(screen.getByLabelText(/运行输入|杩愯杈撳叆/), '分析新品机会')
     await user.click(screen.getByRole('button', { name: /开始运行|寮€濮嬭繍琛/ }))
 
-    expect(await screen.findByText('ASIN 为必填项')).toBeInTheDocument()
-    expect(fetchMock.mock.calls.some(([url, init]) => (
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) => (
       url === `/api/workspaces/${workspace.id}/workflows/workflow-1/runs` && init?.method === 'POST'
-    ))).toBe(false)
+    ))).toBe(true))
+    const runCall = fetchMock.mock.calls.find(([url, init]) => (
+      url === `/api/workspaces/${workspace.id}/workflows/workflow-1/runs` && init?.method === 'POST'
+    ))
+    const body = JSON.parse(runCall?.[1]?.body as string)
+    expect(JSON.parse(body.input)).toEqual({ asin: '分析新品机会' })
   })
 
   it('guides the user to Reviews when a workflow pauses for human review', async () => {
@@ -392,19 +699,158 @@ describe('Workflows', () => {
 
     renderWorkflows()
 
+    expect(await screen.findByText('当前工作流')).toBeInTheDocument()
+    expect(screen.getByLabelText('工作流名称')).toHaveTextContent(workflow.name)
+    await user.click(screen.getByRole('button', { name: '更改名称' }))
+    expect(screen.getByLabelText('工作流名称')).toHaveValue(workflow.name)
+
     await user.click(await screen.findByRole('button', { name: '运行工作流' }))
     await user.type(screen.getByLabelText('运行输入'), '生成新品定义')
     await user.click(screen.getByRole('button', { name: '开始运行' }))
 
-    expect(await screen.findByText('工作流已暂停在人工审核节点')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '去人工审核处理' })).toHaveAttribute(
-      'href',
-      '/w/ai-capability-center/reviews',
-    )
-    expect(screen.getByRole('link', { name: '查看运行记录' })).toHaveAttribute(
-      'href',
-      '/w/ai-capability-center/runs',
-    )
+    await screen.findByText('运行中心')
+    expect(screen.getByTestId('location')).toHaveTextContent('/w/ai-capability-center/runs?runId=run-human-1')
+  })
+
+  it('closes the run dialog, marks pending nodes, and navigates after creating a run', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const graphWorkflow = {
+      ...workflow,
+      nodes: [
+        {
+          id: 'agent-1',
+          type: 'workflow',
+          position: { x: 120, y: 200 },
+          data: { label: '选择执行 Agent', subtitle: 'v1.0.0', kind: 'agent', status: 'idle' },
+        },
+        {
+          id: 'human-1',
+          type: 'workflow',
+          position: { x: 420, y: 200 },
+          data: { label: '人工审核', subtitle: '1 位审核用户', kind: 'human', status: 'idle' },
+        },
+        {
+          id: 'end-1',
+          type: 'workflow',
+          position: { x: 720, y: 200 },
+          data: { label: '流程完成', subtitle: '结束节点', kind: 'end', status: 'idle' },
+        },
+      ],
+      edges: [
+        { id: 'agent-human', source: 'agent-1', target: 'human-1' },
+        { id: 'human-end', source: 'human-1', target: 'end-1' },
+      ],
+    }
+    const waitingRun = {
+      id: 'run-human-1',
+      kind: 'workflow',
+      name: graphWorkflow.name,
+      workflowId: graphWorkflow.id,
+      workflowVersion: graphWorkflow.version,
+      agentId: null,
+      agentVersion: null,
+      status: '需介入',
+      input: '生成新品定义',
+      output: 'Agent 产出已暂停，等待人工审核。',
+      score: 82,
+      model: 'configured-model',
+      promptTokens: 12,
+      completionTokens: 8,
+      totalTokens: 20,
+      costUsd: 0.001,
+      durationMs: 1200,
+      currentNode: '人工审核',
+      error: '',
+      startedAt: '2026-06-24T08:00:00Z',
+      completedAt: null,
+      nodes: [
+        {
+          id: 'node-run-agent-1',
+          nodeId: 'agent-1',
+          nodeType: 'agent',
+          nodeName: '选择执行 Agent',
+          status: '已完成',
+          input: '生成新品定义',
+          output: '产出草案',
+          model: 'configured-model',
+          promptTokens: 8,
+          completionTokens: 4,
+          totalTokens: 12,
+          costUsd: 0.001,
+          durationMs: 900,
+          attempts: 1,
+          score: 82,
+          error: '',
+          startedAt: '2026-06-24T08:00:00Z',
+          completedAt: '2026-06-24T08:00:01Z',
+        },
+        {
+          id: 'node-run-human-1',
+          nodeId: 'human-1',
+          nodeType: 'human',
+          nodeName: '人工审核',
+          status: '需介入',
+          input: '产出草案',
+          output: '',
+          model: '',
+          promptTokens: 0,
+          completionTokens: 0,
+          totalTokens: 0,
+          costUsd: 0,
+          durationMs: 0,
+          attempts: 1,
+          score: null,
+          error: '',
+          startedAt: '2026-06-24T08:00:01Z',
+          completedAt: null,
+        },
+      ],
+    }
+    let resolveRun: ((response: Response) => void) | undefined
+    const delayedRunResponse = new Promise<Response>((resolve) => {
+      resolveRun = resolve
+    })
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === `/api/workspaces/${workspace.id}/workflows` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([graphWorkflow]), { status: 200 }))
+      }
+      if (url === `/api/workspaces/${workspace.id}/agents` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (
+        url === `/api/workspaces/${workspace.id}/reviewers`
+        || url === `/api/workspaces/${workspace.id}/review-groups`
+      ) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/runs')) {
+        return delayedRunResponse
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWorkflows()
+
+    await user.click(await screen.findByRole('button', { name: '运行工作流' }))
+    await user.type(screen.getByLabelText('运行输入'), '生成新品定义')
+    await user.click(screen.getByRole('button', { name: '开始运行' }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '运行工作流' })).not.toBeInTheDocument())
+    expect(screen.getByText('当前运行：正在运行：选择执行 Agent')).toBeInTheDocument()
+    expect(screen.getByTestId('flow-node-agent-1')).toHaveAttribute('data-node-status', 'running')
+
+    resolveRun?.(new Response(JSON.stringify(waitingRun), { status: 201 }))
+    await screen.findByText('运行中心')
+    expect(screen.getByTestId('location')).toHaveTextContent('/w/ai-capability-center/runs?runId=run-human-1')
   })
 
   it('serializes human assignment signoff and sla settings', async () => {
@@ -487,45 +933,13 @@ describe('Workflows', () => {
     }))
   })
 
-  it('binds data objects to a workflow node and saves the refs with the draft', async () => {
+  it('does not expose Data Object contracts in the workflow node inspector', async () => {
     const user = userEvent.setup()
     vi.stubGlobal('ResizeObserver', class {
       observe() {}
       unobserve() {}
       disconnect() {}
     })
-    const dataObjects = [
-      {
-        id: 'data-object-input',
-        name: 'Product Research Input',
-        description: '节点输入契约',
-        schema: {
-          type: 'object',
-          required: ['asin'],
-          properties: { asin: { type: 'string' } },
-        },
-        status: 'published',
-        version: 'v1.0.0',
-        createdBy: 'user-1',
-        createdAt: '2026-06-28T09:00:00Z',
-        updatedAt: '2026-06-28T09:00:00Z',
-      },
-      {
-        id: 'data-object-output',
-        name: 'Review Decision Output',
-        description: '节点输出契约',
-        schema: {
-          type: 'object',
-          required: ['decision'],
-          properties: { decision: { type: 'string' } },
-        },
-        status: 'draft',
-        version: 'unpublished',
-        createdBy: 'user-1',
-        createdAt: '2026-06-28T09:30:00Z',
-        updatedAt: '2026-06-28T09:30:00Z',
-      },
-    ]
     const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
       if (url === `/api/workspaces/${workspace.id}/workflows` && !init?.method) {
         return Promise.resolve(new Response(JSON.stringify([workflow]), { status: 200 }))
@@ -539,14 +953,8 @@ describe('Workflows', () => {
       ) {
         return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
       }
-      if (url === `/api/workspaces/${workspace.id}/data-objects` && !init?.method) {
-        return Promise.resolve(new Response(JSON.stringify(dataObjects), { status: 200 }))
-      }
       if (url.endsWith('/versions')) {
         return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
-      }
-      if (url === `/api/workspaces/${workspace.id}/workflows/workflow-1` && init?.method === 'PATCH') {
-        return Promise.resolve(new Response(JSON.stringify(workflow), { status: 200 }))
       }
       return Promise.resolve(new Response('{}', { status: 404 }))
     })
@@ -555,30 +963,10 @@ describe('Workflows', () => {
     renderWorkflows()
 
     await user.click(await screen.findByTestId('flow-node-human-1'))
-    await user.selectOptions(screen.getByLabelText('输入 Data Object'), 'data-object-input')
-    await user.selectOptions(screen.getByLabelText('输出 Data Object'), 'data-object-output')
-    expect(screen.getByText('Product Research Input · v1.0.0 · published · required: asin')).toBeInTheDocument()
-    expect(screen.getByText('Review Decision Output · unpublished · draft · required: decision')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: '保存草稿' }))
-
-    const patchCall = fetchMock.mock.calls.find(([url, init]) => (
-      url === `/api/workspaces/${workspace.id}/workflows/workflow-1` && init?.method === 'PATCH'
-    ))
-    const body = JSON.parse(patchCall?.[1]?.body as string)
-    expect(body.nodes[0].data.inputDataObjectRef).toEqual({
-      definitionId: 'data-object-input',
-      name: 'Product Research Input',
-      version: 'v1.0.0',
-      status: 'published',
-      schemaSummary: 'required: asin',
-    })
-    expect(body.nodes[0].data.outputDataObjectRef).toEqual({
-      definitionId: 'data-object-output',
-      name: 'Review Decision Output',
-      version: 'unpublished',
-      status: 'draft',
-      schemaSummary: 'required: decision',
-    })
+    expect(screen.queryByText('Data Object 契约')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('输入 Data Object')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('输出 Data Object')).not.toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([url]) => url === `/api/workspaces/${workspace.id}/data-objects`)).toBe(false)
   })
 
   it('edits workflow input and output schemas and saves them with the draft', async () => {
@@ -1509,6 +1897,7 @@ describe('Workflows', () => {
     await user.click(screen.getByRole('button', { name: '添加手动触发节点' }))
     expect(await screen.findByTestId(/flow-node-trigger-/)).toHaveTextContent('手动触发')
 
+    await user.click(screen.getByRole('button', { name: '更改名称' }))
     await user.click(screen.getByLabelText('工作流名称'))
     await user.keyboard('{Control>}z{/Control}')
 

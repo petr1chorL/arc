@@ -8,17 +8,13 @@ import { Layout } from './components/Layout'
 import { Agents } from './pages/Agents'
 import { AgentDetail } from './pages/AgentDetail'
 import { ActivateInvitation } from './pages/ActivateInvitation'
-import { AuditLog } from './pages/AuditLog'
 import { AssetLibrary } from './pages/AssetLibrary'
 import { Artifacts } from './pages/Artifacts'
 import { Dashboard } from './pages/Dashboard'
-import { DataObjects } from './pages/DataObjects'
 import { Evaluations } from './pages/Evaluations'
 import { Login } from './pages/Login'
 import { Members } from './pages/Members'
 import { ModelProviders } from './pages/ModelProviders'
-import { NotificationChannels } from './pages/NotificationChannels'
-import { Notifications } from './pages/Notifications'
 import { Observability } from './pages/Observability'
 import { Reviews } from './pages/Reviews'
 import { Runs } from './pages/Runs'
@@ -74,27 +70,23 @@ function App() {
           <Route path="/runs" element={<LegacyWorkspaceRedirect suffix="runs" />} />
           <Route path="/artifacts" element={<LegacyWorkspaceRedirect suffix="artifacts" />} />
           <Route path="/observability" element={<LegacyWorkspaceRedirect suffix="observability" />} />
-          <Route path="/notifications" element={<LegacyWorkspaceRedirect suffix="notifications" />} />
           <Route path="/reviews" element={<LegacyWorkspaceRedirect suffix="reviews" />} />
           <Route element={<ProtectedRoute />}>
             <Route path="/w/:workspaceSlug" element={<WorkspaceRoute />}>
               <Route element={<Layout />}>
                 <Route index element={<Dashboard />} />
                 <Route path="workflows" element={<Workflows />} />
+                <Route path="workflows/:workflowId" element={<Workflows />} />
                 <Route path="agents" element={<Agents />} />
                 <Route path="agents/:agentId" element={<AgentDetail />} />
                 <Route path="evaluations" element={<Evaluations />} />
                 <Route path="runs" element={<Runs />} />
                 <Route path="artifacts" element={<Artifacts />} />
                 <Route path="observability" element={<Observability />} />
-                <Route path="notifications" element={<Notifications />} />
                 <Route path="reviews" element={<Reviews />} />
                 <Route path="settings/asset-library" element={<AssetLibrary />} />
-                <Route path="settings/data-objects" element={<DataObjects />} />
                 <Route path="settings/members" element={<Members />} />
                 <Route path="settings/model-providers" element={<ModelProviders />} />
-                <Route path="settings/notification-channels" element={<NotificationChannels />} />
-                <Route path="settings/audit" element={<AuditLog />} />
               </Route>
             </Route>
           </Route>

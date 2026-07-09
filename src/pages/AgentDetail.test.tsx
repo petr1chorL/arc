@@ -29,6 +29,7 @@ const agent = {
   tools: [],
   skills: [],
   systemPrompt: '',
+  runtimeManifest: {},
   createdAt: '2026-06-24T07:00:00Z',
   updatedAt: '2026-06-24T07:00:00Z',
 }
@@ -44,6 +45,7 @@ describe('AgentDetail', () => {
       id: 'version-1',
       version: 'v1.0.0',
       snapshot: { ...agent, name: '高级研究 Agent' },
+      note: '补充检索工具和输出约束',
       createdAt: '2026-06-24T07:10:00Z',
     }
     const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
@@ -55,6 +57,9 @@ describe('AgentDetail', () => {
       }
       if (url.endsWith('/deactivate')) {
         return Promise.resolve(new Response(JSON.stringify({ ...agent, status: '已停用' }), { status: 200 }))
+      }
+      if (url.endsWith('/activate')) {
+        return Promise.resolve(new Response(JSON.stringify({ ...agent, status: '在线' }), { status: 200 }))
       }
       if (init?.method === 'PATCH') {
         return Promise.resolve(new Response(JSON.stringify({ ...agent, name: '高级研究 Agent' }), { status: 200 }))
@@ -83,10 +88,26 @@ describe('AgentDetail', () => {
     expect(await screen.findByText('草稿已保存')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: '发布新版本' }))
+    const publishDialog = await screen.findByRole('dialog', { name: '发布版本备注' })
+    await user.click(screen.getByRole('button', { name: '确认发布版本' }))
+    expect(screen.getByText('请填写发布备注')).toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/publish'))).toBe(false)
+    await user.type(screen.getByLabelText('发布备注'), '补充检索工具和输出约束')
+    await user.click(screen.getByRole('button', { name: '确认发布版本' }))
     expect((await screen.findAllByText('v1.0.0')).length).toBeGreaterThanOrEqual(2)
+    expect(screen.queryByRole('dialog', { name: '发布版本备注' })).not.toBeInTheDocument()
+    expect(screen.getByText('版本管理')).toBeInTheDocument()
+    expect(screen.getByText('发布备注：补充检索工具和输出约束')).toBeInTheDocument()
+    const publishCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/publish'))
+    expect(JSON.parse(publishCall?.[1]?.body as string)).toEqual({ note: '补充检索工具和输出约束' })
+    expect(publishDialog).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: '停用 Agent' }))
     expect(await screen.findByText('已停用')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '启用 Agent' }))
+    expect(await screen.findByText('Agent 已启用')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '停用 Agent' })).toBeEnabled()
   })
 
   it('edits Agent runtime configuration without API keys', async () => {
@@ -185,7 +206,7 @@ describe('AgentDetail', () => {
       </WorkspaceProvider>,
     )
 
-    const providerSelect = await screen.findByRole('combobox', { name: '模型 Provider' })
+    const providerSelect = await screen.findByRole('combobox', { name: '模型资产' })
     await user.selectOptions(providerSelect, 'provider-1')
     await user.click(screen.getByRole('button', { name: '保存草稿' }))
 
@@ -294,6 +315,114 @@ describe('AgentDetail', () => {
     }))
     expect(patchBody).not.toHaveProperty('apiKey')
     expect(await screen.findByText('草稿已保存')).toBeInTheDocument()
+  })
+
+  it('imports Python package runtime metadata into the Agent draft', async () => {
+    const user = userEvent.setup()
+    const savedAgent = {
+      ...agent,
+      runtimeManifest: {
+        runtime: 'langchain',
+        sourceType: 'python_package',
+        packageName: 'arc-langchain-agents',
+        packageVersion: '1.0.3',
+        entrypoint: 'arc_agents.research:create_agent',
+        packageHash: 'sha256:abc123',
+      },
+    }
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/model-providers') || url.endsWith('/asset-library')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (init?.method === 'PATCH') {
+        return Promise.resolve(new Response(JSON.stringify(savedAgent), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify(agent), { status: 200 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <WorkspaceProvider workspace={workspace}>
+        <MemoryRouter initialEntries={['/w/ai-capability-center/agents/agent-1']}>
+          <Routes>
+            <Route path="/w/ai-capability-center/agents/:agentId" element={<AgentDetail />} />
+          </Routes>
+        </MemoryRouter>
+      </WorkspaceProvider>,
+    )
+
+    expect(await screen.findByText('Runtime / Python Package')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Manifest JSON')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Package 来源')).not.toBeInTheDocument()
+
+    await user.type(screen.getByLabelText('Package 名称'), 'arc-langchain-agents')
+    await user.type(screen.getByLabelText('Package 版本'), '1.0.3')
+    await user.type(screen.getByLabelText('Package EntryPoint'), 'arc_agents.weather:create_agent')
+    await user.type(screen.getByLabelText('Package Hash'), 'sha256:abc123')
+    await user.click(screen.getByRole('button', { name: '导入 Python Package' }))
+    expect(screen.getAllByText('arc-langchain-agents==1.0.3').length).toBeGreaterThanOrEqual(1)
+
+    await user.click(screen.getByRole('button', { name: '保存草稿' }))
+
+    const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH')
+    const patchBody = JSON.parse(patchCall?.[1]?.body as string)
+    expect(patchBody.runtimeManifest).toEqual({
+      runtime: 'langchain',
+      sourceType: 'python_package',
+      packageName: 'arc-langchain-agents',
+      packageVersion: '1.0.3',
+      entrypoint: 'arc_agents.weather:create_agent',
+      packageHash: 'sha256:abc123',
+    })
+    expect(patchBody).toEqual(expect.objectContaining({
+      model: 'GPT-5',
+      temperature: 0.2,
+      maxOutputTokens: 2000,
+    }))
+  })
+
+  it('shows Python package metadata from the latest published snapshot when the draft is empty', async () => {
+    const versionManifest = {
+      runtime: 'langchain',
+      sourceType: 'python_package' as const,
+      packageName: 'arc-langchain-weather-demo',
+      packageVersion: '0.1.0',
+      entrypoint: 'arc_langchain_weather_demo.weather_agent:create_agent',
+      packageSource: 'local-wheelhouse',
+      packageHash: 'sha256:abc123',
+    }
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([{
+          id: 'version-1',
+          version: 'v1.0.0',
+          snapshot: { ...agent, runtimeManifest: versionManifest },
+          note: 'Register packaged LangChain weather demo wheel',
+          createdAt: '2026-06-24T07:10:00Z',
+        }]), { status: 200 }))
+      }
+      if (url.endsWith('/model-providers') || url.endsWith('/asset-library')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify({ ...agent, runtimeManifest: {} }), { status: 200 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <WorkspaceProvider workspace={workspace}>
+        <MemoryRouter initialEntries={['/w/ai-capability-center/agents/agent-1']}>
+          <Routes>
+            <Route path="/w/ai-capability-center/agents/:agentId" element={<AgentDetail />} />
+          </Routes>
+        </MemoryRouter>
+      </WorkspaceProvider>,
+    )
+
+    expect(await screen.findByDisplayValue('arc-langchain-weather-demo')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('arc_langchain_weather_demo.weather_agent:create_agent')).toBeInTheDocument()
   })
 
   it('runs a published Agent and shows the persisted result', async () => {

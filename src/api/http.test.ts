@@ -20,7 +20,7 @@ describe('apiFetch', () => {
     document.cookie = 'arc_one_csrf=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/'
   })
 
-  it('sends same-origin credentials and CSRF header for non-GET requests', async () => {
+  it('sends credentials and CSRF header for non-GET requests', async () => {
     document.cookie = 'arc_one_csrf=test-token; path=/'
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ ok: true }), {
@@ -35,7 +35,7 @@ describe('apiFetch', () => {
     const [, init] = fetchMock.mock.calls[0]
     expect(init).toMatchObject({
       method: 'POST',
-      credentials: 'same-origin',
+      credentials: 'include',
     })
     expect(new Headers(init?.headers).get('X-CSRF-Token')).toBe('test-token')
   })

@@ -46,7 +46,7 @@ export async function apiFetch(
   }
   const response = await fetch(input, {
     ...init,
-    credentials: 'same-origin',
+    credentials: 'include',
     headers,
   })
   const path = getRequestPath(input)

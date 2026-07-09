@@ -79,3 +79,30 @@ def test_gateway_resolves_provider_secret_ref_at_call_boundary(monkeypatch):
 
     assert captured["headers"]["Authorization"] == "Bearer provider-key-value"
     assert result.content == "结构化执行结果"
+def test_gateway_accepts_inline_key_for_local_prototype(monkeypatch):
+    captured: dict = {}
+
+    def fake_post(url, *, headers, json, timeout):
+        captured.update({"headers": headers})
+        return httpx.Response(
+            200,
+            request=httpx.Request("POST", url),
+            json={
+                "model": "deepseek-v4-pro",
+                "choices": [{"message": {"content": "ok"}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            },
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    settings = Settings(model_api_key="", model_base_url="")
+
+    OpenAICompatibleGateway(settings).complete(
+        system_prompt="system",
+        user_input="input",
+        model="deepseek-v4-pro",
+        model_base_url="https://api.deepseek.com",
+        model_secret_ref="sk-test-inline-key",
+    )
+
+    assert captured["headers"]["Authorization"] == "Bearer sk-test-inline-key"

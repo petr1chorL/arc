@@ -48,6 +48,13 @@ TERMINAL_TASK_STATUSES = {
     "宸查┏鍥?",
     "宸查€€鍥?",
 }
+TASK_STATUS_WAITING = "待认领"
+TASK_STATUS_IN_REVIEW = "审核中"
+TASK_STATUS_WAITING_REVIEW = "等待审核"
+TASK_STATUS_APPROVED = "已通过"
+TASK_STATUS_MODIFIED_APPROVED = "修改后通过"
+TASK_STATUS_REJECTED = "已驳回"
+TASK_STATUS_RETURNED = "已退回"
 
 
 class HumanTaskService:
@@ -322,7 +329,7 @@ class HumanTaskService:
             node_id=node["id"],
             node_type="human",
             node_name=node["data"].get("label", node["id"]),
-            status="绛夊緟瀹℃牳",
+            status=TASK_STATUS_WAITING_REVIEW,
             input_text=node_input,
             output_text=node_input,
             attempts=1,
@@ -381,7 +388,7 @@ class HumanTaskService:
             )
             escalation_group_id = escalation_group.id if escalation_group else None
         assignee_reviewer_id = None
-        task_status = "寰呰棰?"
+        task_status = TASK_STATUS_WAITING
         if assignment_type == "round_robin":
             group = group or self.workspace_group(session, run.workspace_id, assignee_group_id)
             if (
@@ -393,7 +400,7 @@ class HumanTaskService:
                 group.rotation_cursor % len(participant_snapshot)
             ]
             group.rotation_cursor += 1
-            task_status = "瀹℃牳涓?"
+            task_status = TASK_STATUS_IN_REVIEW
         task = HumanTaskRecord(
             workspace_id=run.workspace_id,
             workflow_run_id=run.id,
@@ -423,7 +430,7 @@ class HumanTaskService:
             event_type="task_created",
             actor_id="system",
         )
-        run.status = "绛夊緟瀹℃牳"
+        run.status = TASK_STATUS_WAITING_REVIEW
         run.current_node = node_run.node_name
         run.output_text = node_input
         run.score = score
@@ -661,7 +668,7 @@ class HumanTaskService:
             raise HumanTaskConflict("浠诲姟宸茶鍏朵粬瀹℃牳浜鸿棰?")
         before = task.status
         task.assignee_reviewer_id = reviewer_id
-        task.status = "瀹℃牳涓?"
+        task.status = TASK_STATUS_IN_REVIEW
         task.updated_at = self.now()
         self.audit(
             session,
@@ -700,7 +707,7 @@ class HumanTaskService:
             if reviewer_id not in task.participant_snapshot:
                 task.participant_snapshot = [*task.participant_snapshot, reviewer_id]
             task.assignee_reviewer_id = reviewer_id
-            task.status = "瀹℃牳涓?"
+            task.status = TASK_STATUS_IN_REVIEW
         else:
             group = self.workspace_group(session, workspace_id, group_id)
             if group is None:
@@ -712,7 +719,7 @@ class HumanTaskService:
                 group.id,
                 workspace_id,
             )
-            task.status = "寰呰棰?"
+            task.status = TASK_STATUS_WAITING
         task.updated_at = self.now()
         self.audit(
             session,
@@ -907,9 +914,9 @@ class HumanTaskService:
                 payload={"candidateId": candidate.id},
             )
         if decision == "reject":
-            task.status = "宸查┏鍥?"
+            task.status = TASK_STATUS_REJECTED
         elif decision == "return_for_rerun":
-            task.status = "宸查€€鍥?"
+            task.status = TASK_STATUS_RETURNED
         else:
             received = session.scalar(
                 select(func.count()).select_from(ReviewDecisionRecord).where(
@@ -924,9 +931,9 @@ class HumanTaskService:
                         ReviewDecisionRecord.decision == "modify_and_approve",
                     ),
                 ) or 0
-                task.status = "淇敼鍚庨€氳繃" if modified_count else "宸查€氳繃"
+                task.status = TASK_STATUS_MODIFIED_APPROVED if modified_count else TASK_STATUS_APPROVED
             else:
-                task.status = "瀹℃牳涓?"
+                task.status = TASK_STATUS_IN_REVIEW
         task.updated_at = self.now()
         self.audit(
             session,

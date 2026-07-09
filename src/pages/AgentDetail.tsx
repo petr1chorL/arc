@@ -1,18 +1,21 @@
 import {
   ArrowLeft,
-  Bot,
   Check,
   History,
+  Package,
   PackageCheck,
   Play,
   Save,
+  ShieldCheck,
   ShieldOff,
   Sparkles,
+  X,
 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useWorkspace } from '../auth/workspaceContextState'
 import {
+  activateAgent,
   deactivateAgent,
   getAgent,
   listAgentVersions,
@@ -24,7 +27,15 @@ import { runAgent } from '../api/execution'
 import { listToolSkillAssets } from '../api/assetLibrary'
 import { listModelProviders } from '../api/modelProviders'
 import { StatusBadge } from '../components/StatusBadge'
-import type { Agent, AgentVersion, ExecutionRun, ModelProvider, ToolSkillAsset } from '../types'
+import { displayStatus } from '../domain/statusText'
+import type {
+  Agent,
+  AgentRuntimeManifest,
+  AgentVersion,
+  ExecutionRun,
+  ModelProvider,
+  ToolSkillAsset,
+} from '../types'
 
 function joinValues(values: string[]) {
   return values.join(', ')
@@ -42,6 +53,31 @@ function toggleValue(text: string, value: string, checked: boolean) {
   return joinValues(nextValues)
 }
 
+function runtimeTitle(manifest: AgentRuntimeManifest) {
+  if (manifest.packageName && manifest.packageVersion) {
+    return `${manifest.packageName}==${manifest.packageVersion}`
+  }
+  return manifest.entrypoint || '尚未导入 Python Package'
+}
+
+function packageDraftFromManifest(manifest: AgentRuntimeManifest) {
+  return {
+    packageName: manifest.packageName ?? '',
+    packageVersion: manifest.packageVersion ?? '',
+    entrypoint: manifest.entrypoint ?? '',
+    packageHash: manifest.packageHash ?? '',
+  }
+}
+
+function hasPythonPackageRuntime(manifest?: AgentRuntimeManifest) {
+  return Boolean(
+    manifest?.sourceType === 'python_package'
+    && manifest.packageName
+    && manifest.packageVersion
+    && manifest.entrypoint,
+  )
+}
+
 export function AgentDetail() {
   const { workspace, workspacePath } = useWorkspace()
   const { agentId = '' } = useParams()
@@ -54,11 +90,17 @@ export function AgentDetail() {
   const [skillsText, setSkillsText] = useState('')
   const [temperatureText, setTemperatureText] = useState('0.2')
   const [maxOutputTokensText, setMaxOutputTokensText] = useState('2000')
+  const [packageDraft, setPackageDraft] = useState(packageDraftFromManifest({}))
+  const [runtimeFeedback, setRuntimeFeedback] = useState('')
+  const [runtimeError, setRuntimeError] = useState('')
   const [feedback, setFeedback] = useState('')
   const [error, setError] = useState('')
   const [isBusy, setIsBusy] = useState(false)
   const [runInput, setRunInput] = useState('')
   const [runResult, setRunResult] = useState<ExecutionRun | null>(null)
+  const [showPublishNote, setShowPublishNote] = useState(false)
+  const [publishNote, setPublishNote] = useState('')
+  const [publishNoteError, setPublishNoteError] = useState('')
 
   const load = useCallback(async () => {
     try {
@@ -72,6 +114,10 @@ export function AgentDetail() {
       setVersions(nextVersions)
       setModelProviders(Array.isArray(providerAssets) ? providerAssets : [])
       setToolSkillAssets(Array.isArray(workspaceAssets) ? workspaceAssets : [])
+      const effectiveRuntimeManifest = hasPythonPackageRuntime(nextAgent.runtimeManifest)
+        ? nextAgent.runtimeManifest
+        : nextVersions.find((version) => hasPythonPackageRuntime(version.snapshot.runtimeManifest))
+          ?.snapshot.runtimeManifest ?? nextAgent.runtimeManifest ?? {}
       setForm({
         name: nextAgent.name,
         role: nextAgent.role,
@@ -85,11 +131,13 @@ export function AgentDetail() {
         systemPrompt: nextAgent.systemPrompt,
         tools: nextAgent.tools,
         skills: nextAgent.skills,
+        runtimeManifest: effectiveRuntimeManifest,
       })
       setToolsText(joinValues(nextAgent.tools))
       setSkillsText(joinValues(nextAgent.skills))
       setTemperatureText(String(nextAgent.temperature))
       setMaxOutputTokensText(String(nextAgent.maxOutputTokens))
+      setPackageDraft(packageDraftFromManifest(effectiveRuntimeManifest))
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Agent 加载失败')
     }
@@ -102,6 +150,38 @@ export function AgentDetail() {
   function updateField(field: keyof UpdateAgentInput, value: string) {
     setForm((current) => current ? { ...current, [field]: value } : current)
     setFeedback('')
+  }
+
+  function updateRuntimeManifest(runtimeManifest: AgentRuntimeManifest) {
+    setForm((current) => {
+      if (!current) return current
+      return {
+        ...current,
+        runtimeManifest,
+      }
+    })
+    setFeedback('')
+  }
+
+  function importPythonPackage() {
+    setRuntimeError('')
+    setRuntimeFeedback('')
+    const packageName = packageDraft.packageName.trim()
+    const packageVersion = packageDraft.packageVersion.trim()
+    const entrypoint = packageDraft.entrypoint.trim()
+    if (!packageName || !packageVersion || !entrypoint) {
+      setRuntimeError('Package 名称、版本和 EntryPoint 必填')
+      return
+    }
+    updateRuntimeManifest({
+      runtime: 'langchain',
+      sourceType: 'python_package',
+      packageName,
+      packageVersion,
+      entrypoint,
+      packageHash: packageDraft.packageHash.trim() || undefined,
+    })
+    setRuntimeFeedback('Python Package 元数据已导入草稿')
   }
 
   function selectModelProvider(providerId: string) {
@@ -138,6 +218,7 @@ export function AgentDetail() {
       maxOutputTokens: Number(maxOutputTokensText),
       tools: splitValues(toolsText),
       skills: splitValues(skillsText),
+      runtimeManifest: formInput.runtimeManifest ?? {},
     }
   }
 
@@ -158,7 +239,15 @@ export function AgentDetail() {
     }
   }
 
-  async function publish() {
+  function openPublishNoteDialog() {
+    setPublishNote('')
+    setPublishNoteError('')
+    setShowPublishNote(true)
+    setError('')
+  }
+
+  async function publish(note: string) {
+    const trimmedNote = note.trim()
     setIsBusy(true)
     setError('')
     try {
@@ -167,15 +256,27 @@ export function AgentDetail() {
           ...buildAgentUpdateInput(form),
         })
       }
-      const version = await publishAgent(workspace.id, agentId)
+      const version = await publishAgent(workspace.id, agentId, { note: trimmedNote })
       setVersions((current) => [version, ...current])
       setAgent((current) => current ? { ...current, version: version.version, status: '在线' } : current)
       setFeedback(`${version.version} 已发布`)
+      setShowPublishNote(false)
+      setPublishNote('')
+      setPublishNoteError('')
     } catch (publishError) {
       setError(publishError instanceof Error ? publishError.message : 'Agent 发布失败')
     } finally {
       setIsBusy(false)
     }
+  }
+
+  async function confirmPublishWithNote() {
+    const trimmedNote = publishNote.trim()
+    if (!trimmedNote) {
+      setPublishNoteError('请填写发布备注')
+      return
+    }
+    await publish(trimmedNote)
   }
 
   async function deactivate() {
@@ -186,6 +287,19 @@ export function AgentDetail() {
       setFeedback('Agent 已停用')
     } catch (deactivateError) {
       setError(deactivateError instanceof Error ? deactivateError.message : 'Agent 停用失败')
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  async function activate() {
+    setIsBusy(true)
+    setError('')
+    try {
+      setAgent(await activateAgent(workspace.id, agentId))
+      setFeedback('Agent 已启用')
+    } catch (activateError) {
+      setError(activateError instanceof Error ? activateError.message : 'Agent 启用失败')
     } finally {
       setIsBusy(false)
     }
@@ -221,11 +335,12 @@ export function AgentDetail() {
     return <div className="panel table-state">正在加载 Agent 详情…</div>
   }
 
-  const disabled = agent.status === '已停用'
+  const disabled = displayStatus(agent.status) === '已停用'
   const toolAssets = toolSkillAssets.filter((asset) => asset.assetType === 'tool')
   const skillAssets = toolSkillAssets.filter((asset) => asset.assetType === 'skill')
   const selectedTools = splitValues(toolsText)
   const selectedSkills = splitValues(skillsText)
+  const runtimeManifest = form.runtimeManifest ?? {}
 
   return (
     <div className="page-stack asset-detail-page">
@@ -233,24 +348,28 @@ export function AgentDetail() {
         <div>
           <Link className="back-link" to={workspacePath('agents')}><ArrowLeft size={15} />返回 Agent 资产</Link>
           <div className="asset-title-line">
-            <span className="agent-symbol large"><Bot size={22} /></span>
-            <div>
-              <p className="section-kicker">AGENT DRAFT</p>
+            <div className="asset-title-copy">
               <h2>{agent.name}</h2>
+              <StatusBadge status={agent.status} />
             </div>
-            <StatusBadge status={agent.status} />
           </div>
         </div>
         <div className="asset-actions">
-          <button className="button secondary" disabled={disabled || isBusy} onClick={() => void saveDraft()}>
+          <button className="button ghost" disabled={disabled || isBusy} onClick={() => void saveDraft()}>
             <Save size={15} />保存草稿
           </button>
-          <button className="button primary" disabled={disabled || isBusy} onClick={() => void publish()}>
+          <button className="button ghost" disabled={disabled || isBusy} onClick={openPublishNoteDialog}>
             <PackageCheck size={15} />发布新版本
           </button>
-          <button className="button danger" disabled={disabled || isBusy} onClick={() => void deactivate()}>
-            <ShieldOff size={15} />停用 Agent
-          </button>
+          {disabled ? (
+            <button className="button ghost" disabled={isBusy} onClick={() => void activate()}>
+              <ShieldCheck size={15} />启用 Agent
+            </button>
+          ) : (
+            <button className="button ghost danger-action" disabled={isBusy} onClick={() => void deactivate()}>
+              <ShieldOff size={15} />停用 Agent
+            </button>
+          )}
         </div>
       </section>
 
@@ -273,9 +392,44 @@ export function AgentDetail() {
             <label className="form-field full"><span>职责</span><textarea disabled={disabled} rows={3} value={form.role} onChange={(event) => updateField('role', event.target.value)} /></label>
             <label className="form-field"><span>模型</span><input disabled={disabled} value={form.model} onChange={(event) => updateField('model', event.target.value)} /></label>
             <label className="form-field"><span>当前发布版本</span><input readOnly value={agent.version} /></label>
+            <section className="runtime-manifest-card full" aria-label="Runtime / Python Package">
+              <header>
+                <div>
+                  <span className="section-kicker">Runtime / Python Package</span>
+                  <h4>{runtimeTitle(runtimeManifest)}</h4>
+                </div>
+                <div className="runtime-header-actions">
+                  <button className="button ghost" disabled={disabled} type="button" onClick={importPythonPackage}>
+                    <Package size={15} />导入 Python Package
+                  </button>
+                </div>
+              </header>
+              <p className="runtime-package-note">
+                Python Package 只声明 Agent 代码入口：包名、版本、入口函数与内容指纹。模型、温度和最大输出等运行参数在下方 Runtime 配置中维护。
+              </p>
+              <div className="runtime-linkage-grid">
+                <div>
+                  <span>ARC 生效配置</span>
+                  <strong>{form.model} · temp {temperatureText} · max {maxOutputTokensText}</strong>
+                </div>
+              </div>
+              <div className="runtime-import-grid">
+                <div className="runtime-package-fields">
+                  <label className="form-field"><span>Package 名称</span><input disabled={disabled} value={packageDraft.packageName} onChange={(event) => setPackageDraft((current) => ({ ...current, packageName: event.target.value }))} /></label>
+                  <label className="form-field"><span>Package 版本</span><input disabled={disabled} value={packageDraft.packageVersion} onChange={(event) => setPackageDraft((current) => ({ ...current, packageVersion: event.target.value }))} /></label>
+                  <label className="form-field"><span>Package EntryPoint</span><input disabled={disabled} value={packageDraft.entrypoint} onChange={(event) => setPackageDraft((current) => ({ ...current, entrypoint: event.target.value }))} /></label>
+                  <label className="form-field"><span>Package Hash</span><input disabled={disabled} value={packageDraft.packageHash} onChange={(event) => setPackageDraft((current) => ({ ...current, packageHash: event.target.value }))} /></label>
+                </div>
+              </div>
+              {(runtimeFeedback || runtimeError) && (
+                <p className={`runtime-manifest-feedback ${runtimeError ? 'error' : ''}`}>
+                  {runtimeError || runtimeFeedback}
+                </p>
+              )}
+            </section>
             <div className="form-section-heading"><span>RUNTIME</span><strong>运行配置</strong></div>
             <label className="form-field">
-              <span>模型 Provider</span>
+              <span>模型资产</span>
               <select
                 disabled={disabled}
                 value={form.modelProviderId ?? ''}
@@ -351,7 +505,7 @@ export function AgentDetail() {
 
         <aside className="panel version-panel">
           <header className="panel-header">
-            <div><span className="section-kicker">不可变快照</span><h3>版本历史</h3></div>
+            <div><span className="section-kicker">不可变快照</span><h3>版本管理</h3></div>
             <History size={17} />
           </header>
           <div className="version-list">
@@ -360,6 +514,9 @@ export function AgentDetail() {
               <article className="version-item" key={version.id}>
                 <div><strong>{version.version}</strong><span>已发布</span></div>
                 <p>{version.snapshot.name}</p>
+                <p className={`version-note ${version.note?.trim() ? '' : 'empty'}`}>
+                  发布备注：{version.note?.trim() || '未填写'}
+                </p>
                 <small>{new Date(version.createdAt).toLocaleString('zh-CN')}</small>
               </article>
             ))}
@@ -403,6 +560,41 @@ export function AgentDetail() {
           </div>
         )}
       </section>
+
+      {showPublishNote && (
+        <div className="dialog-backdrop">
+          <section className="agent-dialog" role="dialog" aria-modal="true" aria-labelledby="agent-publish-note-title">
+            <header>
+              <div>
+                <p className="eyebrow">VERSION NOTE</p>
+                <h2 id="agent-publish-note-title">发布版本备注</h2>
+              </div>
+              <button className="icon-button quiet" title="关闭" onClick={() => setShowPublishNote(false)}><X size={18} /></button>
+            </header>
+            <label className="form-field">
+              <span>备注</span>
+              <textarea
+                aria-label="发布备注"
+                rows={5}
+                maxLength={500}
+                value={publishNote}
+                onChange={(event) => {
+                  setPublishNote(event.target.value)
+                  if (publishNoteError) setPublishNoteError('')
+                }}
+                placeholder="说明本次 Agent 能力、工具、模型或提示词的变化"
+              />
+            </label>
+            {publishNoteError && <p className="danger-text">{publishNoteError}</p>}
+            <div className="dialog-actions">
+              <button className="button secondary" disabled={isBusy} onClick={() => setShowPublishNote(false)}>取消</button>
+              <button className="button primary" disabled={isBusy} onClick={() => void confirmPublishWithNote()}>
+                <PackageCheck size={14} />确认发布版本
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   )
 }

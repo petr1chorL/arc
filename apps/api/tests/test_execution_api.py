@@ -313,6 +313,48 @@ def test_agent_test_run_uses_published_provider_secret_ref_snapshot(tmp_path):
     assert "apiKey" not in gateway.calls[0]
 
 
+def test_agent_test_run_falls_back_to_provider_asset_for_inline_secret(tmp_path):
+    gateway = FakeGateway([FakeModelResult("Inline Provider asset runtime response.")])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'execution-inline-provider.db'}",
+        model_gateway=gateway,
+    )
+    provider = client.post(
+        workspace_url(workspace_id, "/model-providers"),
+        json={
+            "name": "DeepSeek Inline Runtime",
+            "providerType": "openai-compatible",
+            "baseUrl": "https://api.deepseek.com",
+            "defaultModel": "deepseek-v4-pro",
+            "secretRef": "sk-inline-runtime-key",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    agent, _ = create_published_agent(client, workspace_id)
+    client.patch(
+        workspace_url(workspace_id, f"/agents/{agent['id']}"),
+        json={"modelProviderId": provider["id"]},
+        headers=csrf_headers(client),
+    )
+    version = client.post(
+        workspace_url(workspace_id, f"/agents/{agent['id']}/publish"),
+        headers=csrf_headers(client),
+    ).json()
+
+    response = client.post(
+        workspace_url(workspace_id, f"/agents/{agent['id']}/test-runs"),
+        json={"input": "Use the Provider asset inline key.", "version": version["version"]},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 201
+    assert version["snapshot"]["modelSecretRef"] == ""
+    assert gateway.calls[0]["model_provider_id"] == provider["id"]
+    assert gateway.calls[0]["model_secret_ref"] == "sk-inline-runtime-key"
+    assert "sk-inline-runtime-key" not in response.text
+    assert "apiKey" not in gateway.calls[0]
+
+
 def test_workflow_run_retries_and_persists_node_timeline(tmp_path):
     gateway = FakeGateway([
         RuntimeError("temporary provider failure"),
@@ -362,6 +404,39 @@ def test_workflow_run_retries_and_persists_node_timeline(tmp_path):
         assert artifact_version.data_object_snapshot is None
 
 
+def test_workflow_run_records_artifact_for_each_node_output(tmp_path):
+    gateway = FakeGateway([
+        FakeModelResult("Weather answer: It's always sunny in Shanghai."),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'node-output-artifacts.db'}",
+        model_gateway=gateway,
+    )
+    agent, version = create_published_agent(client, workspace_id, name="Weather Agent")
+    workflow = create_published_workflow(client, workspace_id, agent, version)
+
+    response = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "What is the weather in Shanghai?"},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 201
+    run = response.json()
+    agent_node_run = next(node for node in run["nodes"] if node["nodeType"] == "agent")
+    artifacts_response = client.get(
+        workspace_url(
+            workspace_id,
+            f"/artifacts?runId={run['id']}&sourceNodeRunId={agent_node_run['id']}",
+        ),
+    )
+
+    assert artifacts_response.status_code == 200
+    artifacts = artifacts_response.json()
+    assert len(artifacts) == 1
+    assert artifacts[0]["content"] == "Weather answer: It's always sunny in Shanghai."
+
+
 def test_workflow_run_final_artifact_version_records_output_data_object_contract(tmp_path):
     gateway = FakeGateway([
         FakeModelResult('{"summary":"The workflow produced structured output."}'),
@@ -394,11 +469,13 @@ def test_workflow_run_final_artifact_version_records_output_data_object_contract
 
     assert response.status_code == 201
     run = response.json()
+    final_node_run = run["nodes"][-1]
     with client.app.state.session_factory() as session:
         artifact = session.scalar(
             select(ArtifactRecord).where(
                 ArtifactRecord.workspace_id == workspace_id,
                 ArtifactRecord.run_id == run["id"],
+                ArtifactRecord.source_node_run_id == final_node_run["id"],
             ),
         )
         assert artifact is not None
@@ -1867,6 +1944,36 @@ def test_completed_workflow_run_cannot_resume_without_failed_node(tmp_path):
     )
 
     assert response.status_code == 409
+
+
+def test_workflow_run_can_be_deleted_without_deleting_workflow_asset(tmp_path):
+    gateway = FakeGateway([FakeModelResult("This workflow run can be deleted after completion.")])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'execution-delete-run.db'}",
+        model_gateway=gateway,
+    )
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(client, workspace_id, agent, version)
+    run = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Create a run that will be deleted."},
+        headers=csrf_headers(client),
+    ).json()
+
+    response = client.delete(
+        workspace_url(workspace_id, f"/runs/{run['id']}"),
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 204
+    runs = client.get(workspace_url(workspace_id, "/runs")).json()
+    assert all(item["id"] != run["id"] for item in runs)
+    assert client.get(workspace_url(workspace_id, f"/runs/{run['id']}")).status_code == 404
+    assert client.get(workspace_url(workspace_id, f"/workflows/{workflow['id']}")).status_code == 200
+
+    with client.app.state.session_factory() as session:
+        assert session.scalar(select(WorkflowRunRecord).where(WorkflowRunRecord.id == run["id"])) is None
+        assert session.scalar(select(NodeRunRecord).where(NodeRunRecord.run_id == run["id"])) is None
 
 
 def test_human_review_decision_updates_review_and_run_status(tmp_path):

@@ -21,8 +21,36 @@ const mojibakeStatus: Record<string, string> = {
   '宸插崌绾?': '已升级',
 }
 
+const englishStatus: Record<string, string> = {
+  active: '已启用',
+  cancelled: '已取消',
+  completed: '已完成',
+  disabled: '已停用',
+  done: '已完成',
+  draft: '草稿',
+  failed: '失败',
+  inactive: '已停用',
+  in_progress: '处理中',
+  missing_secret: '密钥缺失',
+  offline: '离线',
+  online: '在线',
+  open: '待处理',
+  passed: '已通过',
+  pending: '待处理',
+  published: '已发布',
+  queued: '排队中',
+  ready: '就绪',
+  running: '运行中',
+  unchecked: '未检查',
+  unpublished: '未发布',
+  waiting: '等待中',
+  waiting_review: '等待审核',
+}
+
 export function displayStatus(status: string) {
-  return mojibakeStatus[status] ?? status
+  const normalized = status.trim()
+  if (normalized === '???' || normalized === '??' || normalized === 'unknown') return '状态未知'
+  return mojibakeStatus[normalized] ?? englishStatus[normalized.toLowerCase()] ?? normalized
 }
 
 export function isWaitingForHumanReview(status: string) {

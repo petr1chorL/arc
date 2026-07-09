@@ -76,63 +76,45 @@ describe('Layout', () => {
     expect(reviewsLink).toHaveTextContent('人工审核2')
     expect(fetchMock).toHaveBeenCalledWith(
       `/api/workspaces/${workspace.id}/human-tasks`,
-      expect.objectContaining({ credentials: 'same-origin' }),
+      expect.objectContaining({ credentials: 'include' }),
     )
   })
 
-  it('links to the observability troubleshooting page inside the current workspace', async () => {
+  it('does not expose observability as a standalone primary module', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
       new Response(JSON.stringify([]), { status: 200 }),
     ))
 
     renderLayout()
 
-    const observabilityLink = await screen.findByRole('link', { name: '运行观测' })
-    expect(observabilityLink).toHaveAttribute('href', '/w/ai-capability-center/observability')
+    await screen.findByText('HOME')
+    expect(screen.queryByRole('link', { name: '运行观测' })).not.toBeInTheDocument()
   })
 
-  it('links to notification operations inside the current workspace', async () => {
+  it('does not expose removed operations and governance modules', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
       new Response(JSON.stringify([]), { status: 200 }),
     ))
 
     renderLayout()
 
-    const notificationsLink = await screen.findByRole('link', { name: '通知运维' })
-    expect(notificationsLink).toHaveAttribute('href', '/w/ai-capability-center/notifications')
+    await screen.findByText('HOME')
+    expect(screen.queryByRole('link', { name: '通知运维' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: '打开通知运维' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: '通知渠道' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Data Object' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: '审计日志' })).not.toBeInTheDocument()
   })
 
-  it('links to Data Object settings inside the current workspace', async () => {
+  it('does not expose artifacts as a standalone primary module', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
       new Response(JSON.stringify([]), { status: 200 }),
     ))
 
     renderLayout()
 
-    const dataObjectLink = await screen.findByRole('link', { name: 'Data Object' })
-    expect(dataObjectLink).toHaveAttribute('href', '/w/ai-capability-center/settings/data-objects')
-  })
-
-  it('links to notification channel settings inside the current workspace', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
-      new Response(JSON.stringify([]), { status: 200 }),
-    ))
-
-    renderLayout()
-
-    const channelLink = await screen.findByRole('link', { name: '通知渠道' })
-    expect(channelLink).toHaveAttribute('href', '/w/ai-capability-center/settings/notification-channels')
-  })
-
-  it('links to artifact instances inside the current workspace', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
-      new Response(JSON.stringify([]), { status: 200 }),
-    ))
-
-    renderLayout()
-
-    const artifactsLink = await screen.findByRole('link', { name: '产出物' })
-    expect(artifactsLink).toHaveAttribute('href', '/w/ai-capability-center/artifacts')
+    await screen.findByText('HOME')
+    expect(screen.queryByRole('link', { name: '产出物' })).not.toBeInTheDocument()
   })
 
   it('keeps the shell usable when the human task count fails', async () => {

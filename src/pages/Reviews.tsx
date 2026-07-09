@@ -1,16 +1,11 @@
 import {
-  ArrowRightLeft,
   Check,
-  CheckCheck,
   Clock3,
   Copy,
-  FileDiff,
   FilePenLine,
   History,
   RefreshCw,
-  RotateCcw,
   ShieldCheck,
-  UserCheck,
   X,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -18,7 +13,6 @@ import { useLocation, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../auth/authContext'
 import { useWorkspace } from '../auth/workspaceContextState'
 import {
-  claimHumanTask,
   confirmFeedbackCandidate,
   decideHumanTask,
   getHumanTask,
@@ -26,8 +20,6 @@ import {
   listHumanTasks,
   listReviewers,
   listReviewGroups,
-  retryHumanTaskResume,
-  transferHumanTask,
 } from '../api/humanTasks'
 import { listRuns } from '../api/execution'
 import { StatusBadge } from '../components/StatusBadge'
@@ -46,7 +38,50 @@ type MobilePane = 'queue' | 'review' | 'context'
 
 const terminalStatuses = new Set(['已通过', '修改后通过', '已驳回', '已退回'])
 const reviewerQualificationsUpdatedEvent = 'reviewer-qualifications-updated'
-const reviewStatusOptions = ['全部', '待认领', '审核中', '恢复失败', '已通过', '修改后通过', '已驳回', '已退回']
+const reviewStatusOptions = ['全部', '待审核', '审核中', '恢复失败', '已通过', '已驳回', '已退回']
+
+function displayReviewTaskStatus(status: string) {
+  if (status === '待认领') return '待审核'
+  if (status === '修改后通过') return '已通过'
+  return status
+}
+
+function normalizeReviewStatusFilter(status: string) {
+  return displayReviewTaskStatus(status)
+}
+
+const artifactFieldLabels: Record<string, string> = {
+  sourceNotes: '来源信息',
+  businessContext: '业务背景',
+  desiredOutput: '期望产出',
+  riskConcerns: '风险关注',
+  task: '任务说明',
+  input: '输入内容',
+  prompt: '任务提示',
+  query: '查询内容',
+  brief: '需求简述',
+}
+
+function stringifyArtifactValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '未填写'
+  if (Array.isArray(value)) return value.map(stringifyArtifactValue).join('、')
+  if (typeof value === 'object') return JSON.stringify(value, null, 2)
+  return String(value)
+}
+
+function parseArtifactFields(content: string) {
+  try {
+    const parsed = JSON.parse(content) as unknown
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+    return Object.entries(parsed).map(([key, value]) => ({
+      key,
+      label: artifactFieldLabels[key] ?? key,
+      value: stringifyArtifactValue(value),
+    }))
+  } catch {
+    return null
+  }
+}
 
 function formatTime(value: string) {
   return new Date(value).toLocaleString('zh-CN', {
@@ -63,8 +98,7 @@ export function Reviews() {
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const requestedTaskId = searchParams.get('taskId') ?? ''
-  const requestedTaskStatus = searchParams.get('taskStatus') ?? '全部'
-  const requestedSlaStatus = searchParams.get('slaStatus') ?? '全部'
+  const requestedTaskStatus = normalizeReviewStatusFilter(searchParams.get('taskStatus') ?? '全部')
   const reviewSource = searchParams.get('source') ?? ''
   const [tasks, setTasks] = useState<HumanTask[]>([])
   const [detail, setDetail] = useState<HumanTaskDetail | null>(null)
@@ -76,24 +110,19 @@ export function Reviews() {
   const [statusFilter, setStatusFilter] = useState(() => (
     reviewStatusOptions.includes(requestedTaskStatus) ? requestedTaskStatus : '全部'
   ))
-  const [slaFilter, setSlaFilter] = useState(() => (
-    ['全部', '正常', '即将到期', '已逾期', '已升级'].includes(requestedSlaStatus) ? requestedSlaStatus : '全部'
-  ))
   const [mobilePane, setMobilePane] = useState<MobilePane>('queue')
-  const [isEditing, setIsEditing] = useState(false)
-  const [editedContent, setEditedContent] = useState('')
   const [reason, setReason] = useState('')
-  const [transferReviewerId, setTransferReviewerId] = useState('')
-  const [transferReason, setTransferReason] = useState('')
   const [expertReason, setExpertReason] = useState('')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [reviewLinkMessage, setReviewLinkMessage] = useState('')
   const [reviewLinkTone, setReviewLinkTone] = useState<'success' | 'error'>('success')
   const [isBusy, setIsBusy] = useState(false)
+  const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(true)
 
   const loadWorkspace = useCallback(async () => {
     setError('')
+    setIsLoadingWorkspace(true)
     try {
       const [nextTasks, nextReviewers, nextGroups, nextCandidates, nextRuns] = await Promise.all([
         listHumanTasks(workspace.id),
@@ -116,6 +145,8 @@ export function Reviews() {
       ))
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : '人工任务加载失败')
+    } finally {
+      setIsLoadingWorkspace(false)
     }
   }, [requestedTaskId, workspace.id])
 
@@ -130,11 +161,10 @@ export function Reviews() {
       else next.delete('taskId')
       if (statusFilter !== '全部') next.set('taskStatus', statusFilter)
       else next.delete('taskStatus')
-      if (slaFilter !== '全部') next.set('slaStatus', slaFilter)
-      else next.delete('slaStatus')
+      next.delete('slaStatus')
       return next.toString() === current.toString() ? current : next
     }, { replace: true })
-  }, [selectedId, setSearchParams, slaFilter, statusFilter])
+  }, [selectedId, setSearchParams, statusFilter])
 
   useEffect(() => {
     function refreshReviewers() {
@@ -164,8 +194,6 @@ export function Reviews() {
     void getHumanTask(workspace.id, selectedId)
       .then((nextDetail) => {
         setDetail(nextDetail)
-        setEditedContent(nextDetail.artifact.content)
-        setIsEditing(false)
         setReason('')
       })
       .catch((loadError) => {
@@ -173,39 +201,40 @@ export function Reviews() {
       })
   }, [selectedId, workspace.id])
 
-  const filteredTasks = useMemo(() => tasks.filter((task) => (
-    (statusFilter === '全部' || task.status === statusFilter)
-    && (slaFilter === '全部' || displayStatus(task.slaStatus) === slaFilter)
-  )), [slaFilter, statusFilter, tasks])
-
   const currentReviewer = reviewers.find((reviewer) => (
     reviewer.userId === user?.id && reviewer.isActive
   ))
   const hasReviewerQualification = Boolean(currentReviewer)
-  const activeTasks = tasks.filter((task) => !terminalStatuses.has(task.status))
-  const slaRiskTasks = activeTasks.filter((task) => displayStatus(task.slaStatus) !== '正常')
-  const myTaskCount = currentReviewer
-    ? activeTasks.filter((task) => (
-      task.assigneeReviewerId === currentReviewer.id || task.participantSnapshot.includes(currentReviewer.id)
-    )).length
-    : 0
+  const scopedTasks = useMemo(() => (
+    currentReviewer
+      ? tasks.filter((task) => (
+        task.participantSnapshot.includes(currentReviewer.id) || task.id === selectedId
+      ))
+      : tasks
+  ), [currentReviewer, selectedId, tasks])
+  const filteredTasks = useMemo(() => scopedTasks.filter((task) => (
+    (statusFilter === '全部' || displayReviewTaskStatus(task.status) === statusFilter)
+  )), [scopedTasks, statusFilter])
+  const activeTasks = scopedTasks.filter((task) => !terminalStatuses.has(task.status))
+  const timeoutRiskTasks = activeTasks.filter((task) => displayStatus(task.slaStatus) !== '正常')
+  const myTaskCount = currentReviewer ? activeTasks.length : 0
   const pendingFeedbackCount = candidates.filter((candidate) => candidate.status === '待确认').length
   const latestRun = runs[0]
   const latestRunStatus = latestRun ? displayStatus(latestRun.status) : '暂无运行'
   const selectedCandidate = candidates.find((candidate) => candidate.humanTaskId === selectedId)
-  const selectedGroup = groups.find((group) => group.id === detail?.assigneeGroupId)
+  const artifactFields = detail ? parseArtifactFields(detail.artifact.content) : null
   const isTerminal = detail ? terminalStatuses.has(detail.status) : true
   const canHandleCurrentTask = detail ? canCurrentReviewerHandleTask() : false
   const actionDisabled = isBusy || !canHandleCurrentTask
   const currentTaskPermission = detail ? getCurrentTaskPermission() : null
   const reviewSourceLabel = reviewSource === 'sla'
-    ? '来自 SLA 风险入口'
+    ? '来自超时风险入口'
     : reviewSource === 'observability'
     ? '来自运行观测入口'
     : reviewSource
     ? `来自 ${reviewSource}`
     : '来自分享链接'
-  const hasUrlContext = Boolean(reviewSource || statusFilter !== '全部' || slaFilter !== '全部')
+  const hasUrlContext = Boolean(reviewSource || statusFilter !== '全部')
   const currentReviewUrl = useMemo(() => {
     const params = new URLSearchParams(location.search)
     if (selectedId) {
@@ -216,14 +245,10 @@ export function Reviews() {
     } else {
       params.set('taskStatus', statusFilter)
     }
-    if (slaFilter === '全部') {
-      params.delete('slaStatus')
-    } else {
-      params.set('slaStatus', slaFilter)
-    }
+    params.delete('slaStatus')
     const query = params.toString()
     return `${window.location.origin}${location.pathname}${query ? `?${query}` : ''}`
-  }, [location.pathname, location.search, selectedId, slaFilter, statusFilter])
+  }, [location.pathname, location.search, selectedId, statusFilter])
 
   function getReviewNextStep() {
     if (!hasReviewerQualification) {
@@ -249,7 +274,6 @@ export function Reviews() {
       detail
       && currentReviewer
       && !isTerminal
-      && (!detail.assigneeReviewerId || detail.assigneeReviewerId === currentReviewer.id)
       && detail.participantSnapshot.includes(currentReviewer.id),
     )
   }
@@ -271,7 +295,7 @@ export function Reviews() {
       return {
         tone: 'blocked',
         status: '不能处理',
-        reason: '当前账号未绑定 Reviewer 资格，所以不能认领任务或提交审核决定。',
+        reason: '当前账号未绑定 Reviewer 资格，所以不能提交审核决定。',
         nextStep: '先到成员与权限页绑定当前账号 Reviewer 资格。',
       }
     }
@@ -283,27 +307,19 @@ export function Reviews() {
         nextStep: '查看审计时间线或切换其他待处理任务。',
       }
     }
-    if (detail.assigneeReviewerId && detail.assigneeReviewerId !== currentReviewer?.id) {
-      return {
-        tone: 'blocked',
-        status: '不能处理',
-        reason: '当前任务已分配给其他审核人。',
-        nextStep: '请等待对方处理，或由有权限的人先完成任务转交。',
-      }
-    }
     if (currentReviewer && !detail.participantSnapshot.includes(currentReviewer.id)) {
       return {
         tone: 'blocked',
         status: '不能处理',
-        reason: '当前 Reviewer 不在该任务参与范围内，不能认领或提交决定。',
+        reason: '当前 Reviewer 不在该任务指定审核用户内，不能提交决定。',
         nextStep: '把当前账号加入该 Human 节点的审核人或审核组后，再回到这里处理。',
       }
     }
     return {
       tone: 'ready',
       status: '可以处理',
-      reason: '当前账号在任务参与范围内，可以认领或提交审核决定。',
-      nextStep: '填写审核原因后，选择通过、驳回、退回重跑或修改后通过。',
+      reason: '当前账号是该任务的指定审核用户，可以直接提交审核决定。',
+      nextStep: '查看上游产出物，填写审核原因后选择通过或驳回。',
     }
   }
 
@@ -317,59 +333,10 @@ export function Reviews() {
     window.dispatchEvent(new Event('human-tasks-updated'))
   }
 
-  async function claim() {
-    if (!detail || !currentReviewer) return
-    setIsBusy(true)
-    setError('')
-    try {
-      const updated = await claimHumanTask(workspace.id, detail.id)
-      updateTask(updated)
-      setDetail((current) => current ? { ...current, ...updated } : current)
-      notifyHumanTasksUpdated()
-      setMessage('任务已认领')
-    } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : '任务认领失败')
-    } finally {
-      setIsBusy(false)
-    }
-  }
-
-  async function transfer() {
-    if (!detail || !currentReviewer) return
-    if (!transferReviewerId || !transferReason.trim()) {
-      setError('请选择转交审核人并填写转交原因')
-      return
-    }
-    setIsBusy(true)
-    setError('')
-    try {
-      const updated = await transferHumanTask(workspace.id, detail.id, {
-        targetReviewerId: transferReviewerId,
-        reason: transferReason.trim(),
-      })
-      updateTask(updated)
-      setDetail((current) => current ? { ...current, ...updated } : current)
-      notifyHumanTasksUpdated()
-      setTransferReason('')
-      setMessage('任务已转交')
-    } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : '任务转交失败')
-    } finally {
-      setIsBusy(false)
-    }
-  }
-
   async function decide(decision: HumanTaskDecision) {
     if (!detail || !currentReviewer) return
     if (!reason.trim()) {
       setError('请填写审核原因')
-      return
-    }
-    if (
-      decision === 'modify_and_approve'
-      && (!editedContent.trim() || editedContent.trim() === detail.artifact.content.trim())
-    ) {
-      setError('修改后通过需要提交不同的产出物内容')
       return
     }
     setIsBusy(true)
@@ -380,37 +347,15 @@ export function Reviews() {
         reason: reason.trim(),
         artifactVersionId: detail.artifact.id,
         idempotencyKey: `${detail.id}:${currentReviewer.id}:${decision}:${Date.now()}`,
-        ...(decision === 'modify_and_approve'
-          ? { modifiedContent: editedContent.trim(), tags: ['人工修订'] }
-          : {}),
       })
       setDetail(updated)
-      setEditedContent(updated.artifact.content)
       updateTask(updated)
       notifyHumanTasksUpdated()
       setMessage('审核决定已提交')
       setReason('')
-      setIsEditing(false)
       setCandidates(await listFeedbackCandidates(workspace.id))
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : '审核决定提交失败')
-    } finally {
-      setIsBusy(false)
-    }
-  }
-
-  async function retryResume() {
-    if (!detail) return
-    setIsBusy(true)
-    setError('')
-    try {
-      const updated = await retryHumanTaskResume(workspace.id, detail.id)
-      setDetail(updated)
-      updateTask(updated)
-      notifyHumanTasksUpdated()
-      setMessage('工作流恢复已重试')
-    } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : '恢复重试失败')
     } finally {
       setIsBusy(false)
     }
@@ -443,6 +388,18 @@ export function Reviews() {
     }
   }
 
+  if (isLoadingWorkspace && !detail && tasks.length === 0) {
+    return (
+      <section className="review-empty-state panel" aria-live="polite">
+        <div>
+          <span className="section-kicker">HUMAN IN THE LOOP</span>
+          <h2>正在加载人工任务</h2>
+          <p>正在同步审核队列、Reviewer 资格和最近运行状态。</p>
+        </div>
+      </section>
+    )
+  }
+
   if (error && tasks.length === 0) {
     return (
       <div className="panel table-state error" role="alert">
@@ -465,7 +422,7 @@ export function Reviews() {
         <ol className="review-acceptance-steps" aria-label="人工审核任务验收路径">
           <li>在工作流编排中加入人工审核节点并发布版本</li>
           <li>运行已发布工作流，等待状态进入需介入</li>
-          <li>回到人工审核页认领任务并提交决定</li>
+          <li>回到人工审核页查看待审产出物并提交决定</li>
         </ol>
         <section className="review-diagnostic-panel" aria-label="人工审核验收诊断">
           <div className="context-title"><ShieldCheck size={15} /><h3>验收诊断</h3></div>
@@ -496,7 +453,7 @@ export function Reviews() {
           <div>
             <span>当前 Reviewer 资格</span>
             <strong>{hasReviewerQualification ? currentReviewer?.role : '未获得'}</strong>
-            <small>{hasReviewerQualification ? '可以认领或处理参与范围内的任务' : '需要在成员与权限中绑定审核资格'}</small>
+            <small>{hasReviewerQualification ? '可以处理被指定给你的审核任务' : '需要在成员与权限中绑定审核资格'}</small>
           </div>
           <div>
             <span>审核组</span>
@@ -506,7 +463,7 @@ export function Reviews() {
           <div>
             <span>待确认反馈</span>
             <strong>{pendingFeedbackCount}</strong>
-            <small>修改后通过才会产生反馈候选</small>
+            <small>后续版本会把人工修订沉淀为反馈候选</small>
           </div>
         </div>
         <div className="review-empty-actions">
@@ -535,9 +492,9 @@ export function Reviews() {
           <small>{hasReviewerQualification ? currentReviewer?.role : '需要在成员页配置资格'}</small>
         </div>
         <div>
-          <span>SLA 风险</span>
-          <strong>{slaRiskTasks.length}</strong>
-          <small>即将到期、逾期或已升级</small>
+          <span>超时风险</span>
+          <strong>{timeoutRiskTasks.length}</strong>
+          <small>快到期或已超时</small>
         </div>
         <div>
           <span>待确认反馈</span>
@@ -556,7 +513,6 @@ export function Reviews() {
           <div className="review-url-context-tags">
             {selectedId && <strong>任务 {selectedId}</strong>}
             <strong>状态 {statusFilter}</strong>
-            <strong>SLA {slaFilter}</strong>
           </div>
           <div className="review-url-context-actions">
             <button className="button ghost" type="button" onClick={copyReviewLink}>
@@ -568,7 +524,6 @@ export function Reviews() {
               type="button"
               onClick={() => {
                 setStatusFilter('全部')
-                setSlaFilter('全部')
               }}
             >
               清空上下文筛选
@@ -612,36 +567,23 @@ export function Reviews() {
               {reviewStatusOptions.map((status) => <option key={status}>{status}</option>)}
             </select>
           </label>
-          <label>
-            <span>SLA</span>
-            <select aria-label="SLA 筛选" value={slaFilter} onChange={(event) => setSlaFilter(event.target.value)}>
-              <option>全部</option>
-              <option>正常</option>
-              <option>即将到期</option>
-              <option>已逾期</option>
-              <option>已升级</option>
-            </select>
-          </label>
         </div>
         <div className="review-task-list">
           {filteredTasks.length === 0 && (
             <div className="review-filter-empty">
               <strong>当前筛选无任务</strong>
-              <span>换一个状态或 SLA 条件，或清空筛选查看全部审核任务。</span>
+              <span>换一个状态，或清空筛选查看全部审核任务。</span>
               <button
                 className="button ghost"
                 onClick={() => {
                   setStatusFilter('全部')
-                  setSlaFilter('全部')
                 }}
               >
                 清空筛选
               </button>
             </div>
           )}
-          {filteredTasks.map((task) => {
-            const taskSlaStatus = displayStatus(task.slaStatus)
-            return (
+          {filteredTasks.map((task) => (
               <button
                 className={`review-task-row ${task.id === selectedId ? 'selected' : ''}`}
                 key={task.id}
@@ -650,13 +592,12 @@ export function Reviews() {
                   setMobilePane('review')
                 }}
               >
-                <div><StatusBadge status={task.status} /><span className={`sla-dot ${taskSlaStatus}`}>{taskSlaStatus}</span></div>
+                <div><StatusBadge status={displayReviewTaskStatus(task.status)} /></div>
                 <strong>{task.title}</strong>
                 <span>{task.id}</span>
                 <small><Clock3 size={13} />{formatTime(task.dueAt)}</small>
               </button>
-            )
-          })}
+          ))}
         </div>
       </aside>
 
@@ -669,7 +610,7 @@ export function Reviews() {
                 <h2>审核产出物</h2>
                 <p>{detail.run.name} · {detail.run.currentNode}</p>
               </div>
-              <StatusBadge status={detail.status} />
+              <StatusBadge status={displayReviewTaskStatus(detail.status)} />
             </header>
 
             {error && <div className="inline-feedback error" role="alert">{error}</div>}
@@ -694,43 +635,22 @@ export function Reviews() {
                   </div>
                 </div>
               )}
-              {!detail.assigneeReviewerId && !isTerminal && (
-                <button
-                  className="button secondary"
-                  disabled={actionDisabled}
-                  onClick={() => void claim()}
-                  title={actionDisabled && currentTaskPermission
-                    ? `${currentTaskPermission.status}：${currentTaskPermission.reason}`
-                    : '认领任务'}
-                >
-                  <UserCheck size={15} />认领任务
-                </button>
-              )}
             </div>
 
-            <section className="artifact-work-area">
-              <div className="review-section-title">
-                <div><FilePenLine size={16} /><h3>Artifact v{detail.artifact.version}</h3></div>
-                <button className="button ghost" onClick={() => setIsEditing((current) => !current)}>
-                  <FileDiff size={15} />{isEditing ? '查看原文' : '编辑产出物'}
-                </button>
+            <section className="artifact-work-area review-focus-card">
+              <div className="review-section-title review-section-title-stacked">
+                <div><FilePenLine size={16} /><h3>待审核内容 v{detail.artifact.version}</h3></div>
+                <p>这是上一个 Agent 或工作流节点交给人工判断的材料。确认内容没问题就点通过，有问题就写原因后驳回。</p>
               </div>
-              {isEditing ? (
-                <>
-                  <label className="review-editor-field">
-                    <span>修订后的产出物</span>
-                    <textarea
-                      aria-label="修订后的产出物"
-                      value={editedContent}
-                      onChange={(event) => setEditedContent(event.target.value)}
-                    />
-                  </label>
-                  <div className="diff-preview">
-                    <span>变更预览</span>
-                    <del>{detail.artifact.content}</del>
-                    <ins>{editedContent || '等待输入修订内容'}</ins>
-                  </div>
-                </>
+              {artifactFields ? (
+                <div className="artifact-field-grid">
+                  {artifactFields.map((field) => (
+                    <div className="artifact-field-card" key={field.key}>
+                      <span>{field.label}</span>
+                      <strong>{field.value}</strong>
+                    </div>
+                  ))}
+                </div>
               ) : (
                 <div className="artifact-document">{detail.artifact.content}</div>
               )}
@@ -738,6 +658,7 @@ export function Reviews() {
 
             <label className="review-reason">
               <span>审核原因</span>
+              <small>通过或驳回前，建议写清判断依据，方便后续追溯。</small>
               <textarea
                 aria-label="审核原因"
                 value={reason}
@@ -747,22 +668,11 @@ export function Reviews() {
             </label>
 
             <footer className="review-command-bar">
-              {detail.status === '恢复失败' && (
-                <button className="button secondary" disabled={isBusy} onClick={() => void retryResume()}>
-                  <RefreshCw size={15} />重试恢复
-                </button>
-              )}
               <button className="button danger" disabled={actionDisabled} onClick={() => void decide('reject')}>
                 <X size={15} />驳回
               </button>
-              <button className="button secondary" disabled={actionDisabled} onClick={() => void decide('return_for_rerun')}>
-                <RotateCcw size={15} />退回重跑
-              </button>
-              <button className="button secondary" disabled={actionDisabled} onClick={() => void decide('approve')}>
+              <button className="button primary" disabled={actionDisabled} onClick={() => void decide('approve')}>
                 <Check size={15} />通过
-              </button>
-              <button className="button primary" disabled={actionDisabled} onClick={() => void decide('modify_and_approve')}>
-                <CheckCheck size={15} />修改后通过
               </button>
             </footer>
           </>
@@ -773,36 +683,9 @@ export function Reviews() {
         {detail && (
           <>
             <header className="review-pane-header">
-              <div><span className="section-kicker">DECISION CONTEXT</span><h2>运行上下文</h2></div>
+              <div><span className="section-kicker">AUDIT TRAIL</span><h2>审计记录</h2></div>
               <ShieldCheck size={19} />
             </header>
-
-            <section className="context-metrics">
-              <div><span>质量得分</span><strong>{detail.run.score ?? '待评估'}</strong></div>
-              <div><span>会签进度</span><strong>{detail.approvalProgress.received} / {detail.approvalProgress.required}</strong></div>
-              <div><span>SLA</span><strong>{displayStatus(detail.slaStatus)}</strong></div>
-              <div><span>审核组</span><strong>{selectedGroup?.name ?? '未分组'}</strong></div>
-            </section>
-
-            <section className="context-section">
-              <div className="context-title"><ArrowRightLeft size={15} /><h3>任务转交</h3></div>
-              <label>
-                <span>转交审核人</span>
-                <select aria-label="转交审核人" value={transferReviewerId} onChange={(event) => setTransferReviewerId(event.target.value)}>
-                  <option value="">请选择</option>
-                  {reviewers.filter((reviewer) => reviewer.id !== currentReviewer?.id).map((reviewer) => (
-                    <option value={reviewer.id} key={reviewer.id}>{reviewer.name} · {reviewer.role}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                <span>转交原因</span>
-                <input aria-label="转交原因" value={transferReason} onChange={(event) => setTransferReason(event.target.value)} />
-              </label>
-              <button className="button secondary full" disabled={actionDisabled} onClick={() => void transfer()}>
-                确认转交
-              </button>
-            </section>
 
             <section className="context-section">
               <div className="context-title"><History size={15} /><h3>审计时间线</h3></div>

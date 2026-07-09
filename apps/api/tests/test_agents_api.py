@@ -59,6 +59,7 @@ def test_create_agent_persists_and_lists_complete_contract(tmp_path):
         "toolAssetRefs": [],
         "skillAssetRefs": [],
         "systemPrompt": "",
+        "runtimeManifest": {},
         "createdAt": created["createdAt"],
         "updatedAt": created["updatedAt"],
     }
@@ -114,6 +115,48 @@ def test_agent_runtime_configuration_is_saved_and_published_without_secrets(tmp_
     assert published["snapshot"]["temperature"] == 0.2
     assert published["snapshot"]["maxOutputTokens"] == 1200
     assert "apiKey" not in published["snapshot"]
+
+
+def test_agent_runtime_manifest_is_saved_and_published(tmp_path):
+    database_url = f"sqlite:///{tmp_path / 'agents-runtime-manifest.db'}"
+    client, workspace_id = create_authenticated_client(database_url)
+    created = client.post(
+        workspace_url(workspace_id, "/agents"),
+        json={
+            "name": "LangChain Package Agent",
+            "role": "Run an external LangChain Python package.",
+            "owner": "Platform Team",
+            "model": "deepseek-v4-pro",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    runtime_manifest = {
+        "runtime": "langchain",
+        "sourceType": "python_package",
+        "packageName": "arc-langchain-agents",
+        "packageVersion": "1.0.3",
+        "entrypoint": "arc_agents.weather:create_agent",
+        "packageSource": "internal-pypi",
+        "packageHash": "sha256:abc123",
+    }
+
+    update_response = client.patch(
+        workspace_url(workspace_id, f"/agents/{created['id']}"),
+        json={"runtimeManifest": runtime_manifest},
+        headers=csrf_headers(client),
+    )
+
+    assert update_response.status_code == 200
+    updated = update_response.json()
+    assert updated["runtimeManifest"] == runtime_manifest
+
+    published = client.post(
+        workspace_url(workspace_id, f"/agents/{created['id']}/publish"),
+        json={"note": "Register Python package runtime entrypoint"},
+        headers=csrf_headers(client),
+    ).json()
+
+    assert published["snapshot"]["runtimeManifest"] == runtime_manifest
 
 
 def test_agent_can_bind_workspace_model_provider_asset(tmp_path):
@@ -178,6 +221,46 @@ def test_agent_can_bind_workspace_model_provider_asset(tmp_path):
     assert published["snapshot"]["model"] == "deepseek-v4-pro"
     assert published["snapshot"]["modelSecretRef"] == "DEEPSEEK_API_KEY"
     assert "apiKey" not in published["snapshot"]
+
+
+def test_agent_publish_does_not_snapshot_inline_model_provider_key(tmp_path):
+    database_url = f"sqlite:///{tmp_path / 'agents-inline-provider.db'}"
+    client, workspace_id = create_authenticated_client(database_url)
+    provider = client.post(
+        workspace_url(workspace_id, "/model-providers"),
+        json={
+            "name": "DeepSeek Inline",
+            "providerType": "openai-compatible",
+            "baseUrl": "https://api.deepseek.com",
+            "defaultModel": "deepseek-v4-pro",
+            "secretRef": "sk-inline-test-key",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    created = client.post(
+        workspace_url(workspace_id, "/agents"),
+        json={
+            "name": "Inline Provider Agent",
+            "role": "Run with an inline Provider key.",
+            "owner": "Platform Team",
+            "model": "placeholder-model",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    client.patch(
+        workspace_url(workspace_id, f"/agents/{created['id']}"),
+        json={"modelProviderId": provider["id"]},
+        headers=csrf_headers(client),
+    )
+
+    published = client.post(
+        workspace_url(workspace_id, f"/agents/{created['id']}/publish"),
+        headers=csrf_headers(client),
+    ).json()
+
+    assert published["snapshot"]["modelProviderId"] == provider["id"]
+    assert published["snapshot"]["modelSecretRef"] == ""
+    assert "sk-inline-test-key" not in str(published["snapshot"])
 
 
 def test_agent_publish_rejects_disabled_bound_model_provider(tmp_path):

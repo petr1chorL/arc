@@ -47,12 +47,24 @@ export async function validateWorkflow(workspaceId: string, workflowId: string):
   }))
 }
 
-export async function publishWorkflow(workspaceId: string, workflowId: string): Promise<WorkflowVersion> {
+export async function publishWorkflow(
+  workspaceId: string,
+  workflowId: string,
+  input: { note?: string } = {},
+): Promise<WorkflowVersion> {
   return readJson<WorkflowVersion>(await apiFetch(workspacePath(workspaceId, `/${workflowId}/publish`), {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ note: input.note ?? '' }),
   }))
 }
 
 export async function listWorkflowVersions(workspaceId: string, workflowId: string): Promise<WorkflowVersion[]> {
   return readJson<WorkflowVersion[]>(await apiFetch(workspacePath(workspaceId, `/${workflowId}/versions`)))
+}
+
+export async function deleteWorkflow(workspaceId: string, workflowId: string): Promise<void> {
+  await apiFetch(workspacePath(workspaceId, `/${workflowId}`), {
+    method: 'DELETE',
+  })
 }

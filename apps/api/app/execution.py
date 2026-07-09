@@ -230,6 +230,7 @@ class ExecutionService:
                 max_output_tokens=snapshot.get("maxOutputTokens", 2000),
                 tools=tool_names,
                 skills=skill_names,
+                runtime_manifest=snapshot.get("runtimeManifest", {}),
             ),
             max_attempts=max_attempts,
         )
@@ -830,41 +831,58 @@ class ExecutionService:
         else:
             run.status = "已完成"
         if node_runs:
-            artifact = ArtifactRecord(
-                workspace_id=run.workspace_id,
-                run_id=run.id,
-                source_node_run_id=node_runs[-1].id,
-                content=run.output_text,
-                score=run.score,
-            )
-            session.add(artifact)
-            session.flush()
             output_data_object_ref = None
             if run.workflow_id and run.workflow_version:
                 output_data_object_ref = self._output_data_object_ref(
                     snapshot=self.workflow_snapshot(session, run),
                     node_runs=current_nodes,
                 )
-            session.add(ArtifactVersionRecord(
-                workspace_id=run.workspace_id,
-                artifact_id=artifact.id,
-                content=run.output_text,
-                data_object_definition_id=(
-                    output_data_object_ref.get("definitionId")
-                    if output_data_object_ref
-                    else None
-                ),
-                data_object_version_id=(
-                    output_data_object_ref.get("versionId")
-                    if output_data_object_ref
-                    else None
-                ),
-                data_object_snapshot=(
-                    output_data_object_ref.get("snapshot")
-                    if output_data_object_ref
-                    else None
+            existing_artifact_node_ids = set(session.scalars(
+                select(ArtifactRecord.source_node_run_id).where(
+                    ArtifactRecord.workspace_id == run.workspace_id,
+                    ArtifactRecord.run_id == run.id,
                 ),
             ))
+            final_node_run_id = node_runs[-1].id
+            for node_run in node_runs:
+                if (
+                    node_run.node_type == "trigger"
+                    or not node_run.output_text
+                    or node_run.id in existing_artifact_node_ids
+                ):
+                    continue
+                is_final_node = node_run.id == final_node_run_id
+                artifact_content = run.output_text if is_final_node else node_run.output_text
+                artifact = ArtifactRecord(
+                    workspace_id=run.workspace_id,
+                    run_id=run.id,
+                    source_node_run_id=node_run.id,
+                    content=artifact_content,
+                    score=run.score if is_final_node else node_run.score,
+                )
+                session.add(artifact)
+                session.flush()
+                data_object_ref = output_data_object_ref if is_final_node else None
+                session.add(ArtifactVersionRecord(
+                    workspace_id=run.workspace_id,
+                    artifact_id=artifact.id,
+                    content=artifact_content,
+                    data_object_definition_id=(
+                        data_object_ref.get("definitionId")
+                        if data_object_ref
+                        else None
+                    ),
+                    data_object_version_id=(
+                        data_object_ref.get("versionId")
+                        if data_object_ref
+                        else None
+                    ),
+                    data_object_snapshot=(
+                        data_object_ref.get("snapshot")
+                        if data_object_ref
+                        else None
+                    ),
+                ))
         session.commit()
 
     @staticmethod

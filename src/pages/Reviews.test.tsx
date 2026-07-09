@@ -217,6 +217,17 @@ function emptyFetch(url: string, init?: RequestInit) {
   return response({ detail: 'Not Found' }, 404)
 }
 
+function pendingTasksFetch(url: string, init?: RequestInit) {
+  if (url === `/api/workspaces/${workspace.id}/human-tasks` && !init?.method) {
+    return new Promise<Response>(() => undefined)
+  }
+  if (url === `/api/workspaces/${workspace.id}/reviewers` && !init?.method) return response(reviewers)
+  if (url === `/api/workspaces/${workspace.id}/review-groups` && !init?.method) return response(groups)
+  if (url === `/api/workspaces/${workspace.id}/feedback-candidates` && !init?.method) return response([])
+  if (url === `/api/workspaces/${workspace.id}/runs` && !init?.method) return response([completedRun])
+  return response({ detail: 'Not Found' }, 404)
+}
+
 function mojibakeSlaFetch(url: string, init?: RequestInit) {
   if (url === `/api/workspaces/${workspace.id}/human-tasks` && !init?.method) return response([mojibakeSlaTask])
   if (url === `/api/workspaces/${workspace.id}/human-tasks/task-mojibake-sla` && !init?.method) {
@@ -273,8 +284,7 @@ describe('Reviews', () => {
     expect(await screen.findByText('新品定义人工审核')).toBeInTheDocument()
     expect(await screen.findByText(detail.artifact.content)).toBeInTheDocument()
     expect(screen.getByText(/新品研究流程/)).toBeInTheDocument()
-    expect(screen.getAllByText('即将到期').length).toBeGreaterThanOrEqual(2)
-    expect(screen.getByText('1 / 2')).toBeInTheDocument()
+    expect(screen.getByText('审计记录')).toBeInTheDocument()
     expect(screen.getByText('task_created')).toBeInTheDocument()
     expect(screen.getByText('due_soon')).toBeInTheDocument()
     expect(screen.getByText('当前用户')).toBeInTheDocument()
@@ -316,17 +326,12 @@ describe('Reviews', () => {
     )
 
     expect(await screen.findByText(detail.artifact.content)).toBeInTheDocument()
-    expect(screen.getByLabelText('任务状态筛选')).toHaveValue('待认领')
-    expect(screen.getByLabelText('SLA 筛选')).toHaveValue('即将到期')
-
-    await user.selectOptions(screen.getByLabelText('SLA 筛选'), '全部')
-
-    await waitFor(() => {
-      expect(currentSearchParams().get('slaStatus')).toBeNull()
-    })
+    expect(screen.getByLabelText('任务状态筛选')).toHaveValue('待审核')
+    expect(screen.queryByLabelText('SLA 筛选')).not.toBeInTheDocument()
+    await waitFor(() => expect(currentSearchParams().get('slaStatus')).toBeNull())
     expect(currentSearchParams().get('taskId')).toBe('task-1')
     expect(currentSearchParams().get('source')).toBe('sla')
-    expect(currentSearchParams().get('taskStatus')).toBe('待认领')
+    expect(currentSearchParams().get('taskStatus')).toBe('待审核')
 
     await user.selectOptions(screen.getByLabelText('任务状态筛选'), '已通过')
 
@@ -349,10 +354,10 @@ describe('Reviews', () => {
     )
 
     const context = await screen.findByLabelText('当前审核上下文')
-    expect(within(context).getByText('来自 SLA 风险入口')).toBeInTheDocument()
+    expect(within(context).getByText('来自超时风险入口')).toBeInTheDocument()
     expect(within(context).getByText('任务 task-1')).toBeInTheDocument()
-    expect(within(context).getByText('状态 待认领')).toBeInTheDocument()
-    expect(within(context).getByText('SLA 即将到期')).toBeInTheDocument()
+    expect(within(context).getByText('状态 待审核')).toBeInTheDocument()
+    expect(within(context).queryByText('SLA 即将到期')).not.toBeInTheDocument()
 
     await user.click(within(context).getByRole('button', { name: '清空上下文筛选' }))
 
@@ -363,7 +368,7 @@ describe('Reviews', () => {
     expect(currentSearchParams().get('taskId')).toBe('task-1')
     expect(currentSearchParams().get('source')).toBe('sla')
     expect(screen.getByLabelText('任务状态筛选')).toHaveValue('全部')
-    expect(screen.getByLabelText('SLA 筛选')).toHaveValue('全部')
+    expect(screen.queryByLabelText('SLA 筛选')).not.toBeInTheDocument()
   })
 
   it('copies the current review context link from the URL context panel', async () => {
@@ -386,8 +391,8 @@ describe('Reviews', () => {
     expect(copiedUrl.pathname).toBe('/w/ai-capability-center/reviews')
     expect(copiedUrl.searchParams.get('taskId')).toBe('task-1')
     expect(copiedUrl.searchParams.get('source')).toBe('sla')
-    expect(copiedUrl.searchParams.get('taskStatus')).toBe('待认领')
-    expect(copiedUrl.searchParams.get('slaStatus')).toBe('即将到期')
+    expect(copiedUrl.searchParams.get('taskStatus')).toBe('待审核')
+    expect(copiedUrl.searchParams.get('slaStatus')).toBeNull()
     expect(within(context).getByText('已复制当前审核链接')).toBeInTheDocument()
   })
 
@@ -411,13 +416,16 @@ describe('Reviews', () => {
     expect(within(context).getByText('复制失败，请手动复制地址栏链接')).toBeInTheDocument()
   })
 
-  it('normalizes legacy mojibake SLA statuses in the queue and detail pane', async () => {
+  it('keeps legacy SLA data out of the Lite review queue filters', async () => {
     vi.stubGlobal('fetch', vi.fn(mojibakeSlaFetch))
 
     renderReviews()
 
     expect(await screen.findByText('历史 SLA 状态任务')).toBeInTheDocument()
-    expect(screen.getAllByText('已逾期').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getByText('超时风险')).toBeInTheDocument()
+    expect(screen.getByText('快到期或已超时')).toBeInTheDocument()
+    expect(screen.queryByLabelText('SLA 筛选')).not.toBeInTheDocument()
+    expect(screen.queryByText('已逾期')).not.toBeInTheDocument()
     expect(screen.queryByText('宸查€炬湡')).not.toBeInTheDocument()
   })
 
@@ -430,7 +438,7 @@ describe('Reviews', () => {
     expect(screen.getByText('工作流运行到人工审核节点后，任务会自动进入这里。')).toBeInTheDocument()
     expect(screen.getByText('在工作流编排中加入人工审核节点并发布版本')).toBeInTheDocument()
     expect(screen.getByText('运行已发布工作流，等待状态进入需介入')).toBeInTheDocument()
-    expect(screen.getByText('回到人工审核页认领任务并提交决定')).toBeInTheDocument()
+    expect(screen.getByText('回到人工审核页查看待审产出物并提交决定')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: '去工作流编排' })).toHaveAttribute(
       'href',
       '/w/ai-capability-center/workflows',
@@ -439,6 +447,22 @@ describe('Reviews', () => {
       'href',
       '/w/ai-capability-center/settings/members',
     )
+  })
+
+  it('keeps the loading state visible while human tasks are still loading', async () => {
+    const fetchMock = vi.fn(pendingTasksFetch)
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderReviews()
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/workspaces/${workspace.id}/human-tasks`,
+        expect.objectContaining({ credentials: 'include' }),
+      )
+    })
+    expect(screen.getByText('正在加载人工任务')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '暂无人工任务' })).not.toBeInTheDocument()
   })
 
   it('diagnoses why the review queue is empty', async () => {
@@ -466,7 +490,7 @@ describe('Reviews', () => {
     renderReviews()
 
     expect(await screen.findByText('待处理任务')).toBeInTheDocument()
-    expect(screen.getByText('SLA 风险')).toBeInTheDocument()
+    expect(screen.getByText('超时风险')).toBeInTheDocument()
     expect(screen.getByText('待确认反馈')).toBeInTheDocument()
 
     await user.selectOptions(screen.getByLabelText('任务状态筛选'), '已通过')
@@ -503,19 +527,13 @@ describe('Reviews', () => {
     expect(reviewerCallCount).toBeGreaterThanOrEqual(2)
   })
 
-  it('validates and submits modification with the current artifact version', async () => {
+  it('validates and submits a direct approval with the current artifact version', async () => {
     const user = userEvent.setup()
     const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
       if (url === `/api/workspaces/${workspace.id}/human-tasks/task-1/decisions` && init?.method === 'POST') {
         return response({
           ...detail,
-          status: '修改后通过',
-          artifact: {
-            ...detail.artifact,
-            id: 'artifact-v2',
-            version: 2,
-            content: '这是人工修订后的正式业务结论。',
-          },
+          status: '已通过',
         })
       }
       return baseFetch(url, init)
@@ -525,15 +543,13 @@ describe('Reviews', () => {
     renderReviews()
 
     await screen.findByText(detail.artifact.content)
-    await user.click(screen.getByRole('button', { name: '编辑产出物' }))
-    const editor = screen.getByLabelText('修订后的产出物')
-    await user.clear(editor)
-    await user.type(editor, '这是人工修订后的正式业务结论。')
-    await user.click(screen.getByRole('button', { name: '修改后通过' }))
+    expect(screen.queryByRole('button', { name: '编辑产出物' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '修改后通过' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '通过' }))
     expect(await screen.findByText('请填写审核原因')).toBeInTheDocument()
 
     await user.type(screen.getByLabelText('审核原因'), '补充证据并统一表述')
-    await user.click(screen.getByRole('button', { name: '修改后通过' }))
+    await user.click(screen.getByRole('button', { name: '通过' }))
 
     expect(await screen.findByText('审核决定已提交')).toBeInTheDocument()
     const decisionCall = fetchMock.mock.calls.find(([url]) => (
@@ -541,24 +557,18 @@ describe('Reviews', () => {
     ))
     const body = JSON.parse(decisionCall?.[1]?.body as string)
     expect(body).toEqual(expect.objectContaining({
-      decision: 'modify_and_approve',
+      decision: 'approve',
       reason: '补充证据并统一表述',
       artifactVersionId: 'artifact-v1',
-      modifiedContent: '这是人工修订后的正式业务结论。',
     }))
+    expect(body).not.toHaveProperty('modifiedContent')
     expect(body).not.toHaveProperty('reviewerId')
   })
 
-  it('claims transfers and lets an expert confirm a golden sample', async () => {
+  it('keeps review actions to approve and reject without claim or transfer', async () => {
     const user = userEvent.setup()
     const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
       if (url === `/api/workspaces/${workspace.id}/feedback-candidates`) return response([candidate])
-      if (url === `/api/workspaces/${workspace.id}/human-tasks/task-1/claim` && init?.method === 'POST') {
-        return response({ ...task, status: '审核中', assigneeReviewerId: 'reviewer-2' })
-      }
-      if (url === `/api/workspaces/${workspace.id}/human-tasks/task-1/transfer` && init?.method === 'POST') {
-        return response({ ...task, status: '审核中', assigneeReviewerId: 'reviewer-1' })
-      }
       if (url === `/api/workspaces/${workspace.id}/feedback-candidates/candidate-1/confirm` && init?.method === 'POST') {
         return response({
           id: 'golden-1',
@@ -578,14 +588,10 @@ describe('Reviews', () => {
 
     await screen.findByText('新品定义人工审核')
     await screen.findByText(detail.artifact.content)
-    await user.click(screen.getByRole('button', { name: '认领任务' }))
-    expect(await screen.findByText('任务已认领')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '认领任务' })).not.toBeInTheDocument()
-
-    await user.selectOptions(screen.getByLabelText('转交审核人'), 'reviewer-1')
-    await user.type(screen.getByLabelText('转交原因'), '需要质量专家处理')
-    await user.click(screen.getByRole('button', { name: '确认转交' }))
-    expect(await screen.findByText('任务已转交')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '确认转交' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '驳回' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '通过' })).toBeInTheDocument()
 
     await user.type(screen.getByLabelText('专家确认理由'), '符合黄金样本标准')
     await user.click(screen.getByRole('button', { name: '确认黄金样本' }))
@@ -593,17 +599,11 @@ describe('Reviews', () => {
     const claimCall = fetchMock.mock.calls.find(([url]) => (
       url === `/api/workspaces/${workspace.id}/human-tasks/task-1/claim`
     ))
-    expect(claimCall?.[1]?.body).toBeUndefined()
+    expect(claimCall).toBeUndefined()
     const transferCall = fetchMock.mock.calls.find(([url]) => (
       url === `/api/workspaces/${workspace.id}/human-tasks/task-1/transfer`
     ))
-    const transferBody = JSON.parse(transferCall?.[1]?.body as string)
-    expect(transferBody).toEqual(expect.objectContaining({
-      targetReviewerId: 'reviewer-1',
-      reason: '需要质量专家处理',
-    }))
-    expect(transferBody).not.toHaveProperty('reviewerId')
-    expect(transferBody).not.toHaveProperty('actorId')
+    expect(transferCall).toBeUndefined()
     const confirmCall = fetchMock.mock.calls.find(([url]) => (
       url === `/api/workspaces/${workspace.id}/feedback-candidates/candidate-1/confirm`
     ))
@@ -619,8 +619,9 @@ describe('Reviews', () => {
     expect(screen.getByText('当前用户')).toBeInTheDocument()
     expect(screen.getByText('未获得 Reviewer 资格')).toBeInTheDocument()
     expect(screen.getByText('当前任务权限')).toBeInTheDocument()
-    expect(screen.getByText('当前账号未绑定 Reviewer 资格，所以不能认领任务或提交审核决定。')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '认领任务' })).toBeDisabled()
+    expect(screen.getByText('当前账号未绑定 Reviewer 资格，所以不能提交审核决定。')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '认领任务' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '驳回' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '通过' })).toBeDisabled()
   })
 
@@ -642,7 +643,8 @@ describe('Reviews', () => {
     expect(screen.getByText('当前任务权限')).toBeInTheDocument()
     expect(screen.getByText('不能处理')).toBeInTheDocument()
     expect(screen.getByText('把当前账号加入该 Human 节点的审核人或审核组后，再回到这里处理。')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '认领任务' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: '认领任务' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '驳回' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '通过' })).toBeDisabled()
   })
 

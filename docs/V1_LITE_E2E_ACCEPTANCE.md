@@ -19,6 +19,14 @@
 
 ## 0. 环境自检
 
+自动化验收测试：
+
+```powershell
+.\apps\api\.venv\Scripts\python.exe -m pytest .\apps\api\tests\test_v1_lite_e2e_acceptance.py -q
+```
+
+该测试使用 FakeGateway，不访问外部模型服务；它验证默认试点资产能跑通 Workflow Run、Human Review、Evaluation、Regression Run 和 Observability Trace。
+
 启动：
 
 ```powershell
@@ -31,11 +39,19 @@
 .\scripts\check-v1-lite.ps1
 ```
 
+生成试点资产：
+
+```powershell
+.\scripts\seed-v1-lite.ps1
+```
+
 必须看到：
 
 - `frontend` 通过。
 - `api-docs` 通过。
 - `api`、`web`、`execution-worker`、`notification-worker` 进程存在。
+- 种子脚本输出 4 个 Agent、1 条 Workflow、1 套 Rubric、1 个 Golden Set 和 1 个通知渠道。
+- 自动化验收测试通过。
 
 ## 1. 登录与 Workspace
 
@@ -46,7 +62,7 @@
 
 ## 2. Agent 资产
 
-- [ ] 创建或确认 4 个试点 Agent：
+- [ ] 通过种子脚本或页面确认 4 个试点 Agent：
   - 信息抽取与问题建模
   - AI 赋能工作流设计
   - 评分与验收体系设计
@@ -57,11 +73,12 @@
 
 ## 3. Workflow 编排
 
-- [ ] 创建或确认试点 Workflow。
+- [ ] 通过种子脚本或页面确认试点 Workflow。
 - [ ] 节点顺序符合 `docs/V1_LITE_PILOT_PROCESS.md`。
 - [ ] 至少包含 1 个 Human Review 节点。
 - [ ] Workflow 已发布不可变版本。
 - [ ] 记录 Workflow 版本：
+  - 种子脚本默认版本：`v1.0.0`
 
 ## 4. 运行试点流程
 
@@ -94,6 +111,7 @@
 - [ ] 打开评估中心。
 - [ ] 使用试点 Rubric 对产出物评分。
 - [ ] 评分结果保存为 Evaluation Record。
+- [ ] 注意：Workflow 中的 `Rubric 评分` 节点只提供 Trace 占位，正式评分证据必须来自评估中心保存的 Evaluation Record。
 - [ ] 如果评分失败，记录原因并进入修复任务。
 - [ ] 记录 Evaluation ID：
 
@@ -127,6 +145,7 @@
 - [ ] 有人工审核证据。
 - [ ] 有 Evaluation 评分记录。
 - [ ] 有观测页 Trace 证据。
+- [ ] 自动化 E2E 测试已通过；真实业务手工验收再补业务可用性判断。
 - [ ] 业务方能说明产出物是否可用。
 - [ ] 阻断问题已记录。
 

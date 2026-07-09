@@ -17,7 +17,7 @@ export type WorkflowNodeData = {
   label: string
   subtitle: string
   kind: 'trigger' | 'agent' | 'tool' | 'data' | 'gate' | 'human' | 'branch' | 'code' | 'wait' | 'end'
-  status?: 'idle' | 'running' | 'success' | 'warning'
+  status?: 'idle' | 'running' | 'success' | 'warning' | 'error'
   score?: number
 }
 

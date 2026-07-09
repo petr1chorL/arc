@@ -1,20 +1,15 @@
 import {
   Activity,
-  Bell,
   Blocks,
   Bot,
   ChevronDown,
   CircleHelp,
   ClipboardCheck,
-  Database,
-  Files,
   Gauge,
   KeyRound,
   Network,
-  RadioTower,
   Search,
   Settings,
-  ShieldAlert,
   Wrench,
   UsersRound,
 } from 'lucide-react'
@@ -32,9 +27,6 @@ const navigation = [
   { path: 'agents', label: 'Agent 资产', icon: Bot },
   { path: 'evaluations', label: '评估中心', icon: ClipboardCheck },
   { path: 'runs', label: '运行中心', icon: Activity },
-  { path: 'artifacts', label: '产出物', icon: Files },
-  { path: 'observability', label: '运行观测', icon: ShieldAlert },
-  { path: 'notifications', label: '通知运维', icon: Bell },
   { path: 'reviews', label: '人工审核', icon: Blocks },
 ]
 
@@ -46,14 +38,10 @@ const titles: Record<string, { title: string; eyebrow: string }> = {
   '/runs': { title: '运行中心', eyebrow: 'RUNTIME' },
   '/artifacts': { title: '产出物', eyebrow: 'ARTIFACT CATALOG' },
   '/observability': { title: '运行观测', eyebrow: 'OBSERVABILITY' },
-  '/notifications': { title: '通知运维', eyebrow: 'NOTIFICATION OPS' },
   '/reviews': { title: '人工审核', eyebrow: 'HUMAN IN THE LOOP' },
   '/settings/asset-library': { title: 'Tool / Skill 资产库', eyebrow: 'TOOL REGISTRY' },
-  '/settings/data-objects': { title: 'Data Object', eyebrow: 'DATA CONTRACTS' },
   '/settings/members': { title: '成员与权限', eyebrow: 'ACCESS CONTROL' },
-  '/settings/model-providers': { title: '模型 Provider', eyebrow: 'MODEL ACCESS' },
-  '/settings/notification-channels': { title: '通知渠道', eyebrow: 'CHANNEL SETTINGS' },
-  '/settings/audit': { title: '审计日志', eyebrow: 'AUDIT TRAIL' },
+  '/settings/model-providers': { title: '模型资产', eyebrow: 'MODEL ACCESS' },
 }
 
 const completedHumanTaskStatuses = ['已通过', '修改后通过', '已驳回', '已退回']
@@ -65,7 +53,11 @@ export function Layout() {
   const { workspace, workspacePath } = useWorkspace()
   const [pendingReviewCount, setPendingReviewCount] = useState(0)
   const relativePath = location.pathname.replace(`/w/${workspace.slug}`, '')
-  const pageKey = relativePath.startsWith('/agents/') ? '/agents' : relativePath || ''
+  const pageKey = relativePath.startsWith('/agents/')
+    ? '/agents'
+    : relativePath.startsWith('/workflows/')
+    ? '/workflows'
+    : relativePath || ''
   const page = titles[pageKey] ?? titles['']
 
   useEffect(() => {
@@ -119,23 +111,12 @@ export function Layout() {
           <CapabilityGuard capability="member.manage">
             <NavLink
               to={workspacePath('settings/model-providers')}
-              title="模型 Provider"
-              aria-label="模型 Provider"
+              title="模型资产"
+              aria-label="模型资产"
               className={({ isActive }) => (isActive ? 'nav-item active' : 'nav-item')}
             >
               <KeyRound size={18} strokeWidth={1.8} />
-              <span>模型 Provider</span>
-            </NavLink>
-          </CapabilityGuard>
-          <CapabilityGuard capability="member.manage">
-            <NavLink
-              to={workspacePath('settings/notification-channels')}
-              title="通知渠道"
-              aria-label="通知渠道"
-              className={({ isActive }) => (isActive ? 'nav-item active' : 'nav-item')}
-            >
-              <RadioTower size={18} strokeWidth={1.8} />
-              <span>通知渠道</span>
+              <span>模型资产</span>
             </NavLink>
           </CapabilityGuard>
           <CapabilityGuard capability="agent.write">
@@ -149,17 +130,6 @@ export function Layout() {
               <span>Tool / Skill</span>
             </NavLink>
           </CapabilityGuard>
-          <CapabilityGuard capability="agent.write">
-            <NavLink
-              to={workspacePath('settings/data-objects')}
-              title="Data Object"
-              aria-label="Data Object"
-              className={({ isActive }) => (isActive ? 'nav-item active' : 'nav-item')}
-            >
-              <Database size={18} strokeWidth={1.8} />
-              <span>Data Object</span>
-            </NavLink>
-          </CapabilityGuard>
           <CapabilityGuard capability="member.manage">
             <NavLink
               to={workspacePath('settings/members')}
@@ -169,17 +139,6 @@ export function Layout() {
             >
               <UsersRound size={18} strokeWidth={1.8} />
               <span>成员与权限</span>
-            </NavLink>
-          </CapabilityGuard>
-          <CapabilityGuard capability="audit.read">
-            <NavLink
-              to={workspacePath('settings/audit')}
-              title="审计日志"
-              aria-label="审计日志"
-              className={({ isActive }) => (isActive ? 'nav-item active' : 'nav-item')}
-            >
-              <ClipboardCheck size={18} strokeWidth={1.8} />
-              <span>审计日志</span>
             </NavLink>
           </CapabilityGuard>
         </nav>
@@ -232,7 +191,6 @@ export function Layout() {
               <input aria-label="全局搜索" placeholder="搜索工作流、Agent、运行实例" />
               <kbd>Ctrl K</kbd>
             </label>
-            <button className="icon-button" title="通知"><Bell size={18} /><i /></button>
             <div className="topbar-user">
               <div className="topbar-user-main">
                 <strong>{auth.user?.displayName ?? '访客'}</strong>

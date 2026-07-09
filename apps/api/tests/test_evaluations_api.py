@@ -1,5 +1,6 @@
 from api_test_support import create_authenticated_client, csrf_headers, workspace_url
 from app.judge_gateway import JudgeGatewayResult
+from app.models import EvaluationRecord
 
 
 class FakeJudgeGateway:
@@ -813,6 +814,58 @@ def test_published_rubric_can_evaluate_artifact_and_list_records(tmp_path):
     records = client.get(workspace_url(workspace_id, "/evaluations/records"))
     assert records.status_code == 200
     assert records.json()[0]["id"] == record["id"]
+
+
+def test_evaluation_records_accept_legacy_rubric_snapshots(tmp_path):
+    client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'legacy-record.db'}")
+    rubric = client.post(
+        workspace_url(workspace_id, "/evaluations/rubrics"),
+        json={
+            "name": "Legacy Snapshot Rubric",
+            "artifact": "Launch plan",
+            "dimensions": [{"name": "Evidence", "weight": 100}],
+            "gate": "Must include evidence",
+            "passScore": 70,
+        },
+        headers=csrf_headers(client),
+    ).json()
+    with client.app.state.session_factory() as session:
+        record = EvaluationRecord(
+            workspace_id=workspace_id,
+            rubric_id=rubric["id"],
+            rubric_version="v0.9",
+            rubric_snapshot={
+                "id": rubric["id"],
+                "name": "Legacy Snapshot Rubric",
+                "artifact": "Launch plan",
+                "dimensions": [{"name": "Evidence", "weight": 100}],
+                "gate": "Must include evidence",
+                "pass_score": 70,
+                "version": "v0.9",
+                "status": "active",
+            },
+            subject_type="manual",
+            subject_id="legacy-1",
+            artifact_text="Evidence-backed plan",
+            dimension_scores=[{"name": "Evidence", "weight": 100, "score": 80}],
+            score=80,
+            status="passed",
+            rationale="legacy deterministic score",
+            evaluator_type="deterministic",
+            evaluator_model="deterministic",
+            evaluator_input={},
+            created_by="test-user",
+        )
+        session.add(record)
+        session.commit()
+
+    response = client.get(workspace_url(workspace_id, "/evaluations/records"))
+
+    assert response.status_code == 200
+    legacy_record = response.json()[0]
+    assert legacy_record["rubricSnapshot"]["passScore"] == 70
+    assert legacy_record["rubricSnapshot"]["judgeType"] == "deterministic"
+    assert legacy_record["rubricSnapshot"]["judgeModel"] == "deterministic"
 
 
 def test_llm_judge_rubric_evaluation_records_model_and_input_snapshot(tmp_path):

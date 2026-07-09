@@ -165,3 +165,7 @@ def main() -> None:
             password=password,
         )
     print(f"组织管理员已就绪：{user.email}")
+
+
+if __name__ == "__main__":
+    main()

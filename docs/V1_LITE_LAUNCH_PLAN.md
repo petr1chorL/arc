@@ -101,24 +101,28 @@ V1.0 Lite 必须保留以下能力：
    - 产物：试点流程文档、输入输出样例、审核标准。
 
 2. **V1L-B：试点数据与资产模板**
-   - 产物：Agent、Workflow、Rubric、Golden Set 的可复用模板。
+   - 产物：Agent、Workflow、Rubric、Golden Set 的可复用模板与一键种子脚本。
    - 当前文档：`docs/V1_LITE_ASSET_TEMPLATES.md`。
+   - 当前脚本：`scripts/seed-v1-lite.ps1`。
 
 3. **V1L-C：一键启动与部署 Runbook**
    - 产物：启动/停止脚本、环境变量说明、排障步骤。
    - 当前文档：`docs/V1_LITE_DEPLOYMENT_RUNBOOK.md`。
 
 4. **V1L-D：端到端验收脚本**
-   - 产物：从登录到运行、审核、评估、观测的验收清单。
+   - 产物：从登录到运行、审核、评估、观测的验收清单，以及后端自动 E2E 验收测试。
    - 当前文档：`docs/V1_LITE_E2E_ACCEPTANCE.md`。
+   - 当前测试：`apps/api/tests/test_v1_lite_e2e_acceptance.py`。
 
 5. **V1L-E：试点交付包**
    - 产物：用户手册、管理员手册、问题清单、后续路线。
+   - 当前入口：`docs/V1_LITE_ACCEPTANCE_ENTRYPOINT.md`。
+   - 当前脚本：`scripts/verify-v1-lite.ps1`。
    - 当前文档：`docs/V1_LITE_USER_GUIDE.md`、`docs/V1_LITE_ADMIN_ACCEPTANCE_GUIDE.md`、`docs/V1_LITE_PILOT_ISSUE_LOG.md`。
 
 ## 当前下一步
 
-优先使用 V1.0 Lite 交付包完成一次试点验收。默认试点流程仍是“AI 赋能课程内容沉淀/评审/输出”：
+优先从 `docs/V1_LITE_ACCEPTANCE_ENTRYPOINT.md` 进入 V1.0 Lite 验收。默认试点流程仍是“AI 赋能课程内容沉淀/评审/输出”：
 
 ```text
 输入：课程笔记、业务背景、目标输出类型

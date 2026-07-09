@@ -13,6 +13,13 @@ describe('statusText', () => {
     expect(displayStatus('需介入')).toBe('需介入')
   })
 
+  it('normalizes English and placeholder statuses for display', () => {
+    expect(displayStatus('published')).toBe('已发布')
+    expect(displayStatus(' draft ')).toBe('草稿')
+    expect(displayStatus('unpublished')).toBe('未发布')
+    expect(displayStatus('???')).toBe('状态未知')
+  })
+
   it('detects human-review waiting status after normalization', () => {
     expect(isWaitingForHumanReview('需介入')).toBe(true)
     expect(isWaitingForHumanReview('宸插畬鎴?')).toBe(false)

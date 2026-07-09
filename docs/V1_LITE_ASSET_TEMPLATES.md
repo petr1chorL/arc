@@ -5,7 +5,15 @@
 
 ## 用法
 
-这份文档是手工配置模板，不是自动导入脚本。构建者需要在 ARC.ONE 页面中按模板创建资产、保存草稿、发布不可变版本，并把版本号记录到 `docs/V1_LITE_E2E_ACCEPTANCE.md`。
+优先使用一键种子脚本生成试点资产：
+
+```powershell
+.\scripts\seed-v1-lite.ps1
+```
+
+脚本会创建或更新 4 个 Agent、1 条 Workflow、1 个 Reviewer、1 套 Rubric、1 个 Golden Set 和 1 个页面内通知渠道，并发布 `v1.0.0` 版本。脚本可重复运行，不会重复创建同名版本和样本。
+
+这份文档仍保留为人工复核和后续调整模板。构建者如果需要手工改 Prompt、节点或 Rubric，应在 ARC.ONE 页面中修改草稿、重新发布不可变版本，并把版本号记录到 `docs/V1_LITE_E2E_ACCEPTANCE.md`。
 
 ## 第一性原理
 
@@ -13,7 +21,7 @@
 
 ## 对抗式审查
 
-- 不把模板当成已导入数据。
+- 不把模板文档本身当成已导入数据；是否已导入以脚本输出、页面资产和数据库记录为准。
 - 不在模板里保存 API Key、Token 或真实客户数据。
 - 不跳过 Human Review、Rubric 或 Golden Set。
 - 不把 V1.0 Lite 试点模板描述成完整生产治理体系。
@@ -261,6 +269,8 @@ System Prompt：
 | 7 | Rubric 评分 | evaluation | finalPlan + rubric | Evaluation Record | 总分 >= 80，风险控制 >= 70 |
 | 8 | End | end | Evaluation Record + finalPlan | 验收记录 | Run ID、Human Task ID、Evaluation ID 可追溯 |
 
+说明：当前执行引擎会把 `evaluation` 节点记录为运行链路中的透传节点，用于让 Trace 保持完整；正式评分仍需要在评估中心保存 Evaluation Record。
+
 推荐连线：
 
 ```text
@@ -430,21 +440,21 @@ Rubric JSON 草案：
 
 ## 配置检查清单
 
+- [ ] 已运行 `.\scripts\seed-v1-lite.ps1` 或完成等价手工配置。
 - [ ] 4 个 Agent 草稿已创建。
-- [ ] 4 个 Agent 均已发布版本。
+- [ ] 4 个 Agent 均已发布 `v1.0.0` 或更高版本。
 - [ ] 1 条 Workflow 草稿已创建。
 - [ ] Workflow 包含 Human Review 节点。
 - [ ] Workflow 已绑定已发布 Agent 版本。
 - [ ] Workflow 已发布版本。
 - [ ] Rubric 已创建并启用。
-- [ ] Golden Set 至少包含 1 条样例。
+- [ ] Golden Set 至少包含 3 条默认样例，或记录删减原因。
 - [ ] 端到端验收手册已记录 Agent Version、Workflow Version、Run ID、Human Task ID 和 Evaluation ID。
 
 ## 后续可自动化项
 
 这些能力后置到 V1.1+：
 
-- 模板一键导入。
 - Golden Set 批量导入。
 - Rubric JSON 校验器。
 - 从飞书云文档读取真实课程笔记。

@@ -28,6 +28,7 @@
 
 V1.0 Lite 暂不追求 Kubernetes、高可用、多组织 SaaS、完整 CI/CD 和全量外部通知渠道。详细落地计划见：
 
+- [V1.0 Lite 最短验收入口](docs/V1_LITE_ACCEPTANCE_ENTRYPOINT.md)
 - [V1.0 Lite 快速落地计划](docs/V1_LITE_LAUNCH_PLAN.md)
 - [V1.0 Lite 验收清单](docs/ACCEPTANCE_V1_LITE.md)
 - [V1.0 Lite 默认试点流程](docs/V1_LITE_PILOT_PROCESS.md)
@@ -133,6 +134,78 @@ V1.0 Lite 一键启动：
 
 ```powershell
 .\scripts\start-v1-lite.ps1
+```
+
+如果在 Git worktree 中启动，而真实模型密钥只保存在另一个本地 `.env` 文件里，可以显式指定
+env 文件。脚本只把变量注入本次启动的 API/Worker 进程，不会输出或复制密钥：
+
+```powershell
+.\scripts\start-v1-lite.ps1 -EnvFile "D:\path\to\apps\api\.env"
+```
+
+同一份 env 文件也要用于管理员初始化和试点资产种子化，避免账号、Workflow 写入另一个数据库：
+
+```powershell
+$env:ARC_ONE_ADMIN_EMAIL="<试点管理员邮箱>"
+$env:ARC_ONE_ADMIN_PASSWORD="<通过安全渠道提供的密码>"
+.\scripts\bootstrap-v1-lite-admin.ps1 -EnvFile "D:\path\to\apps\api\.env"
+.\scripts\seed-v1-lite.ps1 -EnvFile "D:\path\to\apps\api\.env"
+```
+
+V1.0 Lite 自动验收：
+
+```powershell
+.\scripts\verify-v1-lite.ps1
+```
+
+V1.0 Lite 真实服务验收证据采集：
+
+```powershell
+$env:ARC_ONE_ACCEPTANCE_EMAIL="<试点账号邮箱>"
+$env:ARC_ONE_ACCEPTANCE_PASSWORD="<通过安全渠道提供的密码>"
+.\scripts\accept-v1-lite.ps1 -OutputPath ".scratch\runtime\v1-lite-runtime-acceptance.json"
+```
+
+该命令会调用正在运行的 API，跑通 Workflow Run、Human Review、Evaluation、
+Regression Run 和 Observability，并输出 Run ID、Human Task ID、Evaluation ID、
+Regression Run ID 与 Trace ID。真实服务验收需要运行中的 API 已配置模型密钥，
+例如 `MODEL_API_KEY` 或 Agent Provider `secretRef` 指向的环境变量。
+
+V1.0 Lite 签收审查：
+
+```powershell
+.\scripts\audit-v1-lite-signoff.ps1 -OutputPath ".scratch\runtime\v1-lite-signoff-audit.json"
+```
+
+该命令汇总校验真实服务证据、浏览器烟测证据和试点问题清单。输出
+`ready_for_business_signoff` 表示技术证据已齐，可以进入业务方手工签收。
+
+浏览器烟测证据可用正式脚本重新生成：
+
+```powershell
+$env:ARC_ONE_BROWSER_SMOKE_EMAIL="<试点账号邮箱>"
+$env:ARC_ONE_BROWSER_SMOKE_PASSWORD="<通过安全渠道提供的密码>"
+.\scripts\smoke-v1-lite-browser.ps1 `
+  -WebUrl "http://127.0.0.1:54173" `
+  -RunId "<Run ID>" `
+  -OutputPath ".scratch\runtime\v1-lite-browser-smoke.json"
+```
+
+业务方快速签收表见 `docs/V1_LITE_BUSINESS_ACCEPTANCE_FORM.md`。
+
+签收材料包可用以下命令导出：
+
+```powershell
+.\scripts\export-v1-lite-signoff-package.ps1
+```
+
+默认输出到 `.scratch/runtime/v1-lite-signoff-package.md`，汇总真实服务证据、浏览器烟测、
+签收审查结果和业务验收人填写区。
+
+V1.0 Lite 试点资产种子化：
+
+```powershell
+.\scripts\seed-v1-lite.ps1
 ```
 
 停止：

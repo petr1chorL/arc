@@ -13,6 +13,8 @@
 - 试点能产生 Run ID、Human Task ID、Evaluation ID、Trace ID。
 - 阻断问题已记录并分级。
 
+最短验收入口见：`docs/V1_LITE_ACCEPTANCE_ENTRYPOINT.md`。
+
 ## 第一性原理
 
 管理员验收的底层问题是：这套系统是否足够支撑一个受控试点，而不是是否已经达到完整生产平台标准。
@@ -39,6 +41,24 @@
 .\scripts\check-v1-lite.ps1
 ```
 
+自动化端到端验收：
+
+```powershell
+.\apps\api\.venv\Scripts\python.exe -m pytest .\apps\api\tests\test_v1_lite_e2e_acceptance.py -q
+```
+
+完整自动验收：
+
+```powershell
+.\scripts\verify-v1-lite.ps1
+```
+
+生成或刷新试点资产：
+
+```powershell
+.\scripts\seed-v1-lite.ps1
+```
+
 停止：
 
 ```powershell
@@ -51,6 +71,9 @@
 - `api-docs` 通过。
 - `api`、`web`、`execution-worker`、`notification-worker` 进程存在。
 - `.scratch/runtime/v1-lite-pids.json` 能反映当前启动进程。
+- 种子脚本输出 Workspace、Reviewer、Agent、Workflow、Rubric、Golden Set 和通知渠道。
+- 自动化端到端验收测试通过。
+- 完整自动验收脚本通过。
 
 ## 2. 账号和 Workspace 检查
 
@@ -65,7 +88,7 @@
 
 ## 3. 资产准备检查
 
-按 `docs/V1_LITE_ASSET_TEMPLATES.md` 配置：
+优先运行 `.\scripts\seed-v1-lite.ps1`，再按 `docs/V1_LITE_ASSET_TEMPLATES.md` 复核：
 
 | 资产 | 通过标准 | 结果 |
 |---|---|---|
@@ -76,7 +99,7 @@
 | Workflow | 已创建、DAG 校验通过、发布版本 | |
 | Human Review 节点 | 已指定具备审核资格的审核人 | |
 | Rubric | 已创建或启用，权重合计 100 | |
-| Golden Set | 至少 1 条样例 | |
+| Golden Set | 至少 3 条默认样例，或记录删减原因 | |
 
 ## 4. 运行证据检查
 

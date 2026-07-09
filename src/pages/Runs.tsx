@@ -1,17 +1,12 @@
-import { ExternalLink, Pencil, Play, RefreshCw, RotateCcw, Search } from 'lucide-react'
+import { Play, RefreshCw, Search, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWorkspace } from '../auth/workspaceContextState'
-import {
-  batchResumeRunsFromFailedNode,
-  batchRerunWorkflowRuns,
-  listRunOperationHistory,
-  listRuns,
-  rerunWorkflowRun,
-  resumeRunFromFailedNode,
-} from '../api/execution'
+import { listArtifacts } from '../api/artifacts'
+import { deleteRun, listRuns } from '../api/execution'
+import { listWorkflowVersions } from '../api/workflows'
 import { StatusBadge } from '../components/StatusBadge'
 import { displayStatus, isWaitingForHumanReview } from '../domain/statusText'
-import type { ExecutionRun, NodeExecution, RunOperationHistoryEvent } from '../types'
+import type { ArtifactCatalogItem, ExecutionRun, NodeExecution, WorkflowNodeContract, WorkflowVersion } from '../types'
 
 function formatDuration(durationMs: number) {
   if (durationMs < 1000) return `${durationMs} ms`
@@ -22,54 +17,128 @@ function formatTime(value: string) {
   return new Date(value).toLocaleString('zh-CN')
 }
 
-const rerunnableWorkflowStatuses = new Set(['\u6fb6\u8fab\u89e6', '\u5931\u8d25', '\u5df2\u53d6\u6d88', '\u6062\u590d\u5931\u8d25'])
-const failedWorkflowStatuses = new Set(['\u6fb6\u8fab\u89e6', '\u5931\u8d25'])
-const runOperationActionLabels: Record<string, string> = {
-  'run.rerun': '\u91cd\u65b0\u8fd0\u884c',
-  'run.batch_rerun': '\u6279\u91cf\u91cd\u8dd1',
-  'run.resume_failed_node': '\u5931\u8d25\u70b9\u6062\u590d',
-  'run.batch_resume_failed_node': '\u6279\u91cf\u6062\u590d',
-}
-const operationMetadataKeys = [
-  'sourceRunId',
-  'newRunId',
-  'runId',
-  'failedNodeId',
-  'failedNodeRunId',
-  'workflowVersion',
-  'batchSize',
-  'inputOverridden',
-]
-
-type RunOperationFailure = {
-  sourceRunId: string
-  reason: string
+function runGraphVisualStatus(statusValue: string) {
+  const status = displayStatus(statusValue)
+  if (status === '失败' || status === '恢复失败') return 'error'
+  if (status === '需介入' || status === '等待审核' || status === '待认领' || status === '审核中') return 'warning'
+  if (status === '运行中' || status === '排队中') return 'running'
+  if (status === '已完成' || status === '已通过' || status === '修改后通过') return 'success'
+  return 'idle'
 }
 
-function canRerunWorkflow(run: ExecutionRun) {
-  const status = displayStatus(run.status)
-  return (
-    run.kind === 'workflow'
-    && Boolean(run.workflowId)
-    && Boolean(run.workflowVersion)
-    && (rerunnableWorkflowStatuses.has(status) || (status === '??' && Boolean(run.error)))
-  )
+function runGraphVisualLabel(statusValue: string) {
+  const status = displayStatus(statusValue)
+  if (status === '失败' || status === '恢复失败') return '报错'
+  if (status === '需介入' || status === '等待审核' || status === '待认领' || status === '审核中') return '等待'
+  if (status === '运行中' || status === '排队中') return '运行中'
+  if (status === '已完成' || status === '已通过' || status === '修改后通过') return '通过'
+  return status
 }
 
-function canResumeFailedNode(run: ExecutionRun) {
-  const status = displayStatus(run.status)
-  return (
-    run.kind === 'workflow'
-    && Boolean(run.workflowId)
-    && Boolean(run.workflowVersion)
-    && (failedWorkflowStatuses.has(status) || (status === '??' && Boolean(run.error)))
-  )
+interface RunGraphNode {
+  id: string
+  nodeId: string
+  nodeType: string
+  nodeName: string
+  status: string
+  durationMs: number
+  attempts: number | null
+  score: number | null
+  executed: boolean
 }
 
-function formatOperationMetadata(event: RunOperationHistoryEvent) {
-  return operationMetadataKeys
-    .filter((key) => event.metadata[key] !== undefined && event.metadata[key] !== null)
-    .map((key) => `${key}: ${String(event.metadata[key])}`)
+function workflowNodeLabel(node: WorkflowNodeContract) {
+  const label = node.data.label
+  return typeof label === 'string' && label.trim() ? label.trim() : node.id
+}
+
+function workflowNodeKind(node: WorkflowNodeContract) {
+  const kind = node.data.kind
+  if (typeof kind === 'string' && kind.trim()) return kind.trim()
+  return node.type || 'node'
+}
+
+function sortWorkflowNodesByGraph(snapshot: WorkflowVersion['snapshot']) {
+  const nodesById = new Map(snapshot.nodes.map((node) => [node.id, node]))
+  const incomingCount = new Map(snapshot.nodes.map((node) => [node.id, 0]))
+  const outgoing = new Map<string, string[]>()
+
+  snapshot.edges.forEach((edge) => {
+    if (!nodesById.has(edge.source) || !nodesById.has(edge.target)) return
+    incomingCount.set(edge.target, (incomingCount.get(edge.target) ?? 0) + 1)
+    outgoing.set(edge.source, [...(outgoing.get(edge.source) ?? []), edge.target])
+  })
+
+  const queue = snapshot.nodes
+    .filter((node) => (incomingCount.get(node.id) ?? 0) === 0)
+    .sort((left, right) => left.position.x - right.position.x || left.position.y - right.position.y)
+    .map((node) => node.id)
+  const ordered: WorkflowNodeContract[] = []
+  const visited = new Set<string>()
+
+  while (queue.length > 0) {
+    const nodeId = queue.shift()!
+    if (visited.has(nodeId)) continue
+    const node = nodesById.get(nodeId)
+    if (!node) continue
+    visited.add(nodeId)
+    ordered.push(node)
+
+    for (const targetId of outgoing.get(nodeId) ?? []) {
+      incomingCount.set(targetId, Math.max(0, (incomingCount.get(targetId) ?? 0) - 1))
+      if ((incomingCount.get(targetId) ?? 0) === 0) queue.push(targetId)
+    }
+  }
+
+  const remaining = snapshot.nodes
+    .filter((node) => !visited.has(node.id))
+    .sort((left, right) => left.position.x - right.position.x || left.position.y - right.position.y)
+  return [...ordered, ...remaining]
+}
+
+function buildRunGraphNodes(run: ExecutionRun, workflowVersion: WorkflowVersion | null): RunGraphNode[] {
+  const runByNodeId = new Map(run.nodes.map((node) => [node.nodeId, node]))
+  if (!workflowVersion) {
+    return run.nodes.map((node) => ({
+      id: node.id,
+      nodeId: node.nodeId,
+      nodeType: node.nodeType,
+      nodeName: node.nodeName,
+      status: node.status,
+      durationMs: node.durationMs,
+      attempts: node.attempts,
+      score: node.score,
+      executed: true,
+    }))
+  }
+
+  return sortWorkflowNodesByGraph(workflowVersion.snapshot).map((workflowNode) => {
+    const runNode = runByNodeId.get(workflowNode.id)
+    if (runNode) {
+      return {
+        id: runNode.id,
+        nodeId: runNode.nodeId,
+        nodeType: runNode.nodeType,
+        nodeName: runNode.nodeName,
+        status: runNode.status,
+        durationMs: runNode.durationMs,
+        attempts: runNode.attempts,
+        score: runNode.score,
+        executed: true,
+      }
+    }
+    return {
+      id: `pending-${workflowNode.id}`,
+      nodeId: workflowNode.id,
+      nodeType: workflowNodeKind(workflowNode),
+      nodeName: workflowNodeLabel(workflowNode),
+      status: '未开始',
+      durationMs: 0,
+      attempts: null,
+      score: null,
+      executed: false,
+    }
+  })
 }
 
 function requestedRunIdFromLocation() {
@@ -82,32 +151,37 @@ function syncRunIdToLocation(runId: string) {
   window.history.replaceState(window.history.state, '', `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`)
 }
 
+function clearRunIdFromLocation() {
+  const nextUrl = new URL(window.location.href)
+  nextUrl.searchParams.delete('runId')
+  window.history.replaceState(window.history.state, '', `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`)
+}
+
+function artifactPreview(content: string) {
+  const normalized = content.trim().replace(/\s+/g, ' ')
+  if (!normalized) return '空产出物'
+  return normalized.length > 220 ? `${normalized.slice(0, 220)}...` : normalized
+}
+
 export function Runs() {
   const { workspace, workspacePath } = useWorkspace()
   const [runs, setRuns] = useState<ExecutionRun[]>([])
   const [selectedId, setSelectedId] = useState(() => requestedRunIdFromLocation())
   const [query, setQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
   const [error, setError] = useState('')
-  const [rerunError, setRerunError] = useState('')
-  const [rerunMessage, setRerunMessage] = useState('')
-  const [operationFailures, setOperationFailures] = useState<RunOperationFailure[]>([])
-  const [operationHistory, setOperationHistory] = useState<RunOperationHistoryEvent[]>([])
-  const [operationHistoryError, setOperationHistoryError] = useState('')
-  const [isOperationHistoryLoading, setIsOperationHistoryLoading] = useState(false)
-  const [operationHistoryVersion, setOperationHistoryVersion] = useState(0)
-  const [rerunningId, setRerunningId] = useState('')
-  const [batchRerunning, setBatchRerunning] = useState(false)
-  const [batchResuming, setBatchResuming] = useState(false)
-  const [selectedRunIds, setSelectedRunIds] = useState<string[]>([])
-  const [editingRerunId, setEditingRerunId] = useState('')
-  const [rerunInput, setRerunInput] = useState('')
-  const [resumingId, setResumingId] = useState('')
+  const [runArtifacts, setRunArtifacts] = useState<ArtifactCatalogItem[]>([])
+  const [artifactError, setArtifactError] = useState('')
+  const [isArtifactsLoading, setIsArtifactsLoading] = useState(false)
+  const [selectedWorkflowVersion, setSelectedWorkflowVersion] = useState<WorkflowVersion | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [deleteCandidate, setDeleteCandidate] = useState<ExecutionRun | null>(null)
+  const [deleteError, setDeleteError] = useState('')
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const load = useCallback(async () => {
     setIsLoading(true)
     setError('')
-    setOperationFailures([])
     try {
       const nextRuns = await listRuns(workspace.id)
       setRuns(nextRuns)
@@ -127,199 +201,134 @@ export function Runs() {
     void load()
   }, [load])
 
+  const statusOptions = useMemo(() => (
+    Array.from(new Set(runs.map((run) => displayStatus(run.status))))
+      .filter(Boolean)
+      .sort((left, right) => left.localeCompare(right, 'zh-CN'))
+  ), [runs])
   const filteredRuns = useMemo(() => {
     const keyword = query.trim().toLowerCase()
-    if (!keyword) return runs
+    const normalizedStatus = statusFilter.trim()
     return runs.filter((run) => (
-      run.name.toLowerCase().includes(keyword)
-      || run.id.toLowerCase().includes(keyword)
-      || run.status.toLowerCase().includes(keyword)
+      (!normalizedStatus || displayStatus(run.status) === normalizedStatus)
+      && (
+        !keyword
+        || run.name.toLowerCase().includes(keyword)
+        || run.id.toLowerCase().includes(keyword)
+        || displayStatus(run.status).toLowerCase().includes(keyword)
+        || run.status.toLowerCase().includes(keyword)
+      )
     ))
-  }, [query, runs])
+  }, [query, runs, statusFilter])
+
+  useEffect(() => {
+    if (!statusFilter || filteredRuns.length === 0 || filteredRuns.some((run) => run.id === selectedId)) return
+    setSelectedId(filteredRuns[0].id)
+    syncRunIdToLocation(filteredRuns[0].id)
+  }, [filteredRuns, selectedId, statusFilter])
+
+  const handleDeleteRun = async () => {
+    if (!deleteCandidate) return
+    setIsDeleting(true)
+    setDeleteError('')
+    try {
+      await deleteRun(workspace.id, deleteCandidate.id)
+      const nextRuns = runs.filter((run) => run.id !== deleteCandidate.id)
+      setRuns(nextRuns)
+      if (selectedId === deleteCandidate.id) {
+        const nextSelectedId = nextRuns[0]?.id ?? ''
+        setSelectedId(nextSelectedId)
+        if (nextSelectedId) syncRunIdToLocation(nextSelectedId)
+        else clearRunIdFromLocation()
+      }
+      setDeleteCandidate(null)
+    } catch (runDeleteError) {
+      setDeleteError(runDeleteError instanceof Error ? runDeleteError.message : '删除运行记录失败')
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   const selected = runs.find((run) => run.id === selectedId) ?? runs[0]
-  const selectedRerunnableRunIds = selectedRunIds.filter((runId) => {
-    const run = runs.find((item) => item.id === runId)
-    return run ? canRerunWorkflow(run) : false
-  })
-  const selectedResumableRunIds = selectedRunIds.filter((runId) => {
-    const run = runs.find((item) => item.id === runId)
-    return run ? canResumeFailedNode(run) : false
-  })
+  const runGraphNodes = useMemo(
+    () => (selected ? buildRunGraphNodes(selected, selectedWorkflowVersion) : []),
+    [selected, selectedWorkflowVersion],
+  )
+  const artifactsByNodeRunId = useMemo(() => {
+    const grouped = new Map<string, ArtifactCatalogItem[]>()
+    runArtifacts.forEach((artifact) => {
+      grouped.set(artifact.sourceNodeRunId, [...(grouped.get(artifact.sourceNodeRunId) ?? []), artifact])
+    })
+    return grouped
+  }, [runArtifacts])
+  const artifactNodeRows = useMemo(() => {
+    if (!selected) return []
+    if (runGraphNodes.length > 0) return runGraphNodes
+    return selected.nodes.map((node) => ({
+      id: node.id,
+      nodeId: node.nodeId,
+      nodeType: node.nodeType,
+      nodeName: node.nodeName,
+      status: node.status,
+      durationMs: node.durationMs,
+      attempts: node.attempts,
+      score: node.score,
+      executed: true,
+    }))
+  }, [runGraphNodes, selected])
 
   useEffect(() => {
-    setEditingRerunId('')
-    setRerunInput('')
-  }, [selectedId])
-
-  useEffect(() => {
-    setSelectedRunIds((current) => current.filter((runId) => runs.some((run) => run.id === runId)))
-  }, [runs])
-
-  useEffect(() => {
-    if (!selected?.id) {
-      setOperationHistory([])
-      setOperationHistoryError('')
+    if (!selected?.workflowId || !selected.workflowVersion) {
+      setSelectedWorkflowVersion(null)
       return
     }
 
     let isActive = true
-    setIsOperationHistoryLoading(true)
-    setOperationHistoryError('')
-    void listRunOperationHistory(workspace.id, selected.id)
-      .then((events) => {
-        if (isActive) setOperationHistory(events)
-      })
-      .catch((historyError) => {
+    setSelectedWorkflowVersion(null)
+    void listWorkflowVersions(workspace.id, selected.workflowId)
+      .then((versions) => {
         if (!isActive) return
-        setOperationHistory([])
-        setOperationHistoryError(
-          historyError instanceof Error ? historyError.message : '\u64cd\u4f5c\u5386\u53f2\u52a0\u8f7d\u5931\u8d25',
+        setSelectedWorkflowVersion(
+          versions.find((version) => version.version === selected.workflowVersion) ?? null,
         )
       })
-      .finally(() => {
-        if (isActive) setIsOperationHistoryLoading(false)
+      .catch(() => {
+        if (isActive) setSelectedWorkflowVersion(null)
       })
 
     return () => {
       isActive = false
     }
-  }, [operationHistoryVersion, selected?.id, workspace.id])
+  }, [selected?.workflowId, selected?.workflowVersion, workspace.id])
 
-  const openRerunInputEditor = useCallback((run: ExecutionRun) => {
-    setRerunError('')
-    setRerunMessage('')
-    setOperationFailures([])
-    setEditingRerunId(run.id)
-    setRerunInput(run.input)
-  }, [])
-
-  const handleRerun = useCallback(async (run: ExecutionRun, overriddenInput?: string) => {
-    const trimmedInput = overriddenInput?.trim()
-    if (overriddenInput !== undefined && !trimmedInput) {
-      setRerunError('\u91cd\u8dd1\u8f93\u5165\u4e0d\u80fd\u4e3a\u7a7a')
+  useEffect(() => {
+    if (!selected?.id) {
+      setRunArtifacts([])
+      setArtifactError('')
       return
     }
-    setRerunError('')
-    setRerunMessage('')
-    setOperationFailures([])
-    setRerunningId(run.id)
-    try {
-      const rerun = await rerunWorkflowRun(
-        workspace.id,
-        run.id,
-        trimmedInput === undefined ? undefined : { input: trimmedInput },
-      )
-      setRuns((currentRuns) => [
-        rerun,
-        ...currentRuns.filter((currentRun) => currentRun.id !== rerun.id),
-      ])
-      setSelectedId(rerun.id)
-      syncRunIdToLocation(rerun.id)
-      setEditingRerunId('')
-      setRerunInput('')
-      setRerunMessage('\u91cd\u65b0\u8fd0\u884c\u5df2\u521b\u5efa')
-      setOperationHistoryVersion((current) => current + 1)
-    } catch (rerunRequestError) {
-      setRerunError(rerunRequestError instanceof Error ? rerunRequestError.message : '\u91cd\u65b0\u8fd0\u884c\u5931\u8d25')
-    } finally {
-      setRerunningId('')
-    }
-  }, [workspace.id])
 
-  const toggleSelectedRun = useCallback((run: ExecutionRun, checked: boolean) => {
-    setSelectedRunIds((current) => {
-      if (checked) return current.includes(run.id) ? current : [...current, run.id]
-      return current.filter((runId) => runId !== run.id)
-    })
-  }, [])
+    let isActive = true
+    setRunArtifacts([])
+    setArtifactError('')
+    setIsArtifactsLoading(true)
+    void listArtifacts(workspace.id, { runId: selected.id })
+      .then((artifacts) => {
+        if (isActive) setRunArtifacts(artifacts)
+      })
+      .catch((artifactsError) => {
+        if (!isActive) return
+        setRunArtifacts([])
+        setArtifactError(artifactsError instanceof Error ? artifactsError.message : '节点产出物加载失败')
+      })
+      .finally(() => {
+        if (isActive) setIsArtifactsLoading(false)
+      })
 
-  const handleBatchRerun = useCallback(async () => {
-    if (selectedRerunnableRunIds.length === 0) {
-      setRerunError('请先选择可重跑的工作流运行')
-      return
+    return () => {
+      isActive = false
     }
-    setRerunError('')
-    setRerunMessage('')
-    setOperationFailures([])
-    setBatchRerunning(true)
-    try {
-      const result = await batchRerunWorkflowRuns(workspace.id, selectedRerunnableRunIds)
-      setRuns((currentRuns) => [
-        ...result.createdRuns,
-        ...currentRuns.filter((currentRun) => !result.createdRuns.some((createdRun) => createdRun.id === currentRun.id)),
-      ])
-      if (result.createdRuns[0]) {
-        setSelectedId(result.createdRuns[0].id)
-        syncRunIdToLocation(result.createdRuns[0].id)
-      }
-      setSelectedRunIds([])
-      setOperationFailures(result.failures)
-      setOperationHistoryVersion((current) => current + 1)
-      setRerunMessage(
-        result.failures.length > 0
-          ? `已批量重跑 ${result.createdRuns.length} 条，${result.failures.length} 条失败`
-          : `已批量重跑 ${result.createdRuns.length} 条`,
-      )
-    } catch (batchRerunError) {
-      setRerunError(batchRerunError instanceof Error ? batchRerunError.message : '批量重跑失败')
-    } finally {
-      setBatchRerunning(false)
-    }
-  }, [selectedRerunnableRunIds, workspace.id])
-
-  const handleBatchResumeFromFailedNode = useCallback(async () => {
-    if (selectedResumableRunIds.length === 0) {
-      setRerunError('\u8bf7\u5148\u9009\u62e9\u53ef\u6062\u590d\u7684\u5931\u8d25\u5de5\u4f5c\u6d41\u8fd0\u884c')
-      return
-    }
-    setRerunError('')
-    setRerunMessage('')
-    setOperationFailures([])
-    setBatchResuming(true)
-    try {
-      const result = await batchResumeRunsFromFailedNode(workspace.id, selectedResumableRunIds)
-      setRuns((currentRuns) => currentRuns.map((currentRun) => (
-        result.resumedRuns.find((resumedRun) => resumedRun.id === currentRun.id) ?? currentRun
-      )))
-      if (result.resumedRuns[0]) {
-        setSelectedId(result.resumedRuns[0].id)
-        syncRunIdToLocation(result.resumedRuns[0].id)
-      }
-      setSelectedRunIds([])
-      setOperationFailures(result.failures)
-      setOperationHistoryVersion((current) => current + 1)
-      setRerunMessage(
-        result.failures.length > 0
-          ? `\u5df2\u6279\u91cf\u6062\u590d ${result.resumedRuns.length} \u6761\uff0c${result.failures.length} \u6761\u5931\u8d25`
-          : `\u5df2\u6279\u91cf\u6062\u590d ${result.resumedRuns.length} \u6761`,
-      )
-    } catch (batchResumeError) {
-      setRerunError(batchResumeError instanceof Error ? batchResumeError.message : '\u6279\u91cf\u6062\u590d\u5931\u8d25')
-    } finally {
-      setBatchResuming(false)
-    }
-  }, [selectedResumableRunIds, workspace.id])
-
-  const handleResumeFromFailedNode = useCallback(async (run: ExecutionRun) => {
-    setRerunError('')
-    setRerunMessage('')
-    setOperationFailures([])
-    setResumingId(run.id)
-    try {
-      const resumed = await resumeRunFromFailedNode(workspace.id, run.id)
-      setRuns((currentRuns) => currentRuns.map((currentRun) => (
-        currentRun.id === resumed.id ? resumed : currentRun
-      )))
-      setSelectedId(resumed.id)
-      syncRunIdToLocation(resumed.id)
-      setRerunMessage('\u5df2\u4ece\u5931\u8d25\u70b9\u6062\u590d')
-      setOperationHistoryVersion((current) => current + 1)
-    } catch (resumeRequestError) {
-      setRerunError(resumeRequestError instanceof Error ? resumeRequestError.message : '\u5931\u8d25\u70b9\u6062\u590d\u5931\u8d25')
-    } finally {
-      setResumingId('')
-    }
-  }, [workspace.id])
+  }, [selected?.id, workspace.id])
 
   if (isLoading) {
     return <div className="panel table-state">正在加载运行记录…</div>
@@ -351,50 +360,27 @@ export function Runs() {
               onChange={(event) => setQuery(event.target.value)}
             />
           </label>
+          <label className="run-status-filter">
+            <span>流程状态</span>
+            <select
+              aria-label="流程状态筛选"
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+            >
+              <option value="">全部状态</option>
+              {statusOptions.map((status) => (
+                <option key={status} value={status}>{status}</option>
+              ))}
+            </select>
+          </label>
           <button className="icon-button quiet" title="刷新运行记录" onClick={() => void load()}>
             <RefreshCw size={16} />
           </button>
         </div>
         <div className="run-list-head"><span>持久化运行记录</span><strong>{filteredRuns.length} 个实例</strong></div>
-        {(selectedRerunnableRunIds.length > 0 || selectedResumableRunIds.length > 0) && (
-          <div className="run-batch-bar">
-            <span>{'\u5df2\u9009\u62e9'} {selectedRunIds.length} {'\u6761'}</span>
-            {selectedRerunnableRunIds.length > 0 && (
-              <button
-                className="button secondary compact"
-                disabled={batchRerunning || batchResuming}
-                onClick={() => void handleBatchRerun()}
-              >
-                <RotateCcw size={15} />
-                {batchRerunning ? '\u6279\u91cf\u91cd\u8dd1\u4e2d' : '\u6279\u91cf\u91cd\u8dd1'}
-              </button>
-            )}
-            {selectedResumableRunIds.length > 0 && (
-              <button
-                className="button secondary compact"
-                disabled={batchRerunning || batchResuming}
-                onClick={() => void handleBatchResumeFromFailedNode()}
-              >
-                <Play size={15} />
-                {batchResuming ? '\u6279\u91cf\u6062\u590d\u4e2d' : '\u6279\u91cf\u6062\u590d'}
-              </button>
-            )}
-            <button className="button secondary compact" onClick={() => setSelectedRunIds([])}>
-              {'\u6e05\u7a7a'}
-            </button>
-          </div>
-        )}
+        <div className="run-list-scroll">
         {filteredRuns.map((run) => (
           <div className="run-list-row" key={run.id}>
-            {canRerunWorkflow(run) && (
-              <input
-                aria-label={`选择运行 ${run.id}`}
-                checked={selectedRunIds.includes(run.id)}
-                className="run-select-checkbox"
-                type="checkbox"
-                onChange={(event) => toggleSelectedRun(run, event.target.checked)}
-              />
-            )}
             <button
               onClick={() => {
                 setSelectedId(run.id)
@@ -402,99 +388,90 @@ export function Runs() {
               }}
               className={`run-list-item ${selectedId === run.id ? 'selected' : ''}`}
             >
-              <div><strong>{run.name}</strong><span className="mono">{run.id}</span></div>
+              <div>
+                <strong>{run.name}</strong>
+                <span><b>启动</b>{formatTime(run.startedAt)}</span>
+                <span><b>耗时</b>{formatDuration(run.durationMs)}</span>
+              </div>
               <StatusBadge status={run.status} />
               <div className="run-progress"><i style={{ width: '100%' }} /></div>
-              <small>{formatTime(run.startedAt)} · {formatDuration(run.durationMs)}</small>
+            </button>
+              <button
+                type="button"
+                className="icon-button quiet run-delete-button"
+                aria-label="Delete run record"
+              title="删除运行记录"
+              onClick={() => {
+                setDeleteCandidate(run)
+                setDeleteError('')
+              }}
+            >
+              <Trash2 size={14} />
             </button>
           </div>
         ))}
+        {filteredRuns.length === 0 && <div className="table-state compact">当前筛选没有运行记录</div>}
+        </div>
       </section>
 
       <section className="run-detail panel">
         <header className="run-detail-header">
           <div>
-            <span className="mono">{selected.id}</span>
+            <span className="mono">{selected.kind === 'agent' ? 'AGENT RUN' : 'WORKFLOW RUN'}</span>
             <h2>{selected.name}</h2>
-            <p>{formatTime(selected.startedAt)} 启动 · {selected.kind === 'agent' ? 'Agent 测试运行' : `工作流 ${selected.workflowVersion}`}</p>
+            <p><b>启动</b>{formatTime(selected.startedAt)}<b>耗时</b>{formatDuration(selected.durationMs)}<b>{selected.kind === 'agent' ? '类型' : '版本'}</b>{selected.kind === 'agent' ? 'Agent 测试运行' : selected.workflowVersion}</p>
           </div>
           <div className="run-actions">
-            {canResumeFailedNode(selected) && (
-              <button
-                className="button secondary compact"
-                disabled={resumingId === selected.id}
-                onClick={() => void handleResumeFromFailedNode(selected)}
-              >
-                <Play size={15} />
-                {resumingId === selected.id ? '\u6062\u590d\u4e2d' : '\u4ece\u5931\u8d25\u70b9\u6062\u590d'}
-              </button>
-            )}
-            {canRerunWorkflow(selected) && (
-              <>
-                <button
-                  className="button secondary compact"
-                  disabled={rerunningId === selected.id}
-                  onClick={() => void handleRerun(selected)}
-                >
-                  <RotateCcw size={15} />
-                  {rerunningId === selected.id ? '\u91cd\u65b0\u8fd0\u884c\u4e2d' : '\u91cd\u65b0\u8fd0\u884c'}
-                </button>
-                <button
-                  className="button secondary compact"
-                  disabled={rerunningId === selected.id}
-                  onClick={() => openRerunInputEditor(selected)}
-                >
-                  <Pencil size={15} />
-                  {'\u7f16\u8f91\u8f93\u5165\u91cd\u8dd1'}
-                </button>
-              </>
-            )}
             <StatusBadge status={selected.status} />
           </div>
         </header>
 
-        {rerunMessage && <div className="run-action-notice success">{rerunMessage}</div>}
-        {rerunError && <div className="run-action-notice error" role="alert">{rerunError}</div>}
-        {operationFailures.length > 0 && (
-          <div className="run-operation-failures" role="status">
-            <header>
-              <strong>{'\u672a\u5b8c\u6210\u7684\u6279\u91cf\u9879'}</strong>
-              <span>{operationFailures.length} {'\u6761\u9700\u8981\u5904\u7406'}</span>
-            </header>
-            <ul>
-              {operationFailures.map((failure) => (
-                <li key={`${failure.sourceRunId}-${failure.reason}`}>
-                  <span className="mono">{failure.sourceRunId}</span>
-                  <p>{failure.reason}</p>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-        {editingRerunId === selected.id && (
-          <div className="run-rerun-editor">
-            <label>
-              <span>{'\u91cd\u8dd1\u8f93\u5165'}</span>
-              <textarea
-                aria-label={'\u91cd\u8dd1\u8f93\u5165'}
-                value={rerunInput}
-                onChange={(event) => setRerunInput(event.target.value)}
-              />
-            </label>
-            <div className="run-rerun-editor-actions">
-              <button className="button secondary compact" onClick={() => setEditingRerunId('')}>
-                {'\u53d6\u6d88'}
-              </button>
-              <button
-                className="button primary compact"
-                disabled={rerunningId === selected.id}
-                onClick={() => void handleRerun(selected, rerunInput)}
-              >
-                <RotateCcw size={15} />
-                {rerunningId === selected.id ? '\u91cd\u65b0\u8fd0\u884c\u4e2d' : '\u786e\u8ba4\u91cd\u8dd1'}
-              </button>
+        {selected.kind === 'workflow' && (
+          <section className="run-graph-panel" aria-label="完整工作流链路">
+            <div className="run-graph-header">
+              <div>
+                <span className="section-kicker">WORKFLOW RUN MAP</span>
+                <h3>完整工作流链路</h3>
+                <p>{runGraphNodes.length} 个节点 · 已执行 {selected.nodes.length} 个 · 当前节点：{selected.currentNode || '未记录'}</p>
+              </div>
+              <div className="workflow-runtime-legend" aria-label="节点运行状态图例">
+                <span><i className="success" />通过</span>
+                <span><i className="warning" />等待</span>
+                <span><i className="error" />报错</span>
+              </div>
             </div>
-          </div>
+            {runGraphNodes.length === 0 ? (
+              <div className="run-graph-empty">暂无节点运行记录。</div>
+            ) : (
+              <div className="run-graph-viewport">
+                <div
+                  className="run-graph-strip"
+                  style={{ minWidth: `${Math.max(780, runGraphNodes.length * 250)}px` }}
+                >
+                  {runGraphNodes.map((node, index) => (
+                    <div className="run-graph-step-wrap" key={node.id}>
+                      <div
+                        className={`run-graph-step ${runGraphVisualStatus(node.status)} ${node.nodeName === selected.currentNode ? 'current' : ''}`}
+                      >
+                        <span className="run-graph-index">{String(index + 1).padStart(2, '0')}</span>
+                        <div>
+                          <small>{node.nodeType}</small>
+                          <strong>{node.nodeName}</strong>
+                        </div>
+                        <span className="run-graph-status">{node.executed ? runGraphVisualLabel(node.status) : '未开始'}</span>
+                        <dl>
+                          <div><dt>耗时</dt><dd>{formatDuration(node.durationMs)}</dd></div>
+                          <div><dt>尝试</dt><dd>{node.attempts === null ? '-' : `${node.attempts} 次`}</dd></div>
+                          <div><dt>得分</dt><dd>{node.score ?? '待评估'}</dd></div>
+                        </dl>
+                      </div>
+                      {index < runGraphNodes.length - 1 && <i aria-hidden="true" data-testid="run-graph-connector" />}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
         )}
 
         <div className="run-kpis">
@@ -502,54 +479,6 @@ export function Runs() {
           <div><span>Token</span><strong>{selected.totalTokens}</strong></div>
           <div><span>质量得分</span><strong>{selected.score ?? '待评估'}</strong></div>
           <div><span>模型成本</span><strong>${selected.costUsd.toFixed(6)}</strong></div>
-        </div>
-
-        <div className="run-operation-history">
-          <div className="review-section-title">
-            <h3>{'\u64cd\u4f5c\u5386\u53f2'}</h3>
-            <span>{operationHistory.length} {'\u6761'}</span>
-          </div>
-          {isOperationHistoryLoading && (
-            <div className="run-operation-history-state">{'\u6b63\u5728\u52a0\u8f7d\u64cd\u4f5c\u5386\u53f2'}</div>
-          )}
-          {operationHistoryError && (
-            <div className="run-operation-history-state error" role="alert">{operationHistoryError}</div>
-          )}
-          {!isOperationHistoryLoading && !operationHistoryError && operationHistory.length === 0 && (
-            <div className="run-operation-history-state">{'\u6682\u65e0\u64cd\u4f5c\u8bb0\u5f55'}</div>
-          )}
-          <div className="run-operation-history-list">
-            {operationHistory.map((event) => {
-              const metadataLines = formatOperationMetadata(event)
-              return (
-                <article className="run-operation-history-item" key={event.id}>
-                  <div>
-                    <strong>{runOperationActionLabels[event.action] ?? event.action}</strong>
-                    <span>{formatTime(event.createdAt)}</span>
-                    {event.traceId && (
-                      <a
-                        className="run-operation-history-audit-link"
-                        href={workspacePath(`settings/audit?traceId=${encodeURIComponent(event.traceId)}`)}
-                      >
-                        <ExternalLink size={13} />
-                        {'\u67e5\u770b\u5ba1\u8ba1'}
-                      </a>
-                    )}
-                  </div>
-                  <div className="run-operation-history-meta">
-                    {event.requestId && <span className="mono">{event.requestId}</span>}
-                    {event.outcome && <span>{event.outcome}</span>}
-                    {event.reason && <span>{event.reason}</span>}
-                  </div>
-                  {metadataLines.length > 0 && (
-                    <ul>
-                      {metadataLines.map((line) => <li key={line}>{line}</li>)}
-                    </ul>
-                  )}
-                </article>
-              )
-            })}
-          </div>
         </div>
 
         {isWaitingForHumanReview(selected.status) && (
@@ -563,15 +492,87 @@ export function Runs() {
         )}
 
         <div className="review-section">
-          <div className="review-section-title"><h3>最终产出</h3><span>{selected.model || '未记录模型'}</span></div>
+          <div className="review-section-title"><h3>工作流最终产出</h3><span>{selected.model || '未记录模型'}</span></div>
           <div className="artifact-preview"><p>{selected.output || selected.error || '本次运行没有产出内容。'}</p></div>
         </div>
+
+        <section className="review-section run-artifact-section" aria-label="节点产出物">
+          <div className="review-section-title">
+            <h3>节点产出物</h3>
+            <span>{runArtifacts.length} 个 Artifact</span>
+          </div>
+          {isArtifactsLoading && <div className="table-state compact">正在加载节点产出物…</div>}
+          {artifactError && <div className="table-state error compact" role="alert">{artifactError}</div>}
+          {!isArtifactsLoading && !artifactError && (
+            <div className="run-artifact-node-list">
+              {artifactNodeRows.map((node) => {
+                const artifacts = artifactsByNodeRunId.get(node.id) ?? []
+                return (
+                  <article className="run-artifact-node" key={node.id}>
+                    <header>
+                      <div>
+                        <span className="mono">{node.nodeType}</span>
+                        <strong>{node.nodeName}</strong>
+                      </div>
+                      <StatusBadge status={node.executed ? node.status : '未开始'} />
+                    </header>
+                    {artifacts.length === 0 ? (
+                      <div className="run-artifact-empty">无</div>
+                    ) : (
+                      <div className="run-artifact-list">
+                        {artifacts.map((artifact) => (
+                          <div className="run-artifact-card" key={artifact.artifactVersionId}>
+                            <div>
+                              <strong>v{artifact.version}</strong>
+                              <span className="mono">{artifact.artifactVersionId}</span>
+                            </div>
+                            <p>{artifactPreview(artifact.content)}</p>
+                            <footer>
+                              <span>{artifact.schemaValidation?.label ?? '未校验 Schema'}</span>
+                              <span>{artifact.score === null ? '待评估' : `${artifact.score} 分`}</span>
+                            </footer>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </article>
+                )
+              })}
+            </div>
+          )}
+        </section>
 
         <div className="timeline">
           <h3>节点执行时间线</h3>
           {selected.nodes.map((node) => <TimelineItem node={node} key={node.id} />)}
         </div>
       </section>
+
+      {deleteCandidate && (
+        <div className="dialog-backdrop">
+          <section className="agent-dialog run-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="run-delete-title">
+            <header>
+              <div>
+                <span className="eyebrow">DELETE RUN RECORD</span>
+                <h2 id="run-delete-title">删除运行记录</h2>
+              </div>
+            </header>
+            <div className="run-delete-dialog-body">
+              <p>这只会删除运行中心里的这条运行实例，不会删除工作流编排里的工作流。</p>
+              <strong>{deleteCandidate.name}</strong>
+              {deleteError && <div className="table-state error compact" role="alert">{deleteError}</div>}
+            </div>
+            <footer className="run-delete-dialog-actions">
+              <button className="button secondary" type="button" onClick={() => setDeleteCandidate(null)} disabled={isDeleting}>
+                取消
+              </button>
+              <button className="button danger" type="button" onClick={() => void handleDeleteRun()} disabled={isDeleting}>
+                {isDeleting ? '删除中...' : 'Confirm delete run record'}
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
     </div>
   )
 }

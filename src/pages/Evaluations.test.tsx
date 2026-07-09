@@ -802,7 +802,11 @@ describe('Evaluations page', () => {
     renderPage()
 
     expect(await screen.findByText('评估记录')).toBeInTheDocument()
-    expect(screen.getByText('evaluation-pass')).toBeInTheDocument()
+    const passRecord = screen.getByText('evaluation-pass').closest('.evaluation-record-card')
+    expect(passRecord).not.toBeNull()
+    expect(within(passRecord as HTMLElement).getByText('evaluation-pass')).toHaveClass('evaluation-record-id')
+    expect(within(passRecord as HTMLElement).getByText('manual_artifact')).toBeInTheDocument()
+    expect(within(passRecord as HTMLElement).getByText('判定依据')).toBeInTheDocument()
     expect(screen.getByText('evaluation-fail')).toBeInTheDocument()
 
     await user.selectOptions(screen.getByLabelText('状态筛选'), 'passed')

@@ -118,8 +118,38 @@ export interface Agent {
   toolAssetRefs?: AgentAssetRef[]
   skillAssetRefs?: AgentAssetRef[]
   systemPrompt: string
+  runtimeManifest: AgentRuntimeManifest
   createdAt: string
   updatedAt: string
+}
+
+export type AgentRuntimeSourceType = 'manifest' | 'python_package'
+
+export interface AgentRuntimeDefaults {
+  modelProviderId?: string | null
+  modelProvider?: string
+  modelBaseUrl?: string
+  model?: string
+  temperature?: number
+  maxOutputTokens?: number
+}
+
+export interface AgentRuntimeManifest {
+  runtime?: string
+  sourceType?: AgentRuntimeSourceType
+  repo?: string
+  gitSha?: string
+  manifestPath?: string
+  entrypoint?: string
+  packageName?: string
+  packageVersion?: string
+  packageSource?: string
+  packageHash?: string
+  defaults?: AgentRuntimeDefaults
+  inputSchema?: Record<string, unknown>
+  outputSchema?: Record<string, unknown>
+  tools?: string[]
+  rawManifest?: Record<string, unknown>
 }
 
 export interface AgentAssetRef {
@@ -134,6 +164,7 @@ export interface AssetVersion<TSnapshot = Record<string, unknown>> {
   id: string
   version: string
   snapshot: TSnapshot
+  note?: string
   createdAt: string
 }
 

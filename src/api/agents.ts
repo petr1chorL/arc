@@ -1,4 +1,4 @@
-import type { Agent } from '../types'
+import type { Agent, AgentRuntimeManifest } from '../types'
 import type { AgentVersion } from '../types'
 import { ApiError, apiFetch, readJson } from './http'
 
@@ -12,6 +12,7 @@ export interface CreateAgentInput {
   modelBaseUrl?: string
   temperature?: number
   maxOutputTokens?: number
+  runtimeManifest?: AgentRuntimeManifest
 }
 
 export { ApiError as AgentApiError }
@@ -38,6 +39,7 @@ export interface UpdateAgentInput extends CreateAgentInput {
   systemPrompt: string
   tools: string[]
   skills: string[]
+  runtimeManifest: AgentRuntimeManifest
 }
 
 export async function getAgent(workspaceId: string, agentId: string): Promise<Agent> {
@@ -60,14 +62,26 @@ export async function listAgentVersions(workspaceId: string, agentId: string): P
   return readJson<AgentVersion[]>(await apiFetch(workspacePath(workspaceId, `/${agentId}/versions`)))
 }
 
-export async function publishAgent(workspaceId: string, agentId: string): Promise<AgentVersion> {
+export async function publishAgent(
+  workspaceId: string,
+  agentId: string,
+  input: { note?: string } = {},
+): Promise<AgentVersion> {
   return readJson<AgentVersion>(await apiFetch(workspacePath(workspaceId, `/${agentId}/publish`), {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ note: input.note ?? '' }),
   }))
 }
 
 export async function deactivateAgent(workspaceId: string, agentId: string): Promise<Agent> {
   return readJson<Agent>(await apiFetch(workspacePath(workspaceId, `/${agentId}/deactivate`), {
+    method: 'POST',
+  }))
+}
+
+export async function activateAgent(workspaceId: string, agentId: string): Promise<Agent> {
+  return readJson<Agent>(await apiFetch(workspacePath(workspaceId, `/${agentId}/activate`), {
     method: 'POST',
   }))
 }

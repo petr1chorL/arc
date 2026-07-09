@@ -175,6 +175,7 @@ class AgentRecord(Base):
     tool_asset_refs: Mapped[list[dict]] = mapped_column(JSON, default=list)
     skill_asset_refs: Mapped[list[dict]] = mapped_column(JSON, default=list)
     system_prompt: Mapped[str] = mapped_column(Text, default="")
+    runtime_manifest: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
@@ -187,6 +188,7 @@ class AgentVersionRecord(Base):
     agent_id: Mapped[str] = mapped_column(String(36), index=True)
     version: Mapped[str] = mapped_column(String(20))
     snapshot: Mapped[dict] = mapped_column(JSON)
+    note: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
@@ -315,6 +317,7 @@ class WorkflowVersionRecord(Base):
     workflow_id: Mapped[str] = mapped_column(String(36), index=True)
     version: Mapped[str] = mapped_column(String(20))
     snapshot: Mapped[dict] = mapped_column(JSON)
+    note: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 

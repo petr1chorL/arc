@@ -651,6 +651,7 @@ def ensure_current_schema(engine: Engine) -> None:
             "model_base_url": "VARCHAR(500) NOT NULL DEFAULT ''",
             "temperature": "FLOAT NOT NULL DEFAULT 0.2",
             "max_output_tokens": "INTEGER NOT NULL DEFAULT 2000",
+            "runtime_manifest": "JSON NOT NULL DEFAULT '{}'",
         },
     )
     ensure_columns(
@@ -692,6 +693,20 @@ def ensure_current_schema(engine: Engine) -> None:
         {
             "input_schema": "JSON NOT NULL DEFAULT '{\"type\":\"object\",\"properties\":{}}'",
             "output_schema": "JSON NOT NULL DEFAULT '{\"type\":\"object\",\"properties\":{}}'",
+        },
+    )
+    ensure_columns(
+        engine,
+        "agent_versions",
+        {
+            "note": "TEXT NOT NULL DEFAULT ''",
+        },
+    )
+    ensure_columns(
+        engine,
+        "workflow_versions",
+        {
+            "note": "TEXT NOT NULL DEFAULT ''",
         },
     )
     ensure_columns(

@@ -43,11 +43,16 @@ def test_agent_draft_can_be_edited_and_published_as_immutable_versions(tmp_path)
 
     first_version = client.post(
         workspace_url(workspace_id, f"/agents/{agent['id']}/publish"),
+        json={"note": "首版发布，绑定检索工具和竞品分析 Skill"},
         headers=csrf_headers(client),
     )
     assert first_version.status_code == 201
     assert first_version.json()["version"] == "v1.0.0"
+    assert first_version.json()["note"] == "首版发布，绑定检索工具和竞品分析 Skill"
     assert first_version.json()["snapshot"]["name"] == "楂樼骇鐮旂┒ Agent"
+    openapi = client.get("/openapi.json").json()
+    publish_operation = openapi["paths"]["/api/workspaces/{workspace_id}/agents/{agent_id}/publish"]["post"]
+    assert "requestBody" in publish_operation
 
     client.patch(
         workspace_url(workspace_id, f"/agents/{agent['id']}"),
@@ -65,6 +70,7 @@ def test_agent_draft_can_be_edited_and_published_as_immutable_versions(tmp_path)
     assert second_version.status_code == 201
     assert second_version.json()["version"] == "v1.1.0"
     assert versions[1]["snapshot"]["name"] == "楂樼骇鐮旂┒ Agent"
+    assert versions[1]["note"] == "首版发布，绑定检索工具和竞品分析 Skill"
     assert versions[0]["snapshot"]["name"] == "鐮旂┒ Agent 鑽夌浜?"
 
 
@@ -88,6 +94,40 @@ def test_deactivated_agent_cannot_be_edited_or_published(tmp_path):
         workspace_url(workspace_id, f"/agents/{agent['id']}/publish"),
         headers=csrf_headers(client),
     ).status_code == 409
+
+
+def test_deactivated_agent_can_be_activated_again(tmp_path):
+    client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'agent-reactivate.db'}")
+    agent = create_agent(client, workspace_id)
+
+    draft_deactivate = client.post(
+        workspace_url(workspace_id, f"/agents/{agent['id']}/deactivate"),
+        headers=csrf_headers(client),
+    )
+    draft_activate = client.post(
+        workspace_url(workspace_id, f"/agents/{agent['id']}/activate"),
+        headers=csrf_headers(client),
+    )
+    publish = client.post(
+        workspace_url(workspace_id, f"/agents/{agent['id']}/publish"),
+        headers=csrf_headers(client),
+    )
+    published_deactivate = client.post(
+        workspace_url(workspace_id, f"/agents/{agent['id']}/deactivate"),
+        headers=csrf_headers(client),
+    )
+    published_activate = client.post(
+        workspace_url(workspace_id, f"/agents/{agent['id']}/activate"),
+        headers=csrf_headers(client),
+    )
+
+    assert draft_deactivate.status_code == 200
+    assert draft_activate.status_code == 200
+    assert draft_activate.json()["status"] == "调试中"
+    assert publish.status_code == 201
+    assert published_deactivate.status_code == 200
+    assert published_activate.status_code == 200
+    assert published_activate.json()["status"] == "在线"
 
 
 def create_tool_skill_asset(

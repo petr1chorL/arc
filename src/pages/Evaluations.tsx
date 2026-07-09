@@ -1977,10 +1977,13 @@ export function Evaluations() {
           <div className="evaluation-record-list">
             {filteredEvaluationRecords.map((record) => (
               <article className="evaluation-record-card" key={record.id}>
-                <div>
-                  <span className="mono">{record.id}</span>
+                <div className="evaluation-record-main">
+                  <div className="evaluation-record-title-row">
+                    <span className="mono evaluation-record-id" title={record.id}>{record.id}</span>
+                    <span>{record.subjectType}</span>
+                  </div>
                   <h3>{record.rubricSnapshot.name}</h3>
-                  <p>{record.subjectType}{record.subjectId ? ` / ${record.subjectId}` : ''} / {record.rubricVersion}</p>
+                  <p>{record.subjectId || '未绑定对象'} / {record.rubricVersion}</p>
                 </div>
                 <div className="evaluation-record-score">
                   <strong>{record.score}</strong>
@@ -1991,9 +1994,9 @@ export function Evaluations() {
                     <span key={`${record.id}-${dimension.name}`}>{dimension.name} {dimension.score}</span>
                   ))}
                 </div>
-                <p>{record.rationale}</p>
+                <p className="evaluation-record-rationale"><span>判定依据</span>{record.rationale}</p>
                 <button
-                  className="button secondary"
+                  className="button ghost compact evaluation-record-action"
                   type="button"
                   onClick={() => setSelectedEvaluationRecord(record)}
                 >

@@ -78,6 +78,7 @@ def test_workflow_draft_publishes_an_immutable_snapshot(tmp_path):
     )
     published = client.post(
         workspace_url(workspace_id, f"/workflows/{workflow['id']}/publish"),
+        json={"note": "首版发布，冻结节点契约"},
         headers=csrf_headers(client),
     )
 
@@ -85,6 +86,10 @@ def test_workflow_draft_publishes_an_immutable_snapshot(tmp_path):
     assert validation.json() == {"valid": True, "errors": []}
     assert published.status_code == 201
     assert published.json()["version"] == "v1.0.0"
+    assert published.json()["note"] == "首版发布，冻结节点契约"
+    openapi = client.get("/openapi.json").json()
+    publish_operation = openapi["paths"]["/api/workspaces/{workspace_id}/workflows/{workflow_id}/publish"]["post"]
+    assert "requestBody" in publish_operation
 
     changed_graph = valid_graph(agent_id, agent_version)
     changed_graph["nodes"][1]["data"]["label"] = "Edited Workflow Agent"
@@ -98,6 +103,37 @@ def test_workflow_draft_publishes_an_immutable_snapshot(tmp_path):
     ).json()
 
     assert versions[0]["snapshot"]["nodes"][1]["data"]["label"] == "Workflow Agent"
+    assert versions[0]["note"] == "首版发布，冻结节点契约"
+
+
+def test_workflow_can_be_deleted_from_directory_without_removing_versions(tmp_path):
+    client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'workflow-delete.db'}")
+    agent_id, agent_version = published_agent(client, workspace_id)
+    workflow = client.post(
+        workspace_url(workspace_id, "/workflows"),
+        json={"name": "Deletable Workflow", **valid_graph(agent_id, agent_version)},
+        headers=csrf_headers(client),
+    ).json()
+    publish = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/publish"),
+        json={"note": "删除前发布版本"},
+        headers=csrf_headers(client),
+    )
+
+    delete = client.delete(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}"),
+        headers=csrf_headers(client),
+    )
+    directory = client.get(workspace_url(workspace_id, "/workflows")).json()
+    versions = client.get(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/versions"),
+    ).json()
+
+    assert publish.status_code == 201
+    assert delete.status_code == 204
+    assert all(item["id"] != workflow["id"] for item in directory)
+    assert versions[0]["version"] == "v1.0.0"
+    assert versions[0]["note"] == "删除前发布版本"
 
 
 def test_workflow_draft_persists_io_schema_and_freezes_it_in_versions(tmp_path):
