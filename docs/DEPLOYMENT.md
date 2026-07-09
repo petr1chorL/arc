@@ -11,6 +11,8 @@
 
 ## 1. 前端部署到 Cloudflare Pages
 
+部署时可以先打开 `docs/DEPLOYMENT_VALUES.template.md`，把 Cloudflare、Render 和验收命令需要的值集中记录到你的私有笔记中。不要把填好真实密钥的版本提交到 Git。
+
 在 Cloudflare Pages 连接 Git 仓库后，使用：
 
 ```text

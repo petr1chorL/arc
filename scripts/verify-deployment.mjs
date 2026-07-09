@@ -7,6 +7,7 @@ const requiredFiles = [
   '.env.example',
   'apps/api/.env.example',
   'docs/DEPLOYMENT.md',
+  'docs/DEPLOYMENT_VALUES.template.md',
   'docs/SECURITY.md',
   'public/_headers',
   'public/_redirects',
@@ -70,6 +71,18 @@ const checks = [
       /key: ALLOWED_ORIGINS\s+sync: false/s,
       /key: ALLOWED_HOSTS\s+sync: false/s,
       /key: MODEL_API_KEY\s+sync: false/s,
+    ],
+  },
+  {
+    name: 'Deployment values template keeps platform settings in one place',
+    file: 'docs/DEPLOYMENT_VALUES.template.md',
+    patterns: [
+      /Repository: https:\/\/github\.com\/petr1chorL\/arc/,
+      /Project name: arc-one/,
+      /VITE_API_BASE_URL=https:\/\/<render-api-host>/,
+      /ALLOWED_ORIGINS=https:\/\/<cloudflare-pages-host>/,
+      /MODEL_API_KEY=<set in Render secret manager>/,
+      /npm run deploy:check:live/,
     ],
   },
   {
