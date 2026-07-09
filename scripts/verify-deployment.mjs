@@ -11,9 +11,19 @@ const requiredFiles = [
   'public/_headers',
   'public/_redirects',
   'render.yaml',
+  'wrangler.toml',
 ]
 
 const checks = [
+  {
+    name: 'Cloudflare Pages Wrangler config points at the Vite build output',
+    file: 'wrangler.toml',
+    patterns: [
+      /name = "arc-one"/,
+      /pages_build_output_dir = "\.\/dist"/,
+      /compatibility_date = "2026-07-09"/,
+    ],
+  },
   {
     name: 'Cloudflare Pages security headers include CSP and frame protection',
     file: 'public/_headers',

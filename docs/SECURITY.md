@@ -6,6 +6,7 @@
 
 - 前端部署安全头：`public/_headers` 设置 `X-Content-Type-Options`、`X-Frame-Options`、`Referrer-Policy`、`Permissions-Policy` 和基础 CSP。
 - SPA 路由回退：`public/_redirects` 避免刷新子路由时暴露错误页面。
+- Cloudflare Pages 配置：`wrangler.toml` 声明项目名和 `dist` 输出目录。
 - 前端 API 基址：`VITE_API_BASE_URL` 控制生产 API origin，避免生产环境误连本机地址。
 - 后端 CORS allowlist：`ALLOWED_ORIGINS` 只允许指定前端 origin 从浏览器访问 API。
 - 后端 Host allowlist：`ALLOWED_HOSTS` 拒绝异常 Host header。

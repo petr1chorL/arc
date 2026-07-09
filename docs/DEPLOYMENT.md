@@ -19,6 +19,16 @@ Build command: npm run build
 Build output directory: dist
 ```
 
+仓库根目录也提供了 `wrangler.toml`：
+
+```toml
+name = "arc-one"
+pages_build_output_dir = "./dist"
+compatibility_date = "2026-07-09"
+```
+
+这用于让 Cloudflare Pages / Wrangler 明确知道 Vite 构建产物目录。
+
 设置前端环境变量：
 
 ```text
@@ -99,6 +109,7 @@ https://your-api.example.com/api/health
 
 - 前端 Cloudflare Pages `_headers`：基础安全头和 CSP。
 - 前端 Cloudflare Pages `_redirects`：SPA 路由回退，避免刷新子路由 404。
+- 前端 Cloudflare Pages `wrangler.toml`：声明 Pages 项目名和 `dist` 输出目录。
 - `ALLOWED_ORIGINS`：限制浏览器允许访问 API 的前端来源。
 - `ALLOWED_HOSTS`：拒绝异常 Host header。
 - 安全响应头：`X-Content-Type-Options`、`X-Frame-Options`、`Referrer-Policy`、`Permissions-Policy`。
