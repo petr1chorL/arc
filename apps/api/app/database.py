@@ -9,7 +9,9 @@ from sqlalchemy.orm import Session, sessionmaker
 def normalize_database_url(database_url: str) -> str:
     url = make_url(database_url)
     if url.drivername in {"postgres", "postgresql"}:
-        return str(url.set(drivername="postgresql+psycopg"))
+        return url.set(drivername="postgresql+psycopg").render_as_string(
+            hide_password=False,
+        )
     return database_url
 
 

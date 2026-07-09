@@ -45,4 +45,5 @@ def test_api_dockerfile_installs_postgres_extra_and_starts_api_by_default():
 
     assert "FROM python:3.12-slim" in dockerfile
     assert 'pip install --no-cache-dir -e ".[postgres]"' in dockerfile
-    assert 'CMD ["uvicorn", "app.main:app"' in dockerfile
+    assert 'CMD ["sh", "-c", "uvicorn app.main:app' in dockerfile
+    assert "--port ${PORT:-8080}" in dockerfile

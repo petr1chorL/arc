@@ -1,22 +1,18 @@
 from app.database import normalize_database_url
 
 
-def test_render_postgres_url_uses_psycopg_driver():
-    normalized = normalize_database_url(
-        "postgres://user:password@db.internal:5432/arc_one",
+def test_normalize_database_url_uses_installed_psycopg_driver_for_postgresql():
+    assert normalize_database_url("postgresql://user:pass@db.example/app") == (
+        "postgresql+psycopg://user:pass@db.example/app"
     )
 
-    assert normalized.startswith("postgresql+psycopg://")
-    assert "db.internal:5432/arc_one" in normalized
 
-
-def test_plain_postgresql_url_uses_psycopg_driver():
-    normalized = normalize_database_url(
-        "postgresql://user:password@db.internal:5432/arc_one",
+def test_normalize_database_url_accepts_postgres_scheme_alias():
+    assert normalize_database_url("postgres://user:pass@db.example/app") == (
+        "postgresql+psycopg://user:pass@db.example/app"
     )
 
-    assert normalized.startswith("postgresql+psycopg://")
 
-
-def test_sqlite_url_is_unchanged():
-    assert normalize_database_url("sqlite:///:memory:") == "sqlite:///:memory:"
+def test_normalize_database_url_preserves_sqlite_urls():
+    for database_url in ("sqlite:///:memory:", "sqlite:///tmp/app.db"):
+        assert normalize_database_url(database_url) == database_url

@@ -125,21 +125,21 @@ describe('Notifications page', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         '/api/workspaces/workspace-1/notifications/outbox?status=failed&limit=50',
-        expect.objectContaining({ credentials: 'same-origin' }),
+        expect.objectContaining({ credentials: 'include' }),
       )
     })
     await user.selectOptions(screen.getByLabelText('渠道筛选'), 'webhook')
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         '/api/workspaces/workspace-1/notifications/outbox?status=failed&channel=webhook&limit=50',
-        expect.objectContaining({ credentials: 'same-origin' }),
+        expect.objectContaining({ credentials: 'include' }),
       )
     })
     await user.selectOptions(screen.getByLabelText('失败码筛选'), 'channel_not_configured')
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         '/api/workspaces/workspace-1/notifications/outbox?status=failed&channel=webhook&errorCode=channel_not_configured&limit=50',
-        expect.objectContaining({ credentials: 'same-origin' }),
+        expect.objectContaining({ credentials: 'include' }),
       )
     })
   })
@@ -222,7 +222,7 @@ describe('Notifications page', () => {
         '/api/workspaces/workspace-1/notifications/outbox/notification-failed/requeue',
         expect.objectContaining({
           method: 'POST',
-          credentials: 'same-origin',
+          credentials: 'include',
           body: JSON.stringify({ reason: '渠道配置已恢复' }),
         }),
       )
@@ -331,7 +331,7 @@ describe('Notifications page', () => {
         '/api/workspaces/workspace-1/notifications/outbox/dispatch',
         expect.objectContaining({
           method: 'POST',
-          credentials: 'same-origin',
+          credentials: 'include',
         }),
       )
     })

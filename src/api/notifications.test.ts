@@ -34,7 +34,7 @@ describe('Notifications API', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/workspaces/workspace-1/notifications/outbox?status=failed&channel=webhook&errorCode=channel_not_configured&limit=50',
-      expect.objectContaining({ credentials: 'same-origin' }),
+      expect.objectContaining({ credentials: 'include' }),
     )
   })
 
@@ -62,7 +62,7 @@ describe('Notifications API', () => {
       '/api/workspaces/workspace-1/notifications/outbox/notification-failed/requeue',
       expect.objectContaining({
         method: 'POST',
-        credentials: 'same-origin',
+        credentials: 'include',
         body: JSON.stringify({ reason: '渠道配置已恢复' }),
       }),
     )
@@ -94,7 +94,7 @@ describe('Notifications API', () => {
       '/api/workspaces/workspace-1/notifications/outbox/dispatch',
       expect.objectContaining({
         method: 'POST',
-        credentials: 'same-origin',
+        credentials: 'include',
       }),
     )
   })
