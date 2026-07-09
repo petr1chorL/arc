@@ -1,0 +1,15 @@
+.git
+.github
+.scratch
+node_modules
+dist
+coverage
+playwright-report
+test-results
+.env
+.env.*
+!.env.example
+apps/api/data
+apps/api/.pytest_cache
+apps/api/**/__pycache__
+*.log
