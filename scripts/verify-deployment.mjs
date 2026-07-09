@@ -20,7 +20,8 @@ const requiredFiles = [
   'render.yaml',
   'scripts/write-cloudflare-headers.mjs',
   'wrangler.toml',
-  'zbpack.json',
+  'Dockerfile',
+  'nginx.conf.template',
 ]
 
 const checks = [
@@ -78,11 +79,32 @@ const checks = [
     ],
   },
   {
-    name: 'Zeabur frontend config builds the Vite static site',
-    file: 'zbpack.json',
+    name: 'Zeabur Docker image serves the frontend and API together',
+    file: 'Dockerfile',
     patterns: [
-      /"build_command": "npm ci && npm run build:pages"/,
-      /"output_dir": "dist"/,
+      /FROM node:22-alpine AS web-build/,
+      /RUN VITE_API_BASE_URL= npm run build:pages/,
+      /FROM python:3\.12-slim/,
+      /python -m pip install --no-cache-dir -e "\.\[postgres\]"/,
+      /uvicorn app\.main:app --app-dir \/app\/api --host 127\.0\.0\.1 --port 8000/,
+      /nginx -g 'daemon off;'/,
+    ],
+  },
+  {
+    name: 'Zeabur Nginx config proxies API requests to the local FastAPI process',
+    file: 'nginx.conf.template',
+    patterns: [
+      /listen \$\{PORT\}/,
+      /X-Content-Type-Options "nosniff"/,
+      /X-Frame-Options "DENY"/,
+      /Content-Security-Policy "default-src 'self'/,
+      /style-src 'self' 'unsafe-inline' https:\/\/fonts\.googleapis\.com/,
+      /font-src 'self' data: https:\/\/fonts\.gstatic\.com/,
+      /frame-ancestors 'none'/,
+      /connect-src 'self' https:\/\/arc-api-live-lindabaoz\.zeabur\.app/,
+      /location \/api\//,
+      /proxy_pass http:\/\/127\.0\.0\.1:8000/,
+      /try_files \$uri \$uri\/ \/index\.html/,
     ],
   },
   {
@@ -91,17 +113,19 @@ const checks = [
     patterns: [
       /FROM python:3\.12-slim/,
       /python -m pip install --no-cache-dir -e "\.\[postgres\]"/,
-      /uvicorn app\.main:app --host 0\.0\.0\.0 --port \$\{PORT:-8000\}/,
+      /EXPOSE 8080/,
+      /uvicorn app\.main:app --host 0\.0\.0\.0 --port \$\{PORT:-8080\}/,
     ],
   },
   {
     name: 'Zeabur deployment documentation covers frontend, backend, Postgres, and live checks',
     file: 'docs/ZEABUR_DEPLOYMENT.md',
     patterns: [
-      /arc-one-web/,
-      /arc-one-api/,
-      /arc-one-postgres/,
-      /VITE_API_BASE_URL=https:\/\/<zeabur-api-domain>/,
+      /arc-web/,
+      /arc-api-live/,
+      /\/api\/health/,
+      /VITE_API_BASE_URL=https:\/\/arc-api-live-lindabaoz\.zeabur\.app/,
+      /ALLOWED_ORIGINS=https:\/\/arc-web-lindabaoz\.zeabur\.app/,
       /DATABASE_URL=<Zeabur PostgreSQL connection string>/,
       /npm run deploy:check:live/,
     ],
@@ -113,6 +137,8 @@ const checks = [
       /process\.env\.VITE_API_BASE_URL/,
       /new URL\(apiBaseUrl\)\.origin/,
       /connect-src 'self' \$\{connectSource\}/,
+      /style-src 'self' 'unsafe-inline' https:\/\/fonts\.googleapis\.com/,
+      /font-src 'self' data: https:\/\/fonts\.gstatic\.com/,
     ],
   },
   {
@@ -121,6 +147,8 @@ const checks = [
     patterns: [
       /Content-Security-Policy:/,
       /frame-ancestors 'none'/,
+      /fonts\.googleapis\.com/,
+      /fonts\.gstatic\.com/,
       /X-Frame-Options: DENY/,
       /X-Content-Type-Options: nosniff/,
     ],

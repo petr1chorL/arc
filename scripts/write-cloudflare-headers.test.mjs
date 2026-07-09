@@ -9,4 +9,11 @@ describe('renderCloudflareHeaders', () => {
     expect(headers).toContain("connect-src 'self' https://api.example.com;")
     expect(headers).not.toContain("connect-src 'self' https:;")
   })
+
+  it('allows the configured web font stylesheet and font files', () => {
+    const headers = renderCloudflareHeaders('https://api.example.com')
+
+    expect(headers).toContain("style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;")
+    expect(headers).toContain("font-src 'self' data: https://fonts.gstatic.com;")
+  })
 })
