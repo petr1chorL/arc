@@ -22,6 +22,7 @@ const apiAgent = {
   tools: [],
   skills: [],
   systemPrompt: '',
+  runtimeManifest: {},
   createdAt: '2026-06-24T06:00:00Z',
   updatedAt: '2026-06-24T06:00:00Z',
 }
@@ -114,6 +115,7 @@ describe('Agent API', () => {
       systemPrompt: '严谨输出',
       tools: ['Web Search'],
       skills: ['竞品分析'],
+      runtimeManifest: {},
     })).resolves.toEqual(apiAgent)
     await expect(listAgentVersions(apiAgent.id)).resolves.toEqual([version])
     await expect(publishAgent(apiAgent.id)).resolves.toEqual(version)

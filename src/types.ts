@@ -15,8 +15,28 @@ export interface Agent {
   tools: string[]
   skills: string[]
   systemPrompt: string
+  runtimeManifest: AgentRuntimeManifest
   createdAt: string
   updatedAt: string
+}
+
+export type AgentRuntimeSourceType = 'manifest' | 'python_package'
+
+export interface AgentRuntimeManifest {
+  runtime?: string
+  sourceType?: AgentRuntimeSourceType
+  repo?: string
+  gitSha?: string
+  manifestPath?: string
+  entrypoint?: string
+  packageName?: string
+  packageVersion?: string
+  packageSource?: string
+  packageHash?: string
+  inputSchema?: Record<string, unknown>
+  outputSchema?: Record<string, unknown>
+  tools?: string[]
+  rawManifest?: Record<string, unknown>
 }
 
 export interface AssetVersion<TSnapshot = Record<string, unknown>> {

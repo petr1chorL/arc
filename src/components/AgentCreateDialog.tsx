@@ -8,9 +8,10 @@ interface AgentCreateDialogProps {
   onSubmit: (input: CreateAgentInput) => Promise<void>
 }
 
-type FieldName = keyof CreateAgentInput
+type CreateAgentForm = Pick<CreateAgentInput, 'name' | 'role' | 'owner' | 'model'>
+type FieldName = keyof CreateAgentForm
 
-const emptyForm: CreateAgentInput = {
+const emptyForm: CreateAgentForm = {
   name: '',
   role: '',
   owner: '',
@@ -48,7 +49,7 @@ export function AgentCreateDialog({
     event.preventDefault()
     const normalized = Object.fromEntries(
       Object.entries(form).map(([field, value]) => [field, value.trim()]),
-    ) as unknown as CreateAgentInput
+    ) as CreateAgentForm
     const nextErrors = Object.fromEntries(
       (Object.keys(normalized) as FieldName[])
         .filter((field) => !normalized[field])

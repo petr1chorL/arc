@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -17,6 +17,7 @@ const agent = {
   tools: [],
   skills: [],
   systemPrompt: '',
+  runtimeManifest: {},
   createdAt: '2026-06-24T07:00:00Z',
   updatedAt: '2026-06-24T07:00:00Z',
 }
@@ -134,5 +135,69 @@ describe('AgentDetail', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/agents/agent-1/test-runs', expect.objectContaining({
       method: 'POST',
     }))
+  })
+
+  it('imports LangChain manifest and Python package runtime metadata into the Agent draft', async () => {
+    const user = userEvent.setup()
+    const savedAgent = {
+      ...agent,
+      runtimeManifest: {
+        runtime: 'langchain',
+        sourceType: 'python_package',
+        packageName: 'arc-langchain-agents',
+        packageVersion: '1.0.3',
+        entrypoint: 'arc_agents.research:create_agent',
+        packageSource: 'internal-pypi',
+        packageHash: 'sha256:abc123',
+      },
+    }
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith('/versions')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (init?.method === 'PATCH') {
+        return Promise.resolve(new Response(JSON.stringify(savedAgent), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify(agent), { status: 200 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <MemoryRouter initialEntries={['/agents/agent-1']}>
+        <Routes>
+          <Route path="/agents/:agentId" element={<AgentDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByText('Runtime / Manifest')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Manifest JSON'), { target: { value: JSON.stringify({
+      runtime: 'langchain',
+      repo: 'git@example.com:ai/langchain-agents.git',
+      gitSha: 'abc123',
+      entrypoint: 'agents.research:create_agent',
+      inputSchema: { type: 'object' },
+      outputSchema: { type: 'object' },
+      tools: ['web_search'],
+    }) } })
+    await user.click(screen.getByRole('button', { name: '导入 Manifest' }))
+
+    expect(await screen.findByText('git@example.com:ai/langchain-agents.git')).toBeInTheDocument()
+    expect(screen.getAllByText('agents.research:create_agent').length).toBeGreaterThanOrEqual(1)
+
+    await user.type(screen.getByLabelText('Package 名称'), 'arc-langchain-agents')
+    await user.type(screen.getByLabelText('Package 版本'), '1.0.3')
+    await user.type(screen.getByLabelText('Package EntryPoint'), 'arc_agents.research:create_agent')
+    await user.type(screen.getByLabelText('Package 来源'), 'internal-pypi')
+    await user.type(screen.getByLabelText('Package Hash'), 'sha256:abc123')
+    await user.click(screen.getByRole('button', { name: '导入 Python Package' }))
+
+    expect(await screen.findAllByText('arc-langchain-agents==1.0.3')).toHaveLength(2)
+
+    await user.click(screen.getByRole('button', { name: '保存草稿' }))
+
+    const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH')
+    expect(JSON.parse(patchCall?.[1]?.body as string).runtimeManifest).toEqual(savedAgent.runtimeManifest)
   })
 })

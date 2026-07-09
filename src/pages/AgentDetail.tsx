@@ -2,7 +2,9 @@ import {
   ArrowLeft,
   Bot,
   Check,
+  FileJson,
   History,
+  Package,
   PackageCheck,
   Play,
   Save,
@@ -21,7 +23,7 @@ import {
 } from '../api/agents'
 import { runAgent } from '../api/execution'
 import { StatusBadge } from '../components/StatusBadge'
-import type { Agent, AgentVersion, ExecutionRun } from '../types'
+import type { Agent, AgentRuntimeManifest, AgentVersion, ExecutionRun } from '../types'
 
 function joinValues(values: string[]) {
   return values.join(', ')
@@ -31,6 +33,51 @@ function splitValues(value: string) {
   return value.split(/[,，]/).map((item) => item.trim()).filter(Boolean)
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function stringValue(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function recordValue(value: unknown) {
+  return isRecord(value) ? value : undefined
+}
+
+function stringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.map((item) => stringValue(item)).filter(Boolean)
+    : undefined
+}
+
+function formatJson(value: Record<string, unknown>) {
+  return JSON.stringify(value, null, 2)
+}
+
+function runtimeSourceLabel(manifest: AgentRuntimeManifest) {
+  if (manifest.sourceType === 'python_package') return 'Python Package'
+  if (manifest.sourceType === 'manifest') return 'Manifest JSON'
+  return '未注册'
+}
+
+function runtimeTitle(manifest: AgentRuntimeManifest) {
+  if (manifest.packageName && manifest.packageVersion) {
+    return `${manifest.packageName}==${manifest.packageVersion}`
+  }
+  return manifest.entrypoint || manifest.repo || '尚未导入运行入口'
+}
+
+function packageDraftFromManifest(manifest: AgentRuntimeManifest) {
+  return {
+    packageName: manifest.packageName ?? '',
+    packageVersion: manifest.packageVersion ?? '',
+    entrypoint: manifest.entrypoint ?? '',
+    packageSource: manifest.packageSource ?? '',
+    packageHash: manifest.packageHash ?? '',
+  }
+}
+
 export function AgentDetail() {
   const { agentId = '' } = useParams()
   const [agent, setAgent] = useState<Agent | null>(null)
@@ -38,6 +85,10 @@ export function AgentDetail() {
   const [form, setForm] = useState<UpdateAgentInput | null>(null)
   const [toolsText, setToolsText] = useState('')
   const [skillsText, setSkillsText] = useState('')
+  const [manifestText, setManifestText] = useState('')
+  const [packageDraft, setPackageDraft] = useState(packageDraftFromManifest({}))
+  const [runtimeFeedback, setRuntimeFeedback] = useState('')
+  const [runtimeError, setRuntimeError] = useState('')
   const [feedback, setFeedback] = useState('')
   const [error, setError] = useState('')
   const [isBusy, setIsBusy] = useState(false)
@@ -60,9 +111,16 @@ export function AgentDetail() {
         systemPrompt: nextAgent.systemPrompt,
         tools: nextAgent.tools,
         skills: nextAgent.skills,
+        runtimeManifest: nextAgent.runtimeManifest ?? {},
       })
       setToolsText(joinValues(nextAgent.tools))
       setSkillsText(joinValues(nextAgent.skills))
+      setPackageDraft(packageDraftFromManifest(nextAgent.runtimeManifest ?? {}))
+      setManifestText(
+        nextAgent.runtimeManifest?.sourceType === 'manifest' && nextAgent.runtimeManifest.rawManifest
+          ? formatJson(nextAgent.runtimeManifest.rawManifest)
+          : '',
+      )
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Agent 加载失败')
     }
@@ -77,6 +135,66 @@ export function AgentDetail() {
     setFeedback('')
   }
 
+  function updateRuntimeManifest(runtimeManifest: AgentRuntimeManifest) {
+    setForm((current) => current ? { ...current, runtimeManifest } : current)
+    setFeedback('')
+  }
+
+  function importManifest() {
+    setRuntimeError('')
+    setRuntimeFeedback('')
+    try {
+      const parsed: unknown = JSON.parse(manifestText)
+      if (!isRecord(parsed)) {
+        setRuntimeError('Manifest 必须是 JSON object')
+        return
+      }
+      const entrypoint = stringValue(parsed.entrypoint)
+      if (!entrypoint) {
+        setRuntimeError('Manifest 需要包含 entrypoint')
+        return
+      }
+      const runtimeManifest: AgentRuntimeManifest = {
+        runtime: stringValue(parsed.runtime) || 'langchain',
+        sourceType: 'manifest',
+        repo: stringValue(parsed.repo) || stringValue(parsed.repository) || undefined,
+        gitSha: stringValue(parsed.gitSha) || stringValue(parsed.git_sha) || undefined,
+        manifestPath: stringValue(parsed.manifestPath) || stringValue(parsed.path) || undefined,
+        entrypoint,
+        inputSchema: recordValue(parsed.inputSchema),
+        outputSchema: recordValue(parsed.outputSchema),
+        tools: stringArray(parsed.tools),
+        rawManifest: parsed,
+      }
+      updateRuntimeManifest(runtimeManifest)
+      setRuntimeFeedback('Manifest 已导入草稿')
+    } catch {
+      setRuntimeError('Manifest JSON 格式不正确')
+    }
+  }
+
+  function importPythonPackage() {
+    setRuntimeError('')
+    setRuntimeFeedback('')
+    const packageName = packageDraft.packageName.trim()
+    const packageVersion = packageDraft.packageVersion.trim()
+    const entrypoint = packageDraft.entrypoint.trim()
+    if (!packageName || !packageVersion || !entrypoint) {
+      setRuntimeError('Package 名称、版本和 EntryPoint 必填')
+      return
+    }
+    updateRuntimeManifest({
+      runtime: 'langchain',
+      sourceType: 'python_package',
+      packageName,
+      packageVersion,
+      entrypoint,
+      packageSource: packageDraft.packageSource.trim() || undefined,
+      packageHash: packageDraft.packageHash.trim() || undefined,
+    })
+    setRuntimeFeedback('Python Package 元数据已导入草稿')
+  }
+
   async function saveDraft() {
     if (!form) return
     setIsBusy(true)
@@ -86,6 +204,7 @@ export function AgentDetail() {
         ...form,
         tools: splitValues(toolsText),
         skills: splitValues(skillsText),
+        runtimeManifest: form.runtimeManifest ?? {},
       })
       setAgent(saved)
       setFeedback('草稿已保存')
@@ -105,6 +224,7 @@ export function AgentDetail() {
           ...form,
           tools: splitValues(toolsText),
           skills: splitValues(skillsText),
+          runtimeManifest: form.runtimeManifest ?? {},
         })
       }
       const version = await publishAgent(agentId)
@@ -162,6 +282,7 @@ export function AgentDetail() {
   }
 
   const disabled = agent.status === '已停用'
+  const runtimeManifest = form.runtimeManifest ?? {}
 
   return (
     <div className="page-stack asset-detail-page">
@@ -209,6 +330,56 @@ export function AgentDetail() {
             <label className="form-field full"><span>职责</span><textarea disabled={disabled} rows={3} value={form.role} onChange={(event) => updateField('role', event.target.value)} /></label>
             <label className="form-field"><span>模型</span><input disabled={disabled} value={form.model} onChange={(event) => updateField('model', event.target.value)} /></label>
             <label className="form-field"><span>当前发布版本</span><input readOnly value={agent.version} /></label>
+            <section className="runtime-manifest-card full" aria-label="Runtime / Manifest">
+              <header>
+                <div>
+                  <span className="section-kicker">Runtime / Manifest</span>
+                  <h4>{runtimeTitle(runtimeManifest)}</h4>
+                </div>
+                <span className="runtime-source-pill">{runtimeSourceLabel(runtimeManifest)}</span>
+              </header>
+              <div className="runtime-manifest-summary">
+                <div><span>Runtime</span><strong>{runtimeManifest.runtime || 'langchain'}</strong></div>
+                <div><span>EntryPoint</span><strong>{runtimeManifest.entrypoint || '未注册'}</strong></div>
+                <div><span>Package</span><strong>{runtimeManifest.packageName ? `${runtimeManifest.packageName}==${runtimeManifest.packageVersion || '未标注'}` : '无'}</strong></div>
+                <div><span>Repo</span><strong>{runtimeManifest.repo || '无'}</strong></div>
+              </div>
+              <div className="runtime-import-grid">
+                <label className="form-field runtime-manifest-json">
+                  <span><FileJson size={14} />Manifest JSON</span>
+                  <textarea
+                    aria-label="Manifest JSON"
+                    disabled={disabled}
+                    rows={8}
+                    value={manifestText}
+                    onChange={(event) => setManifestText(event.target.value)}
+                    placeholder={'{\n  "runtime": "langchain",\n  "repo": "git@example.com:team/agents.git",\n  "entrypoint": "agents.research:create_agent"\n}'}
+                  />
+                </label>
+                <div className="runtime-import-actions">
+                  <button className="button secondary" disabled={disabled || !manifestText.trim()} type="button" onClick={importManifest}>
+                    <FileJson size={15} />导入 Manifest
+                  </button>
+                </div>
+                <div className="runtime-package-fields">
+                  <label className="form-field"><span>Package 名称</span><input disabled={disabled} value={packageDraft.packageName} onChange={(event) => setPackageDraft((current) => ({ ...current, packageName: event.target.value }))} /></label>
+                  <label className="form-field"><span>Package 版本</span><input disabled={disabled} value={packageDraft.packageVersion} onChange={(event) => setPackageDraft((current) => ({ ...current, packageVersion: event.target.value }))} /></label>
+                  <label className="form-field"><span>Package EntryPoint</span><input disabled={disabled} value={packageDraft.entrypoint} onChange={(event) => setPackageDraft((current) => ({ ...current, entrypoint: event.target.value }))} /></label>
+                  <label className="form-field"><span>Package 来源</span><input disabled={disabled} value={packageDraft.packageSource} onChange={(event) => setPackageDraft((current) => ({ ...current, packageSource: event.target.value }))} /></label>
+                  <label className="form-field"><span>Package Hash</span><input disabled={disabled} value={packageDraft.packageHash} onChange={(event) => setPackageDraft((current) => ({ ...current, packageHash: event.target.value }))} /></label>
+                </div>
+                <div className="runtime-import-actions">
+                  <button className="button secondary" disabled={disabled} type="button" onClick={importPythonPackage}>
+                    <Package size={15} />导入 Python Package
+                  </button>
+                </div>
+              </div>
+              {(runtimeFeedback || runtimeError) && (
+                <p className={`runtime-manifest-feedback ${runtimeError ? 'error' : ''}`}>
+                  {runtimeError || runtimeFeedback}
+                </p>
+              )}
+            </section>
             <label className="form-field full prompt-field">
               <span><Sparkles size={14} />System Prompt</span>
               <textarea disabled={disabled} rows={10} value={form.systemPrompt} onChange={(event) => updateField('systemPrompt', event.target.value)} placeholder="定义 Agent 的职责、约束、输出格式和质量要求" />
