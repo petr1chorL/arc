@@ -15,6 +15,7 @@ Security expectations currently covered by the repository:
 - Cloudflare Pages security headers and SPA redirects.
 - Cloudflare Pages build-time CSP tightening from `VITE_API_BASE_URL`.
 - GitHub Actions deployment path for Cloudflare Pages using repository secrets.
+- Zeabur deployment path for frontend, FastAPI backend, and PostgreSQL.
 - Production API origin configuration through `VITE_API_BASE_URL`.
 - FastAPI CORS allowlist, trusted host allowlist, security headers, HSTS switch, and `/api/health`.
 - Production startup guardrails for PostgreSQL, HTTPS origins, public API hosts, secure cookies, and model API key presence.

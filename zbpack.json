@@ -1,0 +1,4 @@
+{
+  "build_command": "npm ci && npm run build:pages",
+  "output_dir": "dist"
+}

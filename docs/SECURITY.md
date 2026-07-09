@@ -7,6 +7,7 @@
 - 前端部署安全头：`public/_headers` 设置 `X-Content-Type-Options`、`X-Frame-Options`、`Referrer-Policy`、`Permissions-Policy` 和基础 CSP。
 - Cloudflare Pages 构建安全头：`npm run build:pages` 会根据 `VITE_API_BASE_URL` 把生产 CSP `connect-src` 收紧到确切 API origin。
 - Cloudflare Pages 发布工作流：`.github/workflows/deploy-pages.yml` 从 GitHub Secrets 读取 Cloudflare 凭据，不把 token 写入仓库。
+- Zeabur 部署配置：`zbpack.json` 和 `apps/api/Dockerfile` 支持把前端、后端和 PostgreSQL 放在同一个 Zeabur Project 中。
 - SPA 路由回退：`public/_redirects` 避免刷新子路由时暴露错误页面。
 - Cloudflare Pages 配置：`wrangler.toml` 声明项目名和 `dist` 输出目录。
 - 前端 API 基址：`VITE_API_BASE_URL` 控制生产 API origin，避免生产环境误连本机地址。

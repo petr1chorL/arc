@@ -8,15 +8,19 @@ const requiredFiles = [
   '.github/dependabot.yml',
   '.github/workflows/deploy-pages.yml',
   'SECURITY.md',
+  'apps/api/.dockerignore',
   'apps/api/.env.example',
+  'apps/api/Dockerfile',
   'docs/DEPLOYMENT.md',
   'docs/DEPLOYMENT_VALUES.template.md',
   'docs/SECURITY.md',
+  'docs/ZEABUR_DEPLOYMENT.md',
   'public/_headers',
   'public/_redirects',
   'render.yaml',
   'scripts/write-cloudflare-headers.mjs',
   'wrangler.toml',
+  'zbpack.json',
 ]
 
 const checks = [
@@ -71,6 +75,35 @@ const checks = [
     file: 'package.json',
     patterns: [
       /"build:pages": "npm run build && node scripts\/write-cloudflare-headers\.mjs"/,
+    ],
+  },
+  {
+    name: 'Zeabur frontend config builds the Vite static site',
+    file: 'zbpack.json',
+    patterns: [
+      /"build_command": "npm ci && npm run build:pages"/,
+      /"output_dir": "dist"/,
+    ],
+  },
+  {
+    name: 'Zeabur backend Dockerfile installs Postgres support and runs FastAPI',
+    file: 'apps/api/Dockerfile',
+    patterns: [
+      /FROM python:3\.12-slim/,
+      /python -m pip install --no-cache-dir -e "\.\[postgres\]"/,
+      /uvicorn app\.main:app --host 0\.0\.0\.0 --port \$\{PORT:-8000\}/,
+    ],
+  },
+  {
+    name: 'Zeabur deployment documentation covers frontend, backend, Postgres, and live checks',
+    file: 'docs/ZEABUR_DEPLOYMENT.md',
+    patterns: [
+      /arc-one-web/,
+      /arc-one-api/,
+      /arc-one-postgres/,
+      /VITE_API_BASE_URL=https:\/\/<zeabur-api-domain>/,
+      /DATABASE_URL=<Zeabur PostgreSQL connection string>/,
+      /npm run deploy:check:live/,
     ],
   },
   {
@@ -166,6 +199,7 @@ const checks = [
     file: 'docs/DEPLOYMENT.md',
     patterns: [
       /Cloudflare Pages/,
+      /Zeabur/,
       /npm run build:pages/,
       /deploy-pages\.yml/,
       /render\.yaml/,

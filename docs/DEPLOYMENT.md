@@ -9,6 +9,8 @@
 
 不要只部署前端。当前页面会调用 `/api/*`，如果没有公网后端，页面可以打开，但 Agent、Workflow、Run、Review 等功能会失败。
 
+国内或更易访问的一体化方案可以使用 Zeabur。仓库已提供 `zbpack.json`、`apps/api/Dockerfile` 和 [Zeabur 部署说明](ZEABUR_DEPLOYMENT.md)。
+
 ## 1. 前端部署到 Cloudflare Pages
 
 部署时可以先打开 `docs/DEPLOYMENT_VALUES.template.md`，把 Cloudflare、Render 和验收命令需要的值集中记录到你的私有笔记中。不要把填好真实密钥的版本提交到 Git。
