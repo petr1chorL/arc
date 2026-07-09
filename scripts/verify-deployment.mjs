@@ -6,6 +6,7 @@ const root = process.cwd()
 const requiredFiles = [
   '.env.example',
   '.github/dependabot.yml',
+  '.github/workflows/deploy-pages.yml',
   'SECURITY.md',
   'apps/api/.env.example',
   'docs/DEPLOYMENT.md',
@@ -39,6 +40,21 @@ const checks = [
       /directory: \/apps\/api/,
       /package-ecosystem: github-actions/,
       /interval: weekly/,
+    ],
+  },
+  {
+    name: 'GitHub Actions can deploy the frontend to Cloudflare Pages',
+    file: '.github/workflows/deploy-pages.yml',
+    patterns: [
+      /name: Deploy Cloudflare Pages/,
+      /workflow_dispatch:/,
+      /vars\.CLOUDFLARE_PAGES_AUTO_DEPLOY == 'true'/,
+      /CLOUDFLARE_ACCOUNT_ID: \$\{\{ secrets\.CLOUDFLARE_ACCOUNT_ID \}\}/,
+      /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/,
+      /VITE_API_BASE_URL: \$\{\{ vars\.VITE_API_BASE_URL \}\}/,
+      /npm run build:pages/,
+      /npx wrangler@4 pages project create/,
+      /npx wrangler@4 pages deploy dist/,
     ],
   },
   {
@@ -151,6 +167,7 @@ const checks = [
     patterns: [
       /Cloudflare Pages/,
       /npm run build:pages/,
+      /deploy-pages\.yml/,
       /render\.yaml/,
       /VITE_API_BASE_URL/,
       /ALLOWED_ORIGINS/,

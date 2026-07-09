@@ -19,6 +19,22 @@ Build command: npm run build:pages
 Build output directory: dist
 ```
 
+GitHub Secrets:
+
+```text
+CLOUDFLARE_ACCOUNT_ID=<set in GitHub Actions secret>
+CLOUDFLARE_API_TOKEN=<set in GitHub Actions secret>
+```
+
+GitHub Variables:
+
+```text
+CLOUDFLARE_PAGES_PROJECT=arc-one
+CLOUDFLARE_PAGES_PRODUCTION_BRANCH=master
+CLOUDFLARE_PAGES_AUTO_DEPLOY=true
+VITE_API_BASE_URL=https://<render-api-host>
+```
+
 前端环境变量：
 
 ```text

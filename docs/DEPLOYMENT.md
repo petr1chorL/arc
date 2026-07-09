@@ -13,6 +13,24 @@
 
 部署时可以先打开 `docs/DEPLOYMENT_VALUES.template.md`，把 Cloudflare、Render 和验收命令需要的值集中记录到你的私有笔记中。不要把填好真实密钥的版本提交到 Git。
 
+仓库提供了 `.github/workflows/deploy-pages.yml`，用于从 GitHub Actions 直接上传 `dist` 到 Cloudflare Pages。这个工作流支持手动触发；设置 `CLOUDFLARE_PAGES_AUTO_DEPLOY=true` 后，也会在 `master` push 时自动部署。
+
+需要在 GitHub 仓库设置：
+
+```text
+Secrets:
+CLOUDFLARE_ACCOUNT_ID=<Cloudflare account id>
+CLOUDFLARE_API_TOKEN=<Cloudflare API token>
+
+Variables:
+CLOUDFLARE_PAGES_PROJECT=arc-one
+CLOUDFLARE_PAGES_PRODUCTION_BRANCH=master
+CLOUDFLARE_PAGES_AUTO_DEPLOY=true
+VITE_API_BASE_URL=https://your-api.example.com
+```
+
+如果不使用 GitHub Actions，也可以在 Cloudflare Pages 控制台连接 Git 仓库。
+
 在 Cloudflare Pages 连接 Git 仓库后，使用：
 
 ```text
@@ -120,6 +138,7 @@ https://your-api.example.com/api/health
 
 - 前端 Cloudflare Pages `_headers`：基础安全头和 CSP。
 - 前端 Cloudflare Pages `build:pages`：根据生产 API origin 收紧 CSP `connect-src`。
+- GitHub Actions `deploy-pages.yml`：可手动或在 `master` push 后部署前端到 Cloudflare Pages。
 - 前端 Cloudflare Pages `_redirects`：SPA 路由回退，避免刷新子路由 404。
 - 前端 Cloudflare Pages `wrangler.toml`：声明 Pages 项目名和 `dist` 输出目录。
 - `ALLOWED_ORIGINS`：限制浏览器允许访问 API 的前端来源。
