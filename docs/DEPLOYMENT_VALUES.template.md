@@ -15,7 +15,7 @@ Branch: master
 Project name: arc-one
 Production branch: master
 Framework preset: Vite
-Build command: npm run build
+Build command: npm run build:pages
 Build output directory: dist
 ```
 

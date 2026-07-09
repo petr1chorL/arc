@@ -17,7 +17,7 @@
 
 ```text
 Framework preset: Vite
-Build command: npm run build
+Build command: npm run build:pages
 Build output directory: dist
 ```
 
@@ -38,16 +38,19 @@ VITE_API_BASE_URL=https://your-api.example.com
 ```
 
 这个地址应填写后端公网 origin，不要带尾部 `/api`。
+Cloudflare Pages 构建会用这个值生成 `dist/_headers`，把 CSP 的 `connect-src` 收紧到确切 API origin。
 
 本地验证：
 
 ```powershell
 npm run build
+npm run build:pages
 ```
 
 仓库已经提供两个 Cloudflare Pages 静态配置文件：
 
 - `public/_headers`：给前端静态资源添加基础安全响应头和 CSP。
+- `scripts/write-cloudflare-headers.mjs`：Pages 构建后根据 `VITE_API_BASE_URL` 收紧 `connect-src`。
 - `public/_redirects`：把直接访问 `/agents`、`/workflows` 等 React Router 路由回退到 `index.html`。
 
 上线后建议在 Cloudflare Zero Trust 中为 Pages 域名启用 Cloudflare Access。当前应用尚未完成登录和 RBAC，不建议裸露公网访问。
@@ -116,6 +119,7 @@ https://your-api.example.com/api/health
 当前已支持这些部署级安全控制：
 
 - 前端 Cloudflare Pages `_headers`：基础安全头和 CSP。
+- 前端 Cloudflare Pages `build:pages`：根据生产 API origin 收紧 CSP `connect-src`。
 - 前端 Cloudflare Pages `_redirects`：SPA 路由回退，避免刷新子路由 404。
 - 前端 Cloudflare Pages `wrangler.toml`：声明 Pages 项目名和 `dist` 输出目录。
 - `ALLOWED_ORIGINS`：限制浏览器允许访问 API 的前端来源。

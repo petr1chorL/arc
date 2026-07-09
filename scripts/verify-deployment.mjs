@@ -14,6 +14,7 @@ const requiredFiles = [
   'public/_headers',
   'public/_redirects',
   'render.yaml',
+  'scripts/write-cloudflare-headers.mjs',
   'wrangler.toml',
 ]
 
@@ -47,6 +48,22 @@ const checks = [
       /name = "arc-one"/,
       /pages_build_output_dir = "\.\/dist"/,
       /compatibility_date = "2026-07-09"/,
+    ],
+  },
+  {
+    name: 'Package scripts include a Cloudflare Pages build that tightens CSP',
+    file: 'package.json',
+    patterns: [
+      /"build:pages": "npm run build && node scripts\/write-cloudflare-headers\.mjs"/,
+    ],
+  },
+  {
+    name: 'Cloudflare Pages build script can narrow connect-src to the API origin',
+    file: 'scripts/write-cloudflare-headers.mjs',
+    patterns: [
+      /process\.env\.VITE_API_BASE_URL/,
+      /new URL\(apiBaseUrl\)\.origin/,
+      /connect-src 'self' \$\{connectSource\}/,
     ],
   },
   {
@@ -133,6 +150,7 @@ const checks = [
     file: 'docs/DEPLOYMENT.md',
     patterns: [
       /Cloudflare Pages/,
+      /npm run build:pages/,
       /render\.yaml/,
       /VITE_API_BASE_URL/,
       /ALLOWED_ORIGINS/,

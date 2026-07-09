@@ -5,6 +5,7 @@
 ## 当前已落地
 
 - 前端部署安全头：`public/_headers` 设置 `X-Content-Type-Options`、`X-Frame-Options`、`Referrer-Policy`、`Permissions-Policy` 和基础 CSP。
+- Cloudflare Pages 构建安全头：`npm run build:pages` 会根据 `VITE_API_BASE_URL` 把生产 CSP `connect-src` 收紧到确切 API origin。
 - SPA 路由回退：`public/_redirects` 避免刷新子路由时暴露错误页面。
 - Cloudflare Pages 配置：`wrangler.toml` 声明项目名和 `dist` 输出目录。
 - 前端 API 基址：`VITE_API_BASE_URL` 控制生产 API origin，避免生产环境误连本机地址。
@@ -81,7 +82,7 @@ MODEL_API_KEY=<set in platform secret manager>
 - 审计事件查询、导出和保留策略。
 - 后台任务隔离和模型调用配额。
 - 数据库迁移工具和备份/恢复流程。
-- 更严格的 CSP：在最终域名确定后，把 `connect-src` 从通配 HTTPS 收紧到确切 API origin。
+- 更严格的 CSP：当前已在 Pages 构建时收紧 `connect-src`；后续登录和第三方资源接入时继续按最小来源维护。
 
 ## 生产启动保护
 

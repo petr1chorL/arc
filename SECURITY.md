@@ -13,6 +13,7 @@ The full deployment security checklist is maintained in:
 Security expectations currently covered by the repository:
 
 - Cloudflare Pages security headers and SPA redirects.
+- Cloudflare Pages build-time CSP tightening from `VITE_API_BASE_URL`.
 - Production API origin configuration through `VITE_API_BASE_URL`.
 - FastAPI CORS allowlist, trusted host allowlist, security headers, HSTS switch, and `/api/health`.
 - Production startup guardrails for PostgreSQL, HTTPS origins, public API hosts, secure cookies, and model API key presence.
