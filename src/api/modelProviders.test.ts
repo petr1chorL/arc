@@ -49,7 +49,7 @@ describe('Model Provider API', () => {
     const [, createInit] = fetchMock.mock.calls[1]
     expect(createInit).toMatchObject({
       method: 'POST',
-      credentials: 'same-origin',
+      credentials: 'include',
     })
     const body = JSON.parse(String(createInit?.body))
     expect(body).toEqual({
@@ -79,7 +79,7 @@ describe('Model Provider API', () => {
       '/api/workspaces/workspace-1/model-providers/provider-1/test',
       expect.objectContaining({
         method: 'POST',
-        credentials: 'same-origin',
+        credentials: 'include',
       }),
     )
   })
@@ -107,7 +107,7 @@ describe('Model Provider API', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('/api/workspaces/workspace-1/model-providers/provider-1')
     expect(updateInit).toMatchObject({
       method: 'PATCH',
-      credentials: 'same-origin',
+      credentials: 'include',
     })
     const updateBody = JSON.parse(String(updateInit?.body))
     expect(updateBody.name).toBe('DeepSeek 更新')
@@ -116,7 +116,7 @@ describe('Model Provider API', () => {
       '/api/workspaces/workspace-1/model-providers/provider-1/deactivate',
       expect.objectContaining({
         method: 'POST',
-        credentials: 'same-origin',
+        credentials: 'include',
       }),
     )
   })
@@ -146,7 +146,7 @@ describe('Model Provider API', () => {
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/workspaces/workspace-1/model-providers/provider-1/impact',
       expect.objectContaining({
-        credentials: 'same-origin',
+        credentials: 'include',
       }),
     )
     expect(JSON.stringify(impact)).not.toContain('apiKey')
@@ -178,7 +178,7 @@ describe('Model Provider API', () => {
       '/api/workspaces/workspace-1/model-providers/provider-1/migrate-drafts',
       expect.objectContaining({
         method: 'POST',
-        credentials: 'same-origin',
+        credentials: 'include',
       }),
     )
     const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body))
@@ -214,7 +214,7 @@ describe('Model Provider API', () => {
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/workspaces/workspace-1/model-providers/provider-1/audit-events',
       expect.objectContaining({
-        credentials: 'same-origin',
+        credentials: 'include',
       }),
     )
     expect(JSON.stringify(auditEvents)).not.toContain('apiKey')

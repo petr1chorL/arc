@@ -50,7 +50,7 @@ describe('Asset Library API', () => {
     expect(calls[0].url).toBe('/api/workspaces/workspace-1/asset-library')
     expect(calls[1].url).toBe('/api/workspaces/workspace-1/asset-library')
     expect(calls[1].init?.method).toBe('POST')
-    expect(calls[1].init?.credentials).toBe('same-origin')
+    expect(calls[1].init?.credentials).toBe('include')
     expect(calls[1].init?.body).not.toContain('apiKey')
   })
 
@@ -164,7 +164,7 @@ describe('Asset Library API', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/workspaces/workspace-1/asset-library/asset-1/audit-events',
-      expect.objectContaining({ credentials: 'same-origin' }),
+      expect.objectContaining({ credentials: 'include' }),
     )
     expect(JSON.stringify(auditEvents)).not.toContain('apiKey')
   })

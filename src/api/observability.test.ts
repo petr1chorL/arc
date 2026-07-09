@@ -115,7 +115,7 @@ describe('Observability API', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/workspaces/workspace-1/observability/overview',
-      expect.objectContaining({ credentials: 'same-origin' }),
+      expect.objectContaining({ credentials: 'include' }),
     )
   })
 
@@ -127,7 +127,7 @@ describe('Observability API', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/workspaces/workspace-1/observability/runs/run-1',
-      expect.objectContaining({ credentials: 'same-origin' }),
+      expect.objectContaining({ credentials: 'include' }),
     )
   })
 
@@ -154,7 +154,7 @@ describe('Observability API', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/workspaces/workspace-1/observability/execution-events?runId=run-1&traceId=trace-run-1',
-      expect.objectContaining({ credentials: 'same-origin' }),
+      expect.objectContaining({ credentials: 'include' }),
     )
   })
 
@@ -169,7 +169,7 @@ describe('Observability API', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/workspaces/workspace-1/observability/human-sla?reviewerId=reviewer-1&groupId=group-1',
-      expect.objectContaining({ credentials: 'same-origin' }),
+      expect.objectContaining({ credentials: 'include' }),
     )
   })
 
@@ -181,7 +181,7 @@ describe('Observability API', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/workspaces/workspace-1/observability/cost-usage',
-      expect.objectContaining({ credentials: 'same-origin' }),
+      expect.objectContaining({ credentials: 'include' }),
     )
   })
 })

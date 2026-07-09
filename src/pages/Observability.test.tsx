@@ -454,7 +454,7 @@ describe('Observability', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         '/api/workspaces/workspace-1/execution-jobs/job-dead-letter',
-        expect.objectContaining({ credentials: 'same-origin' }),
+        expect.objectContaining({ credentials: 'include' }),
       )
     })
     expect(await screen.findByText('队列任务详情')).toBeInTheDocument()
@@ -624,7 +624,7 @@ describe('Observability', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         '/api/workspaces/workspace-1/execution-jobs?status=dead_letter',
-        expect.objectContaining({ credentials: 'same-origin' }),
+        expect.objectContaining({ credentials: 'include' }),
       )
     })
     expect(await screen.findByText('1 条任务')).toBeInTheDocument()
@@ -815,7 +815,7 @@ describe('Observability', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         '/api/workspaces/workspace-1/observability/runs/run-waiting',
-        expect.objectContaining({ credentials: 'same-origin' }),
+        expect.objectContaining({ credentials: 'include' }),
       )
     })
   })
@@ -859,7 +859,7 @@ describe('Observability', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         '/api/workspaces/workspace-1/observability/runs/run-waiting',
-        expect.objectContaining({ credentials: 'same-origin' }),
+        expect.objectContaining({ credentials: 'include' }),
       )
     })
   })
@@ -959,11 +959,11 @@ describe('Observability', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/workspaces/workspace-1/observability/human-sla?reviewerId=reviewer-1',
-      expect.objectContaining({ credentials: 'same-origin' }),
+      expect.objectContaining({ credentials: 'include' }),
     )
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/workspaces/workspace-1/observability/human-sla?reviewerId=reviewer-1&groupId=group-1',
-      expect.objectContaining({ credentials: 'same-origin' }),
+      expect.objectContaining({ credentials: 'include' }),
     )
   })
 })

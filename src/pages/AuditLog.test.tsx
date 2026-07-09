@@ -101,7 +101,7 @@ describe('AuditLog page', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenLastCalledWith(
         `/api/workspaces/${workspace.id}/audit-events?outcome=denied&limit=50`,
-        expect.objectContaining({ credentials: 'same-origin' }),
+        expect.objectContaining({ credentials: 'include' }),
       )
     })
     expect(await screen.findByText('member.invite')).toBeInTheDocument()
@@ -130,7 +130,7 @@ describe('AuditLog page', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         `/api/workspaces/${workspace.id}/audit-events?traceId=trace-1&limit=50`,
-        expect.objectContaining({ credentials: 'same-origin' }),
+        expect.objectContaining({ credentials: 'include' }),
       )
     })
   })
@@ -156,7 +156,7 @@ describe('AuditLog page', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenLastCalledWith(
         `/api/workspaces/${workspace.id}/audit-events?action=tool_skill_asset.update&outcome=denied&traceId=trace-1&limit=50`,
-        expect.objectContaining({ credentials: 'same-origin' }),
+        expect.objectContaining({ credentials: 'include' }),
       )
     })
   })

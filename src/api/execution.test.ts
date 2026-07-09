@@ -60,7 +60,7 @@ describe('Execution API', () => {
     const [, firstInit] = fetchMock.mock.calls[0]
     expect(firstInit).toMatchObject({
       method: 'POST',
-      credentials: 'same-origin',
+      credentials: 'include',
       body: JSON.stringify({ input: '分析需求', version: 'v1.0.0' }),
     })
     expect(new Headers(firstInit?.headers).get('Content-Type')).toBe('application/json')
@@ -68,7 +68,7 @@ describe('Execution API', () => {
     const [, secondInit] = fetchMock.mock.calls[1]
     expect(secondInit).toMatchObject({
       method: 'POST',
-      credentials: 'same-origin',
+      credentials: 'include',
       body: JSON.stringify({ input: '执行流程' }),
     })
     expect(new Headers(secondInit?.headers).get('Content-Type')).toBe('application/json')
@@ -98,7 +98,7 @@ describe('Execution API', () => {
     const [, lastInit] = fetchMock.mock.calls.at(-1) ?? []
     expect(lastInit).toMatchObject({
       method: 'POST',
-      credentials: 'same-origin',
+      credentials: 'include',
       body: JSON.stringify({ decision: 'approve' }),
     })
     expect(new Headers(lastInit?.headers).get('Content-Type')).toBe('application/json')
@@ -123,7 +123,7 @@ describe('Execution API', () => {
       '/api/workspaces/workspace-1/runs/run-1/rerun',
       expect.objectContaining({
         method: 'POST',
-        credentials: 'same-origin',
+        credentials: 'include',
       }),
     )
   })
@@ -147,7 +147,7 @@ describe('Execution API', () => {
       '/api/workspaces/workspace-1/runs/run-1/rerun',
       expect.objectContaining({
         method: 'POST',
-        credentials: 'same-origin',
+        credentials: 'include',
         body: JSON.stringify({ input: 'Corrected workflow input' }),
       }),
     )
@@ -170,7 +170,7 @@ describe('Execution API', () => {
       '/api/workspaces/workspace-1/runs/batch-rerun',
       expect.objectContaining({
         method: 'POST',
-        credentials: 'same-origin',
+        credentials: 'include',
         body: JSON.stringify({ runIds: ['run-a', 'run-b'] }),
       }),
     )
@@ -193,7 +193,7 @@ describe('Execution API', () => {
       '/api/workspaces/workspace-1/runs/batch-resume-from-failed-node',
       expect.objectContaining({
         method: 'POST',
-        credentials: 'same-origin',
+        credentials: 'include',
         body: JSON.stringify({ runIds: ['run-a', 'run-b'] }),
       }),
     )
@@ -218,7 +218,7 @@ describe('Execution API', () => {
       '/api/workspaces/workspace-1/runs/run-1/resume-from-failed-node',
       expect.objectContaining({
         method: 'POST',
-        credentials: 'same-origin',
+        credentials: 'include',
       }),
     )
   })
@@ -244,7 +244,7 @@ describe('Execution API', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/workspaces/workspace-1/runs/run-1/operation-history',
-      expect.objectContaining({ credentials: 'same-origin' }),
+      expect.objectContaining({ credentials: 'include' }),
     )
   })
 
@@ -279,7 +279,7 @@ describe('Execution API', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/workspaces/workspace-1/execution-jobs?status=dead_letter',
-      expect.objectContaining({ credentials: 'same-origin' }),
+      expect.objectContaining({ credentials: 'include' }),
     )
   })
 
@@ -326,7 +326,7 @@ describe('Execution API', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/workspaces/workspace-1/execution-jobs/job-1',
-      expect.objectContaining({ credentials: 'same-origin' }),
+      expect.objectContaining({ credentials: 'include' }),
     )
   })
 
@@ -364,7 +364,7 @@ describe('Execution API', () => {
       '/api/workspaces/workspace-1/execution-jobs/job-1/requeue',
       expect.objectContaining({
         method: 'POST',
-        credentials: 'same-origin',
+        credentials: 'include',
         body: JSON.stringify({ reason: '人工确认模型恢复' }),
       }),
     )
@@ -405,7 +405,7 @@ describe('Execution API', () => {
       '/api/workspaces/workspace-1/execution-jobs/job-1/cancel',
       expect.objectContaining({
         method: 'POST',
-        credentials: 'same-origin',
+        credentials: 'include',
         body: JSON.stringify({ reason: '业务方取消本次运行' }),
       }),
     )

@@ -34,7 +34,7 @@ describe('Workspace Audit API', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/workspaces/workspace-1/audit-events?action=tool_skill_asset.update&targetType=tool_skill_asset&outcome=success&traceId=trace-1&limit=25',
-      expect.objectContaining({ credentials: 'same-origin' }),
+      expect.objectContaining({ credentials: 'include' }),
     )
     expect(JSON.stringify(events)).not.toContain('apiKey')
   })

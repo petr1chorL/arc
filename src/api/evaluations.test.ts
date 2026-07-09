@@ -42,7 +42,7 @@ describe('Evaluations API', () => {
     expect(overview).toEqual(payload)
     expect(fetchMock).toHaveBeenCalledWith(
       `/api/workspaces/${workspaceId}/evaluations/overview`,
-      expect.objectContaining({ credentials: 'same-origin' }),
+      expect.objectContaining({ credentials: 'include' }),
     )
   })
 
@@ -65,7 +65,7 @@ describe('Evaluations API', () => {
     expect(rubrics).toEqual(payload)
     expect(fetchMock).toHaveBeenCalledWith(
       `/api/workspaces/${workspaceId}/evaluations/rubrics`,
-      expect.objectContaining({ credentials: 'same-origin' }),
+      expect.objectContaining({ credentials: 'include' }),
     )
   })
 

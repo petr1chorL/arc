@@ -43,7 +43,7 @@ describe('Notification Channel API', () => {
     const [, createInit] = fetchMock.mock.calls[1]
     expect(createInit).toMatchObject({
       method: 'POST',
-      credentials: 'same-origin',
+      credentials: 'include',
     })
     const body = JSON.parse(String(createInit?.body))
     expect(body).toEqual({
@@ -69,7 +69,7 @@ describe('Notification Channel API', () => {
       '/api/workspaces/workspace-1/notification-channels/channel-1/disable',
       expect.objectContaining({
         method: 'POST',
-        credentials: 'same-origin',
+        credentials: 'include',
       }),
     )
   })
@@ -87,7 +87,7 @@ describe('Notification Channel API', () => {
       '/api/workspaces/workspace-1/notification-channels/channel-1/enable',
       expect.objectContaining({
         method: 'POST',
-        credentials: 'same-origin',
+        credentials: 'include',
       }),
     )
   })
