@@ -47,3 +47,9 @@ def test_api_dockerfile_installs_postgres_extra_and_starts_api_by_default():
     assert 'pip install --no-cache-dir -e ".[postgres]"' in dockerfile
     assert 'CMD ["sh", "-c", "uvicorn app.main:app' in dockerfile
     assert "--port ${PORT:-8080}" in dockerfile
+
+
+def test_nginx_enables_hsts_for_public_https():
+    nginx_config = (ROOT / "nginx.conf.template").read_text(encoding="utf-8")
+
+    assert 'add_header Strict-Transport-Security "max-age=31536000" always;' in nginx_config
