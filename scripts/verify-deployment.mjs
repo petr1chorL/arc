@@ -20,6 +20,8 @@ const requiredFiles = [
   'Dockerfile',
   'nginx.conf.template',
   'scripts/check-live-deployment.mjs',
+  'scripts/zeabur-deployment-policy.mjs',
+  'scripts/zeabur-deployment-policy.test.mjs',
 ]
 
 const forbiddenFiles = [
@@ -87,20 +89,39 @@ const checks = [
       /workflows: \[CI\]/,
       /workflow_dispatch:/,
       /vars\.ZEABUR_AUTO_DEPLOY == 'true'/,
+      /github\.event\.workflow_run\.event == 'push'/,
       /secrets\.ZEABUR_TOKEN/,
       /vars\.ZEABUR_PROJECT_ID/,
       /vars\.ZEABUR_SERVICE_ID/,
       /vars\.ZEABUR_ENVIRONMENT_ID/,
       /vars\.ZEABUR_PRODUCTION_URL/,
       /ZEABUR_CLI_VERSION: 0\.19\.0/,
-      /npx --yes "zeabur@\$\{ZEABUR_CLI_VERSION\}" auth login/,
+      /path: \.delivery/,
+      /path: source/,
+      /zeabur-deployment-policy\.mjs assert-target/,
+      /zeabur-deployment-policy\.mjs assert-ci/,
+      /npx --yes "zeabur@\$\{ZEABUR_CLI_VERSION\}" auth login -i=false/,
+      /npx --yes "zeabur@\$\{ZEABUR_CLI_VERSION\}" auth logout -i=false/,
       /npx --yes "zeabur@\$\{ZEABUR_CLI_VERSION\}" deploy/,
       /url\.pathname !== '\/'/,
       /public\/deployment\.json/,
       /deployment\.json\?sha=/,
-      /npm run deploy:check:live/,
-      /node scripts\/check-live-deployment\.mjs/,
+      /node \.delivery\/scripts\/check-live-deployment\.mjs/,
       /cancel-in-progress: false/,
+    ],
+  },
+  {
+    name: 'Zeabur deployment policy rejects stale and unverified revisions',
+    file: 'scripts/zeabur-deployment-policy.mjs',
+    patterns: [
+      /sourceEvent === 'push'/,
+      /headBranch === 'master'/,
+      /deploySha !== currentMasterSha/,
+      /run\?\.event === 'push'/,
+      /run\?\.head_branch === 'master'/,
+      /run\?\.head_sha === targetSha/,
+      /assert-target/,
+      /assert-ci/,
     ],
   },
   {
@@ -269,6 +290,18 @@ for (const check of checks) {
     if (pattern.test(content)) {
       failures.push(`${check.name}: ${check.file} must not match ${pattern}`)
     }
+  }
+}
+
+const zeaburWorkflowPath = join(root, '.github/workflows/deploy-zeabur.yml')
+if (existsSync(zeaburWorkflowPath)) {
+  const workflow = readFileSync(zeaburWorkflowPath, 'utf8')
+  const jobHeader = workflow.slice(workflow.indexOf('jobs:'), workflow.indexOf('    steps:'))
+  if (jobHeader.includes('ZEABUR_TOKEN')) {
+    failures.push('Zeabur token must not be exposed through the job-level environment')
+  }
+  if ((workflow.match(/secrets\.ZEABUR_TOKEN/g) ?? []).length !== 1) {
+    failures.push('Zeabur token must be referenced exactly once by the deploy step')
   }
 }
 

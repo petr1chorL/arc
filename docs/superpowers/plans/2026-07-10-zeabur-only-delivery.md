@@ -13,8 +13,8 @@
 - Production hosting is GitHub + Zeabur + Zeabur PostgreSQL only.
 - `ZEABUR_TOKEN` must only be read from a GitHub Secret.
 - Zeabur project, service, environment, production URL, and auto-deploy switch must be GitHub Variables.
-- Automatic deployment only follows a successful `CI` run for `master`.
-- Manual deployment must verify a successful CI result for its target SHA.
+- Automatic deployment only follows a successful `push` CI for the current `origin/master` SHA.
+- Manual deployment must verify an exact successful `master` push CI result for its target SHA.
 - Public verification must match the target SHA before accepting homepage and API health.
 - The deployment workflow must pin Zeabur CLI `0.19.0`; do not consume `latest` in production.
 - Do not change database schema, application APIs, or Zeabur runtime secrets.
@@ -165,21 +165,27 @@ concurrency:
   cancel-in-progress: false
 ```
 
-The job condition must allow manual runs, or successful `master` CI runs when `ZEABUR_AUTO_DEPLOY == 'true'`.
+The job condition must allow manual runs, or successful `master` push CI runs when
+`ZEABUR_AUTO_DEPLOY == 'true'`.
 
 - [ ] **Step 2: Resolve and validate the target commit**
 
-Checkout the workflow-run SHA, manual input, or `master`. Resolve `git rev-parse HEAD`, fetch `origin/master`, and require:
+Checkout current `master` delivery controls into `.delivery`, then checkout the workflow-run SHA,
+manual input, or `master` into `source`. Resolve `git rev-parse HEAD`, fetch `origin/master`, and
+require:
 
 ```bash
 git merge-base --is-ancestor "$DEPLOY_SHA" origin/master
 ```
 
-For manual runs, query `actions/workflows/ci.yml/runs?head_sha=<sha>&status=completed` using the runner's `GH_TOKEN` and require the newest matching run conclusion to be `success`.
+For automatic runs, also require the target SHA to equal current `origin/master`. For manual runs,
+query `actions/workflows/ci.yml/runs?head_sha=<sha>&status=completed` using the runner's `GH_TOKEN`
+and require an exact successful `push` run whose `head_branch` is `master`.
 
 - [ ] **Step 3: Validate GitHub configuration without echoing secrets**
 
-Require non-empty `ZEABUR_TOKEN`, project ID, service ID, environment ID, and production URL. Only print missing variable names; never print values.
+Require non-empty project ID, service ID, environment ID, and production URL before uploading.
+Require `ZEABUR_TOKEN` only inside the deploy step. Only print missing setting names; never print values.
 
 - [ ] **Step 4: Create provenance marker and deploy**
 
@@ -189,10 +195,10 @@ Write this untracked file in the runner:
 {"commit":"<full SHA>"}
 ```
 
-Set `ZEABUR_CLI_VERSION=0.19.0`. Authenticate with the pinned CLI and
-`--token "$ZEABUR_TOKEN"`, then invoke `deploy -i=false` with project, service, and
-environment IDs. Reject production URLs that contain credentials, a non-root path, query, fragment,
-or a protocol other than HTTPS.
+Set `ZEABUR_CLI_VERSION=0.19.0`. Authenticate non-interactively with the pinned CLI and
+`--token "$ZEABUR_TOKEN"`, invoke `deploy -i=false`, then run `auth logout` from an EXIT trap.
+Reject production URLs that contain credentials, a non-root path, query, fragment, or a protocol
+other than HTTPS.
 
 - [ ] **Step 5: Wait for the exact revision and run live checks**
 

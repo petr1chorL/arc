@@ -51,14 +51,17 @@ ZEABUR_AUTO_DEPLOY=false
 
 `.github/workflows/deploy-zeabur.yml` 监听名为 `CI` 的工作流：
 
-1. CI 必须成功。
-2. CI 对应分支必须是 `master`。
-3. `ZEABUR_AUTO_DEPLOY` 必须等于 `true`。
-4. workflow checkout CI 的完整 commit SHA，并确认它属于远端 `master` 历史。
-5. runner 临时生成 `public/deployment.json`，只写入该 commit SHA。
-6. 固定版本 `0.19.0` 的 Zeabur CLI 上传当前 checkout，不读取或修改应用运行时 Secret；
+1. CI 必须来自 `master` push 并成功。
+2. `ZEABUR_AUTO_DEPLOY` 必须等于 `true`。
+3. 自动入口要求该 SHA 仍等于当前 `origin/master`，拒绝晚完成的旧 CI 回滚新版本。
+4. workflow 分别 checkout 当前发布控制代码与目标源码；手动入口只承认目标 SHA 的
+   成功 `master` push CI。
+5. runner 在目标源码中临时生成 `public/deployment.json`，只写入该 commit SHA。
+6. 固定版本 `0.19.0` 的 Zeabur CLI 上传目标源码，不读取或修改应用运行时 Secret；
    生产发布不跟随未经验证的 `latest` 版本漂移。
-7. workflow 轮询公网 `deployment.json`；只有返回目标 SHA 才继续检查首页和
+7. `ZEABUR_TOKEN` 只在上传步骤可见，并在该步骤结束时注销 CLI；后续仓库脚本无法
+   读取部署凭证。
+8. workflow 轮询公网 `deployment.json`；只有返回目标 SHA 才继续检查首页和
    `/api/health`。
 
 production concurrency 不会取消正在运行的发布，避免两个版本同时覆盖生产环境。
@@ -67,10 +70,10 @@ production concurrency 不会取消正在运行的发布，避免两个版本同
 
 在 GitHub Actions 中选择 `Deploy Zeabur`，可以留空 `commit_sha` 以部署当前
 `master`，也可以填写 `master` 历史中的完整 SHA 用于回滚。手动入口会查询该 SHA 的
-CI 记录；没有成功 CI 的 commit 会在上传前被拒绝。
+精确匹配的 `master` push CI 记录；没有该证据的 commit 会在上传前被拒绝。
 
-不建议直接从开发电脑运行生产部署。紧急情况下使用 Zeabur CLI 也必须先确认目标
-commit 已进入 `master` 且 CI 成功，并在部署后执行相同的公网验收。
+生产部署不从开发电脑直接执行 Zeabur CLI。紧急发布或回滚也使用同一个 GitHub
+Actions 手动入口，使 CI、目标 SHA、Token 作用域和公网验收保持一致。
 
 ## Zeabur 运行环境
 

@@ -176,7 +176,7 @@ def test_production_accepts_explicit_safe_configuration():
         environment="production",
         database_url="postgresql+psycopg://user:password@db.example.com:5432/arc_one",
         allowed_origins=[],
-        allowed_hosts=["arc-one-api.onrender.com"],
+        allowed_hosts=["arc-one.example.com"],
         hsts_enabled=True,
         cookie_secure=True,
     )

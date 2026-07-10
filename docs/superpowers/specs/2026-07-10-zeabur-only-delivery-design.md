@@ -1,6 +1,6 @@
 # ARC.ONE Zeabur 单一交付链路设计
 
-> 状态：已确认  
+> 状态：已确认
 > 日期：2026-07-10
 
 ## 1. 背景
@@ -64,14 +64,19 @@ flowchart LR
 新增独立的 Zeabur GitHub Actions workflow：
 
 1. `workflow_run` 监听名为 `CI` 的工作流完成事件。
-2. 只有结论为 `success`、分支为 `master` 且变量 `ZEABUR_AUTO_DEPLOY=true` 时自动运行。
+2. 只有来源事件为 `push`、结论为 `success`、分支为 `master` 且变量
+   `ZEABUR_AUTO_DEPLOY=true` 时自动运行。
 3. `workflow_dispatch` 保留手动触发；目标默认是当前 `master`，也可输入 commit SHA。
-4. 手动触发时通过 GitHub Actions API 确认目标 SHA 存在成功的 CI 记录。
-5. checkout 目标 SHA，并确认它属于远端 `master` 历史。
-6. 在 runner 的 `public/deployment.json` 临时写入目标 SHA；文件不提交 Git，也不含密钥。
-7. 使用固定版本 `0.19.0` 的 Zeabur CLI 与 Token 登录，并以项目、服务、环境 ID
-   无交互上传当前 checkout，避免 `latest` 在未验证时改变发布行为。
-8. 轮询公网 `deployment.json`，只有读到目标 SHA 才继续运行首页和 `/api/health` 验收。
+4. 自动入口要求目标 SHA 等于当前 `origin/master`，防止晚完成的旧 CI 回滚新版本。
+5. 手动触发时通过 GitHub Actions API 确认目标 SHA 存在精确匹配的成功 `master`
+   push CI；PR CI 不作为精确 SHA 的发布证据。
+6. checkout 当前 `master` 的发布控制代码和独立的目标源码目录；确认目标属于远端
+   `master` 历史。
+7. 在目标源码的 `public/deployment.json` 临时写入目标 SHA；文件不提交 Git，也不含密钥。
+8. 使用固定版本 `0.19.0` 的 Zeabur CLI 与 Token 登录，并以项目、服务、环境 ID
+   无交互上传目标源码，避免 `latest` 在未验证时改变发布行为。
+9. Token 仅注入上传步骤，并在该步骤退出时注销 CLI；后续脚本无权读取凭证。
+10. 轮询公网 `deployment.json`，只有读到目标 SHA 才继续运行首页和 `/api/health` 验收。
 
 ## 6. 配置边界
 
@@ -116,8 +121,10 @@ CI 的 commit，确保回滚行为仍可追溯。
 ## 9. 对抗式审查
 
 - **错误完成感：** 单纯健康检查可能命中旧版本，因此必须先匹配目标 commit 标记。
-- **绕过 CI：** 自动入口只消费成功的 master CI；手动入口也检查 CI 记录。
-- **凭证泄漏：** Token 只使用 GitHub Secret；提交、Action 输出和公开标记均不包含凭证。
+- **绕过 CI：** 自动入口只消费当前 master 的成功 push CI；手动入口只接受精确 SHA 的
+  成功 master push CI。
+- **凭证泄漏：** Token 只使用 GitHub Secret 且只注入上传步骤；步骤结束后注销 CLI。
+  提交、Action 输出和公开标记均不包含凭证。
 - **部署漂移：** 工作流 checkout 明确 SHA，而不是部署 runner 当时不确定的工作目录。
 - **文档夸大：** 当前仍是公网原型，不把单服务自动发布描述为高可用生产系统。
 - **并发覆盖：** workflow 使用 production concurrency，同一时刻只允许一个生产发布；后来的

@@ -38,7 +38,8 @@ https://arc-v1-lite-lindabaoz.zeabur.app/api/health
 
 ## GitHub 发布配置
 
-`.github/workflows/deploy-zeabur.yml` 是唯一生产发布入口。它需要：
+`.github/workflows/deploy-zeabur.yml` 是唯一生产发布入口。生产发布和回滚都通过该
+workflow 执行，不从开发电脑直接调用 Zeabur CLI。它需要：
 
 GitHub Secret：
 
@@ -80,10 +81,14 @@ Zeabur 服务中的数据库密码、管理员密码和模型凭证。
 功能 worktree -> PR CI -> 合并 master -> master CI -> Zeabur -> 公网验收
 ```
 
-当 `ZEABUR_AUTO_DEPLOY=true` 时，成功的 `master` CI 会触发生产 workflow。workflow
-checkout CI 对应的完整 SHA，在 runner 中生成 `public/deployment.json`，再使用官方
-Zeabur CLI `0.19.0` 无交互上传本地 checkout。版本固定在 workflow 中，升级 CLI
-必须和普通代码变更一样经过 PR 与 CI。
+当 `ZEABUR_AUTO_DEPLOY=true` 时，成功的 `master` push CI 会触发生产 workflow。
+workflow 会拒绝晚完成且已经落后于当前 `origin/master` 的 CI，防止旧版本覆盖新版本。
+它先把当前 `master` 的发布控制代码 checkout 到 `.delivery`，再把目标源码 checkout
+到 `source`；策略校验和公网验收始终使用当前控制代码，回滚源码不能降级发布防线。
+
+runner 在目标源码中生成 `public/deployment.json`，再使用官方 Zeabur CLI `0.19.0`
+无交互上传。`ZEABUR_TOKEN` 只注入该部署步骤，步骤退出时通过 `auth logout` 清理 CLI
+凭据。版本固定在 workflow 中，升级 CLI 必须和普通代码变更一样经过 PR 与 CI。
 
 Zeabur 构建是异步的，所以“CLI 已提交”不等于“新版本已上线”。workflow 会轮询：
 
@@ -101,31 +106,12 @@ GitHub Actions 的 `Deploy Zeabur` 支持手动执行：
 - 留空 `commit_sha`：部署当前 `master`。
 - 输入完整 SHA：部署 `master` 历史中的指定版本。
 
-手动入口会确认该 SHA 存在成功 CI 记录。未进入 `master`、CI 失败或 GitHub 配置缺失时，
-发布会在 Zeabur 上传前终止。
+手动入口会确认该 SHA 存在精确匹配的成功 `master` push CI 记录。PR CI、其他分支 CI、
+不同 SHA 的 CI 或失败 CI 均不满足条件。未进入 `master` 或 GitHub 配置缺失时，发布会
+在 Zeabur 上传前终止。
 
 回滚使用同一入口重新部署上一个成功 SHA。数据库迁移不自动回滚；涉及数据结构变化时
 必须先确认前后版本兼容性。
-
-## 本地发布兜底
-
-自动化不可用时，可以在已登录 Zeabur CLI 的受控终端，从目标 commit 的干净 checkout
-执行：
-
-```powershell
-npx zeabur@latest deploy -i=false `
-  --project-id <project-id> `
-  --service-id <service-id> `
-  --environment-id <environment-id>
-```
-
-该方式只用于紧急兜底。完成后仍需记录完整 SHA，并执行：
-
-```powershell
-$env:FRONTEND_URL="https://<application-host>"
-$env:API_URL="https://<application-host>"
-npm run deploy:check:live
-```
 
 ## 安全提醒
 
