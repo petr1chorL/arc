@@ -62,7 +62,8 @@ ZEABUR_AUTO_DEPLOY=false
 7. `ZEABUR_TOKEN` 只在上传步骤可见，并在该步骤结束时注销 CLI；后续仓库脚本无法
    读取部署凭证。
 8. workflow 轮询公网 `deployment.json`；只有返回目标 SHA 才继续检查首页和
-   `/api/health`。
+   `/api/health`。这些 live check 使用有限重试容忍同一容器内静态页面与 API 的启动时序差，
+   达到上限仍失败时发布任务会明确失败。
 
 production concurrency 不会取消正在运行的发布，避免两个版本同时覆盖生产环境。
 

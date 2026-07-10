@@ -20,6 +20,7 @@ const requiredFiles = [
   'Dockerfile',
   'nginx.conf.template',
   'scripts/check-live-deployment.mjs',
+  'scripts/check-live-deployment.test.mjs',
   'scripts/zeabur-deployment-policy.mjs',
   'scripts/zeabur-deployment-policy.test.mjs',
 ]
