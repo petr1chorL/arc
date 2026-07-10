@@ -449,7 +449,10 @@ describe('Observability', () => {
     expect(await screen.findByText('执行队列运营')).toBeInTheDocument()
     expect(screen.getByText('死信 · workflow_run')).toBeInTheDocument()
     expect(screen.getByText('Agent 执行失败，请稍后重试')).toBeInTheDocument()
-    expect(screen.getByText('worker-a · 2026/6/26 16:05:00')).toBeInTheDocument()
+    const lockedUntil = executionJobs[0].lockedUntil
+    if (!lockedUntil) throw new Error('Expected the execution job fixture to include a lock expiry')
+    const lockedUntilLabel = new Date(lockedUntil).toLocaleString('zh-CN')
+    expect(screen.getByText(`worker-a · ${lockedUntilLabel}`)).toBeInTheDocument()
     await user.click(screen.getAllByRole('button', { name: '查看详情' })[0])
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(

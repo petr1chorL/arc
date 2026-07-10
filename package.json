@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "build:pages": "npm run build && node scripts/write-cloudflare-headers.mjs",
+    "deploy:check": "node scripts/verify-deployment.mjs",
+    "deploy:check:live": "node scripts/check-live-deployment.mjs",
     "lint": "oxlint",
     "test": "vitest",
     "test:watch": "vitest",

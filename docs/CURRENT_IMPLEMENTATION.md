@@ -1,8 +1,8 @@
 # ARC.ONE 当前版本实现说明
 
-> 当前版本：V0.31F Notification Channel Enable
-> 上一阶段：V0.31E Notification Channel Impact
-> 更新时间：2026-06-29
+> 当前版本：P0 运行时安全收口
+> 上一阶段：V0.31F Notification Channel Enable
+> 更新时间：2026-07-10
 
 ## 1. 当前版本是什么
 
@@ -22,11 +22,23 @@ Agent 资产页和工作流设计器已经接入 SQLAlchemy。Agent 支持草稿
 
 Agent 执行已引入第一版 Runtime 合约：`app.agent_runtime` 负责统一 Agent 输入、输出、脱敏错误、Token、成本、评分、尝试次数、耗时和工具调用占位。Agent 直接测试运行与工作流 Agent 节点都通过 `ExecutionService.execute_agent` 调用该 Runtime，再映射到 `NodeRunRecord`。
 
-Agent 草稿已新增第一版运行配置入口：后端持久化 `modelProvider`、`modelBaseUrl`、`temperature` 和 `maxOutputTokens`，Agent 详情页可编辑这些非密钥字段，保存草稿和发布版本时会进入不可变 Agent 快照。Agent 直接运行和工作流 Agent 节点执行时，会把已发布快照里的模型、Provider ID、Provider 类型、Base URL、温度和最大输出 Tokens 传入 Agent Runtime，并由 OpenAI-compatible ModelGateway 使用 Base URL、温度和最大输出 Tokens 覆盖默认请求参数。绑定 Provider 的 Agent 运行时还会按 `modelProviderId` 查询 Provider 资产，把 `secretRef` 标签传给 ModelGateway；ModelGateway 在外呼边界解析后端环境变量，并继续禁止 API Key 进入前端、数据库、运行响应或 Agent 快照。
+Agent 草稿已新增第一版运行配置入口：后端持久化 `modelProvider`、`modelBaseUrl`、`temperature` 和 `maxOutputTokens`，Agent 详情页可编辑这些非密钥字段，保存草稿和发布版本时会进入不可变 Agent 快照。Agent 直接运行和工作流 Agent 节点执行时，会把已发布快照里的模型、Provider ID、Provider 类型、Base URL、温度和最大输出 Tokens 传入 Agent Runtime。绑定 Provider 的运行必须使用符合环境变量名格式的 `secretRef`，引用为空或环境变量不存在时不再回退全局 Key；ModelGateway 在任何 HTTP 请求前要求 HTTPS，并按 `MODEL_ALLOWED_HOSTS` 精确校验目标 Host。
 
-Agent 详情页的 Runtime / Python Package 区域当前只支持导入 Python Package 元数据，包括 `packageName`、`packageVersion`、`entrypoint` 和 `packageHash`；Package 来源不作为详情页手工维护字段，后续真实上传或仓库接入时可由导入流程内部记录。模型、Provider、Base URL、温度和最大输出 Tokens 仍由 ARC 运行配置字段维护。发布版本时 Python Package 元数据与 ARC 生效运行配置一起进入 AgentVersion 快照。该区域不保存密钥。
+Agent 详情页的 Runtime / Python Package 区域当前只支持登记 Python Package 元数据，包括 `packageName`、`packageVersion`、`entrypoint` 和 `packageHash`；Package 来源不作为详情页手工维护字段。发布版本时这些元数据会进入 AgentVersion 快照，但在独立隔离执行器上线前，API 进程不会修改 `sys.path`、动态导入或执行 Package，相关发布版本的测试运行入口会禁用。该区域不保存密钥，也不代表 Package 已具备运行能力。
 
-模型 Provider 已新增 Workspace 级资产入口：`model_providers` 表保存 Provider 名称、类型、Base URL、默认模型、`secretRef` 和状态；前端“模型 Provider”页面可创建 Provider、查看列表、测试连接、编辑非密钥配置并停用 Provider。Provider API 忽略误传的 `apiKey`，不保存、不返回、不在列表、编辑、连接测试或影响面视图中泄露密钥；连接测试当前只检查 `secretRef` 指向的后端环境变量是否存在。Agent 草稿可通过下拉框绑定当前 Workspace 的启用 Provider 资产，保存后会固化 `modelProviderId`，并同步 Provider 类型、Base URL 和默认模型；已停用 Provider 不能再被新的 Agent 草稿绑定，后端会返回“模型 Provider 已停用”。发布 Agent 版本时会重新校验绑定 Provider 仍处于启用状态，并把 Provider 类型、Base URL、默认模型和非密钥 `modelSecretRef` 标签写入不可变快照。当前 Runtime 已使用 Provider 的非密钥配置字段，并会优先按已发布 Agent 快照中的 `modelSecretRef` 解析后端环境变量；旧快照缺少该字段时才回退查询当前 Provider 资产。模型 Provider 页面还会读取 Provider 影响面，展示当前依赖该 Provider 的 Agent 草稿数量、已发布版本数量和最近依赖项名称。
+模型 Provider 已新增 Workspace 级资产入口：`model_providers` 表保存 Provider 名称、类型、Base URL、默认模型、`secretRef` 和状态；前端“模型资产”页面可创建 Provider、查看列表、测试连接、编辑非密钥配置并停用 Provider。`secretRef` 现在只接受后端环境变量名，不再接受或兼容内联 Key；非法值在写库前以固定错误拒绝且不回显。应用启动时会幂等清空历史 Provider 和 AgentVersion 快照中的非法引用，不记录原值。Agent 草稿可绑定当前 Workspace 的启用 Provider，发布时冻结非密钥配置与合法引用标签。
+
+工作流校验、Agent 执行、同步/异步工作流运行、重跑和快照恢复读取 AgentVersion/WorkflowVersion 时均带上当前 Workspace ID。其他 Workspace 的版本统一按不存在处理；发布前校验和 Runtime 各自保留一道防线。
+
+本阶段的 RED/GREEN、全量测试、部署验证和浏览器证据见 `docs/ACCEPTANCE_P0_RUNTIME_SECURITY.md`。
+
+公网交付链路已收敛为 **GitHub + Zeabur + Zeabur PostgreSQL**。功能改动在独立
+worktree/分支完成，经 Pull Request 和 CI 后合并 `master`；成功的 `master` CI 可按
+`ZEABUR_AUTO_DEPLOY` 开关触发 Zeabur 发布。发布 workflow checkout CI 对应的完整
+commit SHA，并在 runner 中临时生成 `public/deployment.json`；只有公网标记返回同一 SHA
+后，才继续执行首页、`/api/health`、安全响应头和 CORS 验收。手动发布入口同样要求目标
+SHA 属于 `master` 且已有成功 CI。该能力只解决单服务原型的版本可追溯发布，不代表
+staging、高可用、自动数据库迁移、备份恢复或自动回滚已经完成。
 
 Tool / Skill 已新增第一版 Workspace 级资产库后端：`tool_skill_assets` 表保存 `tool` 与 `skill` 两类资产，支持创建、列表查询、参数 Schema、状态、适配类型、适配配置和 Workspace 隔离。Agent 更新和发布时会校验所绑定的 Tools / Skills 必须是当前 Workspace 内已启用资产。`tool_skill_asset_invocations` 表提供调用日志查询能力，并已支持 HTTP Tool 测试调用写入成功或失败日志。
 

@@ -1,6 +1,4 @@
 from dataclasses import dataclass
-import sys
-from types import ModuleType
 
 from app.agent_runtime import AgentRuntimeExecutor, AgentRuntimeRequest
 
@@ -123,26 +121,16 @@ def test_agent_runtime_reports_missing_model_credentials_without_secret_details(
     assert "api_key" not in result.error
 
 
-def test_agent_runtime_invokes_langchain_python_package_entrypoint(monkeypatch):
-    module = ModuleType("fake_weather_agent")
-    calls = []
-
-    class FakeLangChainAgent:
-        def invoke(self, payload):
-            calls.append(payload)
-            return {
-                "messages": [
-                    {"role": "user", "content": "Changsha weather"},
-                    {"role": "assistant", "content": "It is always sunny in Changsha."},
-                ],
-            }
-
-    def create_agent(model: str, system_prompt: str):
-        calls.append({"model": model, "system_prompt": system_prompt})
-        return FakeLangChainAgent()
-
-    module.create_agent = create_agent
-    monkeypatch.setitem(sys.modules, "fake_weather_agent", module)
+def test_agent_runtime_does_not_import_or_execute_python_package(tmp_path):
+    marker_path = tmp_path / "package-imported.txt"
+    module_path = tmp_path / "unsafe_package.py"
+    module_path.write_text(
+        "from pathlib import Path\n"
+        f"Path({str(marker_path)!r}).write_text('executed', encoding='utf-8')\n"
+        "def create_agent(model, system_prompt):\n"
+        "    return lambda input_text: 'unsafe package executed'\n",
+        encoding="utf-8",
+    )
     runtime = AgentRuntimeExecutor(
         gateway=FakeGateway([]),
         cost_calculator=lambda prompt, completion: 0,
@@ -151,69 +139,16 @@ def test_agent_runtime_invokes_langchain_python_package_entrypoint(monkeypatch):
     request.runtime_manifest = {
         "runtime": "langchain",
         "sourceType": "python_package",
-        "entrypoint": "fake_weather_agent:create_agent",
+        "entrypoint": "unsafe_package:create_agent",
+        "packageSource": str(tmp_path),
     }
 
     result = runtime.execute(request)
 
-    assert result.status == "\u5df2\u5b8c\u6210"
-    assert result.output_text == "It is always sunny in Changsha."
-    assert result.model == "configured-model"
+    assert result.status == "\u5931\u8d25"
+    assert result.output_text == ""
+    assert result.error == "Python Package 当前仅登记元数据，尚未接入隔离执行器"
+    assert result.model == ""
     assert result.total_tokens == 0
-    assert calls == [
-        {"model": "configured-model", "system_prompt": "Respond clearly."},
-        {"messages": [{"role": "user", "content": "Summarize the request."}]},
-    ]
-
-
-def test_langchain_package_runtime_uses_provider_model_object(monkeypatch):
-    weather_module = ModuleType("fake_weather_agent_with_provider")
-    langchain_openai_module = ModuleType("langchain_openai")
-    calls = []
-
-    class FakeChatOpenAI:
-        def __init__(self, **kwargs):
-            self.kwargs = kwargs
-
-    class FakeLangChainAgent:
-        def invoke(self, payload):
-            calls.append(payload)
-            return {"output": "Weather provider call completed."}
-
-    def create_agent(model: object, system_prompt: str):
-        calls.append({"model": model, "system_prompt": system_prompt})
-        return FakeLangChainAgent()
-
-    langchain_openai_module.ChatOpenAI = FakeChatOpenAI
-    weather_module.create_agent = create_agent
-    monkeypatch.setitem(sys.modules, "langchain_openai", langchain_openai_module)
-    monkeypatch.setitem(sys.modules, "fake_weather_agent_with_provider", weather_module)
-    runtime = AgentRuntimeExecutor(
-        gateway=FakeGateway([]),
-        cost_calculator=lambda prompt, completion: 0,
-    )
-    request = runtime_request()
-    request.model = "deepseek-v4-pro"
-    request.model_base_url = "https://api.deepseek.com"
-    request.model_secret_ref = "sk-test-inline-key"
-    request.temperature = 0
-    request.max_output_tokens = 1024
-    request.runtime_manifest = {
-        "runtime": "langchain",
-        "sourceType": "python_package",
-        "entrypoint": "fake_weather_agent_with_provider:create_agent",
-    }
-
-    result = runtime.execute(request)
-
-    assert result.status == "\u5df2\u5b8c\u6210"
-    assert result.output_text == "Weather provider call completed."
-    model_object = calls[0]["model"]
-    assert isinstance(model_object, FakeChatOpenAI)
-    assert model_object.kwargs == {
-        "model": "deepseek-v4-pro",
-        "api_key": "sk-test-inline-key",
-        "temperature": 0,
-        "max_tokens": 1024,
-        "base_url": "https://api.deepseek.com",
-    }
+    assert result.attempts == 1
+    assert not marker_path.exists()

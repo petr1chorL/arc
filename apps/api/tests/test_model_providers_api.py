@@ -1,6 +1,60 @@
 from api_test_support import csrf_headers, create_authenticated_client, workspace_url
 
 
+def test_model_provider_rejects_inline_secret_without_echoing_or_persisting_it(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'model-provider-inline-secret.db'}",
+    )
+    submitted_value = "inline-secret-value"
+
+    response = client.post(
+        workspace_url(workspace_id, "/model-providers"),
+        json={
+            "name": "Unsafe Inline Provider",
+            "providerType": "openai-compatible",
+            "baseUrl": "https://api.deepseek.com",
+            "defaultModel": "deepseek-v4-pro",
+            "secretRef": submitted_value,
+        },
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Secret Ref 只能填写后端环境变量名"}
+    assert submitted_value not in response.text
+    assert client.get(workspace_url(workspace_id, "/model-providers")).json() == []
+
+
+def test_model_provider_rejects_inline_secret_on_update_without_changing_the_reference(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'model-provider-inline-update.db'}",
+    )
+    provider = client.post(
+        workspace_url(workspace_id, "/model-providers"),
+        json={
+            "name": "Safe Environment Provider",
+            "providerType": "openai-compatible",
+            "baseUrl": "https://api.deepseek.com",
+            "defaultModel": "deepseek-v4-pro",
+            "secretRef": "DEEPSEEK_API_KEY",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    submitted_value = "inline-secret-value"
+
+    response = client.patch(
+        workspace_url(workspace_id, f"/model-providers/{provider['id']}"),
+        json={"secretRef": submitted_value},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Secret Ref 只能填写后端环境变量名"}
+    assert submitted_value not in response.text
+    stored = client.get(workspace_url(workspace_id, "/model-providers")).json()[0]
+    assert stored["secretRef"] == "DEEPSEEK_API_KEY"
+
+
 def test_model_provider_assets_store_secret_references_without_api_keys(tmp_path):
     client, workspace_id = create_authenticated_client(
         f"sqlite:///{tmp_path / 'model-providers.db'}",

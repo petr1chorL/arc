@@ -1,99 +1,74 @@
-# ARC.ONE 部署参数模板
+# ARC.ONE Zeabur 部署参数模板
 
-复制本文件内容到你的私有记录中填写真实值。不要把填好真实密钥的版本提交到 Git。
+把本文件内容复制到受控的私有记录中填写。不要提交填有真实 Token、数据库连接串、
+管理员密码或模型密钥的版本。
 
-## GitHub
-
-```text
-Repository: https://github.com/petr1chorL/arc
-Branch: master
-```
-
-## Cloudflare Pages
+## GitHub 仓库
 
 ```text
-Project name: arc-one
-Production branch: master
-Framework preset: Vite
-Build command: npm run build:pages
-Build output directory: dist
+Repository=https://github.com/<owner>/<repository>
+Production branch=master
+CI workflow=CI
+Deployment workflow=Deploy Zeabur
 ```
 
-GitHub Secrets:
+## GitHub Actions Secret
 
 ```text
-CLOUDFLARE_ACCOUNT_ID=<set in GitHub Actions secret>
-CLOUDFLARE_API_TOKEN=<set in GitHub Actions secret>
+ZEABUR_TOKEN=<set in GitHub Actions secret>
 ```
 
-GitHub Variables:
+## GitHub Actions Variables
 
 ```text
-CLOUDFLARE_PAGES_PROJECT=arc-one
-CLOUDFLARE_PAGES_PRODUCTION_BRANCH=master
-CLOUDFLARE_PAGES_AUTO_DEPLOY=true
-VITE_API_BASE_URL=https://<render-api-host>
+ZEABUR_PROJECT_ID=<Zeabur project id>
+ZEABUR_SERVICE_ID=<same-origin application service id>
+ZEABUR_ENVIRONMENT_ID=<production environment id>
+ZEABUR_PRODUCTION_URL=https://<application-host>
+ZEABUR_AUTO_DEPLOY=false
 ```
 
-前端环境变量：
+第一次手动发布和公网验收成功后，再把 `ZEABUR_AUTO_DEPLOY` 设置为 `true`。
 
-```text
-VITE_API_BASE_URL=https://<render-api-host>
-```
-
-部署完成后记录：
-
-```text
-FRONTEND_URL=https://<cloudflare-pages-host>
-```
-
-建议访问控制：
-
-```text
-Cloudflare Access: enabled
-Allowed users/groups: <your policy>
-```
-
-## Render
-
-推荐从仓库根目录 `render.yaml` 创建 Blueprint。
-
-创建后补齐环境变量：
+## Zeabur 应用服务
 
 ```text
 ENVIRONMENT=production
-ALLOWED_ORIGINS=https://<cloudflare-pages-host>
-ALLOWED_HOSTS=<render-api-host>
+DATABASE_URL=<set from Zeabur PostgreSQL service>
+ALLOWED_ORIGINS=https://<application-host>
+ALLOWED_HOSTS=<application-host>,localhost,127.0.0.1
 HSTS_ENABLED=true
 COOKIE_SECURE=true
 MAX_REQUEST_BODY_BYTES=1048576
 RATE_LIMIT_ENABLED=true
 RATE_LIMIT_REQUESTS=120
 RATE_LIMIT_WINDOW_SECONDS=60
-MODEL_API_KEY=<set in Render secret manager>
+MODEL_API_KEY=<optional platform environment variable>
 MODEL_BASE_URL=https://api.deepseek.com
+MODEL_ALLOWED_HOSTS=api.deepseek.com
 MODEL_DEFAULT_MODEL=deepseek-v4-pro
 ```
 
-由 Render Blueprint 自动配置：
+Agent 绑定其他模型凭证时，只保存环境变量名，并在 Zeabur 环境中配置对应值。
+
+## 上线记录
 
 ```text
-DATABASE_URL=<from arc-one-postgres connection string>
+Merged commit SHA=<full sha>
+CI run URL=<GitHub Actions run URL>
+Zeabur workflow run URL=<GitHub Actions run URL>
+Production URL=https://<application-host>
+Public deployment marker=https://<application-host>/deployment.json
+Health check=https://<application-host>/api/health
+Browser acceptance=<passed / failed>
+Accepted by=<name>
+Accepted at=<timestamp>
 ```
 
-部署完成后记录：
-
-```text
-API_URL=https://<render-api-host>
-Health check: https://<render-api-host>/api/health
-```
-
-## 上线验收
+## 本地复核命令
 
 ```powershell
-$env:FRONTEND_URL="https://<cloudflare-pages-host>"
-$env:API_URL="https://<render-api-host>"
+$env:FRONTEND_URL="https://<application-host>"
+$env:API_URL="https://<application-host>"
 npm run deploy:check:live
 ```
-
-验收通过后再把访问链接发给其他人。

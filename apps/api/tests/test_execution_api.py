@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 from fastapi.testclient import TestClient
+import pytest
 from sqlalchemy import select
 
 from api_test_support import create_authenticated_client, csrf_headers, workspace_url
@@ -78,6 +79,45 @@ def create_published_agent(
         headers=csrf_headers(client),
     ).json()
     return agent, version
+
+
+def test_execution_service_rejects_agent_version_from_another_workspace(tmp_path):
+    gateway = FakeGateway([FakeModelResult("This must never execute.")])
+    client, source_workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'execution-cross-workspace-agent.db'}",
+        model_gateway=gateway,
+    )
+    agent, version = create_published_agent(client, source_workspace_id)
+    target_workspace_response = client.post(
+        "/api/workspaces",
+        json={"name": "Runtime Target Workspace", "slug": "runtime-target-workspace"},
+        headers=csrf_headers(client),
+    )
+    assert target_workspace_response.status_code == 201
+    target_workspace_id = target_workspace_response.json()["id"]
+
+    with client.app.state.session_factory() as session:
+        run = WorkflowRunRecord(
+            workspace_id=target_workspace_id,
+            kind="workflow",
+            name="Cross Workspace Runtime",
+            input_text="Do not execute the foreign Agent.",
+        )
+        session.add(run)
+        session.flush()
+
+        with pytest.raises(RuntimeError, match="Agent 版本 .* 不存在"):
+            client.app.state.execution_service.execute_agent(
+                session=session,
+                run=run,
+                node_id="foreign-agent",
+                node_name="Foreign Agent",
+                input_text=run.input_text,
+                agent_id=agent["id"],
+                agent_version=version["version"],
+            )
+
+    assert gateway.calls == []
 
 
 def create_published_workflow(
@@ -313,46 +353,29 @@ def test_agent_test_run_uses_published_provider_secret_ref_snapshot(tmp_path):
     assert "apiKey" not in gateway.calls[0]
 
 
-def test_agent_test_run_falls_back_to_provider_asset_for_inline_secret(tmp_path):
-    gateway = FakeGateway([FakeModelResult("Inline Provider asset runtime response.")])
+def test_agent_run_cannot_bind_an_inline_provider_secret(tmp_path):
+    gateway = FakeGateway([FakeModelResult("This must never execute.")])
     client, workspace_id = create_authenticated_client(
         f"sqlite:///{tmp_path / 'execution-inline-provider.db'}",
         model_gateway=gateway,
     )
-    provider = client.post(
+    submitted_value = "inline-secret-value"
+    provider_response = client.post(
         workspace_url(workspace_id, "/model-providers"),
         json={
             "name": "DeepSeek Inline Runtime",
             "providerType": "openai-compatible",
             "baseUrl": "https://api.deepseek.com",
             "defaultModel": "deepseek-v4-pro",
-            "secretRef": "sk-inline-runtime-key",
+            "secretRef": submitted_value,
         },
         headers=csrf_headers(client),
-    ).json()
-    agent, _ = create_published_agent(client, workspace_id)
-    client.patch(
-        workspace_url(workspace_id, f"/agents/{agent['id']}"),
-        json={"modelProviderId": provider["id"]},
-        headers=csrf_headers(client),
-    )
-    version = client.post(
-        workspace_url(workspace_id, f"/agents/{agent['id']}/publish"),
-        headers=csrf_headers(client),
-    ).json()
-
-    response = client.post(
-        workspace_url(workspace_id, f"/agents/{agent['id']}/test-runs"),
-        json={"input": "Use the Provider asset inline key.", "version": version["version"]},
-        headers=csrf_headers(client),
     )
 
-    assert response.status_code == 201
-    assert version["snapshot"]["modelSecretRef"] == ""
-    assert gateway.calls[0]["model_provider_id"] == provider["id"]
-    assert gateway.calls[0]["model_secret_ref"] == "sk-inline-runtime-key"
-    assert "sk-inline-runtime-key" not in response.text
-    assert "apiKey" not in gateway.calls[0]
+    assert provider_response.status_code == 422
+    assert provider_response.json() == {"detail": "Secret Ref 只能填写后端环境变量名"}
+    assert submitted_value not in provider_response.text
+    assert gateway.calls == []
 
 
 def test_workflow_run_retries_and_persists_node_timeline(tmp_path):

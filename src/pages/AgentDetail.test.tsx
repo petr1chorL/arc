@@ -394,12 +394,13 @@ describe('AgentDetail', () => {
       packageSource: 'local-wheelhouse',
       packageHash: 'sha256:abc123',
     }
+    const publishedAgent = { ...agent, status: '在线', version: 'v1.0.0' }
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url.endsWith('/versions')) {
         return Promise.resolve(new Response(JSON.stringify([{
           id: 'version-1',
           version: 'v1.0.0',
-          snapshot: { ...agent, runtimeManifest: versionManifest },
+          snapshot: { ...publishedAgent, runtimeManifest: versionManifest },
           note: 'Register packaged LangChain weather demo wheel',
           createdAt: '2026-06-24T07:10:00Z',
         }]), { status: 200 }))
@@ -407,7 +408,7 @@ describe('AgentDetail', () => {
       if (url.endsWith('/model-providers') || url.endsWith('/asset-library')) {
         return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
       }
-      return Promise.resolve(new Response(JSON.stringify({ ...agent, runtimeManifest: {} }), { status: 200 }))
+      return Promise.resolve(new Response(JSON.stringify({ ...publishedAgent, runtimeManifest: {} }), { status: 200 }))
     })
     vi.stubGlobal('fetch', fetchMock)
 
@@ -423,6 +424,8 @@ describe('AgentDetail', () => {
 
     expect(await screen.findByDisplayValue('arc-langchain-weather-demo')).toBeInTheDocument()
     expect(screen.getByDisplayValue('arc_langchain_weather_demo.weather_agent:create_agent')).toBeInTheDocument()
+    expect(screen.getByText('Python Package 当前仅登记元数据，尚未接入隔离执行器。')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '运行 Agent' })).toBeDisabled()
   })
 
   it('runs a published Agent and shows the persisted result', async () => {

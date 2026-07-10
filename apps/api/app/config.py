@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     cookie_secure: bool = False
     model_api_key: str = ""
     model_base_url: str = "https://api.deepseek.com"
+    model_allowed_hosts: str | tuple[str, ...] = ("api.deepseek.com",)
     model_default_model: str = "deepseek-v4-pro"
     model_input_usd_per_million_tokens: float = 0
     model_output_usd_per_million_tokens: float = 0
@@ -65,6 +66,7 @@ class Settings(BaseSettings):
     @field_validator(
         "allowed_origins",
         "allowed_hosts",
+        "model_allowed_hosts",
         "tool_http_allowed_hosts",
         mode="after",
     )

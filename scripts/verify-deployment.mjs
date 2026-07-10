@@ -6,35 +6,46 @@ const root = process.cwd()
 const requiredFiles = [
   '.env.example',
   '.github/dependabot.yml',
-  '.github/workflows/deploy-pages.yml',
+  '.github/workflows/ci.yml',
+  '.github/workflows/deploy-zeabur.yml',
   'SECURITY.md',
   'apps/api/.dockerignore',
   'apps/api/.env.example',
   'apps/api/Dockerfile',
+  'docs/CURRENT_IMPLEMENTATION.md',
   'docs/DEPLOYMENT.md',
   'docs/DEPLOYMENT_VALUES.template.md',
   'docs/SECURITY.md',
   'docs/ZEABUR_DEPLOYMENT.md',
+  'Dockerfile',
+  'nginx.conf.template',
+  'scripts/check-live-deployment.mjs',
+  'scripts/zeabur-deployment-policy.mjs',
+  'scripts/zeabur-deployment-policy.test.mjs',
+]
+
+const forbiddenFiles = [
+  '.github/workflows/deploy-pages.yml',
   'public/_headers',
   'public/_redirects',
   'render.yaml',
   'scripts/write-cloudflare-headers.mjs',
+  'scripts/write-cloudflare-headers.test.mjs',
   'wrangler.toml',
-  'Dockerfile',
-  'nginx.conf.template',
 ]
 
 const checks = [
   {
-    name: 'GitHub security policy points to the prototype security checklist',
+    name: 'GitHub security policy points to the Zeabur prototype checklist',
     file: 'SECURITY.md',
     patterns: [
       /Security Policy/,
+      /GitHub \+ Zeabur \+ Zeabur PostgreSQL/,
       /docs\/SECURITY\.md/,
-      /Cloudflare Access/,
       /Known Prototype Limitations/,
-      /Do not place secrets/,
+      /不要在.*放入密钥/s,
     ],
+    forbiddenPatterns: [/Cloudflare Pages/, /Render Blueprint/, /wrangler/i],
   },
   {
     name: 'Dependabot watches npm, pip, and GitHub Actions updates',
@@ -48,34 +59,69 @@ const checks = [
     ],
   },
   {
-    name: 'GitHub Actions can deploy the frontend to Cloudflare Pages',
-    file: '.github/workflows/deploy-pages.yml',
+    name: 'CI verifies tests, lint, deployment config, and production build',
+    file: '.github/workflows/ci.yml',
     patterns: [
-      /name: Deploy Cloudflare Pages/,
-      /workflow_dispatch:/,
-      /vars\.CLOUDFLARE_PAGES_AUTO_DEPLOY == 'true'/,
-      /CLOUDFLARE_ACCOUNT_ID: \$\{\{ secrets\.CLOUDFLARE_ACCOUNT_ID \}\}/,
-      /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/,
-      /VITE_API_BASE_URL: \$\{\{ vars\.VITE_API_BASE_URL \}\}/,
-      /npm run build:pages/,
-      /npx wrangler@4 pages project create/,
-      /npx wrangler@4 pages deploy dist/,
+      /name: CI/,
+      /branches: \[master, main\]/,
+      /npm test -- --run/,
+      /python -m pytest apps\/api\/tests -q/,
+      /npm run lint/,
+      /npm run deploy:check/,
+      /npm run build/,
     ],
   },
   {
-    name: 'Cloudflare Pages Wrangler config points at the Vite build output',
-    file: 'wrangler.toml',
-    patterns: [
-      /name = "arc-one"/,
-      /pages_build_output_dir = "\.\/dist"/,
-      /compatibility_date = "2026-07-09"/,
-    ],
-  },
-  {
-    name: 'Package scripts include a Cloudflare Pages build that tightens CSP',
+    name: 'Package scripts expose deployment verification entrypoints',
     file: 'package.json',
     patterns: [
-      /"build:pages": "npm run build && node scripts\/write-cloudflare-headers\.mjs"/,
+      /"deploy:check": "node scripts\/verify-deployment\.mjs"/,
+      /"deploy:check:live": "node scripts\/check-live-deployment\.mjs"/,
+    ],
+    forbiddenPatterns: [/build:pages/],
+  },
+  {
+    name: 'GitHub Actions deploys the exact CI-approved commit to Zeabur',
+    file: '.github/workflows/deploy-zeabur.yml',
+    patterns: [
+      /name: Deploy Zeabur/,
+      /workflow_run:/,
+      /workflows: \[CI\]/,
+      /workflow_dispatch:/,
+      /vars\.ZEABUR_AUTO_DEPLOY == 'true'/,
+      /github\.event\.workflow_run\.event == 'push'/,
+      /secrets\.ZEABUR_TOKEN/,
+      /vars\.ZEABUR_PROJECT_ID/,
+      /vars\.ZEABUR_SERVICE_ID/,
+      /vars\.ZEABUR_ENVIRONMENT_ID/,
+      /vars\.ZEABUR_PRODUCTION_URL/,
+      /ZEABUR_CLI_VERSION: 0\.19\.0/,
+      /path: \.delivery/,
+      /path: source/,
+      /zeabur-deployment-policy\.mjs assert-target/,
+      /zeabur-deployment-policy\.mjs assert-ci/,
+      /npx --yes "zeabur@\$\{ZEABUR_CLI_VERSION\}" auth login -i=false/,
+      /npx --yes "zeabur@\$\{ZEABUR_CLI_VERSION\}" auth logout -i=false/,
+      /npx --yes "zeabur@\$\{ZEABUR_CLI_VERSION\}" deploy/,
+      /url\.pathname !== '\/'/,
+      /public\/deployment\.json/,
+      /deployment\.json\?sha=/,
+      /node \.delivery\/scripts\/check-live-deployment\.mjs/,
+      /cancel-in-progress: false/,
+    ],
+  },
+  {
+    name: 'Zeabur deployment policy rejects stale and unverified revisions',
+    file: 'scripts/zeabur-deployment-policy.mjs',
+    patterns: [
+      /sourceEvent === 'push'/,
+      /headBranch === 'master'/,
+      /deploySha !== currentMasterSha/,
+      /run\?\.event === 'push'/,
+      /run\?\.head_branch === 'master'/,
+      /run\?\.head_sha === targetSha/,
+      /assert-target/,
+      /assert-ci/,
     ],
   },
   {
@@ -83,32 +129,31 @@ const checks = [
     file: 'Dockerfile',
     patterns: [
       /FROM node:22-alpine AS web-build/,
-      /RUN VITE_API_BASE_URL= npm run build:pages/,
+      /RUN VITE_API_BASE_URL= npm run build\s/,
       /FROM python:3\.12-slim/,
       /python -m pip install --no-cache-dir -e "\.\[postgres\]"/,
       /uvicorn app\.main:app --app-dir \/app\/api --host 127\.0\.0\.1 --port 8000/,
       /nginx -g 'daemon off;'/,
     ],
+    forbiddenPatterns: [/build:pages/],
   },
   {
-    name: 'Zeabur Nginx config proxies API requests to the local FastAPI process',
+    name: 'Zeabur Nginx config proxies API requests to local FastAPI',
     file: 'nginx.conf.template',
     patterns: [
       /listen \$\{PORT\}/,
       /X-Content-Type-Options "nosniff"/,
       /X-Frame-Options "DENY"/,
       /Content-Security-Policy "default-src 'self'/,
-      /style-src 'self' 'unsafe-inline' https:\/\/fonts\.googleapis\.com/,
-      /font-src 'self' data: https:\/\/fonts\.gstatic\.com/,
       /frame-ancestors 'none'/,
-      /connect-src 'self' https:\/\/arc-api-live-lindabaoz\.zeabur\.app/,
+      /connect-src 'self';/,
       /location \/api\//,
       /proxy_pass http:\/\/127\.0\.0\.1:8000/,
       /try_files \$uri \$uri\/ \/index\.html/,
     ],
   },
   {
-    name: 'Zeabur backend Dockerfile installs Postgres support and runs FastAPI',
+    name: 'Compose backend Dockerfile remains available for API and worker',
     file: 'apps/api/Dockerfile',
     patterns: [
       /FROM python:3\.12-slim/,
@@ -118,53 +163,13 @@ const checks = [
     ],
   },
   {
-    name: 'Zeabur deployment documentation covers frontend, backend, Postgres, and live checks',
-    file: 'docs/ZEABUR_DEPLOYMENT.md',
-    patterns: [
-      /arc-web/,
-      /arc-api-live/,
-      /\/api\/health/,
-      /VITE_API_BASE_URL=https:\/\/arc-api-live-lindabaoz\.zeabur\.app/,
-      /ALLOWED_ORIGINS=https:\/\/arc-web-lindabaoz\.zeabur\.app/,
-      /DATABASE_URL=<Zeabur PostgreSQL connection string>/,
-      /npm run deploy:check:live/,
-    ],
-  },
-  {
-    name: 'Cloudflare Pages build script can narrow connect-src to the API origin',
-    file: 'scripts/write-cloudflare-headers.mjs',
-    patterns: [
-      /process\.env\.VITE_API_BASE_URL/,
-      /new URL\(apiBaseUrl\)\.origin/,
-      /connect-src 'self' \$\{connectSource\}/,
-      /style-src 'self' 'unsafe-inline' https:\/\/fonts\.googleapis\.com/,
-      /font-src 'self' data: https:\/\/fonts\.gstatic\.com/,
-    ],
-  },
-  {
-    name: 'Cloudflare Pages security headers include CSP and frame protection',
-    file: 'public/_headers',
-    patterns: [
-      /Content-Security-Policy:/,
-      /frame-ancestors 'none'/,
-      /fonts\.googleapis\.com/,
-      /fonts\.gstatic\.com/,
-      /X-Frame-Options: DENY/,
-      /X-Content-Type-Options: nosniff/,
-    ],
-  },
-  {
-    name: 'Cloudflare Pages redirects support SPA routes',
-    file: 'public/_redirects',
-    patterns: [/\/\*\s+\/index\.html\s+200/],
-  },
-  {
-    name: 'Frontend environment example points at a public API origin',
+    name: 'Frontend environment example documents same-origin production API',
     file: '.env.example',
-    patterns: [/VITE_API_BASE_URL=https:\/\/your-api\.example\.com/],
+    patterns: [/VITE_API_BASE_URL=/, /same-origin \/api/],
+    forbiddenPatterns: [/pages\.dev/, /your-api\.example\.com/],
   },
   {
-    name: 'Backend environment example requires production-safe settings',
+    name: 'Backend environment example requires production-safe Zeabur settings',
     file: 'apps/api/.env.example',
     patterns: [
       /ENVIRONMENT=production/,
@@ -174,66 +179,84 @@ const checks = [
       /HSTS_ENABLED=true/,
       /MAX_REQUEST_BODY_BYTES=1048576/,
       /RATE_LIMIT_ENABLED=true/,
-      /RATE_LIMIT_REQUESTS=120/,
-      /RATE_LIMIT_WINDOW_SECONDS=60/,
       /COOKIE_SECURE=true/,
-      /MODEL_API_KEY=/,
+      /MODEL_ALLOWED_HOSTS=api\.deepseek\.com/,
     ],
+    forbiddenPatterns: [/pages\.dev/],
   },
   {
-    name: 'Render blueprint configures API, Postgres, health check, and required secrets',
-    file: 'render.yaml',
-    patterns: [
-      /name: arc-one-api/,
-      /rootDir: apps\/api/,
-      /healthCheckPath: \/api\/health/,
-      /name: arc-one-postgres/,
-      /key: ENVIRONMENT\s+value: production/s,
-      /key: DATABASE_URL\s+fromDatabase:/s,
-      /key: ALLOWED_ORIGINS\s+sync: false/s,
-      /key: ALLOWED_HOSTS\s+sync: false/s,
-      /key: MODEL_API_KEY\s+sync: false/s,
-      /key: MAX_REQUEST_BODY_BYTES\s+value: "1048576"/s,
-      /key: RATE_LIMIT_ENABLED\s+value: "true"/s,
-      /key: RATE_LIMIT_REQUESTS\s+value: "120"/s,
-      /key: RATE_LIMIT_WINDOW_SECONDS\s+value: "60"/s,
-    ],
-  },
-  {
-    name: 'Deployment values template keeps platform settings in one place',
-    file: 'docs/DEPLOYMENT_VALUES.template.md',
-    patterns: [
-      /Repository: https:\/\/github\.com\/petr1chorL\/arc/,
-      /Project name: arc-one/,
-      /VITE_API_BASE_URL=https:\/\/<render-api-host>/,
-      /ALLOWED_ORIGINS=https:\/\/<cloudflare-pages-host>/,
-      /RATE_LIMIT_ENABLED=true/,
-      /MODEL_API_KEY=<set in Render secret manager>/,
-      /npm run deploy:check:live/,
-    ],
-  },
-  {
-    name: 'Security documentation states public prototype access control requirements',
-    file: 'docs/SECURITY.md',
-    patterns: [
-      /Cloudflare Access/,
-      /CORS 不等于保护 API/,
-      /ENVIRONMENT=production/,
-      /生产启动保护/,
-    ],
-  },
-  {
-    name: 'Deployment documentation includes frontend, backend, and CI steps',
+    name: 'Deployment entrypoint describes the single CI-gated Zeabur flow',
     file: 'docs/DEPLOYMENT.md',
     patterns: [
-      /Cloudflare Pages/,
-      /Zeabur/,
-      /npm run build:pages/,
-      /deploy-pages\.yml/,
-      /render\.yaml/,
-      /VITE_API_BASE_URL/,
-      /ALLOWED_ORIGINS/,
-      /GitHub Actions CI/,
+      /GitHub \+ Zeabur \+ Zeabur PostgreSQL/,
+      /worktree.*Pull Request.*CI.*master.*Zeabur/s,
+      /ZEABUR_AUTO_DEPLOY/,
+      /deployment\.json/,
+      /npm run deploy:check:live/,
+    ],
+    forbiddenPatterns: [/Cloudflare Pages/, /Render Blueprint/, /wrangler/i, /render\.yaml/],
+  },
+  {
+    name: 'Deployment values template contains only Zeabur delivery settings',
+    file: 'docs/DEPLOYMENT_VALUES.template.md',
+    patterns: [
+      /ZEABUR_TOKEN=<set in GitHub Actions secret>/,
+      /ZEABUR_PROJECT_ID=/,
+      /ZEABUR_SERVICE_ID=/,
+      /ZEABUR_ENVIRONMENT_ID=/,
+      /ZEABUR_PRODUCTION_URL=/,
+      /ZEABUR_AUTO_DEPLOY=/,
+      /MODEL_ALLOWED_HOSTS=api\.deepseek\.com/,
+    ],
+    forbiddenPatterns: [/Cloudflare Pages/, /Render/, /wrangler/i, /pages\.dev/],
+  },
+  {
+    name: 'Zeabur runbook describes same-origin service and CI automation',
+    file: 'docs/ZEABUR_DEPLOYMENT.md',
+    patterns: [
+      /同源应用服务/,
+      /Zeabur PostgreSQL/,
+      /根目录 `Dockerfile`/,
+      /deploy-zeabur\.yml/,
+      /ZEABUR_TOKEN/,
+      /deployment\.json/,
+      /\/api\/health/,
+    ],
+    forbiddenPatterns: [/arc-web/, /arc-api-live/, /前后端拆分/],
+  },
+  {
+    name: 'Security documentation covers same-origin and deployment provenance',
+    file: 'docs/SECURITY.md',
+    patterns: [
+      /Nginx/,
+      /FastAPI/,
+      /ZEABUR_TOKEN/,
+      /commit SHA/,
+      /deployment\.json/,
+      /ENVIRONMENT=production/,
+    ],
+    forbiddenPatterns: [/Cloudflare Pages/, /wrangler/i, /render\.yaml/],
+  },
+  {
+    name: 'Current implementation records the Zeabur-only delivery boundary',
+    file: 'docs/CURRENT_IMPLEMENTATION.md',
+    patterns: [
+      /GitHub \+ Zeabur \+ Zeabur PostgreSQL/,
+      /CI.*master.*Zeabur/s,
+      /deployment\.json/,
+    ],
+  },
+  {
+    name: 'Live deployment check validates homepage, health, headers, and CORS',
+    file: 'scripts/check-live-deployment.mjs',
+    patterns: [
+      /FRONTEND_URL/,
+      /API_URL/,
+      /\/api\/health/,
+      /x-content-type-options/,
+      /x-frame-options/,
+      /access-control-allow-origin/,
+      /Live deployment check passed/,
     ],
   },
 ]
@@ -243,6 +266,12 @@ const failures = []
 for (const file of requiredFiles) {
   if (!existsSync(join(root, file))) {
     failures.push(`Missing required deployment file: ${file}`)
+  }
+}
+
+for (const file of forbiddenFiles) {
+  if (existsSync(join(root, file))) {
+    failures.push(`Legacy deployment file must be removed: ${file}`)
   }
 }
 
@@ -256,6 +285,23 @@ for (const check of checks) {
     if (!pattern.test(content)) {
       failures.push(`${check.name}: ${check.file} does not match ${pattern}`)
     }
+  }
+  for (const pattern of check.forbiddenPatterns ?? []) {
+    if (pattern.test(content)) {
+      failures.push(`${check.name}: ${check.file} must not match ${pattern}`)
+    }
+  }
+}
+
+const zeaburWorkflowPath = join(root, '.github/workflows/deploy-zeabur.yml')
+if (existsSync(zeaburWorkflowPath)) {
+  const workflow = readFileSync(zeaburWorkflowPath, 'utf8')
+  const jobHeader = workflow.slice(workflow.indexOf('jobs:'), workflow.indexOf('    steps:'))
+  if (jobHeader.includes('ZEABUR_TOKEN')) {
+    failures.push('Zeabur token must not be exposed through the job-level environment')
+  }
+  if ((workflow.match(/secrets\.ZEABUR_TOKEN/g) ?? []).length !== 1) {
+    failures.push('Zeabur token must be referenced exactly once by the deploy step')
   }
 }
 

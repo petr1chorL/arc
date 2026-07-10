@@ -1,67 +1,33 @@
 # ARC.ONE Zeabur 部署说明
 
-当前公网原型部署在同一个 Zeabur Project 中，采用前后端拆分：
+## 当前拓扑
 
-- `arc-web`：前端静态服务，公开地址为 `https://arc-web-lindabaoz.zeabur.app`。
-- `arc-api-live`：FastAPI 后端服务，公开地址为 `https://arc-api-live-lindabaoz.zeabur.app`。
-- PostgreSQL：Zeabur 项目内数据库服务，用于替代本地 SQLite 承载多人访问数据。
-
-旧的 `arc-api` 服务已经删除，不再使用 `lindabaoz.zeabur.app`。
-
-## Git 仓库
+ARC.ONE 公网原型使用一个 **同源应用服务** 和一个 **Zeabur PostgreSQL** 服务：
 
 ```text
-https://github.com/petr1chorL/arc
+浏览器
+  -> Zeabur 应用域名
+     -> Nginx: React 静态页面
+     -> Nginx /api/*: FastAPI 127.0.0.1:8000
+        -> Zeabur PostgreSQL
 ```
 
-当前 Zeabur 任意 Git 源要求使用 Dockerfile。仓库根目录不再保留 `zbpack.json`，避免 Zeabur 按纯静态站点方式构建时绕过 Dockerfile 或丢失安全响应头。
+应用服务从仓库根目录 `Dockerfile` 构建。前端在构建阶段执行标准 `npm run build`；
+运行阶段先初始化后端和 V1 Lite 种子数据，再启动 FastAPI 与 Nginx。Nginx 统一提供
+SPA 路由回退、安全响应头、请求体限制和 API 反向代理。
 
-## 前端服务
+`apps/api/Dockerfile` 保留给本地 Compose API 与 execution worker，不是第二个公网服务。
 
-服务名称：
-
-```text
-arc-web
-```
-
-公开地址：
+当前公网入口：
 
 ```text
-https://arc-web-lindabaoz.zeabur.app
-```
-
-前端环境变量：
-
-```text
-VITE_API_BASE_URL=https://arc-api-live-lindabaoz.zeabur.app
-```
-
-前端构建会把 API 地址写入浏览器包。修改该变量后必须重新部署前端服务。
-
-`arc-web` 使用 Zeabur 保存的 Nginx Dockerfile 构建静态页面，并复制仓库里的 `nginx.conf.template`。这个模板负责：
-
-- SPA 路由回退到 `index.html`。
-- 设置 `X-Content-Type-Options`、`X-Frame-Options`、`Referrer-Policy`、`Permissions-Policy` 和 CSP。
-- 将 CSP 的 `connect-src` 收紧到 `https://arc-api-live-lindabaoz.zeabur.app`。
-
-## 后端服务
-
-服务名称：
-
-```text
-arc-api-live
-```
-
-公开地址：
-
-```text
-https://arc-api-live-lindabaoz.zeabur.app
+https://arc-v1-lite-lindabaoz.zeabur.app
 ```
 
 健康检查：
 
 ```text
-https://arc-api-live-lindabaoz.zeabur.app/api/health
+https://arc-v1-lite-lindabaoz.zeabur.app/api/health
 ```
 
 期望返回：
@@ -70,91 +36,84 @@ https://arc-api-live-lindabaoz.zeabur.app/api/health
 {"status":"ok"}
 ```
 
-构建目录：
+## GitHub 发布配置
+
+`.github/workflows/deploy-zeabur.yml` 是唯一生产发布入口。生产发布和回滚都通过该
+workflow 执行，不从开发电脑直接调用 Zeabur CLI。它需要：
+
+GitHub Secret：
 
 ```text
-apps/api
+ZEABUR_TOKEN
 ```
 
-后端 Dockerfile：
+GitHub Variables：
 
 ```text
-apps/api/Dockerfile
+ZEABUR_PROJECT_ID
+ZEABUR_SERVICE_ID
+ZEABUR_ENVIRONMENT_ID
+ZEABUR_PRODUCTION_URL
+ZEABUR_AUTO_DEPLOY
 ```
 
-后端服务监听 Zeabur HTTP 端口 `8080`。
+Zeabur Token 用于 CLI 鉴权；资源 ID 用于精确定位现有应用服务；生产 URL 用于验收；
+自动发布开关决定成功的 `master` CI 是否立即进入生产发布。工作流不会读取或修改
+Zeabur 服务中的数据库密码、管理员密码和模型凭证。
 
-后端环境变量：
+## Zeabur 应用环境
+
+应用服务按 `apps/api/.env.example` 配置生产变量。关键约束：
+
+- `DATABASE_URL` 指向 Zeabur PostgreSQL。
+- `ALLOWED_ORIGINS` 和 `ALLOWED_HOSTS` 使用同一个应用域名。
+- `HSTS_ENABLED`、`COOKIE_SECURE` 和 `RATE_LIMIT_ENABLED` 为 `true`。
+- `MODEL_ALLOWED_HOSTS` 只列出获准接收模型凭证的精确 Host。
+- 模型 Secret 只通过环境变量注入，资产保存环境变量名而不是明文值。
+
+数据库数据卷和运行环境变量归 Zeabur 服务管理，源码发布不会覆盖它们。
+
+## 自动发布
+
+标准顺序：
 
 ```text
-DATABASE_URL=<Zeabur PostgreSQL connection string>
-ALLOWED_ORIGINS=https://arc-web-lindabaoz.zeabur.app
-ALLOWED_HOSTS=arc-api-live-lindabaoz.zeabur.app,localhost,127.0.0.1
-HSTS_ENABLED=true
-COOKIE_SECURE=true
-MAX_REQUEST_BODY_BYTES=1048576
-RATE_LIMIT_ENABLED=true
-RATE_LIMIT_REQUESTS=120
-RATE_LIMIT_WINDOW_SECONDS=60
-MODEL_API_KEY=<set in Zeabur secret/environment variables>
-MODEL_BASE_URL=https://api.deepseek.com
-MODEL_DEFAULT_MODEL=deepseek-v4-pro
+功能 worktree -> PR CI -> 合并 master -> master CI -> Zeabur -> 公网验收
 ```
 
-只有在 `DATABASE_URL` 和 `MODEL_API_KEY` 都配置好之后，才把下面变量打开：
+当 `ZEABUR_AUTO_DEPLOY=true` 时，成功的 `master` push CI 会触发生产 workflow。
+workflow 会拒绝晚完成且已经落后于当前 `origin/master` 的 CI，防止旧版本覆盖新版本。
+它先把当前 `master` 的发布控制代码 checkout 到 `.delivery`，再把目标源码 checkout
+到 `source`；策略校验和公网验收始终使用当前控制代码，回滚源码不能降级发布防线。
+
+runner 在目标源码中生成 `public/deployment.json`，再使用官方 Zeabur CLI `0.19.0`
+无交互上传。`ZEABUR_TOKEN` 只注入该部署步骤，步骤退出时通过 `auth logout` 清理 CLI
+凭据。版本固定在 workflow 中，升级 CLI 必须和普通代码变更一样经过 PR 与 CI。
+
+Zeabur 构建是异步的，所以“CLI 已提交”不等于“新版本已上线”。workflow 会轮询：
 
 ```text
-ENVIRONMENT=production
+https://<application-host>/deployment.json?sha=<full-sha>
 ```
 
-生产模式会强制检查 PostgreSQL、HTTPS、安全 Cookie、HSTS、限流和模型密钥。
+只有其中的 `commit` 与目标 SHA 完全相同，才执行首页和 `/api/health` 检查。这样旧版本
+仍健康时不会产生错误的完成结论。
 
-## 重新部署
+## 手动发布与回滚
 
-每次代码修改后，建议按这个顺序：
+GitHub Actions 的 `Deploy Zeabur` 支持手动执行：
 
-```powershell
-npm run deploy:check
-npm run lint
-npm run build
-git add <changed-files>
-git commit -m "<message>"
-git push origin master
-```
+- 留空 `commit_sha`：部署当前 `master`。
+- 输入完整 SHA：部署 `master` 历史中的指定版本。
 
-当前 Zeabur 服务没有自动 Git trigger。推送后还需要手动或 CLI 触发部署。
+手动入口会确认该 SHA 存在精确匹配的成功 `master` push CI 记录。PR CI、其他分支 CI、
+不同 SHA 的 CI 或失败 CI 均不满足条件。未进入 `master` 或 GitHub 配置缺失时，发布会
+在 Zeabur 上传前终止。
 
-重新部署前端：
-
-```powershell
-npx zeabur@latest deploy --project-id 6a4f5a4fc2881a93656ecf10 --service-id service-6a4f6911f04125ac9a33feed --environment-id 6a4f5a4f104975fcb4675e6b
-```
-
-重新部署 API：
-
-```powershell
-npx zeabur@latest deploy --project-id 6a4f5a4fc2881a93656ecf10 --service-id 6a4f8177f04125ac9a3409a3 --environment-id 6a4f5a4f104975fcb4675e6b
-```
-
-## 上线验收
-
-本地运行：
-
-```powershell
-$env:FRONTEND_URL="https://arc-web-lindabaoz.zeabur.app"
-$env:API_URL="https://arc-api-live-lindabaoz.zeabur.app"
-npm run deploy:check:live
-```
-
-验收会检查：
-
-- 前端可以访问。
-- 前端安全响应头存在。
-- API `/api/health` 返回 `{"status":"ok"}`。
-- API CORS 只允许当前前端来源访问。
-
-验收通过后再把前端链接发给其他人。
+回滚使用同一入口重新部署上一个成功 SHA。数据库迁移不自动回滚；涉及数据结构变化时
+必须先确认前后版本兼容性。
 
 ## 安全提醒
 
-当前仍是公网演示原型，不是完整企业级权限系统。不要放入真实业务数据。对外共享前，优先使用 Zeabur、Cloudflare 或上游网关的访问控制能力限制访问范围。
+当前是单服务公网原型，不具备高可用、自动数据库恢复或完整灾备能力。不要在仓库、
+Actions 日志、部署文档或截图中记录真实 Secret；对外共享前应配置受控访问范围。

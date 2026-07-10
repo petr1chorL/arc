@@ -130,6 +130,7 @@ def validate_workflow(
                 errors.append(f"Agent 节点 {node['id']} 必须选择已发布版本")
                 continue
             statement = select(AgentVersionRecord).where(
+                AgentVersionRecord.workspace_id == workspace_id,
                 AgentVersionRecord.agent_id == agent_id,
                 AgentVersionRecord.version == agent_version,
             )

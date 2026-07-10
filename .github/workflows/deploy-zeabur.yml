@@ -1,0 +1,162 @@
+name: Deploy Zeabur
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: Full commit SHA from the master branch; defaults to current master
+        required: false
+        type: string
+
+concurrency:
+  group: zeabur-production
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  deploy:
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+          (github.event.workflow_run.conclusion == 'success' &&
+           github.event.workflow_run.head_branch == 'master' &&
+           github.event.workflow_run.event == 'push' &&
+           vars.ZEABUR_AUTO_DEPLOY == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: production
+    env:
+      ZEABUR_CLI_VERSION: 0.19.0
+      ZEABUR_PROJECT_ID: ${{ vars.ZEABUR_PROJECT_ID }}
+      ZEABUR_SERVICE_ID: ${{ vars.ZEABUR_SERVICE_ID }}
+      ZEABUR_ENVIRONMENT_ID: ${{ vars.ZEABUR_ENVIRONMENT_ID }}
+      ZEABUR_PRODUCTION_URL: ${{ vars.ZEABUR_PRODUCTION_URL }}
+
+    steps:
+      - name: Check out current delivery controls
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          path: .delivery
+          ref: master
+
+      - name: Check out the requested revision
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: source
+          ref: >-
+            ${{ github.event_name == 'workflow_run' &&
+                github.event.workflow_run.head_sha ||
+                inputs.commit_sha ||
+                'master' }}
+
+      - name: Resolve and authorize the deployment revision
+        id: revision
+        shell: bash
+        working-directory: source
+        env:
+          DEPLOY_MODE: ${{ github.event_name == 'workflow_run' && 'automatic' || 'manual' }}
+        run: |
+          set -euo pipefail
+          deploy_sha="$(git rev-parse HEAD)"
+          git fetch --no-tags origin master
+          master_sha="$(git rev-parse origin/master)"
+          if ! git merge-base --is-ancestor "$deploy_sha" origin/master; then
+            echo "Deployment revision must belong to origin/master." >&2
+            exit 1
+          fi
+          node ../.delivery/scripts/zeabur-deployment-policy.mjs assert-target \
+            "$DEPLOY_MODE" "$deploy_sha" "$master_sha"
+          echo "sha=$deploy_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Require successful CI for a manual deployment
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        shell: bash
+        env:
+          DEPLOY_SHA: ${{ steps.revision.outputs.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api \
+            -H 'Accept: application/vnd.github+json' \
+            "/repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${DEPLOY_SHA}&status=completed&per_page=20" |
+            node .delivery/scripts/zeabur-deployment-policy.mjs assert-ci "$DEPLOY_SHA"
+
+      - name: Validate Zeabur deployment settings
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "$ZEABUR_PROJECT_ID" ] || missing+=(ZEABUR_PROJECT_ID)
+          [ -n "$ZEABUR_SERVICE_ID" ] || missing+=(ZEABUR_SERVICE_ID)
+          [ -n "$ZEABUR_ENVIRONMENT_ID" ] || missing+=(ZEABUR_ENVIRONMENT_ID)
+          [ -n "$ZEABUR_PRODUCTION_URL" ] || missing+=(ZEABUR_PRODUCTION_URL)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing GitHub deployment settings: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+          node -e "const url = new URL(process.env.ZEABUR_PRODUCTION_URL); if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) process.exit(1)"
+
+      - name: Add deployment provenance marker
+        shell: bash
+        working-directory: source
+        env:
+          DEPLOY_SHA: ${{ steps.revision.outputs.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p public
+          node -e "const fs = require('node:fs'); fs.writeFileSync('public/deployment.json', JSON.stringify({ commit: process.env.DEPLOY_SHA }) + '\n')"
+
+      - name: Deploy the exact checkout to Zeabur
+        shell: bash
+        working-directory: source
+        env:
+          ZEABUR_TOKEN: ${{ secrets.ZEABUR_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$ZEABUR_TOKEN" ]; then
+            echo "Missing GitHub deployment setting: ZEABUR_TOKEN" >&2
+            exit 1
+          fi
+          cleanup() {
+            npx --yes "zeabur@${ZEABUR_CLI_VERSION}" auth logout -i=false >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          npx --yes "zeabur@${ZEABUR_CLI_VERSION}" auth login -i=false --token "$ZEABUR_TOKEN"
+          npx --yes "zeabur@${ZEABUR_CLI_VERSION}" deploy -i=false --json \
+            --project-id "$ZEABUR_PROJECT_ID" \
+            --service-id "$ZEABUR_SERVICE_ID" \
+            --environment-id "$ZEABUR_ENVIRONMENT_ID"
+
+      - name: Wait for the exact revision to become public
+        shell: bash
+        env:
+          DEPLOY_SHA: ${{ steps.revision.outputs.sha }}
+        run: |
+          set -euo pipefail
+          production_url="${ZEABUR_PRODUCTION_URL%/}"
+          for attempt in $(seq 1 60); do
+            if response="$(curl --fail --silent --show-error "${production_url}/deployment.json?sha=${DEPLOY_SHA}" 2>/dev/null)"; then
+              if RESPONSE="$response" EXPECTED_SHA="$DEPLOY_SHA" node -e "const body = JSON.parse(process.env.RESPONSE); process.exit(body.commit === process.env.EXPECTED_SHA ? 0 : 1)"; then
+                echo "Verified public deployment revision ${DEPLOY_SHA}."
+                exit 0
+              fi
+            fi
+            echo "Waiting for Zeabur deployment (${attempt}/60)..."
+            sleep 15
+          done
+          echo "Timed out waiting for the requested revision." >&2
+          exit 1
+
+      - name: Verify the live application
+        env:
+          FRONTEND_URL: ${{ vars.ZEABUR_PRODUCTION_URL }}
+          API_URL: ${{ vars.ZEABUR_PRODUCTION_URL }}
+        shell: bash
+        run: node .delivery/scripts/check-live-deployment.mjs

@@ -5,6 +5,7 @@ from typing import Protocol
 import httpx
 
 from app.config import Settings
+from app.runtime_security import is_allowed_model_base_url, is_valid_model_secret_ref
 
 
 class ModelGatewayError(RuntimeError):
@@ -54,9 +55,25 @@ class OpenAICompatibleGateway:
         max_output_tokens: int = 2000,
     ) -> ModelResult:
         effective_base_url = model_base_url.strip() or self.settings.model_base_url
-        effective_api_key = resolve_model_api_key(model_secret_ref)
-        effective_api_key = effective_api_key or self.settings.model_api_key
-        if not effective_api_key or not effective_base_url:
+        if not effective_base_url:
+            raise ModelGatewayError("模型服务未配置")
+        if not is_allowed_model_base_url(
+            effective_base_url,
+            self.settings.model_allowed_hosts,
+        ):
+            raise ModelGatewayError("模型服务地址未获准")
+        secret_ref = model_secret_ref.strip()
+        if secret_ref:
+            if not is_valid_model_secret_ref(secret_ref):
+                raise ModelGatewayError("模型凭证引用无效")
+            effective_api_key = resolve_model_api_key(secret_ref)
+            if not effective_api_key:
+                raise ModelGatewayError("模型资产对应的后端环境变量未配置")
+        elif model_provider_id:
+            raise ModelGatewayError("模型资产未配置后端密钥引用")
+        else:
+            effective_api_key = self.settings.model_api_key
+        if not effective_api_key:
             raise ModelGatewayError("模型服务未配置")
         resolved_model = self.settings.model_default_model or model
         if not resolved_model:
@@ -101,13 +118,6 @@ def resolve_model_api_key(model_secret_ref: str, fallback: str = "") -> str:
     secret_ref = model_secret_ref.strip()
     if not secret_ref:
         return fallback
-    env_value = os.environ.get(secret_ref, "")
-    if env_value:
-        return env_value
-    if _looks_like_inline_api_key(secret_ref):
-        return secret_ref
-    return fallback
-
-
-def _looks_like_inline_api_key(value: str) -> bool:
-    return value.lower().startswith(("sk-", "sk_"))
+    if not is_valid_model_secret_ref(secret_ref):
+        return ""
+    return os.environ.get(secret_ref, "")

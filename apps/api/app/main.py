@@ -24,6 +24,7 @@ from app.human_tasks import HumanTaskConflict, HumanTaskPermission, HumanTaskSer
 from app.judge_gateway import JudgeGateway, ModelJudgeGateway
 from app.migrations import ensure_current_schema
 from app.model_gateway import ModelGateway, OpenAICompatibleGateway, resolve_model_api_key
+from app.runtime_security import is_valid_model_secret_ref, purge_invalid_model_secret_refs
 from app.models import (
     AgentRecord,
     AgentVersionRecord,
@@ -324,6 +325,9 @@ def create_app(
         require_channel_assets=notification_dispatcher is None,
     )
     with session_factory() as session:
+        purged_secret_refs = purge_invalid_model_secret_refs(session)
+        if purged_secret_refs:
+            session.commit()
         workspace_ids = list(
             session.scalars(
                 select(WorkspaceRecord.id).where(WorkspaceRecord.status == "active"),
@@ -557,7 +561,7 @@ def create_app(
 
     def model_secret_ref_snapshot_value(provider: ModelProviderRecord) -> str:
         secret_ref = provider.secret_ref.strip()
-        if secret_ref.lower().startswith(("sk-", "sk_")):
+        if not is_valid_model_secret_ref(secret_ref):
             return ""
         return secret_ref
 
@@ -1739,6 +1743,7 @@ def create_app(
         try:
             run = execution_service.run_agent_version(
                 session=session,
+                workspace_id=context.workspace.id,
                 agent_id=agent_id,
                 agent_version=version,
                 input_text=payload.input,
@@ -2336,6 +2341,11 @@ def create_app(
             target_id=None,
             request=request,
         )
+        if not is_valid_model_secret_ref(payload.secret_ref):
+            raise HTTPException(
+                status_code=422,
+                detail="Secret Ref 只能填写后端环境变量名",
+            )
         existing = session.scalar(
             select(ModelProviderRecord).where(
                 ModelProviderRecord.workspace_id == context.workspace.id,
@@ -2393,6 +2403,11 @@ def create_app(
             provider_id=provider_id,
         )
         updates = payload.model_dump(exclude_unset=True)
+        if "secret_ref" in updates and not is_valid_model_secret_ref(updates["secret_ref"]):
+            raise HTTPException(
+                status_code=422,
+                detail="Secret Ref 只能填写后端环境变量名",
+            )
         if "name" in updates and updates["name"] != provider.name:
             existing = session.scalar(
                 select(ModelProviderRecord).where(
@@ -3045,6 +3060,7 @@ def create_app(
             if payload.async_mode:
                 run = execution_service.enqueue_workflow_version(
                     session=session,
+                    workspace_id=context.workspace.id,
                     workflow_id=workflow_id,
                     workflow_version=version,
                     input_text=payload.input,
@@ -3053,6 +3069,7 @@ def create_app(
             else:
                 run = execution_service.run_workflow_version(
                     session=session,
+                    workspace_id=context.workspace.id,
                     workflow_id=workflow_id,
                     workflow_version=version,
                     input_text=payload.input,
@@ -3481,6 +3498,7 @@ def create_app(
             try:
                 rerun = execution_service.run_workflow_version(
                     session=session,
+                    workspace_id=context.workspace.id,
                     workflow_id=source_run.workflow_id,
                     workflow_version=source_run.workflow_version,
                     input_text=source_run.input_text,
@@ -3622,6 +3640,7 @@ def create_app(
         try:
             rerun = execution_service.run_workflow_version(
                 session=session,
+                workspace_id=context.workspace.id,
                 workflow_id=source_run.workflow_id,
                 workflow_version=source_run.workflow_version,
                 input_text=input_text,
