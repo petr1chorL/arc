@@ -16,6 +16,7 @@
 - Automatic deployment only follows a successful `CI` run for `master`.
 - Manual deployment must verify a successful CI result for its target SHA.
 - Public verification must match the target SHA before accepting homepage and API health.
+- The deployment workflow must pin Zeabur CLI `0.19.0`; do not consume `latest` in production.
 - Do not change database schema, application APIs, or Zeabur runtime secrets.
 
 ---
@@ -110,7 +111,15 @@ Delete only the seven files listed above. Do not remove `apps/api/Dockerfile`, `
 
 - [ ] **Step 2: Remove the Pages build command**
 
-Remove `build:pages` from `package.json`. Change the root Dockerfile line to:
+Remove `build:pages` from `package.json` and add the deployment commands already used by CI and
+the release workflow:
+
+```json
+"deploy:check": "node scripts/verify-deployment.mjs",
+"deploy:check:live": "node scripts/check-live-deployment.mjs"
+```
+
+Change the root Dockerfile line to:
 
 ```dockerfile
 RUN VITE_API_BASE_URL= npm run build
@@ -180,7 +189,10 @@ Write this untracked file in the runner:
 {"commit":"<full SHA>"}
 ```
 
-Authenticate with `npx zeabur@latest auth login --token "$ZEABUR_TOKEN"`, then invoke `deploy -i=false` with project, service, and environment IDs.
+Set `ZEABUR_CLI_VERSION=0.19.0`. Authenticate with the pinned CLI and
+`--token "$ZEABUR_TOKEN"`, then invoke `deploy -i=false` with project, service, and
+environment IDs. Reject production URLs that contain credentials, a non-root path, query, fragment,
+or a protocol other than HTTPS.
 
 - [ ] **Step 5: Wait for the exact revision and run live checks**
 
@@ -191,6 +203,9 @@ FRONTEND_URL="$ZEABUR_PRODUCTION_URL" \
 API_URL="$ZEABUR_PRODUCTION_URL" \
 npm run deploy:check:live
 ```
+
+For rollback commits created before the npm alias existed, call
+`node scripts/check-live-deployment.mjs` as a compatibility fallback.
 
 - [ ] **Step 6: Run the static verifier**
 
@@ -339,4 +354,3 @@ Open the production URL, verify login and the main workspace page, inspect conso
 - [ ] **Step 7: Clean up the worktree**
 
 Only after merge and production acceptance, remove the feature worktree and delete the local feature branch if it is no longer needed.
-

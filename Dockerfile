@@ -6,7 +6,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
-RUN VITE_API_BASE_URL= npm run build:pages
+RUN VITE_API_BASE_URL= npm run build
 
 FROM python:3.12-slim
 

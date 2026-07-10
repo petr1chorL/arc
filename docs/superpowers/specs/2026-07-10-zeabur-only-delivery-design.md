@@ -69,7 +69,8 @@ flowchart LR
 4. 手动触发时通过 GitHub Actions API 确认目标 SHA 存在成功的 CI 记录。
 5. checkout 目标 SHA，并确认它属于远端 `master` 历史。
 6. 在 runner 的 `public/deployment.json` 临时写入目标 SHA；文件不提交 Git，也不含密钥。
-7. 使用 Zeabur CLI Token 登录，并以项目、服务、环境 ID 无交互上传当前 checkout。
+7. 使用固定版本 `0.19.0` 的 Zeabur CLI 与 Token 登录，并以项目、服务、环境 ID
+   无交互上传当前 checkout，避免 `latest` 在未验证时改变发布行为。
 8. 轮询公网 `deployment.json`，只有读到目标 SHA 才继续运行首页和 `/api/health` 验收。
 
 ## 6. 配置边界
@@ -94,6 +95,7 @@ GitHub Variables：
 - CI 失败：不触发部署。
 - 自动发布未开启：不触发部署，可手动执行。
 - GitHub 配置缺失：工作流在上传前明确失败，现有线上版本不受影响。
+- 生产 URL 不是无路径、无凭证、无查询参数的 HTTPS Origin：上传前失败。
 - Zeabur 上传失败：工作流失败，现有线上版本继续运行。
 - 新部署构建或启动失败：目标 SHA 标记不会出现，轮询超时并失败。
 - 页面或 API 验收失败：工作流失败，并保留 Action 日志供诊断。
@@ -127,4 +129,3 @@ CI 的 commit，确保回滚行为仍可追溯。
 - 自动回滚与数据恢复。
 - Zeabur GitHub Integration 直接监听 `master`。
 - Cloudflare Pages、Render 及其他云平台兼容层。
-

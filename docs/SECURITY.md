@@ -1,106 +1,97 @@
 # ARC.ONE 安全说明
 
-本文档记录当前可公网演示原型的安全边界。它不是完整企业级安全方案；登录、Session、CSRF、Workspace、RBAC 和审计闭环仍属于后续 V0.7/V1 范围。
+本文记录当前公网原型已经实现的安全边界和仍需人工承担的风险。它描述的是可验证现状，
+不是完整企业级安全认证。
 
 ## 当前已落地
 
-- 前端部署安全头：`public/_headers` 设置 `X-Content-Type-Options`、`X-Frame-Options`、`Referrer-Policy`、`Permissions-Policy` 和基础 CSP。
-- Cloudflare Pages 构建安全头：`npm run build:pages` 会根据 `VITE_API_BASE_URL` 把生产 CSP `connect-src` 收紧到确切 API origin。
-- Cloudflare Pages 发布工作流：`.github/workflows/deploy-pages.yml` 从 GitHub Secrets 读取 Cloudflare 凭据，不把 token 写入仓库。
-- Zeabur 部署配置：`zbpack.json` 和 `apps/api/Dockerfile` 支持把前端、后端和 PostgreSQL 放在同一个 Zeabur Project 中。
-- SPA 路由回退：`public/_redirects` 避免刷新子路由时暴露错误页面。
-- Cloudflare Pages 配置：`wrangler.toml` 声明项目名和 `dist` 输出目录。
-- 前端 API 基址：`VITE_API_BASE_URL` 控制生产 API origin，避免生产环境误连本机地址。
-- 后端 CORS allowlist：`ALLOWED_ORIGINS` 只允许指定前端 origin 从浏览器访问 API。
-- 后端 Host allowlist：`ALLOWED_HOSTS` 拒绝异常 Host header。
-- 后端安全响应头：FastAPI 返回基础安全头；HTTPS 部署时可开启 `HSTS_ENABLED=true`。
-- 请求体限制：`MAX_REQUEST_BODY_BYTES` 默认限制为 1MB，超限请求在入口层返回 `413`。
-- API 限流：`RATE_LIMIT_ENABLED=true` 时按观察到的客户端地址做固定窗口限流，默认每 60 秒 120 次，超限返回 `429` 和 `Retry-After`。
-- 健康检查：`/api/health` 用于部署平台探活。
-- CI 验证：GitHub Actions 会运行前端测试、后端测试、lint 和 build。
-- 依赖更新：Dependabot 每周检查 npm、Python/pip 和 GitHub Actions 更新。
+- **同源入口：** Zeabur 根 Dockerfile 在一个容器中运行 Nginx 与 FastAPI，页面和 API
+  使用同一 HTTPS 域名。
+- **入口响应头：** Nginx 设置 CSP、`X-Content-Type-Options`、`X-Frame-Options`、
+  `Referrer-Policy`、`Permissions-Policy` 和 HSTS。
+- **请求边界：** Nginx 与 FastAPI 都限制请求体；FastAPI 还提供可信 Host、精确 Origin、
+  Secure Cookie、CSRF 和固定窗口限流。
+- **身份与隔离：** 登录、Session、Organization、Workspace、Membership、角色权限与
+  审计事件已接入后端；关键版本查询带 Workspace 边界。
+- **模型凭证：** Provider 只保存环境变量名，拒绝明文 Key；请求前校验 HTTPS 与
+  `MODEL_ALLOWED_HOSTS` 精确 Host。
+- **Package 执行：** Python Package 仅登记元数据，隔离执行器上线前不在 API 进程中
+  动态导入或执行。
+- **CI：** GitHub Actions 运行前后端测试、lint、生产构建和部署配置校验。
+- **发布来源：** Zeabur workflow 只部署通过 CI 的 `master` commit SHA；`ZEABUR_TOKEN`
+  只从 GitHub Secret 读取。
+- **公网证明：** workflow 先匹配公开 `deployment.json` 的 commit SHA，再检查首页、
+  `/api/health`、安全响应头和 CORS。
+- **依赖治理：** Dependabot 每周检查 npm、Python/pip 和 GitHub Actions 更新。
 
-## 必配生产环境变量
-
-前端：
-
-```text
-VITE_API_BASE_URL=https://your-api.example.com
-```
-
-后端：
+## 必配生产环境
 
 ```text
 ENVIRONMENT=production
-DATABASE_URL=postgresql+psycopg://user:password@host:5432/dbname
-ALLOWED_ORIGINS=https://your-project.pages.dev
-ALLOWED_HOSTS=your-api.example.com
+DATABASE_URL=postgresql+psycopg://<managed connection>
+ALLOWED_ORIGINS=https://<application-host>
+ALLOWED_HOSTS=<application-host>,localhost,127.0.0.1
 HSTS_ENABLED=true
 COOKIE_SECURE=true
 MAX_REQUEST_BODY_BYTES=1048576
 RATE_LIMIT_ENABLED=true
 RATE_LIMIT_REQUESTS=120
 RATE_LIMIT_WINDOW_SECONDS=60
-MODEL_API_KEY=<set in platform secret manager>
+MODEL_BASE_URL=https://api.deepseek.com
 MODEL_ALLOWED_HOSTS=api.deepseek.com
+MODEL_DEFAULT_MODEL=deepseek-v4-pro
 ```
 
-不要把真实密钥写入仓库、日志、截图、Issue 或聊天记录。
-
-## 公网演示建议
-
-当前原型尚未具备真实登录和权限控制。给外部人员访问前，至少使用一种外层访问控制：
-
-- Cloudflare Access。
-- 部署平台 Basic Auth 或访问密码。
-- VPN / 内网访问。
-- 临时演示域名加短期有效访问策略。
-
-只配置 CORS 不等于保护 API。非浏览器客户端仍然可以直接请求公开 API。
-
-## 上线前检查清单
-
-- [ ] Cloudflare Pages 设置了 `VITE_API_BASE_URL`。
-- [ ] GitHub Actions Secrets 设置了 `CLOUDFLARE_ACCOUNT_ID` 和 `CLOUDFLARE_API_TOKEN`，或者在 Cloudflare 控制台连接 Git 仓库。
-- [ ] 后端设置了 `ENVIRONMENT=production`。
-- [ ] 后端设置了精确的 `ALLOWED_ORIGINS`，不使用 `*`。
-- [ ] 后端设置了精确的 `ALLOWED_HOSTS`。
-- [ ] 后端使用 PostgreSQL，不使用本地 SQLite 承载多人访问。
-- [ ] 后端保持 `RATE_LIMIT_ENABLED=true`，并按演示人数调整 `RATE_LIMIT_REQUESTS`。
-- [ ] `MODEL_API_KEY` 只存在于平台 Secret Manager。
-- [ ] `MODEL_ALLOWED_HOSTS` 只包含获准接收模型凭证的精确 Host。
-- [ ] `HSTS_ENABLED=true` 只在 HTTPS 域名可用后开启。
-- [ ] 前端和后端都被 Cloudflare Access 或等价机制保护。
-- [ ] `npm test -- --run` 通过。
-- [ ] `python -m pytest apps/api/tests -q` 通过。
-- [ ] `npm run lint` 通过。
-- [ ] `npm run deploy:check` 通过。
-- [ ] `npm run build` 通过。
-- [ ] 部署完成后设置 `FRONTEND_URL` 和 `API_URL`，运行 `npm run deploy:check:live` 通过。
-- [ ] GitHub Security 页面启用 Dependabot alerts 和 Dependabot security updates。
-
-## 后续安全工作
-
-- 登录、Session cookie、CSRF 双提交或等价防护。
-- User、Organization、Workspace、Membership 和 RBAC。
-- API 级授权检查，而不是只依赖页面隐藏按钮。
-- 审计事件查询、导出和保留策略。
-- 后台任务隔离和模型调用配额。
-- 数据库迁移工具和备份/恢复流程。
-- 更严格的 CSP：当前已在 Pages 构建时收紧 `connect-src`；后续登录和第三方资源接入时继续按最小来源维护。
+真实模型凭证使用 Zeabur Secret/环境变量。Agent 或 Provider 记录中只允许出现相应环境
+变量名。不要把密钥写入仓库、日志、截图、Issue、Pull Request 或聊天记录。
 
 ## 生产启动保护
 
-当后端设置 `ENVIRONMENT=production` 时，应用启动会拒绝以下配置：
+`ENVIRONMENT=production` 时，FastAPI 会拒绝：
 
-- `DATABASE_URL` 不是 PostgreSQL。
-- `ALLOWED_ORIGINS` 没有 HTTPS origin。
-- `ALLOWED_HOSTS` 没有公网 API host。
-- `HSTS_ENABLED` 不是 `true`。
-- `COOKIE_SECURE` 不是 `true`。
-- `RATE_LIMIT_ENABLED` 不是 `true`。
-- `MODEL_API_KEY` 未设置。
+- 非 PostgreSQL 的数据库 URL。
+- 通配符或非 HTTPS Origin。
+- 缺少公网 Host 或使用通配符 Host。
+- 未开启 HSTS、Secure Cookie 或限流。
 
-这层保护用于防止把本地开发默认配置误部署到公网。
+Nginx 负责公网同源容器的响应头；FastAPI 在独立运行时仍保留应用层安全头能力，避免
+不同部署形态下完全失去防线。
 
-部署平台提供的 `postgres://`、`postgresql://` 和 `postgresql+psycopg://` 都按 PostgreSQL 处理；运行时会使用 `psycopg` 驱动。
+## GitHub 发布凭证
+
+唯一发布凭证为 `ZEABUR_TOKEN`，只保存在 GitHub Actions Secret。项目、服务、环境 ID
+和生产 URL 是 GitHub Variables。workflow 的公开 `deployment.json` 只包含 commit SHA，
+不得写入 Token、环境变量、用户信息或内部资源 ID。
+
+## 上线前检查清单
+
+- [ ] PR 对应的 CI 全部通过。
+- [ ] 目标 commit 已合并到 `master`。
+- [ ] Zeabur 使用托管 PostgreSQL，不用容器本地 SQLite 承载多人数据。
+- [ ] `ALLOWED_ORIGINS`、`ALLOWED_HOSTS` 与公网域名一致且不含通配符。
+- [ ] HSTS、Secure Cookie、请求体限制与限流保持开启。
+- [ ] 模型凭证只存在于部署平台环境变量中。
+- [ ] `MODEL_ALLOWED_HOSTS` 只包含批准的精确 Host。
+- [ ] `npm test -- --run` 通过。
+- [ ] `python -m pytest apps/api/tests -q` 通过。
+- [ ] `npm run lint`、`npm run deploy:check` 和 `npm run build` 通过。
+- [ ] 公网 `deployment.json` 与目标完整 SHA 一致。
+- [ ] `npm run deploy:check:live` 通过。
+- [ ] 浏览器登录、Workspace 主页面和控制台完成检查。
+- [ ] GitHub Security 页面启用依赖告警和安全更新。
+
+## 当前风险
+
+- 单实例服务没有自动故障转移和多区域容灾。
+- 数据库备份、恢复和迁移回滚没有自动验收。
+- 自动发布失败不会自动回滚应用或数据。
+- 基础限流不等同于网关级 DDoS 防护。
+- 对外试点仍应通过 Zeabur 或上游网关限制访问范围。
+
+## 后续安全工作
+
+- 建立 staging 与 production 隔离。
+- 完成 PostgreSQL 备份、恢复演练和迁移治理。
+- 接入隔离的 Package 执行器与资源配额。
+- 增加集中日志、告警、审计导出与保留策略。
+- 形成自动回滚前的数据库兼容性检查。

@@ -32,6 +32,14 @@ Agent 详情页的 Runtime / Python Package 区域当前只支持登记 Python P
 
 本阶段的 RED/GREEN、全量测试、部署验证和浏览器证据见 `docs/ACCEPTANCE_P0_RUNTIME_SECURITY.md`。
 
+公网交付链路已收敛为 **GitHub + Zeabur + Zeabur PostgreSQL**。功能改动在独立
+worktree/分支完成，经 Pull Request 和 CI 后合并 `master`；成功的 `master` CI 可按
+`ZEABUR_AUTO_DEPLOY` 开关触发 Zeabur 发布。发布 workflow checkout CI 对应的完整
+commit SHA，并在 runner 中临时生成 `public/deployment.json`；只有公网标记返回同一 SHA
+后，才继续执行首页、`/api/health`、安全响应头和 CORS 验收。手动发布入口同样要求目标
+SHA 属于 `master` 且已有成功 CI。该能力只解决单服务原型的版本可追溯发布，不代表
+staging、高可用、自动数据库迁移、备份恢复或自动回滚已经完成。
+
 Tool / Skill 已新增第一版 Workspace 级资产库后端：`tool_skill_assets` 表保存 `tool` 与 `skill` 两类资产，支持创建、列表查询、参数 Schema、状态、适配类型、适配配置和 Workspace 隔离。Agent 更新和发布时会校验所绑定的 Tools / Skills 必须是当前 Workspace 内已启用资产。`tool_skill_asset_invocations` 表提供调用日志查询能力，并已支持 HTTP Tool 测试调用写入成功或失败日志。
 
 Tool / Skill 资产库已新增第一版前端入口：`/w/:workspaceSlug/settings/asset-library`。页面可查看 Workspace 资产、创建 manual / HTTP / MCP 适配资产、校验参数 Schema 与适配配置 JSON、对 HTTP / MCP Tool 发起测试调用，并展示测试结果和最近调用日志。页面不展示、不提交 `apiKey` 字段；密钥和真实鉴权仍需后续由后端环境变量或密钥托管能力处理。

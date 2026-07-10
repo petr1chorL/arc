@@ -39,7 +39,7 @@ def test_health_check_and_security_headers(tmp_path):
 
 def test_cors_allows_only_configured_frontend_origin(tmp_path):
     settings = Settings(
-        allowed_origins=["https://arc-one.pages.dev"],
+        allowed_origins=["https://arc-one.example.com"],
         allowed_hosts=["testserver"],
     )
     client = TestClient(
@@ -52,7 +52,7 @@ def test_cors_allows_only_configured_frontend_origin(tmp_path):
     allowed = client.options(
         "/api/agents",
         headers={
-            "Origin": "https://arc-one.pages.dev",
+            "Origin": "https://arc-one.example.com",
             "Access-Control-Request-Method": "GET",
         },
     )
@@ -65,7 +65,7 @@ def test_cors_allows_only_configured_frontend_origin(tmp_path):
     )
 
     assert allowed.status_code == 200
-    assert allowed.headers["access-control-allow-origin"] == "https://arc-one.pages.dev"
+    assert allowed.headers["access-control-allow-origin"] == "https://arc-one.example.com"
     assert allowed.headers["access-control-allow-credentials"] == "true"
     assert denied.status_code == 400
     assert "access-control-allow-origin" not in denied.headers
