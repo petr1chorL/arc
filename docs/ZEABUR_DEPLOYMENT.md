@@ -96,7 +96,8 @@ Zeabur 构建是异步的，所以“CLI 已提交”不等于“新版本已上
 https://<application-host>/deployment.json?sha=<full-sha>
 ```
 
-只有其中的 `commit` 与目标 SHA 完全相同，才执行首页和 `/api/health` 检查。这样旧版本
+只有其中的 `commit` 与目标 SHA 完全相同，才执行首页和 `/api/health` 检查。live check
+会在有限次数内重试，以容忍静态页面先于同容器 API 就绪；持续失败仍会阻断发布。这样旧版本
 仍健康时不会产生错误的完成结论。
 
 ## 手动发布与回滚
