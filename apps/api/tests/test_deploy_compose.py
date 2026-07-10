@@ -59,3 +59,9 @@ def test_nginx_limits_public_request_bodies():
     nginx_config = (ROOT / "nginx.conf.template").read_text(encoding="utf-8")
 
     assert "client_max_body_size 1m;" in nginx_config
+
+
+def test_combined_image_delegates_security_headers_to_nginx():
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+
+    assert "ENV SECURITY_HEADERS_ENABLED=false" in dockerfile
