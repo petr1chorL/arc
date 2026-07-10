@@ -42,6 +42,7 @@ RATE_LIMIT_ENABLED=true
 RATE_LIMIT_REQUESTS=120
 RATE_LIMIT_WINDOW_SECONDS=60
 MODEL_API_KEY=<set in platform secret manager>
+MODEL_ALLOWED_HOSTS=api.deepseek.com
 ```
 
 不要把真实密钥写入仓库、日志、截图、Issue 或聊天记录。
@@ -67,6 +68,7 @@ MODEL_API_KEY=<set in platform secret manager>
 - [ ] 后端使用 PostgreSQL，不使用本地 SQLite 承载多人访问。
 - [ ] 后端保持 `RATE_LIMIT_ENABLED=true`，并按演示人数调整 `RATE_LIMIT_REQUESTS`。
 - [ ] `MODEL_API_KEY` 只存在于平台 Secret Manager。
+- [ ] `MODEL_ALLOWED_HOSTS` 只包含获准接收模型凭证的精确 Host。
 - [ ] `HSTS_ENABLED=true` 只在 HTTPS 域名可用后开启。
 - [ ] 前端和后端都被 Cloudflare Access 或等价机制保护。
 - [ ] `npm test -- --run` 通过。

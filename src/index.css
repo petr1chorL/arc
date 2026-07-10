@@ -4648,6 +4648,10 @@ kbd {
   line-height: 1.65;
 }
 
+.runtime-package-note span {
+  display: block;
+}
+
 .runtime-linkage-grid {
   display: grid;
   grid-template-columns: 1fr;

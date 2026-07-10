@@ -242,6 +242,7 @@ ARC_ONE_ADMIN_PASSWORD=<set in Zeabur secret/environment variables>
 ARC_ONE_ADMIN_DISPLAY_NAME=V1 Lite Browser Admin
 MODEL_API_KEY=<set in Zeabur secret/environment variables, optional for page browsing>
 MODEL_BASE_URL=https://api.deepseek.com
+MODEL_ALLOWED_HOSTS=api.deepseek.com
 MODEL_DEFAULT_MODEL=deepseek-v4-pro
 ```
 

@@ -158,6 +158,7 @@ class ExecutionService:
     ) -> NodeRunRecord:
         version = session.scalar(
             select(AgentVersionRecord).where(
+                AgentVersionRecord.workspace_id == run.workspace_id,
                 AgentVersionRecord.agent_id == agent_id,
                 AgentVersionRecord.version == agent_version,
             ),
@@ -335,12 +336,14 @@ class ExecutionService:
         self,
         *,
         session: Session,
+        workspace_id: str,
         agent_id: str,
         agent_version: str,
         input_text: str,
     ) -> WorkflowRunRecord:
         version = session.scalar(
             select(AgentVersionRecord).where(
+                AgentVersionRecord.workspace_id == workspace_id,
                 AgentVersionRecord.agent_id == agent_id,
                 AgentVersionRecord.version == agent_version,
             ),
@@ -376,12 +379,14 @@ class ExecutionService:
         self,
         *,
         session: Session,
+        workspace_id: str,
         workflow_id: str,
         workflow_version: str,
         input_text: str,
     ) -> WorkflowRunRecord:
         version = session.scalar(
             select(WorkflowVersionRecord).where(
+                WorkflowVersionRecord.workspace_id == workspace_id,
                 WorkflowVersionRecord.workflow_id == workflow_id,
                 WorkflowVersionRecord.version == workflow_version,
             ),
@@ -409,6 +414,7 @@ class ExecutionService:
         self,
         *,
         session: Session,
+        workspace_id: str,
         workflow_id: str,
         workflow_version: str,
         input_text: str,
@@ -416,6 +422,7 @@ class ExecutionService:
     ) -> WorkflowRunRecord:
         version = session.scalar(
             select(WorkflowVersionRecord).where(
+                WorkflowVersionRecord.workspace_id == workspace_id,
                 WorkflowVersionRecord.workflow_id == workflow_id,
                 WorkflowVersionRecord.version == workflow_version,
             ),
@@ -782,6 +789,7 @@ class ExecutionService:
     ) -> dict:
         version = session.scalar(
             select(WorkflowVersionRecord).where(
+                WorkflowVersionRecord.workspace_id == run.workspace_id,
                 WorkflowVersionRecord.workflow_id == run.workflow_id,
                 WorkflowVersionRecord.version == run.workflow_version,
             ),

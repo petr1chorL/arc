@@ -62,6 +62,45 @@ def create_data_object(client: TestClient, workspace_id: str, name: str) -> dict
     return response.json()
 
 
+def test_workflow_rejects_agent_version_from_another_workspace(tmp_path):
+    client, source_workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'workflow-cross-workspace-agent.db'}",
+    )
+    agent_id, agent_version = published_agent(client, source_workspace_id)
+    target_workspace_response = client.post(
+        "/api/workspaces",
+        json={"name": "Target Workspace", "slug": "target-workspace"},
+        headers=csrf_headers(client),
+    )
+    assert target_workspace_response.status_code == 201
+    target_workspace_id = target_workspace_response.json()["id"]
+    workflow = client.post(
+        workspace_url(target_workspace_id, "/workflows"),
+        json={
+            "name": "Cross Workspace Workflow",
+            **valid_graph(agent_id, agent_version),
+        },
+        headers=csrf_headers(client),
+    ).json()
+
+    validation = client.post(
+        workspace_url(target_workspace_id, f"/workflows/{workflow['id']}/validate"),
+        headers=csrf_headers(client),
+    )
+    publish = client.post(
+        workspace_url(target_workspace_id, f"/workflows/{workflow['id']}/publish"),
+        headers=csrf_headers(client),
+    )
+
+    assert validation.status_code == 200
+    assert validation.json()["valid"] is False
+    assert validation.json()["errors"] == [
+        f"Agent 版本 {agent_id}@{agent_version} 不存在",
+    ]
+    assert publish.status_code == 422
+    assert publish.json()["detail"] == validation.json()["errors"]
+
+
 def test_workflow_draft_publishes_an_immutable_snapshot(tmp_path):
     client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'workflows.db'}")
     agent_id, agent_version = published_agent(client, workspace_id)

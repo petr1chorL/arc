@@ -33,6 +33,8 @@ services:
         sync: false
       - key: MODEL_BASE_URL
         value: https://api.deepseek.com
+      - key: MODEL_ALLOWED_HOSTS
+        value: api.deepseek.com
       - key: MODEL_DEFAULT_MODEL
         value: deepseek-v4-pro
 

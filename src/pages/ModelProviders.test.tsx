@@ -66,7 +66,7 @@ describe('ModelProviders page', () => {
     await user.selectOptions(screen.getByLabelText('接口类型'), provider.providerType)
     await user.type(screen.getByLabelText('Base URL'), provider.baseUrl)
     await user.type(screen.getByLabelText('默认模型'), provider.defaultModel)
-    await user.type(screen.getByLabelText('Secret Ref / Key'), provider.secretRef)
+    await user.type(screen.getByLabelText('Secret Ref（环境变量名）'), provider.secretRef)
     await user.click(screen.getByRole('button', { name: '创建模型资产' }))
 
     expect(await screen.findByText(provider.name)).toBeInTheDocument()
@@ -76,6 +76,30 @@ describe('ModelProviders page', () => {
 
     await user.click(screen.getByRole('button', { name: '测试连接 DeepSeek 生产' }))
     expect(await screen.findByText('密钥引用 DEEPSEEK_API_KEY 未在后端环境变量中配置')).toBeInTheDocument()
+  })
+
+  it('blocks inline secret values before sending a create request', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
+      if (url === `/api/workspaces/${workspace.id}/model-providers` && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify(provider), { status: 201 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage()
+
+    await screen.findByRole('heading', { name: '新增模型资产' })
+    await user.type(screen.getByLabelText('名称'), provider.name)
+    await user.type(screen.getByLabelText('Base URL'), provider.baseUrl)
+    await user.type(screen.getByLabelText('默认模型'), provider.defaultModel)
+    await user.type(screen.getByLabelText('Secret Ref（环境变量名）'), 'inline-secret-value')
+    await user.click(screen.getByRole('button', { name: '创建模型资产' }))
+
+    expect(await screen.findByText('Secret Ref 只能填写后端环境变量名')).toBeInTheDocument()
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0)
   })
 
   it('edits and deactivates a Provider asset from the list', async () => {

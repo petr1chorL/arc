@@ -89,6 +89,7 @@ ENVIRONMENT=production
 ALLOWED_ORIGINS=https://your-project.pages.dev
 ALLOWED_HOSTS=your-api.onrender.com
 MODEL_API_KEY=<set in Render secret manager>
+MODEL_ALLOWED_HOSTS=api.deepseek.com
 ```
 
 如果手动新建 Python Web Service，把服务根目录设置为：
@@ -124,6 +125,7 @@ RATE_LIMIT_ENABLED=true
 RATE_LIMIT_REQUESTS=120
 RATE_LIMIT_WINDOW_SECONDS=60
 MODEL_API_KEY=<set in platform secret manager>
+MODEL_ALLOWED_HOSTS=api.deepseek.com
 ```
 
 `DATABASE_URL` 也可以使用托管平台提供的 `postgres://` 或 `postgresql://` 形式；后端启动时会统一规范为 `postgresql+psycopg://`。

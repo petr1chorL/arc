@@ -311,6 +311,11 @@ export function AgentDetail() {
       setError('请输入测试任务')
       return
     }
+    const publishedVersion = versions.find((version) => version.version === agent?.version)
+    if (hasPythonPackageRuntime(publishedVersion?.snapshot.runtimeManifest)) {
+      setError('Python Package 当前仅登记元数据，尚未接入隔离执行器')
+      return
+    }
     setIsBusy(true)
     setError('')
     setRunResult(null)
@@ -341,6 +346,9 @@ export function AgentDetail() {
   const selectedTools = splitValues(toolsText)
   const selectedSkills = splitValues(skillsText)
   const runtimeManifest = form.runtimeManifest ?? {}
+  const publishedRuntimeManifest = versions.find((version) => version.version === agent.version)
+    ?.snapshot.runtimeManifest
+  const packageExecutionBlocked = hasPythonPackageRuntime(publishedRuntimeManifest)
 
   return (
     <div className="page-stack asset-detail-page">
@@ -405,7 +413,8 @@ export function AgentDetail() {
                 </div>
               </header>
               <p className="runtime-package-note">
-                Python Package 只声明 Agent 代码入口：包名、版本、入口函数与内容指纹。模型、温度和最大输出等运行参数在下方 Runtime 配置中维护。
+                <span>Python Package 当前仅登记元数据，尚未接入隔离执行器。</span>
+                <span>包名、版本、入口函数与内容指纹会进入版本快照；模型参数仍由下方 Runtime 配置维护。</span>
               </p>
               <div className="runtime-linkage-grid">
                 <div>
@@ -541,12 +550,13 @@ export function AgentDetail() {
         <div className="agent-test-actions">
           <button
             className="button primary"
-            disabled={disabled || isBusy || versions.length === 0}
+            disabled={disabled || isBusy || versions.length === 0 || packageExecutionBlocked}
             onClick={() => void testRun()}
           >
             <Play size={15} />运行 Agent
           </button>
           {versions.length === 0 && <small>请先发布一个 Agent 版本。</small>}
+          {packageExecutionBlocked && <small>该版本包含 Python Package，隔离执行器上线前不可运行。</small>}
         </div>
         {runResult && (
           <div className="agent-test-result">

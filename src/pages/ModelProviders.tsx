@@ -25,10 +25,10 @@ const initialForm: CreateModelProviderInput = {
   secretRef: '',
 }
 
-function maskSecretRef(secretRef: string): string {
-  if (!secretRef) return '未配置'
-  if (secretRef.length <= 8) return '••••'
-  return `${secretRef.slice(0, 3)}••••••••${secretRef.slice(-4)}`
+const modelSecretRefPattern = /^[A-Z_][A-Z0-9_]*$/
+
+function isValidModelSecretRef(secretRef: string): boolean {
+  return modelSecretRefPattern.test(secretRef.trim())
 }
 
 export function ModelProviders() {
@@ -77,15 +77,20 @@ export function ModelProviders() {
   }
 
   async function createProvider() {
-    setIsBusy(true)
     setError('')
+    const secretRef = form.secretRef.trim()
+    if (!isValidModelSecretRef(secretRef)) {
+      setError('Secret Ref 只能填写后端环境变量名')
+      return
+    }
+    setIsBusy(true)
     try {
       const created = await createModelProvider(workspace.id, {
         ...form,
         name: form.name.trim(),
         baseUrl: form.baseUrl.trim(),
         defaultModel: form.defaultModel.trim(),
-        secretRef: form.secretRef.trim(),
+        secretRef,
       })
       setProviders((current) => [created, ...current])
       setForm(initialForm)
@@ -134,15 +139,20 @@ export function ModelProviders() {
   }
 
   async function saveProvider(provider: ModelProvider) {
-    setIsBusy(true)
     setError('')
+    const secretRef = editForm.secretRef.trim()
+    if (!isValidModelSecretRef(secretRef)) {
+      setError('Secret Ref 只能填写后端环境变量名')
+      return
+    }
+    setIsBusy(true)
     try {
       const updated = await updateModelProvider(workspace.id, provider.id, {
         ...editForm,
         name: editForm.name.trim(),
         baseUrl: editForm.baseUrl.trim(),
         defaultModel: editForm.defaultModel.trim(),
-        secretRef: editForm.secretRef.trim(),
+        secretRef,
       })
       setProviders((current) => current.map((item) => item.id === updated.id ? updated : item))
       setEditingProviderId('')
@@ -174,7 +184,7 @@ export function ModelProviders() {
         <div>
           <p className="section-kicker">MODEL PROVIDERS</p>
           <h2>模型资产</h2>
-          <p>统一维护模型 Base URL、默认模型和后端密钥引用。浏览器只保存 Secret Ref，不粘贴密钥。</p>
+          <p>统一维护模型 Base URL、默认模型和后端环境变量引用。浏览器不接收模型密钥。</p>
         </div>
         <div className="provider-secret-note">
           <KeyRound size={18} />
@@ -209,7 +219,7 @@ export function ModelProviders() {
           </label>
           <label className="form-field"><span>Base URL</span><input value={form.baseUrl} onChange={(event) => updateField('baseUrl', event.target.value)} placeholder="https://api.deepseek.com" /></label>
           <label className="form-field"><span>默认模型</span><input value={form.defaultModel} onChange={(event) => updateField('defaultModel', event.target.value)} placeholder="deepseek-v4-pro" /></label>
-          <label className="form-field full"><span>Secret Ref / Key</span><input type="password" value={form.secretRef} onChange={(event) => updateField('secretRef', event.target.value)} placeholder="DEEPSEEK_API_KEY 或 sk-..." /></label>
+          <label className="form-field full"><span>Secret Ref（环境变量名）</span><input value={form.secretRef} onChange={(event) => updateField('secretRef', event.target.value)} placeholder="DEEPSEEK_API_KEY" /></label>
         </div>
         <button className="button primary" disabled={isBusy} onClick={() => void createProvider()}>
           <Plus size={15} />创建模型资产
@@ -234,7 +244,7 @@ export function ModelProviders() {
                     <label className="form-field"><span>编辑名称</span><input value={editForm.name} onChange={(event) => updateEditField('name', event.target.value)} /></label>
                     <label className="form-field"><span>编辑 Base URL</span><input value={editForm.baseUrl} onChange={(event) => updateEditField('baseUrl', event.target.value)} /></label>
                     <label className="form-field"><span>编辑默认模型</span><input value={editForm.defaultModel} onChange={(event) => updateEditField('defaultModel', event.target.value)} /></label>
-                    <label className="form-field"><span>编辑 Secret Ref</span><input type="password" value={editForm.secretRef} onChange={(event) => updateEditField('secretRef', event.target.value)} /></label>
+                    <label className="form-field"><span>编辑 Secret Ref（环境变量名）</span><input value={editForm.secretRef} onChange={(event) => updateEditField('secretRef', event.target.value)} /></label>
                   </div>
                 ) : (
                   <>
@@ -245,7 +255,7 @@ export function ModelProviders() {
                     <dl className="provider-card-config">
                       <div><dt>Base URL</dt><dd>{provider.baseUrl}</dd></div>
                       <div><dt>默认模型</dt><dd>{provider.defaultModel}</dd></div>
-                      <div><dt>Secret Ref</dt><dd>{maskSecretRef(provider.secretRef)}</dd></div>
+                      <div><dt>Secret Ref</dt><dd>{provider.secretRef || '未配置'}</dd></div>
                       <div><dt>状态</dt><dd>{provider.status}</dd></div>
                     </dl>
                     <div className="provider-dependency-summary">

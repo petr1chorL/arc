@@ -3,6 +3,7 @@ from uuid import UUID
 from fastapi.testclient import TestClient
 
 from api_test_support import create_authenticated_client, csrf_headers, workspace_url
+from app.models import ModelProviderRecord
 
 
 def test_create_agent_rejects_blank_name(tmp_path):
@@ -223,25 +224,30 @@ def test_agent_can_bind_workspace_model_provider_asset(tmp_path):
     assert "apiKey" not in published["snapshot"]
 
 
-def test_agent_publish_does_not_snapshot_inline_model_provider_key(tmp_path):
+def test_agent_publish_does_not_snapshot_legacy_invalid_model_secret_ref(tmp_path):
     database_url = f"sqlite:///{tmp_path / 'agents-inline-provider.db'}"
     client, workspace_id = create_authenticated_client(database_url)
     provider = client.post(
         workspace_url(workspace_id, "/model-providers"),
         json={
-            "name": "DeepSeek Inline",
+            "name": "DeepSeek Legacy Invalid",
             "providerType": "openai-compatible",
             "baseUrl": "https://api.deepseek.com",
             "defaultModel": "deepseek-v4-pro",
-            "secretRef": "sk-inline-test-key",
+            "secretRef": "DEEPSEEK_API_KEY",
         },
         headers=csrf_headers(client),
     ).json()
+    submitted_value = "inline-secret-value"
+    with client.app.state.session_factory() as session:
+        stored_provider = session.get(ModelProviderRecord, provider["id"])
+        stored_provider.secret_ref = submitted_value
+        session.commit()
     created = client.post(
         workspace_url(workspace_id, "/agents"),
         json={
-            "name": "Inline Provider Agent",
-            "role": "Run with an inline Provider key.",
+            "name": "Legacy Invalid Provider Agent",
+            "role": "Reject a legacy invalid Provider credential reference.",
             "owner": "Platform Team",
             "model": "placeholder-model",
         },
@@ -260,7 +266,7 @@ def test_agent_publish_does_not_snapshot_inline_model_provider_key(tmp_path):
 
     assert published["snapshot"]["modelProviderId"] == provider["id"]
     assert published["snapshot"]["modelSecretRef"] == ""
-    assert "sk-inline-test-key" not in str(published["snapshot"])
+    assert submitted_value not in str(published["snapshot"])
 
 
 def test_agent_publish_rejects_disabled_bound_model_provider(tmp_path):

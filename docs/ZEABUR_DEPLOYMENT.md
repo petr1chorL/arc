@@ -98,6 +98,7 @@ RATE_LIMIT_REQUESTS=120
 RATE_LIMIT_WINDOW_SECONDS=60
 MODEL_API_KEY=<set in Zeabur secret/environment variables>
 MODEL_BASE_URL=https://api.deepseek.com
+MODEL_ALLOWED_HOSTS=api.deepseek.com
 MODEL_DEFAULT_MODEL=deepseek-v4-pro
 ```
 

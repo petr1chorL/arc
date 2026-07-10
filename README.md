@@ -169,7 +169,8 @@ $env:ARC_ONE_ACCEPTANCE_PASSWORD="<通过安全渠道提供的密码>"
 该命令会调用正在运行的 API，跑通 Workflow Run、Human Review、Evaluation、
 Regression Run 和 Observability，并输出 Run ID、Human Task ID、Evaluation ID、
 Regression Run ID 与 Trace ID。真实服务验收需要运行中的 API 已配置模型密钥，
-例如 `MODEL_API_KEY` 或 Agent Provider `secretRef` 指向的环境变量。
+例如 `MODEL_API_KEY` 或 Agent Provider `secretRef` 指向的环境变量；目标模型 Host
+还必须位于 `MODEL_ALLOWED_HOSTS` 精确允许名单中。
 
 V1.0 Lite 签收审查：
 
