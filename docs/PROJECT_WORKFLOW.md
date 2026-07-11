@@ -333,9 +333,13 @@ Issue 只有满足以下条件才能完成：
 ## 当前管理中的功能
 
 ```text
-.scratch/platform-foundation/
+.scratch/p0-runtime-security/
+.scratch/v1.0-lite/
+.scratch/v1-lite-verification-recovery/
 ```
 
-其中包含 V0.2 持久化基础 PRD 和 4 个候选端到端 Issue。在用户确认拆分粒度
-和依赖顺序前，它们保持 `needs-triage`。
+可重复验证恢复已完成工程实现并进入 `ready-for-human`；P0 运行时安全收口也已完成工程
+实现与自动验证，当前为 `ready-for-human`。V1.0 Lite 保持 `in-progress`，直到 P0 完成
+人工签收且真实业务方独立完成端到端验收。项目级当前事实和优先级见
+`docs/project-management/project-overview.md`。
 
