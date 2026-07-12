@@ -554,7 +554,7 @@ describe('Reviews', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    renderReviews()
+    renderReviews('user-reviewer-1', '/w/ai-capability-center/reviews?taskId=task-1')
 
     await screen.findByText(detail.artifact.content)
     expect(screen.queryByRole('button', { name: '编辑产出物' })).not.toBeInTheDocument()
