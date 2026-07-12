@@ -1,72 +1,56 @@
 # ARC.ONE 版本台账
 
+> 更新时间：2026-07-11
+
 ## 当前版本
 
-- 当前产品迭代：V1.0 Lite。
-- 当前 `master` 实现基线：已归并 `codex/v0.7a-identity-access`，包含 V0.7A-V0.31F 与 V1.0 Lite 交付包。
-- 当前工程决策点：以合并后的 `master` 为新基线，继续收敛 V1.0 Lite 试点范围和验证证据。
-- 事实来源：`docs/CURRENT_IMPLEMENTATION.md`。
-- 源码盘点：`docs/project-management/source-audit.md`。
-- 分支审计：`docs/project-management/branch-audit.md`。
-- 本台账只记录已验证或已有明确文档证据的版本状态。
+- 当前产品迭代：V1.0 Lite，状态 `in-progress`。
+- 当前安全切片：P0 运行时安全收口，状态 `ready-for-human`。
+- 当前 `master`：`5a23d6cfbb0b30c1a4cd32fa6f966cbf2975ec6e`。
+- 当前部署：GitHub `master` 与 Zeabur 公网 `deployment.json` SHA 一致。
+- 当前工程验证：Python 3.12 后端 306 项、默认前端 242 项、lint、标准 build、部署检查和登录后 E2E 同轮通过。
+- 当前事实入口：`docs/project-management/project-overview.md`。
+
+版本状态只表示对应切片的证据，不代表整个企业生产平台已经完成。
 
 ## 版本记录
 
-| 版本 | 主题 | 状态 | 已交付内容 | 验证证据 | 遗留问题 |
-|---|---|---|---|---|---|
-| V0.1 | 高保真前端原型 | 历史完成 | 六个一级页面、DAG 画布、响应式外壳 | Lint、Build、浏览器验证记录见历史文档 | 无后端和真实执行 |
-| V0.2 | 平台契约与持久化基础 | absorbed | Agent 创建、字段校验、SQLAlchemy 持久化、SQLite 默认存储 | `.scratch/platform-foundation/issues/01-create-and-reload-agent.md` | 本地 issue 02-04 未同步勾选，需以 V0.6 当前实现为准 |
-| V0.3-V0.4 | Agent / Workflow 生命周期 | done | Agent 草稿、不可变 AgentVersion、Workflow 草稿、DAG 校验、不可变 WorkflowVersion | `.scratch/agent-workflow-lifecycle/issues/*.md` 验收均已勾选 | PRD 仍标 `ready-for-human`，可视为历史状态未收敛 |
-| V0.5 | 真实 Agent 执行闭环 | 已完成历史阶段 | ModelGateway、Agent 测试运行、工作流顺序执行、Run/NodeRun/Artifact 持久化 | Pytest 12 项、Vitest 18 项、Lint、Build、浏览器验证、DeepSeek 联调 | 成本单价环境变量未配置，成本暂为 0 |
-| V0.6 | 人工协作与反馈闭环 | 已完成 | Human Task、暂停恢复、分配会签、SLA、FeedbackCandidate、Golden Sample | 后端 34 项、前端 30 项、Lint、Build、桌面/移动浏览器验证 | 无登录、RBAC、外部通知和后台调度器 |
-| V0.7A | 身份、Workspace 与访问控制 | 进行中 | 已有设计、计划和安全原语代码 | `test_security.py` 通过；全量后端 34 项通过 | 尚无认证路由、User/Workspace/Session 模型、RBAC 和 workspace 化 API；本地 PRD/status 和 02-07 issue 缺失 |
-| V0.16D | Tool / Skill 稳定引用 | placeholder | 尚无可验证交付记录 | `.scratch/v0.16d-tool-skill-stable-references/` 目录 | 需要补 PRD/Issue 或并入治理主线 |
-| V0.24D | Schema 运行表单 | placeholder | 尚无可验证交付记录 | `.scratch/v0.24d-schema-run-form/` 目录 | 需要补 PRD/Issue |
-| V0.24E | Schema 字段选择器 | ready-for-agent | 已有 PRD、issue 和实施计划 | `.scratch/v0.24e-schema-field-picker/`；`docs/superpowers/plans/2026-06-28-v0.24e-schema-field-picker.md` | 尚无验收勾选记录 |
-| V0.26E | Artifact Schema 状态 | placeholder | 尚无可验证交付记录 | `.scratch/v0.26e-artifact-schema-status/` 目录 | 建议并入 V0.8 Data Object 主线 |
-| V0.28C | Remediation 来源链接 | placeholder | 尚无可验证交付记录 | `.scratch/v0.28c-remediation-source-links/` 目录 | 需要先确认 Remediation 领域模型 |
-| V0.29B | Remediation 任务详情 API | placeholder | 尚无可验证交付记录 | `.scratch/v0.29b-remediation-task-detail-api/` 目录 | 建议与 V0.28C 合并规划 |
-| V1.0 Lite | 轻量可运行版 | in-progress | 单机核心闭环、V0.6 已完成能力、V0.7A 安全原语 | `.scratch/v1.0-lite/status.md`；当前全量测试通过 | 需要补 PRD 和验收边界；不能等同企业生产版 V1.0 |
-
-## 已归并分支版本补记
-
-以下版本来自已归并的 `codex/v0.7a-identity-access` 分支，当前已进入 `master` 基线；后续仍需按功能重新补齐验收证据。
-
-| 版本段 | 状态 | 证据入口 | 备注 |
-|---|---|---|---|
-| V0.7A-V0.7B | 分支已实现/验收材料存在 | `docs/ACCEPTANCE_V0.7B.md`、相关提交 | 身份、Workspace、RBAC、成员管理、审计与 Review Workbench |
-| V0.8-V0.9 | 分支已实现/验收材料存在 | `docs/ACCEPTANCE_V0.8*`、`docs/ACCEPTANCE_V0.9*` | 观测、成本、Human SLA、Evaluation、Rubric、Golden Set、Regression |
-| V0.10-V0.15 | 分支已实现/验收材料存在 | `docs/ACCEPTANCE_V0.10*` 至 `docs/ACCEPTANCE_V0.15*` | Regression 趋势、Remediation、Runtime、队列、Model Provider |
-| V0.16-V0.24 | 分支已实现/验收材料存在 | `docs/ACCEPTANCE_V0.16*` 至 `docs/ACCEPTANCE_V0.24*` | Tool/Skill、资产审计、权限矩阵、Trace、Run 操作、Workflow 编辑、Schema |
-| V0.25-V0.31F | 分支已实现/验收材料存在 | `docs/ACCEPTANCE_V0.25*` 至 `docs/ACCEPTANCE_V0.31F.md` | Data Object、Artifact、Remediation、Notification Outbox、Channel Assets |
-| V1.0 Lite | 分支交付包存在 | `docs/V1_LITE_LAUNCH_PLAN.md`、`docs/ACCEPTANCE_V1_LITE.md`、`scripts/check-v1-lite.ps1` | 已归并，仍需持续验证试点路径 |
+| 版本段 | 主题 | 当前状态 | 已交付边界 | 主要证据 |
+|---|---|---|---|---|
+| V0.1 | 高保真前端原型 | 历史完成 | 信息架构、核心页面和 DAG 交互原型 | 历史实现记录 |
+| V0.2-V0.6 | 持久化、生命周期、执行与人工闭环 | absorbed / done | Agent/Workflow 版本、真实模型端口、Run、Artifact、Human Task、Feedback、Golden Sample | 旧 `.scratch` Issue 与实现测试 |
+| V0.7A-V0.7B | 身份、Workspace 与安全治理 | 已进入当前基线 | 登录、Session、邀请、固定 RBAC、Reviewer 用户绑定、审计、Workspace 隔离 | `docs/ACCEPTANCE_V0.7B.md` 及相关测试 |
+| V0.8-V0.9 | 观测、评估与回归 | 已进入当前基线 | Observability、Human SLA、Rubric、Evaluation、Golden Set、Regression | `docs/ACCEPTANCE_V0.8*.md`、`ACCEPTANCE_V0.9*.md` |
+| V0.10-V0.15 | Remediation、Runtime、队列与 Provider | 已进入当前基线 | 评估问题闭环、Agent Runtime、异步队列、Worker、Model Provider | `docs/ACCEPTANCE_V0.10*.md` 至 `ACCEPTANCE_V0.15*.md` |
+| V0.16-V0.24 | Tool/Skill、权限、Trace、Run 与 Workflow Schema | 已进入当前基线 | 稳定资产引用、审计、运行操作、Workflow 编辑、IO Schema 和字段映射 | `docs/ACCEPTANCE_V0.16*.md` 至 `ACCEPTANCE_V0.24*.md` |
+| V0.25-V0.31F | Data Object、Artifact、Remediation 与 Notification | 已进入当前基线 | 数据对象、产出物追溯、修复任务、Outbox、渠道资产与启停治理 | `docs/ACCEPTANCE_V0.25*.md` 至 `ACCEPTANCE_V0.31F.md` |
+| P0 Runtime Security | 凭证、代码执行与 Workspace 边界 | ready-for-human | Secret Ref/出口守卫、Package 禁止进程内执行、跨 Workspace 版本守卫 | `docs/ACCEPTANCE_P0_RUNTIME_SECURITY.md` |
+| V1.0 Lite | 轻量可运行版与试点交付 | in-progress | 单服务核心闭环、种子资产、验收脚本、手册、GitHub/Zeabur 部署 | `docs/ACCEPTANCE_V1_LITE.md`、部署文档 |
+| V1.0 | 企业生产版 | 未开始正式签收 | 高可用、迁移、备份恢复、SLO、性能与正式业务运营 | `docs/PROJECT_MASTER_PLAN.md` |
 
 ## 版本编号口径
 
-本台账分两种粒度：
+- V0.x 细版本记录已经交付过的能力切片和验收证据。
+- V1.0 Lite 是当前产品迭代口径，用于真实业务试点。
+- V1.0 是企业生产版目标，不得与 V1.0 Lite 混用。
+- 已进入 `master` 的细版本不再因为旧 `.scratch` 缺失而降级为 `placeholder`；但具体能力
+  仍必须按 Acceptance 和源码边界描述，不能把第一切片扩写成完整生产能力。
 
-- 主线版本：V0.1、V0.2、V0.5、V0.6、V0.7A、V1.0 Lite、V0.8、V0.9、V1.0，用于路线图沟通。
-- 细版本：V0.16D、V0.24D、V0.24E、V0.26E、V0.28C、V0.29B，用于记录已经出现的局部功能包。
+## 当前完成条件
 
-细版本即使只有空目录，也要在台账中保留。状态用 `placeholder` 标明，避免误以为已经完成或被删除。
+V1.0 Lite 只有同时满足以下条件才可从 `in-progress` 进入签收完成：
 
-V1.0 Lite 是当前产品迭代口径，表示轻量可运行版；V1.0 是企业生产版规划口径，二者不能混用。
-
-## 已完成能力索引
-
-| 能力 | 入口 |
-|---|---|
-| Agent 创建与持久化 | `.scratch/platform-foundation/issues/01-create-and-reload-agent.md` |
-| Agent 编辑、发布和停用 | `.scratch/agent-workflow-lifecycle/issues/01-agent-lifecycle.md` |
-| Workflow 草稿、校验和发布 | `.scratch/agent-workflow-lifecycle/issues/02-workflow-lifecycle.md` |
-| 真实 Agent / Workflow 执行 | `.scratch/real-agent-execution/` |
-| Human Task 与反馈闭环 | `.scratch/human-collaboration-feedback/` |
+1. 默认前后端测试、lint、标准 build 和登录后 E2E 具有同一轮新证据。
+2. P0 运行时安全完成人工审阅，曾暴露的真实模型 Key 已轮换。
+3. 真实业务方按用户手册独立完成一次端到端闭环。
+4. `docs/ACCEPTANCE_V1_LITE.md` 必过项逐项勾选并记录验收人、时间和运行证据。
+5. 所有 P0/P1 试点问题关闭，P2/P3 有负责人和后续版本。
 
 ## 当前已知风险
 
-- `docs/PROJECT_MASTER_PLAN.md` 的“当前真实状态”部分早于 V0.6，不能直接作为当前实现事实。
-- 当前 `master` 已合并 `codex/v0.7a-identity-access`；后续文档应以合并后的 master 为事实源。
-- `.scratch/platform-foundation/status.md` 原内容明显过期，本轮已改为“被后续版本吸收”。
-- V0.7A 本地 tracker 不完整，计划中要求 7 个 issue，但当前只有 1 个 issue 文件；源码只完成安全原语。
-- V1.0 Lite 只有 status 入口，尚缺 PRD 和逐项验收标准。
-- 若要进入生产级验证，仍需补 PostgreSQL/Alembic、Docker 环境、部署和安全验证。
+- 主前端 JS 约 716.97 KB，仍有 Vite chunk-size warning。
+- FastAPI TestClient 依赖层仍有 Starlette/httpx 弃用警告，后续升级依赖时需复核。
+- 自动 E2E 使用隔离数据库和固定非生产测试管理员，只能作为工程证据，不能代替业务签收。
+- Dashboard 仍为演示数据；MCP、Python Package Runtime 和外部通知均有明确能力边界。
+- PostgreSQL 正式迁移、备份恢复、自动回滚、高可用和正式 SLO 尚未完成。
+- `.scratch/` 默认不受 Git 跟踪，长期结论若未沉淀到 `docs/` 仍可能随机器或会话丢失。

@@ -1,5 +1,11 @@
 # ARC.ONE 版本规划
 
+> 文档状态：历史版本分解参考，不作为当前 Backlog。
+> 状态校正日期：2026-07-11。
+> 当前项目事实见 `docs/project-management/project-overview.md`；当前执行路线见
+> `docs/PROJECT_ROADMAP_TO_V1.md`。下文保留归并前后出现过的版本结构和长期方向，表中
+> `进行中`、`占位`、`ready-for-agent` 等旧状态不得覆盖当前源码、Acceptance 和版本台账。
+
 ## 规划原则
 
 1. 先保证单条真实业务闭环可靠，再扩展更多页面和能力。
@@ -18,14 +24,14 @@
 | V0.3-V0.4 | Agent / Workflow 生命周期 | 已完成历史阶段 | AgentVersion / WorkflowVersion 稳定引用 |
 | V0.5 | 真实 Agent 执行闭环 | 已完成历史阶段 | 已发布 Agent / Workflow 可运行并持久化证据 |
 | V0.6 | 人工协作与反馈闭环 | 已完成 | Human 节点暂停、审核、恢复、反馈和 Golden Sample |
-| V0.7A | 身份、Workspace 与访问控制 | 进行中 | 登录、Session、Workspace、RBAC、Reviewer 绑定、审计 |
-| V0.7B | 安全治理扩展 | 待规划 | 密钥托管、环境隔离、预算配额、模型和工具白名单 |
-| V0.16D | Tool / Skill 稳定引用 | 占位 | 明确 Agent 引用 Tool / Skill 的稳定契约 |
-| V0.24D | Schema 运行表单 | 占位 | 用工作流输入 Schema 生成运行表单 |
-| V0.24E | Schema 字段选择器 | ready-for-agent | 降低连线字段映射手写错误 |
-| V0.26E | Artifact Schema 状态 | 占位 | 让产出物显式声明 Schema 状态 |
-| V0.28C | Remediation 来源链接 | 占位 | 让补救任务可追溯到来源问题 |
-| V0.29B | Remediation 任务详情 API | 占位 | 为补救任务详情页提供 API 契约 |
+| V0.7A | 身份、Workspace 与访问控制 | 已进入当前基线 | 登录、Session、Workspace、RBAC、Reviewer 绑定、审计 |
+| V0.7B | 安全治理扩展 | 已实现部分边界 | 模型/工具白名单、Secret Ref 与 P0 出口治理；预算和完整密钥托管未完成 |
+| V0.16D | Tool / Skill 稳定引用 | 已进入当前基线 | Agent 发布快照冻结 Tool / Skill 稳定引用 |
+| V0.24D | Schema 运行表单 | 已进入当前基线 | 用工作流输入 Schema 生成运行表单 |
+| V0.24E | Schema 字段选择器 | 已进入当前基线 | 降低连线字段映射手写错误 |
+| V0.26E | Artifact Schema 状态 | 已进入当前基线 | 产出物显式声明 Schema 校验状态 |
+| V0.28C | Remediation 来源链接 | 已进入当前基线 | 补救任务可追溯到来源问题 |
+| V0.29B | Remediation 任务详情 API | 已进入当前基线 | 补救任务详情 API 与深链直读 |
 | V1.0 Lite | 轻量可运行版 | 当前迭代 | 单机可运行、核心闭环可演示、企业生产能力收敛中 |
 | V0.8 | Data Object 与 Schema 化工作流 | 建议下一主线 | 节点输入输出、字段映射、产出物契约和血缘 |
 | V0.9 | 实时运行与可观测性 | 待规划 | 实时状态、Trace、日志、运行回放和告警 |
@@ -55,14 +61,14 @@
 | V0.3-V0.4 | `.scratch/agent-workflow-lifecycle/` | done | 可补 `status.md` 收敛归档 |
 | V0.5 | `.scratch/real-agent-execution/` | done | 作为执行闭环历史阶段保留 |
 | V0.6 | `.scratch/human-collaboration-feedback/` | done | 作为当前已完成版本基线 |
-| V0.7A | `.scratch/v0.7a-identity-access/`、`docs/superpowers/specs/2026-06-25-v0.7a-identity-access-design.md` | in-progress | 先补齐本地 PRD/status/02-07 issue |
-| V0.16D | `.scratch/v0.16d-tool-skill-stable-references/` | placeholder | 需要补 PRD，或并入 V0.7B/V0.8 |
-| V0.24D | `.scratch/v0.24d-schema-run-form/` | placeholder | 需要补 PRD/Issue |
-| V0.24E | `.scratch/v0.24e-schema-field-picker/` | ready-for-agent | 可作为 Schema 体验小切片推进 |
-| V0.26E | `.scratch/v0.26e-artifact-schema-status/` | placeholder | 建议并入 V0.8 Data Object 主线 |
-| V0.28C | `.scratch/v0.28c-remediation-source-links/` | placeholder | 先确认 Remediation 是否成为正式领域对象 |
-| V0.29B | `.scratch/v0.29b-remediation-task-detail-api/` | placeholder | 与 V0.28C 一起重排或合并 |
-| V1.0 Lite | `.scratch/v1.0-lite/status.md` | in-progress | 补 PRD 和验收范围，统一当前版本口径 |
+| V0.7A | Acceptance、认证/Workspace 源码与测试 | merged-baseline | 保持当前实现，后续只按新缺陷补 Issue |
+| V0.16D | `docs/ACCEPTANCE_V0.16D.md` | implemented | 已由后续 Runtime 稳定引用继续扩展 |
+| V0.24D | `docs/ACCEPTANCE_V0.24D.md` | implemented | 已进入 Workflow 运行表单 |
+| V0.24E | `docs/ACCEPTANCE_V0.24E.md` | implemented | 已进入连线字段映射交互 |
+| V0.26E | `docs/ACCEPTANCE_V0.26E.md` | implemented | 已进入 Artifact Schema 状态链路 |
+| V0.28C | `docs/ACCEPTANCE_V0.28C.md` | implemented | 已进入 Remediation 来源追溯 |
+| V0.29B | `docs/ACCEPTANCE_V0.29B.md` | implemented | 已进入 Remediation 详情 API |
+| V1.0 Lite | `.scratch/v1.0-lite/status.md` | in-progress | 工程验证已恢复；完成 P0 人工签收和真实业务验收 |
 
 ## 主线归并关系
 

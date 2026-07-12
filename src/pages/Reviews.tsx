@@ -158,13 +158,13 @@ export function Reviews() {
     setSearchParams((current) => {
       const next = new URLSearchParams(current)
       if (selectedId) next.set('taskId', selectedId)
-      else next.delete('taskId')
+      else if (!isLoadingWorkspace) next.delete('taskId')
       if (statusFilter !== '全部') next.set('taskStatus', statusFilter)
       else next.delete('taskStatus')
       next.delete('slaStatus')
       return next.toString() === current.toString() ? current : next
     }, { replace: true })
-  }, [selectedId, setSearchParams, statusFilter])
+  }, [isLoadingWorkspace, selectedId, setSearchParams, statusFilter])
 
   useEffect(() => {
     function refreshReviewers() {

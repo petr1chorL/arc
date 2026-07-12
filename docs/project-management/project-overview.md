@@ -1,84 +1,125 @@
-# ARC.ONE 项目说明
+# ARC.ONE 当前项目状态
+
+> 事实快照：2026-07-11
+> 当前产品迭代：V1.0 Lite（`in-progress`）
+> 当前安全切片：P0 运行时安全收口（`ready-for-human`）
+> 当前部署基线：GitHub `master` / Zeabur commit `5a23d6cfbb0b30c1a4cd32fa6f966cbf2975ec6e`
+
+本文是项目级唯一当前事实入口，用于回答“项目是什么、已经做到哪、明确没做到什么、
+现在应该做什么”。发生冲突时，按以下优先级判断：
+
+```text
+当前源码与本轮验证
+> 本文
+> 具体 Acceptance / PRD / Issue
+> docs/CURRENT_IMPLEMENTATION.md 的历史实现记录
+> 路线图与长期蓝图
+```
 
 ## 项目定位
 
-ARC.ONE 是面向企业的 Agentic Workflow 操作系统，用于管理 Agent 资产、工作流编排、结构化产出物、质量评估、人工审核、运行观测与持续优化。
+ARC.ONE 是面向企业的 Agentic Workflow 操作系统，用于管理 Agent 资产、工作流编排、
+结构化产出物、质量评估、人工审核、运行观测与持续优化。
 
-当前项目不是单纯的 Agent 搭建器，也不是只有拖拽画布的原型。它的目标是让企业把 Agent 能力纳入可版本化、可追溯、可审核、可评估的业务工作流。
+当前形态不是单纯的拖拽页面，也不是企业生产平台，而是已经具备真实 API、持久化和
+模型调用边界的 V1.0 Lite 可运行原型。目标是先让一个真实业务团队独立跑通一条闭环，
+再决定下一阶段生产化或外部集成方向。
 
-## 当前阶段
+## 当前可运行基线
 
-当前产品迭代口径是 V1.0 Lite：轻量可运行版。
+- 前端：React 19、TypeScript、Vite、React Router、React Flow。
+- 后端：FastAPI、Pydantic、SQLAlchemy。
+- 数据：本地默认 SQLite，部署可使用 PostgreSQL。
+- AI：OpenAI-compatible ModelGateway；自动化测试使用 FakeGateway。
+- 部署：GitHub Pull Request / CI -> `master` -> Zeabur 同源容器 -> Zeabur PostgreSQL。
+- 公网入口：`https://arc-v1-lite-lindabaoz.zeabur.app/`。
 
-当前 `master` 已归并 `codex/v0.7a-identity-access`，实现基线包含 V0.7A 到 V0.31F 的连续实现与 V1.0 Lite 交付包。分支差异和归并背景见 `docs/project-management/branch-audit.md`。
-
-已经从早期高保真前端原型推进到 React 单页应用 + FastAPI + SQLAlchemy 的可运行原型。Agent、工作流、运行实例、节点运行、产出物版本、Human Task、审核决定、审计事件和反馈数据已经接入本地 API 与默认 SQLite。
-
-V1.0 Lite 不等同于企业生产版 V1.0；后者仍需要正式权限治理、生产迁移、备份恢复、可观测性和部署验证。
-
-## 核心用户
-
-| 用户 | 主要诉求 |
-|---|---|
-| AI 建设者 | 创建 Agent、配置工作流、发布稳定版本 |
-| 工作流设计者 | 编排节点、校验 DAG、设置 Human 节点和质量路由 |
-| 运行观察者 | 查看工作流运行、节点状态、产出物、Token 和成本 |
-| 审核人 | 认领人工任务、查看上下文、提交审核决定 |
-| 质量负责人 | 复盘人工修改、沉淀反馈候选和 Golden Sample |
-| 平台维护者 | 管理契约、权限、审计、测试和版本演进 |
+2026-07-11 已确认公网首页和 `/api/health` 返回 200，`deployment.json` 的 commit 与
+GitHub `master` 完整 SHA 一致。这证明当前提交已上线，不代表高可用、备份恢复、自动
+回滚或正式 SLO 已完成。
 
 ## 能力地图
 
-| 能力域 | 当前状态 | 说明 |
+| 能力域 | 当前判断 | 已实现边界 |
 |---|---|---|
-| Agent 生命周期 | 已实现 | 草稿编辑、不可变版本、历史版本、停用、测试运行 |
-| 工作流生命周期 | 已实现 | 草稿保存、DAG 校验、Agent 版本引用、不可变发布 |
-| 真实 Agent 执行 | 已实现基础闭环 | OpenAI-compatible ModelGateway、FakeGateway 测试、DeepSeek 联调 |
-| 运行中心 | 已实现基础查询 | 持久化 Run、NodeRun、Artifact，前端读取真实 API |
-| 人工协作 | 已实现 V0.6 | Human 节点暂停、认领、会签、SLA、恢复、重跑、终止 |
-| 反馈闭环 | 已实现 V0.6 | 修改后通过生成 FeedbackCandidate，专家确认 Golden Sample |
-| 评估中心 | 局部原型 | Rubric 展示仍以演示数据为主，评价器和回归任务未真实接入 |
-| 身份与权限 | 正在推进 V0.7A | 已有设计和实施计划，当前 tracker 不完整，只有首个 issue 有记录 |
-| Schema / Data Object | 局部推进 | 有字段映射和字段选择器需求，尚未成为完整资产中心 |
-| 可观测性 | 待建设 | 缺少实时推送、Trace、日志查询、运行回放和告警 |
+| 身份与 Workspace | 已实现第一版 | 登录、Session、邀请、成员、固定 RBAC、Reviewer 绑定、Workspace 隔离与审计 |
+| Agent 生命周期 | 已实现 | 草稿、编辑、发布不可变版本、停用、测试运行、Provider 与 Tool/Skill 绑定 |
+| Workflow 生命周期 | 已实现 | DAG 编辑与校验、输入输出 Schema、字段映射、发布快照、运行与历史记录 |
+| Agent Runtime | 已实现基础闭环 | 模型调用、Token/成本字段、脱敏错误、HTTP Tool 调用；Python Package 仅登记 |
+| 执行与队列 | 已实现第一版 | 同步/异步运行、Worker、租约/心跳、重试、死信、取消、重投和操作审计 |
+| Human Review | 已实现 | 暂停、审核资格、认领/会签、通过/驳回、恢复、反馈候选与 Golden Sample |
+| Evaluation | 已实现第一版 | Rubric、确定性/LLM Judge、Evaluation Record、Golden Set、Regression 与 Remediation |
+| Data Object / Artifact | 已实现第一版 | Data Object 版本、Artifact 契约、Schema 状态、目录、详情和运行追溯 |
+| Observability | 已实现查询与追溯 | Run/NodeRun、Trace/Span、执行事件、成本摘要、队列和审计联动；无实时推送 |
+| Tool / Skill | 已实现治理骨架 | Workspace 资产、稳定引用、HTTP allowlist、调用日志；真实 MCP Client 未接入 |
+| Model Provider | 已实现治理骨架 | Provider 资产、环境变量 Secret Ref、HTTPS/Host 白名单、影响面与审计 |
+| Notification | 已实现治理与 Outbox | Outbox、Worker、失败重投、渠道资产和状态治理；外部渠道适配不完整 |
+| 运营总览 | 演示数据 | `src/pages/Dashboard.tsx` 仍读取 `src/data/mock.ts` |
 
-## 架构概览
+## P0 运行时安全边界
 
-```text
-浏览器
-→ React / React Router / React Flow
-→ 平台 HTTP API
-→ FastAPI + SQLAlchemy
-→ SQLite，本地可通过 DATABASE_URL 切换 PostgreSQL
-→ ModelGateway / FakeGateway
-```
+2026-07-10 完成的 P0 安全切片已经：
 
-当前架构仍是单体 API 与单页应用，适合继续验证产品闭环和领域模型。Temporal、LangGraph、独立评估服务、对象存储、向量库和生产级观测系统仍属于后续阶段。
+- 禁止模型 Provider 保存内联 Key，只允许后端环境变量名形式的 Secret Ref。
+- 在最终模型出口执行 HTTPS 与精确 Host 白名单校验。
+- 禁止 Python Package 在 API 进程内动态导入和执行，只保留元数据登记。
+- 在 Workflow 校验和 Runtime 两层阻断跨 Workspace AgentVersion 引用。
+- 清理历史非法 Secret Ref，且不在响应、日志或审计中回显原值。
 
-## 已实现边界
+该切片的工程证据位于 `docs/ACCEPTANCE_P0_RUNTIME_SECURITY.md`，当前仍等待人工审阅，
+并要求轮换任何曾在界面或对话中暴露过的真实模型 Key。
 
-- 数据已经不再全部来自前端 mock；Agent、工作流、运行中心和人工审核已接入真实 API。
-- 评估中心和运营总览仍有演示数据。
-- API Key 只允许保存在本地被忽略的环境文件或环境变量中，不能进入前端、数据库、仓库和响应。
-- 当前 SQLite 迁移是轻量增量迁移，不等同于生产级跨数据库迁移体系。
-- 目前还没有登录、完整 RBAC、企业 SSO、外部通知发送和后台任务队列。
+## 明确未完成
 
-## 项目管理方式
+- 真实业务方尚未按手册独立完成 V1.0 Lite 签收；现有记录是自动技术验收。
+- Dashboard 仍是演示指标，不应作为真实经营数据引用。
+- Python Package 没有隔离执行器、签名验证、资源配额和沙箱。
+- MCP 只有可注入测试骨架，未连接确定的真实 MCP Server。
+- 外部通知渠道尚未形成全面、经过业务验收的真实投递能力。
+- 没有正式 Secret Manager/Vault、密钥轮换 API 或通用网络出口代理。
+- PostgreSQL 正式迁移体系、备份恢复演练、自动回滚和灾难恢复未完成。
+- 没有生产级高可用、正式 SLO、完整实时日志/Trace 基础设施和性能压测结论。
+- 当前仍是单体 API 与单页应用；`main.py`、Evaluations 和 Workflows 页面已形成大型热点。
 
-项目采用两条互补链路：
+## 2026-07-11 验证状态
 
-- Matt Pocock Skills：管理领域语言、PRD、Issue、Triage 和 Handoff。
-- Superpowers：管理设计确认、实施计划、TDD、系统调试和完成验证。
+| 检查 | 本轮结果 | 解释 |
+|---|---|---|
+| GitHub / Zeabur commit 对齐 | 通过 | 公网 `deployment.json` 与 `master` SHA 一致 |
+| Zeabur 首页和健康接口 | 通过 | 首页与 `/api/health` 返回 200 |
+| `npm run lint` | 通过 | 本轮新证据 |
+| `npm run deploy:check` | 通过 | 部署契约检查通过 |
+| 默认前端全量测试 | 43 文件 / 242 项通过 | `npm test -- --run`，12.54 秒；单 worker 模式也通过 |
+| 标准 `npm run build` | 通过 | TypeScript + Vite 正常生成 `dist`；主 JS 716.97 KB，保留大包警告 |
+| 后端全量测试 | 306 项通过 | Python 3.12.13，257 秒；保留依赖层 Starlette/httpx 弃用警告 |
+| Playwright E2E | 2 项通过 | 隔离 SQLite、非生产测试管理员、真实登录；覆盖 Agent 持久化和版本化 Workflow 引用 |
 
-核心文件入口：
+本轮工程验证已经恢复并同轮通过，但这只清除了“无法重复验证”的工程阻断，不等于
+P0 安全人工签收或 V1.0 Lite 业务签收已经完成。
 
-| 信息 | 位置 |
+## 当前优先级
+
+1. **P0：完成人工安全签收。** 轮换可能暴露的模型 Key，人工确认 Secret Ref、出口、
+   Package 禁用和 Workspace 隔离边界。
+2. **P0：完成真实业务试点。** 由业务方独立完成运行、审核、评分、回归和 Trace 查看，
+   逐项勾选 `docs/ACCEPTANCE_V1_LITE.md`。
+3. **P1：处理试点问题。** 关闭 P0/P1 问题，为 P2/P3 指定负责人和后续版本。
+4. **P1：根据试点决定下一主线。** 稳定性不足则优先迁移、备份、队列可靠性和观测；
+   价值不足则选择一个真实数据源或通知渠道，不再按细版本编号惯性扩功能。
+
+## 文档职责
+
+| 信息 | 入口 |
 |---|---|
+| 当前项目事实 | `docs/project-management/project-overview.md` |
 | 领域语言 | `CONTEXT.md` |
-| 当前实现 | `docs/CURRENT_IMPLEMENTATION.md` |
-| 分支事实 | `docs/project-management/branch-audit.md` |
-| 开发流程 | `docs/PROJECT_WORKFLOW.md` |
+| 详细实现与历史版本记录 | `docs/CURRENT_IMPLEMENTATION.md` |
+| 当前源码盘点 | `docs/project-management/source-audit.md` |
+| 版本台账 | `docs/project-management/version-ledger.md` |
+| 当前路线 | `docs/PROJECT_ROADMAP_TO_V1.md` |
 | 长期蓝图 | `docs/PROJECT_MASTER_PLAN.md` |
-| 项目级管理 | `docs/project-management/` |
-| 本地功能 PRD/Issue | `.scratch/<feature>/` |
-| 设计与实施计划 | `docs/superpowers/` |
+| V1 Lite 验收 | `docs/ACCEPTANCE_V1_LITE.md` |
+| 当前功能 PRD / Issue | `.scratch/<feature>/` |
+
+`.scratch/` 默认被 Git 忽略，只适合本地任务管理。任何会影响后续会话、部署、产品边界
+或安全判断的长期结论，都必须同步到受 Git 跟踪的文档、源码或测试中。

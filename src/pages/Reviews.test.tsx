@@ -344,6 +344,20 @@ describe('Reviews', () => {
     expect(screen.getByText('当前筛选无任务')).toBeInTheDocument()
   })
 
+  it('preserves the requested task while the review queue is still loading', async () => {
+    vi.stubGlobal('fetch', vi.fn(pendingTasksFetch))
+
+    renderReviews(
+      'user-reviewer-1',
+      '/w/ai-capability-center/reviews?taskId=task-1&source=sla&taskStatus=待认领&slaStatus=即将到期',
+    )
+
+    await waitFor(() => expect(currentSearchParams().get('slaStatus')).toBeNull())
+    expect(currentSearchParams().get('taskId')).toBe('task-1')
+    expect(currentSearchParams().get('source')).toBe('sla')
+    expect(currentSearchParams().get('taskStatus')).toBe('待审核')
+  })
+
   it('explains URL-provided review context and clears context filters', async () => {
     const user = userEvent.setup()
     vi.stubGlobal('fetch', vi.fn(baseFetch))
@@ -540,7 +554,7 @@ describe('Reviews', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    renderReviews()
+    renderReviews('user-reviewer-1', '/w/ai-capability-center/reviews?taskId=task-1')
 
     await screen.findByText(detail.artifact.content)
     expect(screen.queryByRole('button', { name: '编辑产出物' })).not.toBeInTheDocument()
