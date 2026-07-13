@@ -86,11 +86,17 @@ V1.0 Lite 端到端自动验收测试位于 `apps/api/tests/test_v1_lite_e2e_acc
 Human 下游保持原 Artifact 正文格式。默认 Workflow 新发布为 `v1.3.0`，用于避免已存在的
 `v1.0.0`-`v1.2.0` 不可变快照继续运行旧数据流。
 
+2026-07-13 补充 Agent 最低输出执行契约：ModelGateway 返回空字符串或纯空白内容时，
+Agent Runtime 不再把节点标记为成功，而是消耗一次现有节点尝试次数并重试。尝试耗尽后返回固定、
+脱敏的失败摘要，NodeRun 与 Run 进入失败状态并停止 DAG，不创建空 Artifact 或 Human Review。
+短但非空文本仍按现有质量门禁进入低分人工复核；该契约不判断 JSON Schema、业务语义或
+“输出是否等于输入”。
+
 2026-07-11 已恢复可重复本地验证：`apps/api/.venv` 使用 Python 3.12.13；Playwright
 `globalSetup` 会启动隔离 SQLite、非生产测试管理员、同进程 Uvicorn 和 Vite，并在结束时
 显式清理两棵进程树。浏览器测试经过真实登录，覆盖 Agent 创建后刷新持久化，以及发布
 AgentVersion 后由 WorkflowVersion 稳定引用。该入口用显式测试环境覆盖模型凭证与
-网络出口，不使用 `.env` 中的模型 Key，也不连接默认业务数据库或 Zeabur。最新同轮证据为后端 306 项、默认前端 243 项、Playwright 2 项、
+网络出口，不使用 `.env` 中的模型 Key，也不连接默认业务数据库或 Zeabur。最新同轮证据为后端 309 项、默认前端 243 项、Playwright 2 项、
 lint、标准 build 和部署检查全部通过；这仍不等于真实业务方签收。
 
 V1.0 Lite 默认 Human Task 主链路的新写入状态已改为可读中文，包括 `等待审核`、`待认领`、`审核中`、`已通过`、`修改后通过`、`已驳回` 和 `已退回`。后端仍保留对历史乱码状态值的兼容判断，避免旧数据在观测、SLA 统计和恢复逻辑中失效。
@@ -421,6 +427,8 @@ React Flow 节点/连线
 - 运行已发布 Agent 版本。
 - 展示运行状态、产出、Token、得分和耗时。
 - Agent Runtime 已统一直接测试运行和工作流 Agent 节点的执行协议。
+- ModelGateway 返回空白内容时按节点尝试次数重试；耗尽后以脱敏失败结束，不生成空 Artifact，
+  也不把原始 Run 输入当作 Agent 输出继续传播。
 - Runtime Result 包含输出、错误、模型、Token、成本、评分、尝试次数、耗时和 `tool_calls` 占位。
 - Agent Runtime 会把已发布快照中的 Base URL、温度和最大输出 Tokens 传给 ModelGateway。
 - Tool / Skill 资产库后端支持创建、列表查询、编辑和停用 Workspace 级工具资产。

@@ -8,6 +8,9 @@ from app.model_gateway import ModelGateway
 STATUS_COMPLETED = "\u5df2\u5b8c\u6210"
 STATUS_FAILED = "\u5931\u8d25"
 RUNTIME_FAILURE_MESSAGE = "\u0041gent \u6267\u884c\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5"
+EMPTY_OUTPUT_FAILURE_MESSAGE = (
+    "\u6a21\u578b\u672a\u8fd4\u56de\u6709\u6548\u5185\u5bb9\uff0c\u0041gent \u6267\u884c\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5"
+)
 MODEL_CREDENTIAL_FAILURE_MESSAGE = (
     "\u004cangChain \u8fd0\u884c\u65f6\u7f3a\u5c11\u6a21\u578b\u51ed\u8bc1\uff0c"
     "\u8bf7\u5728\u6a21\u578b\u8d44\u4ea7\u6216\u73af\u5883\u53d8\u91cf\u4e2d\u914d\u7f6e\u540e\u91cd\u8bd5"
@@ -98,6 +101,7 @@ class AgentRuntimeExecutor:
             )
         attempts = 0
         last_error: Exception | None = None
+        last_attempt_was_blank = False
         for attempt in range(1, max_attempts + 1):
             attempts = attempt
             try:
@@ -112,6 +116,11 @@ class AgentRuntimeExecutor:
                     temperature=request.temperature,
                     max_output_tokens=request.max_output_tokens,
                 )
+                if not model_result.content or not model_result.content.strip():
+                    last_error = None
+                    last_attempt_was_blank = True
+                    continue
+                last_attempt_was_blank = False
                 total_tokens = model_result.prompt_tokens + model_result.completion_tokens
                 return AgentRuntimeResult(
                     status=STATUS_COMPLETED,
@@ -132,11 +141,16 @@ class AgentRuntimeExecutor:
                 )
             except Exception as exc:
                 last_error = exc
+                last_attempt_was_blank = False
                 continue
         return AgentRuntimeResult(
             status=STATUS_FAILED,
             output_text="",
-            error=_runtime_error_message(last_error),
+            error=(
+                EMPTY_OUTPUT_FAILURE_MESSAGE
+                if last_attempt_was_blank
+                else _runtime_error_message(last_error)
+            ),
             model="",
             prompt_tokens=0,
             completion_tokens=0,

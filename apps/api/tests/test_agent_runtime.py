@@ -76,6 +76,44 @@ def test_agent_runtime_returns_structured_success_result():
     }]
 
 
+def test_agent_runtime_retries_blank_output_before_returning_success():
+    gateway = FakeGateway([
+        FakeModelResult("   \n"),
+        FakeModelResult("This retry produced a valid non-empty Agent output."),
+    ])
+    runtime = AgentRuntimeExecutor(
+        gateway=gateway,
+        cost_calculator=lambda prompt, completion: 0,
+    )
+
+    result = runtime.execute(runtime_request(), max_attempts=2)
+
+    assert result.status == "已完成"
+    assert result.output_text.startswith("This retry produced")
+    assert result.attempts == 2
+    assert len(gateway.calls) == 2
+
+
+def test_agent_runtime_fails_when_blank_output_exhausts_retries():
+    gateway = FakeGateway([
+        FakeModelResult(""),
+        FakeModelResult(" \t\n"),
+    ])
+    runtime = AgentRuntimeExecutor(
+        gateway=gateway,
+        cost_calculator=lambda prompt, completion: 0,
+    )
+
+    result = runtime.execute(runtime_request(), max_attempts=2)
+
+    assert result.status == "失败"
+    assert result.output_text == ""
+    assert result.error == "模型未返回有效内容，Agent 执行失败，请稍后重试"
+    assert result.score == 0
+    assert result.attempts == 2
+    assert len(gateway.calls) == 2
+
+
 def test_agent_runtime_returns_sanitized_failure_result():
     gateway = FakeGateway([
         RuntimeError("provider-secret-detail"),
