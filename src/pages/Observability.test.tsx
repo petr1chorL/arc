@@ -894,11 +894,13 @@ describe('Observability', () => {
     await user.selectOptions(screen.getByLabelText('风险等级筛选'), 'critical')
     await user.selectOptions(screen.getByLabelText('失败原因筛选'), 'connector_auth_timeout')
 
-    expect(screen.getByLabelText('当前筛选参数')).toHaveTextContent('status=%E5%A4%B1%E8%B4%A5')
-    expect(screen.getByLabelText('当前筛选参数')).toHaveTextContent('workflow=Amazon')
-    expect(screen.getByLabelText('当前筛选参数')).toHaveTextContent('risk=critical')
-    expect(screen.getByLabelText('当前筛选参数')).toHaveTextContent('failure=connector_auth_timeout')
-    expect(screen.getByLabelText('当前筛选参数')).toHaveTextContent('runId=run-failed')
+    await vi.waitFor(() => {
+      expect(screen.getByLabelText('当前筛选参数')).toHaveTextContent('status=%E5%A4%B1%E8%B4%A5')
+      expect(screen.getByLabelText('当前筛选参数')).toHaveTextContent('workflow=Amazon')
+      expect(screen.getByLabelText('当前筛选参数')).toHaveTextContent('risk=critical')
+      expect(screen.getByLabelText('当前筛选参数')).toHaveTextContent('failure=connector_auth_timeout')
+      expect(screen.getByLabelText('当前筛选参数')).toHaveTextContent('runId=run-failed')
+    })
   })
 
   it('shows a clear empty state when no runs exist', async () => {

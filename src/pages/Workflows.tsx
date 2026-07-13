@@ -681,7 +681,9 @@ export function Workflows() {
     resetCanvasHistory()
     setFeedback('')
     setErrors([])
-    void listWorkflowVersions(workspace.id, workflow.id).then(setVersions)
+    void listWorkflowVersions(workspace.id, workflow.id)
+      .then(setVersions)
+      .catch(() => setVersions([]))
   }, [resetCanvasHistory, setEdges, setNodes, workspace.id])
 
   const resetToNewWorkflow = useCallback(() => {
