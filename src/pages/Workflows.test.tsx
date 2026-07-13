@@ -1,4 +1,4 @@
-import { createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { DragEventHandler, ReactNode } from 'react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
@@ -162,6 +162,7 @@ describe('Workflows', () => {
   })
 
   afterEach(() => {
+    cleanup()
     flowMock.screenToFlowPosition.mockReset()
     vi.unstubAllGlobals()
     window.history.pushState({}, '', '/')
