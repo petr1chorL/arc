@@ -427,6 +427,38 @@ def test_workflow_run_retries_and_persists_node_timeline(tmp_path):
         assert artifact_version.data_object_snapshot is None
 
 
+def test_workflow_blank_agent_output_fails_without_downstream_or_review_artifacts(tmp_path):
+    gateway = FakeGateway([
+        FakeModelResult(""),
+        FakeModelResult("   \n"),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'blank-agent-output.db'}",
+        model_gateway=gateway,
+    )
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(client, workspace_id, agent, version)
+
+    response = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "This input must not be reused as an Agent output."},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 201
+    run = response.json()
+    assert run["status"] == "失败"
+    assert run["output"] == ""
+    assert run["error"] == "模型未返回有效内容，Agent 执行失败，请稍后重试"
+    assert [node["nodeId"] for node in run["nodes"]] == ["start", "agent"]
+    assert run["nodes"][1]["status"] == "失败"
+    assert run["nodes"][1]["attempts"] == 2
+    assert run["nodes"][1]["output"] == ""
+    assert client.get(workspace_url(workspace_id, f"/artifacts?runId={run['id']}")).json() == []
+    assert client.get(workspace_url(workspace_id, "/reviews")).json() == []
+    assert len(gateway.calls) == 2
+
+
 def test_workflow_run_records_artifact_for_each_node_output(tmp_path):
     gateway = FakeGateway([
         FakeModelResult("Weather answer: It's always sunny in Shanghai."),
