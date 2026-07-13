@@ -34,7 +34,7 @@ from app.schemas import AgentRead, RubricRead, WorkflowRead
 
 
 AGENT_VERSION = "v1.0.0"
-WORKFLOW_VERSION = "v1.0.0"
+WORKFLOW_VERSION = "v1.3.0"
 RUBRIC_VERSION = "v1.0.0"
 WORKFLOW_NAME = "AI 赋能方案 V1.0 Lite 试点工作流"
 RUBRIC_NAME = "AI 赋能方案 V1.0 Lite Rubric"
@@ -466,6 +466,7 @@ def _workflow_edges() -> list[dict[str, Any]]:
         ("start", "agent-problem-model"),
         ("agent-problem-model", "agent-workflow-design"),
         ("agent-workflow-design", "agent-rubric-design"),
+        ("agent-workflow-design", "human-business-review"),
         ("agent-rubric-design", "human-business-review"),
         ("human-business-review", "agent-revision"),
         ("agent-revision", "evaluation-placeholder"),
@@ -476,6 +477,11 @@ def _workflow_edges() -> list[dict[str, Any]]:
             "id": f"{source}-{target}",
             "source": source,
             "target": target,
+            **(
+                {"data": {"includeReviewContext": True}}
+                if (source, target) == ("human-business-review", "agent-revision")
+                else {}
+            ),
         }
         for source, target in pairs
     ]

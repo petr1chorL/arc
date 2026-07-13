@@ -76,15 +76,21 @@ flowchart LR
 
 Agent、工作流、运行记录、Human Task、审核决定、审计事件和反馈数据通过本机 `/api` 发送到 FastAPI，并保存到默认 SQLite 文件 `apps/api/data/arc_one.db`。刷新页面或重启 API 后会重新读取持久化记录。
 
-V1.0 Lite 已新增试点资产种子入口：`scripts/seed-v1-lite.ps1` 调用 `app.v1_lite_seed`，可在已有管理员账号的 Workspace 中创建或刷新默认试点 Reviewer、4 个 Agent、1 条 Workflow、1 套 Rubric、1 个 Golden Set 和 1 个页面内通知渠道。该脚本会发布 `v1.0.0` Agent / Workflow / Rubric 版本，并且可重复运行，不重复创建同名版本或样本。Workflow 中的 `evaluation` 节点当前作为运行链路透传节点记录 Trace，正式评分证据仍来自评估中心保存的 Evaluation Record。`scripts/bootstrap-v1-lite-admin.ps1` 可初始化本地验收管理员；`start-v1-lite.ps1`、`seed-v1-lite.ps1` 和 `bootstrap-v1-lite-admin.ps1` 均支持 `-EnvFile`，用于 worktree 或自定义数据库场景下安全注入本地 env 配置，不输出或复制密钥。
+V1.0 Lite 已新增试点资产种子入口：`scripts/seed-v1-lite.ps1` 调用 `app.v1_lite_seed`，可在已有管理员账号的 Workspace 中创建或刷新默认试点 Reviewer、4 个 Agent、1 条 Workflow、1 套 Rubric、1 个 Golden Set 和 1 个页面内通知渠道。该脚本会发布 `v1.0.0` Agent / Rubric 版本和 `v1.3.0` Workflow 版本，并且可重复运行，不重复创建同名版本或样本。Workflow 中的 `evaluation` 节点当前作为运行链路透传节点记录 Trace，正式评分证据仍来自评估中心保存的 Evaluation Record。`scripts/bootstrap-v1-lite-admin.ps1` 可初始化本地验收管理员；`start-v1-lite.ps1`、`seed-v1-lite.ps1` 和 `bootstrap-v1-lite-admin.ps1` 均支持 `-EnvFile`，用于 worktree 或自定义数据库场景下安全注入本地 env 配置，不输出或复制密钥。
 
 V1.0 Lite 端到端自动验收测试位于 `apps/api/tests/test_v1_lite_e2e_acceptance.py`。该测试使用 FakeGateway，不访问外部模型服务，覆盖种子资产、Workflow Run、Human Review 认领和通过、下游 Agent 恢复、Rubric Evaluation、Golden Set Regression Run 和 Observability Trace。
+
+2026-07-13 修复真实试点暴露的审核上下文缺失：V1 Lite 默认 Workflow 的 Human 节点现在同时接收
+方案设计与 Rubric；`Human Review -> 审核后修订` 边显式声明 `includeReviewContext`。恢复执行时，
+只有声明该契约的下游会收到包含 `reviewedArtifact`、审核决定和审核理由的结构化输入，其他既有
+Human 下游保持原 Artifact 正文格式。默认 Workflow 新发布为 `v1.3.0`，用于避免已存在的
+`v1.0.0`-`v1.2.0` 不可变快照继续运行旧数据流。
 
 2026-07-11 已恢复可重复本地验证：`apps/api/.venv` 使用 Python 3.12.13；Playwright
 `globalSetup` 会启动隔离 SQLite、非生产测试管理员、同进程 Uvicorn 和 Vite，并在结束时
 显式清理两棵进程树。浏览器测试经过真实登录，覆盖 Agent 创建后刷新持久化，以及发布
 AgentVersion 后由 WorkflowVersion 稳定引用。该入口用显式测试环境覆盖模型凭证与
-网络出口，不使用 `.env` 中的模型 Key，也不连接默认业务数据库或 Zeabur。最新同轮证据为后端 306 项、默认前端 242 项、Playwright 2 项、
+网络出口，不使用 `.env` 中的模型 Key，也不连接默认业务数据库或 Zeabur。最新同轮证据为后端 306 项、默认前端 243 项、Playwright 2 项、
 lint、标准 build 和部署检查全部通过；这仍不等于真实业务方签收。
 
 V1.0 Lite 默认 Human Task 主链路的新写入状态已改为可读中文，包括 `等待审核`、`待认领`、`审核中`、`已通过`、`修改后通过`、`已驳回` 和 `已退回`。后端仍保留对历史乱码状态值的兼容判断，避免旧数据在观测、SLA 统计和恢复逻辑中失效。
