@@ -11,7 +11,7 @@
 .\scripts\seed-v1-lite.ps1
 ```
 
-脚本会创建或更新 4 个 Agent、1 条 Workflow、1 个 Reviewer、1 套 Rubric、1 个 Golden Set 和 1 个页面内通知渠道，并发布 `v1.0.0` 版本。脚本可重复运行，不会重复创建同名版本和样本。
+脚本会创建或更新 4 个 Agent、1 条 Workflow、1 个 Reviewer、1 套 Rubric、1 个 Golden Set 和 1 个页面内通知渠道。Agent 与 Rubric 默认发布为 `v1.0.0`，Workflow 默认发布为包含完整审核上下文的 `v1.3.0`。脚本可重复运行，不会重复创建同名版本和样本。
 
 这份文档仍保留为人工复核和后续调整模板。构建者如果需要手工改 Prompt、节点或 Rubric，应在 ARC.ONE 页面中修改草稿、重新发布不可变版本，并把版本号记录到 `docs/V1_LITE_E2E_ACCEPTANCE.md`。
 

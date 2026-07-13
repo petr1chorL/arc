@@ -1106,12 +1106,33 @@ class WorkflowResumeService:
             ))
             self.execution_service.finish_run(session, run, existing, perf_counter())
             return
+        next_node_id = ordered_ids[human_index + 1]
+        include_review_context = any(
+            edge.get("source") == task.human_node_id
+            and edge.get("target") == next_node_id
+            and (edge.get("data") or {}).get("includeReviewContext") is True
+            for edge in snapshot["edges"]
+        )
+        resume_input = artifact_version.content
+        if include_review_context:
+            resume_input = json.dumps(
+                {
+                    "reviewedArtifact": artifact_version.content,
+                    "reviewDecision": {
+                        "decision": decision.decision,
+                        "reason": decision.reason,
+                    },
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
         self.execution_service.execute_workflow_from(
             session=session,
             run=run,
             snapshot=snapshot,
-            start_node_id=ordered_ids[human_index + 1],
-            seed_outputs={task.human_node_id: artifact_version.content},
+            start_node_id=next_node_id,
+            seed_outputs={task.human_node_id: resume_input},
         )
         if run.status == "失败":
             raise RuntimeError("下游节点恢复执行失败")

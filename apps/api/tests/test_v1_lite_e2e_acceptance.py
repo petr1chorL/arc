@@ -96,6 +96,12 @@ def test_v1_lite_seeded_assets_run_review_evaluate_regress_and_trace(tmp_path):
     task = tasks[0]
     assert task["workflowRunId"] == paused_run["id"]
     assert task["participantSnapshot"] == [seeded["reviewer"]["id"]]
+    task_detail = client.get(
+        workspace_url(workspace_id, f"/human-tasks/{task['id']}"),
+    ).json()
+    reviewed_artifact = task_detail["artifact"]["content"]
+    assert "workflowDesign" in reviewed_artifact
+    assert "rubric" in reviewed_artifact
 
     claimed = client.post(
         workspace_url(workspace_id, f"/human-tasks/{task['id']}/claim"),
@@ -119,6 +125,12 @@ def test_v1_lite_seeded_assets_run_review_evaluate_regress_and_trace(tmp_path):
     assert decided.status_code == 200
     assert decided.json()["status"] == "已通过"
     assert len(gateway.calls) == 4
+    revision_input = json.loads(gateway.calls[3]["user_input"])
+    assert revision_input["reviewedArtifact"] == reviewed_artifact
+    assert revision_input["reviewDecision"] == {
+        "decision": "approve",
+        "reason": "V1 Lite 自动验收：方案可以进入评估与观测验证。",
+    }
 
     completed_run = client.get(
         workspace_url(workspace_id, f"/runs/{paused_run['id']}"),

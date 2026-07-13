@@ -84,6 +84,7 @@ def test_v1_lite_seed_creates_published_pilot_assets(tmp_path):
         assert {agent["version"] for agent in result["agents"]} == {AGENT_VERSION}
         assert result["workflow"]["name"] == WORKFLOW_NAME
         assert result["workflow"]["version"] == WORKFLOW_VERSION
+        assert WORKFLOW_VERSION == "v1.3.0"
         assert result["rubric"]["name"] == RUBRIC_NAME
         assert result["rubric"]["version"] == RUBRIC_VERSION
         assert result["sampleSet"]["name"] == SAMPLE_SET_NAME
@@ -110,6 +111,19 @@ def test_v1_lite_seed_creates_published_pilot_assets(tmp_path):
             "end",
         ]
         assert validate_workflow(workflow.nodes, workflow.edges, session, workspace_id) == []
+        review_edge = next(
+            edge for edge in workflow.edges
+            if (
+                edge["source"] == "human-business-review"
+                and edge["target"] == "agent-revision"
+            )
+        )
+        assert review_edge["data"]["includeReviewContext"] is True
+        assert any(
+            edge["source"] == "agent-workflow-design"
+            and edge["target"] == "human-business-review"
+            for edge in workflow.edges
+        )
 
         assert count_records(session, AgentRecord, AgentRecord.workspace_id == workspace_id) == 4
         assert count_records(session, AgentVersionRecord, AgentVersionRecord.workspace_id == workspace_id) == 4
