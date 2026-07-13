@@ -894,7 +894,11 @@ describe('Observability', () => {
     await user.selectOptions(screen.getByLabelText('风险等级筛选'), 'critical')
     await user.selectOptions(screen.getByLabelText('失败原因筛选'), 'connector_auth_timeout')
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
+      expect(screen.getByLabelText('运行状态筛选')).toHaveValue('失败')
+      expect(screen.getByLabelText('工作流名称筛选')).toHaveValue('Amazon')
+      expect(screen.getByLabelText('风险等级筛选')).toHaveValue('critical')
+      expect(screen.getByLabelText('失败原因筛选')).toHaveValue('connector_auth_timeout')
       expect(screen.getByLabelText('当前筛选参数')).toHaveTextContent('status=%E5%A4%B1%E8%B4%A5')
       expect(screen.getByLabelText('当前筛选参数')).toHaveTextContent('workflow=Amazon')
       expect(screen.getByLabelText('当前筛选参数')).toHaveTextContent('risk=critical')

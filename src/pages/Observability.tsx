@@ -12,7 +12,7 @@ import {
   TimerReset,
   UserRound,
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { cancelExecutionJob, getExecutionJob, listExecutionJobs, requeueExecutionJob } from '../api/execution'
@@ -207,6 +207,8 @@ const executionJobStatusOptions = [
 export function Observability() {
   const { workspace, workspacePath } = useWorkspace()
   const [searchParams, setSearchParams] = useSearchParams()
+  const searchParamsRef = useRef(new URLSearchParams(searchParams))
+  searchParamsRef.current = new URLSearchParams(searchParams)
   const [overview, setOverview] = useState<ObservabilityOverview | null>(null)
   const [selectedRunId, setSelectedRunId] = useState('')
   const [detail, setDetail] = useState<ObservabilityRunDetail | null>(null)
@@ -243,22 +245,21 @@ export function Observability() {
   const requestedNodeRunId = searchParams.get('nodeRunId') || ''
 
   const writeSearchParams = useCallback((updates: Record<string, string>) => {
-    setSearchParams((current) => {
-      const next = new URLSearchParams(current)
-      Object.entries(updates).forEach(([key, value]) => {
-        if (
-          !value
-          || (key === 'status' && value === '全部')
-          || (key === 'risk' && value === 'all')
-          || (key === 'failure' && value === 'all')
-        ) {
-          next.delete(key)
-        } else {
-          next.set(key, value)
-        }
-      })
-      return next
-    }, { replace: true })
+    const next = new URLSearchParams(searchParamsRef.current)
+    Object.entries(updates).forEach(([key, value]) => {
+      if (
+        !value
+        || (key === 'status' && value === '全部')
+        || (key === 'risk' && value === 'all')
+        || (key === 'failure' && value === 'all')
+      ) {
+        next.delete(key)
+      } else {
+        next.set(key, value)
+      }
+    })
+    searchParamsRef.current = next
+    setSearchParams(next, { replace: true })
   }, [setSearchParams])
 
   const candidateRuns = useMemo(() => {
