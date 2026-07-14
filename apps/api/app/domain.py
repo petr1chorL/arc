@@ -7,9 +7,13 @@ from app.models import (
     AgentVersionRecord,
     DataObjectDefinitionRecord,
     DataObjectVersionRecord,
+    ModelProviderRecord,
     ReviewGroupMemberRecord,
     ReviewGroupRecord,
+    RubricRecord,
+    RubricVersionRecord,
 )
+from app.runtime_security import is_valid_model_secret_ref
 
 
 def next_version(existing_count: int) -> str:
@@ -67,6 +71,7 @@ def validate_workflow(
             errors.append(f"节点 {source} 不允许自环")
         adjacency[source].append(target)
         indegree[target] += 1
+    incoming_edge_counts = indegree.copy()
 
     queue = deque(node_id for node_id, degree in indegree.items() if degree == 0)
     visited = 0
@@ -123,6 +128,131 @@ def validate_workflow(
     for node in nodes:
         validate_data_object_ref(node, "inputDataObjectRef", "输入")
         validate_data_object_ref(node, "outputDataObjectRef", "输出")
+        if node["type"] == "evaluation":
+            node_id = node["id"]
+            if incoming_edge_counts.get(node_id, 0) != 1:
+                errors.append(f"评估节点 {node_id} 必须恰好有 1 条入边")
+
+            data = node.get("data")
+            rubric_ref = data.get("rubricRef") if isinstance(data, dict) else None
+            required_ref_fields = ("rubricId", "versionId", "version", "name")
+            if not isinstance(rubric_ref, dict) or any(
+                not isinstance(rubric_ref.get(field), str)
+                or not rubric_ref[field].strip()
+                for field in required_ref_fields
+            ):
+                errors.append(f"评估节点 {node_id} 必须选择已发布评估模板版本")
+                continue
+
+            rubric_id = rubric_ref["rubricId"].strip()
+            version_id = rubric_ref["versionId"].strip()
+            version = rubric_ref["version"].strip()
+            rubric = session.scalar(
+                select(RubricRecord).where(
+                    RubricRecord.id == rubric_id,
+                    RubricRecord.workspace_id == workspace_id,
+                ),
+            )
+            if rubric is None:
+                errors.append(f"评估节点 {node_id} 的评分模板版本不存在")
+                continue
+            if rubric.status != "active":
+                errors.append(f"评估节点 {node_id} 的评分模板不可用")
+                continue
+
+            rubric_version = session.scalar(
+                select(RubricVersionRecord).where(
+                    RubricVersionRecord.id == version_id,
+                    RubricVersionRecord.workspace_id == workspace_id,
+                    RubricVersionRecord.rubric_id == rubric_id,
+                    RubricVersionRecord.version == version,
+                ),
+            )
+            if rubric_version is None:
+                errors.append(f"评估节点 {node_id} 的评分模板版本不存在")
+                continue
+
+            snapshot = rubric_version.snapshot
+            judge_type = None
+            judge_model = None
+            provider_id = None
+            dimensions = None
+            if isinstance(snapshot, dict):
+                judge_type = snapshot.get("judgeType", snapshot.get("judge_type"))
+                judge_model = snapshot.get("judgeModel", snapshot.get("judge_model"))
+                provider_id = snapshot.get(
+                    "modelProviderId",
+                    snapshot.get("model_provider_id"),
+                )
+                dimensions = snapshot.get("dimensions")
+
+            dimension_ids: set[str] = set()
+            dimension_names: set[str] = set()
+            total_weight = 0
+            dimensions_valid = isinstance(dimensions, list) and bool(dimensions)
+            if dimensions_valid:
+                for dimension in dimensions:
+                    if not isinstance(dimension, dict):
+                        dimensions_valid = False
+                        break
+                    dimension_id = str(dimension.get("id") or "").strip()
+                    dimension_name = str(dimension.get("name") or "").strip()
+                    criteria = str(dimension.get("criteria") or "").strip()
+                    weight = dimension.get("weight")
+                    normalized_id = dimension_id.casefold()
+                    normalized_name = dimension_name.casefold()
+                    if (
+                        not dimension_id
+                        or not dimension_name
+                        or not criteria
+                        or normalized_id in dimension_ids
+                        or normalized_name in dimension_names
+                        or isinstance(weight, bool)
+                        or not isinstance(weight, int)
+                        or not 1 <= weight <= 100
+                    ):
+                        dimensions_valid = False
+                        break
+                    dimension_ids.add(normalized_id)
+                    dimension_names.add(normalized_name)
+                    total_weight += weight
+                dimensions_valid = dimensions_valid and total_weight == 100
+
+            if (
+                judge_type != "llm"
+                or not isinstance(judge_model, str)
+                or not judge_model.strip()
+                or not isinstance(provider_id, str)
+                or not provider_id.strip()
+                or not dimensions_valid
+            ):
+                errors.append(
+                    f"评估节点 {node_id} 的评分模板版本不兼容工作流评估"
+                )
+                continue
+
+            provider = session.scalar(
+                select(ModelProviderRecord).where(
+                    ModelProviderRecord.id == provider_id.strip(),
+                    ModelProviderRecord.workspace_id == workspace_id,
+                ),
+            )
+            if provider is None or provider.status == "disabled":
+                errors.append(f"评估节点 {node_id} 的模型 Provider 不可用")
+                continue
+            required_provider_values = (
+                provider.provider_type,
+                provider.base_url,
+                provider.default_model,
+                provider.secret_ref,
+            )
+            if any(
+                not isinstance(value, str) or not value.strip()
+                for value in required_provider_values
+            ) or not is_valid_model_secret_ref(provider.secret_ref.strip()):
+                errors.append(f"评估节点 {node_id} 的模型 Provider 配置不完整")
+            continue
+
         if node["type"] == "agent":
             agent_id = node["data"].get("agentId")
             agent_version = node["data"].get("agentVersion")

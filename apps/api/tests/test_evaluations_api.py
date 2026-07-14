@@ -1,16 +1,20 @@
 from api_test_support import create_authenticated_client, csrf_headers, workspace_url
+from app.evaluation_service import EvaluationService
 from app.judge_gateway import JudgeGatewayResult
 from app.models import EvaluationRecord
 
 
 class FakeJudgeGateway:
-    def __init__(self, results: list[JudgeGatewayResult]):
+    def __init__(self, results: list[JudgeGatewayResult | RuntimeError]):
         self.results = results
         self.calls: list[dict] = []
 
     def evaluate(self, **request) -> JudgeGatewayResult:
         self.calls.append(request)
-        return self.results.pop(0)
+        result = self.results.pop(0)
+        if isinstance(result, RuntimeError):
+            raise result
+        return result
 
 
 def test_regression_sample_sets_can_be_created_and_listed(tmp_path):
@@ -872,11 +876,17 @@ def test_llm_judge_rubric_evaluation_records_model_and_input_snapshot(tmp_path):
     gateway = FakeJudgeGateway([
         JudgeGatewayResult(
             dimension_scores=[
-                {"name": "Evidence", "weight": 60, "score": 91},
-                {"name": "Actionability", "weight": 40, "score": 83},
+                {
+                    "dimensionId": "evidence",
+                    "score": 91,
+                    "reason": "The plan cites concrete customer evidence.",
+                },
+                {
+                    "dimensionId": "actionability",
+                    "score": 83,
+                    "reason": "The plan names owners and executable next actions.",
+                },
             ],
-            score=88,
-            status="passed",
             rationale="llm judge: evidence is strong and actions are clear.",
             model="deepseek-v4-pro",
             input_snapshot={
@@ -889,19 +899,36 @@ def test_llm_judge_rubric_evaluation_records_model_and_input_snapshot(tmp_path):
         f"sqlite:///{tmp_path / 'llm-judge.db'}",
         judge_gateway=gateway,
     )
+    assert isinstance(client.app.state.evaluation_service, EvaluationService)
+    assert (
+        client.app.state.execution_service.evaluation_service
+        is client.app.state.evaluation_service
+    )
+    provider = _create_model_provider(client, workspace_id, "LLM Judge Provider")
     rubric = client.post(
         workspace_url(workspace_id, "/evaluations/rubrics"),
         json={
             "name": "LLM Judge Rubric",
             "artifact": "Launch plan",
             "dimensions": [
-                {"name": "Evidence", "weight": 60},
-                {"name": "Actionability", "weight": 40},
+                {
+                    "id": "evidence",
+                    "name": "Evidence",
+                    "weight": 60,
+                    "criteria": "Cite concrete evidence for important claims.",
+                },
+                {
+                    "id": "actionability",
+                    "name": "Actionability",
+                    "weight": 40,
+                    "criteria": "Name owners and executable next actions.",
+                },
             ],
             "gate": "Must include evidence and next actions",
             "passScore": 80,
             "judgeType": "llm",
             "judgeModel": "deepseek-v4-pro",
+            "modelProviderId": provider["id"],
         },
         headers=csrf_headers(client),
     ).json()
@@ -930,12 +957,75 @@ def test_llm_judge_rubric_evaluation_records_model_and_input_snapshot(tmp_path):
     assert record["evaluatorInput"]["artifactText"] == (
         "Evidence-backed plan with owner and next action."
     )
+    assert record["evaluatorInput"]["modelProviderId"] == provider["id"]
+    assert record["evaluatorInput"]["modelProviderName"] == "LLM Judge Provider"
     assert record["dimensionScores"] == [
-        {"name": "Evidence", "weight": 60, "score": 91},
-        {"name": "Actionability", "weight": 40, "score": 83},
+        {
+            "dimensionId": "evidence",
+            "name": "Evidence",
+            "weight": 60,
+            "score": 91,
+            "weightedScore": 54.6,
+            "reason": "The plan cites concrete customer evidence.",
+        },
+        {
+            "dimensionId": "actionability",
+            "name": "Actionability",
+            "weight": 40,
+            "score": 83,
+            "weightedScore": 33.2,
+            "reason": "The plan names owners and executable next actions.",
+        },
     ]
-    assert gateway.calls[0]["rubric_snapshot"]["judgeType"] == "llm"
+    assert gateway.calls[0]["rubric_snapshot"]["judge_type"] == "llm"
     assert gateway.calls[0]["rubric_version"] == published["version"]
+    assert gateway.calls[0]["model_provider_id"] == provider["id"]
+    assert gateway.calls[0]["model_base_url"] == "https://api.deepseek.com"
+
+
+def test_evaluation_http_errors_are_mapped_and_judge_details_are_redacted(tmp_path):
+    raw_error = "provider failed with DEEPSEEK_API_KEY=sk-sensitive-value"
+    gateway = FakeJudgeGateway([RuntimeError(raw_error)])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'evaluation-http-errors.db'}",
+        judge_gateway=gateway,
+    )
+
+    missing = client.post(
+        workspace_url(workspace_id, "/evaluations/rubrics/missing/evaluate"),
+        json={"artifactText": "Artifact", "subjectType": "manual"},
+        headers=csrf_headers(client),
+    )
+    assert missing.status_code == 404
+
+    provider = _create_model_provider(client, workspace_id, "Error Mapping Provider")
+    rubric = client.post(
+        workspace_url(workspace_id, "/evaluations/rubrics"),
+        json=_llm_rubric_body("Error Mapping Rubric", provider["id"]),
+        headers=csrf_headers(client),
+    ).json()
+    unavailable = client.post(
+        workspace_url(workspace_id, f"/evaluations/rubrics/{rubric['id']}/evaluate"),
+        json={"artifactText": "Artifact", "subjectType": "manual"},
+        headers=csrf_headers(client),
+    )
+    assert unavailable.status_code == 409
+
+    published = client.post(
+        workspace_url(workspace_id, f"/evaluations/rubrics/{rubric['id']}/publish"),
+        headers=csrf_headers(client),
+    )
+    assert published.status_code == 201
+    failed = client.post(
+        workspace_url(workspace_id, f"/evaluations/rubrics/{rubric['id']}/evaluate"),
+        json={"artifactText": "Artifact", "subjectType": "manual"},
+        headers=csrf_headers(client),
+    )
+
+    assert failed.status_code == 422
+    assert failed.json()["detail"] == "\u8bc4\u4f30\u6a21\u578b\u8c03\u7528\u5931\u8d25"
+    assert "DEEPSEEK_API_KEY" not in failed.text
+    assert "sk-sensitive-value" not in failed.text
 
 
 def test_draft_or_disabled_rubric_cannot_run_evaluation(tmp_path):
@@ -972,3 +1062,281 @@ def test_draft_or_disabled_rubric_cannot_run_evaluation(tmp_path):
     )
 
     assert disabled_response.status_code == 409
+
+
+def _create_model_provider(client, workspace_id: str, name: str) -> dict:
+    response = client.post(
+        workspace_url(workspace_id, "/model-providers"),
+        json={
+            "name": name,
+            "providerType": "openai-compatible",
+            "baseUrl": "https://api.deepseek.com",
+            "defaultModel": "deepseek-v4-pro",
+            "secretRef": "DEEPSEEK_API_KEY",
+        },
+        headers=csrf_headers(client),
+    )
+    assert response.status_code == 201
+    return response.json()
+
+
+def _llm_rubric_body(name: str, provider_id: str) -> dict:
+    return {
+        "name": name,
+        "artifact": "Launch plan",
+        "dimensions": [
+            {
+                "id": "evidence",
+                "name": "Evidence",
+                "weight": 60,
+                "criteria": "Cite concrete evidence for important claims.",
+            },
+            {
+                "id": "actionability",
+                "name": "Actionability",
+                "weight": 40,
+                "criteria": "Name owners and executable next actions.",
+            },
+        ],
+        "gate": "Must include evidence and next actions",
+        "passScore": 80,
+        "judgeType": "llm",
+        "judgeModel": "deepseek-v4-pro",
+        "modelProviderId": provider_id,
+    }
+
+
+def test_llm_regression_reuses_one_plan_and_rolls_back_on_sample_failure(
+    tmp_path,
+    monkeypatch,
+):
+    valid_result = JudgeGatewayResult(
+        dimension_scores=[
+            {
+                "dimensionId": "evidence",
+                "score": 90,
+                "reason": "The first sample includes evidence.",
+            },
+            {
+                "dimensionId": "actionability",
+                "score": 80,
+                "reason": "The first sample includes executable actions.",
+            },
+        ],
+        rationale="The first sample is sufficiently grounded.",
+        model="deepseek-v4-pro",
+        input_snapshot={"judgePromptVersion": "llm-judge-explainable-v1"},
+    )
+    gateway = FakeJudgeGateway([
+        valid_result,
+        RuntimeError("secretRef=DEEPSEEK_API_KEY; key=sk-regression-secret"),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'llm-regression-service.db'}",
+        judge_gateway=gateway,
+    )
+    provider = _create_model_provider(client, workspace_id, "Regression Provider")
+    rubric = client.post(
+        workspace_url(workspace_id, "/evaluations/rubrics"),
+        json=_llm_rubric_body("Regression Service Rubric", provider["id"]),
+        headers=csrf_headers(client),
+    ).json()
+    published = client.post(
+        workspace_url(workspace_id, f"/evaluations/rubrics/{rubric['id']}/publish"),
+        headers=csrf_headers(client),
+    )
+    assert published.status_code == 201
+
+    service = client.app.state.evaluation_service
+    original_prepare = service.prepare_active
+    original_evaluate = service.evaluate
+    prepared_plans = []
+    evaluated_plans = []
+
+    def track_prepare(*args, **kwargs):
+        plan = original_prepare(*args, **kwargs)
+        prepared_plans.append(plan)
+        return plan
+
+    def track_evaluate(*args, **kwargs):
+        evaluated_plans.append(kwargs["plan"])
+        return original_evaluate(*args, **kwargs)
+
+    monkeypatch.setattr(service, "prepare_active", track_prepare)
+    monkeypatch.setattr(service, "evaluate", track_evaluate)
+
+    failed = client.post(
+        workspace_url(workspace_id, "/evaluations/regression-runs"),
+        json={
+            "rubricId": rubric["id"],
+            "samples": [
+                {"sampleId": "sample-1", "input": "Evidence and next actions."},
+                {"sampleId": "sample-2", "input": "Second sample."},
+            ],
+        },
+        headers=csrf_headers(client),
+    )
+
+    assert failed.status_code == 422
+    assert failed.json()["detail"] == "\u8bc4\u4f30\u6a21\u578b\u8c03\u7528\u5931\u8d25"
+    assert "DEEPSEEK_API_KEY" not in failed.text
+    assert "sk-regression-secret" not in failed.text
+    assert len(prepared_plans) == 1
+    assert len(evaluated_plans) == 2
+    assert all(plan is prepared_plans[0] for plan in evaluated_plans)
+    assert client.get(workspace_url(workspace_id, "/evaluations/records")).json() == []
+    assert client.get(workspace_url(workspace_id, "/evaluations/regression-runs")).json() == []
+
+
+def test_rubric_create_generates_stable_dimension_ids_and_persists_criteria(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'rubric-dimension-contract.db'}",
+    )
+    body = {
+        "name": "Stable Dimension Rubric",
+        "artifact": "Launch plan",
+        "dimensions": [
+            {
+                "name": "Evidence",
+                "weight": 60,
+                "criteria": "Cite concrete evidence for important claims.",
+            },
+            {
+                "name": "Actionability",
+                "weight": 40,
+                "criteria": "Name owners and executable next actions.",
+            },
+        ],
+        "gate": "Must include evidence and next actions",
+        "passScore": 80,
+    }
+
+    created_response = client.post(
+        workspace_url(workspace_id, "/evaluations/rubrics"),
+        json=body,
+        headers=csrf_headers(client),
+    )
+
+    assert created_response.status_code == 201
+    created = created_response.json()
+    dimension_ids = [dimension["id"] for dimension in created["dimensions"]]
+    assert len(set(dimension_ids)) == 2
+    assert all(dimension_ids)
+    assert [dimension["criteria"] for dimension in created["dimensions"]] == [
+        "Cite concrete evidence for important claims.",
+        "Name owners and executable next actions.",
+    ]
+
+    updated_dimensions = [
+        {
+            **dimension,
+            "name": "Source Evidence" if index == 0 else dimension["name"],
+        }
+        for index, dimension in enumerate(created["dimensions"])
+    ]
+    updated_response = client.patch(
+        workspace_url(workspace_id, f"/evaluations/rubrics/{created['id']}"),
+        json={**body, "dimensions": updated_dimensions},
+        headers=csrf_headers(client),
+    )
+
+    assert updated_response.status_code == 200
+    assert [dimension["id"] for dimension in updated_response.json()["dimensions"]] == dimension_ids
+    assert updated_response.json()["dimensions"][0]["name"] == "Source Evidence"
+
+
+def test_rubric_validation_rejects_duplicate_dimension_ids_and_names(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'rubric-dimension-uniqueness.db'}",
+    )
+    base = {
+        "artifact": "Launch plan",
+        "gate": "Must include evidence and next actions",
+        "passScore": 80,
+    }
+    duplicate_id = client.post(
+        workspace_url(workspace_id, "/evaluations/rubrics"),
+        json={
+            **base,
+            "name": "Duplicate Dimension ID Rubric",
+            "dimensions": [
+                {"id": "same-id", "name": "Evidence", "weight": 50, "criteria": "Evidence."},
+                {"id": "same-id", "name": "Actionability", "weight": 50, "criteria": "Actions."},
+            ],
+        },
+        headers=csrf_headers(client),
+    )
+    duplicate_name = client.post(
+        workspace_url(workspace_id, "/evaluations/rubrics"),
+        json={
+            **base,
+            "name": "Duplicate Dimension Name Rubric",
+            "dimensions": [
+                {"id": "evidence-a", "name": "Evidence", "weight": 50, "criteria": "Evidence A."},
+                {"id": "evidence-b", "name": " evidence ", "weight": 50, "criteria": "Evidence B."},
+            ],
+        },
+        headers=csrf_headers(client),
+    )
+
+    assert duplicate_id.status_code == 422
+    assert "维度 ID 必须唯一" in duplicate_id.text
+    assert duplicate_name.status_code == 422
+    assert "维度名称必须唯一" in duplicate_name.text
+
+
+def test_llm_rubric_publish_requires_usable_same_workspace_model_provider(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'rubric-provider-contract.db'}",
+    )
+    provider = _create_model_provider(client, workspace_id, "Rubric Provider")
+    created_response = client.post(
+        workspace_url(workspace_id, "/evaluations/rubrics"),
+        json=_llm_rubric_body("Provider-bound Rubric", provider["id"]),
+        headers=csrf_headers(client),
+    )
+    assert created_response.status_code == 201
+    rubric = created_response.json()
+    published = client.post(
+        workspace_url(workspace_id, f"/evaluations/rubrics/{rubric['id']}/publish"),
+        headers=csrf_headers(client),
+    )
+    assert published.status_code == 201
+    assert published.json()["snapshot"]["modelProviderId"] == provider["id"]
+
+    disabled_provider = _create_model_provider(client, workspace_id, "Disabled Rubric Provider")
+    disabled_rubric_response = client.post(
+        workspace_url(workspace_id, "/evaluations/rubrics"),
+        json=_llm_rubric_body("Disabled Provider Rubric", disabled_provider["id"]),
+        headers=csrf_headers(client),
+    )
+    assert disabled_rubric_response.status_code == 201
+    client.post(
+        workspace_url(workspace_id, f"/model-providers/{disabled_provider['id']}/deactivate"),
+        headers=csrf_headers(client),
+    )
+    disabled_publish = client.post(
+        workspace_url(
+            workspace_id,
+            f"/evaluations/rubrics/{disabled_rubric_response.json()['id']}/publish",
+        ),
+        headers=csrf_headers(client),
+    )
+    assert disabled_publish.status_code == 422
+
+    other_workspace = client.post(
+        "/api/workspaces",
+        json={"slug": "other-rubric-provider", "name": "Other Rubric Provider"},
+        headers=csrf_headers(client),
+    ).json()
+    foreign_provider = _create_model_provider(
+        client,
+        other_workspace["id"],
+        "Foreign Rubric Provider",
+    )
+    cross_workspace_create = client.post(
+        workspace_url(workspace_id, "/evaluations/rubrics"),
+        json=_llm_rubric_body("Cross-workspace Provider Rubric", foreign_provider["id"]),
+        headers=csrf_headers(client),
+    )
+    assert cross_workspace_create.status_code == 422

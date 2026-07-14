@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.agent_runtime import AgentRuntimeExecutor, AgentRuntimeRequest, quality_score
 from app.config import Settings
 from app.domain import topological_order
+from app.evaluation_service import EvaluationError, EvaluationService
 from app.human_tasks import HumanTaskService
 from app.model_gateway import ModelGateway
 from app.models import (
@@ -124,11 +125,13 @@ class ExecutionService:
         gateway: ModelGateway,
         settings: Settings,
         human_task_service: HumanTaskService,
+        evaluation_service: EvaluationService,
         tool_runtime: ToolRuntimeExecutor | None = None,
     ):
         self.gateway = gateway
         self.settings = settings
         self.human_task_service = human_task_service
+        self.evaluation_service = evaluation_service
         self.tool_runtime = tool_runtime or ToolRuntimeExecutor(
             http_gateway=DisabledHttpToolGateway(),
         )
@@ -143,6 +146,115 @@ class ExecutionService:
             + completion_tokens * self.settings.model_output_usd_per_million_tokens / 1_000_000,
             8,
         )
+
+    def execute_evaluation(
+        self,
+        *,
+        session: Session,
+        run: WorkflowRunRecord,
+        node_id: str,
+        node_name: str,
+        rubric_ref: dict,
+        source_node_run: NodeRunRecord | None,
+    ) -> NodeRunRecord:
+        started = perf_counter()
+        node_run = NodeRunRecord(
+            workspace_id=run.workspace_id,
+            run_id=run.id,
+            node_id=node_id,
+            node_type="evaluation",
+            node_name=node_name,
+            input_text=source_node_run.output_text if source_node_run is not None else "",
+            started_at=utc_now(),
+        )
+        session.add(node_run)
+        session.flush()
+        try:
+            if source_node_run is None:
+                raise EvaluationError(
+                    kind="invalid",
+                    code="evaluation_source_invalid",
+                    message="评估节点必须恰好有 1 个已完成上游节点",
+                )
+            rubric_id = str(rubric_ref.get("rubricId") or "").strip()
+            rubric_version_id = str(rubric_ref.get("versionId") or "").strip()
+            if not rubric_id or not rubric_version_id:
+                raise EvaluationError(
+                    kind="invalid",
+                    code="rubric_ref_invalid",
+                    message="评估节点缺少已发布模板版本引用",
+                )
+            plan = self.evaluation_service.prepare_pinned(
+                session,
+                workspace_id=str(run.workspace_id or ""),
+                rubric_id=rubric_id,
+                rubric_version_id=rubric_version_id,
+            )
+            result = self.evaluation_service.evaluate(
+                session,
+                plan=plan,
+                artifact_text=source_node_run.output_text,
+                subject_type="node_run",
+                subject_id=source_node_run.id,
+                created_by="system",
+            )
+            record = result.record
+            dimensions = [
+                {
+                    "dimensionId": item.get("dimensionId"),
+                    "dimensionName": item["name"],
+                    "score": item["score"],
+                    "weight": item["weight"],
+                    "weightedScore": item.get(
+                        "weightedScore",
+                        round(item["score"] * item["weight"] / 100, 2),
+                    ),
+                    "reason": item.get("reason", ""),
+                }
+                for item in record.dimension_scores
+            ]
+            node_run.output_text = json.dumps(
+                {
+                    "evaluationRecordId": record.id,
+                    "templateId": record.rubric_id,
+                    "templateVersion": record.rubric_version,
+                    "modelProviderId": result.provider_id,
+                    "modelProviderName": result.provider_name,
+                    "model": result.model,
+                    "totalScore": record.score,
+                    "passed": record.status == "passed",
+                    "overallReason": record.rationale,
+                    "dimensions": dimensions,
+                },
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            node_run.model = result.model
+            node_run.prompt_tokens = result.prompt_tokens
+            node_run.completion_tokens = result.completion_tokens
+            node_run.total_tokens = result.prompt_tokens + result.completion_tokens
+            node_run.cost_usd = self.calculate_cost(
+                result.prompt_tokens,
+                result.completion_tokens,
+            )
+            node_run.score = record.score
+            node_run.status = "已完成"
+            node_run.attempts = result.attempts
+        except EvaluationError as error:
+            node_run.model = error.model
+            node_run.prompt_tokens = error.prompt_tokens
+            node_run.completion_tokens = error.completion_tokens
+            node_run.total_tokens = error.prompt_tokens + error.completion_tokens
+            node_run.cost_usd = self.calculate_cost(
+                error.prompt_tokens,
+                error.completion_tokens,
+            )
+            node_run.status = "失败"
+            node_run.attempts = max(error.attempts, 1)
+            node_run.error = str(error)
+        node_run.completed_at = utc_now()
+        node_run.duration_ms = int((perf_counter() - started) * 1000)
+        return node_run
 
     def execute_agent(
         self,
@@ -498,6 +610,8 @@ class ExecutionService:
             job.completed_at = utc_now()
             session.commit()
             return None
+        job_id = job.id
+        run_id = run.id
         job.status = "running"
         job.attempts += 1
         job.started_at = now
@@ -529,6 +643,21 @@ class ExecutionService:
                 job.completed_at = utc_now()
             session.commit()
         except Exception:
+            session.rollback()
+            job = session.scalar(
+                select(ExecutionJobRecord).where(
+                    ExecutionJobRecord.id == job_id,
+                    ExecutionJobRecord.workspace_id == workspace_id,
+                ),
+            )
+            run = session.scalar(
+                select(WorkflowRunRecord).where(
+                    WorkflowRunRecord.id == run_id,
+                    WorkflowRunRecord.workspace_id == workspace_id,
+                ),
+            )
+            if job is None or run is None:
+                return None
             self._retry_or_dead_letter_job(
                 job=job,
                 run=run,
@@ -690,7 +819,10 @@ class ExecutionService:
         started = perf_counter()
         existing_node_runs = list(session.scalars(
             select(NodeRunRecord)
-            .where(NodeRunRecord.run_id == run.id)
+            .where(
+                NodeRunRecord.run_id == run.id,
+                NodeRunRecord.workspace_id == run.workspace_id,
+            )
             .order_by(NodeRunRecord.started_at.asc()),
         ))
         node_outputs: dict[str, str] = {}
@@ -727,6 +859,29 @@ class ExecutionService:
                     agent_id=node["data"]["agentId"],
                     agent_version=node["data"]["agentVersion"],
                     max_attempts=int(node["data"].get("retryMaxAttempts", 2)),
+                )
+            elif node["type"] == "evaluation":
+                source_node_run = None
+                if len(predecessors[node_id]) == 1:
+                    source_node_id = predecessors[node_id][0]
+                    source_node_run = next(
+                        (
+                            item for item in reversed(node_runs)
+                            if item.workspace_id == run.workspace_id
+                            and item.run_id == run.id
+                            and item.node_id == source_node_id
+                            and item.status == "已完成"
+                        ),
+                        None,
+                    )
+                rubric_ref = node["data"].get("rubricRef")
+                node_run = self.execute_evaluation(
+                    session=session,
+                    run=run,
+                    node_id=node_id,
+                    node_name=run.current_node,
+                    rubric_ref=rubric_ref if isinstance(rubric_ref, dict) else {},
+                    source_node_run=source_node_run,
                 )
             elif node["type"] == "human":
                 source_node_id = predecessors[node_id][-1]
@@ -809,6 +964,14 @@ class ExecutionService:
         current_nodes = outcome_nodes if outcome_nodes is not None else node_runs
         failed = next((node for node in current_nodes if node.status == "失败"), None)
         scored = [node.score for node in current_nodes if node.score is not None]
+        review_node = min(
+            (
+                node for node in current_nodes
+                if node.node_type != "evaluation" and node.score is not None and node.score < 60
+            ),
+            key=lambda node: int(node.score or 0),
+            default=None,
+        )
         run.output_text = current_nodes[-1].output_text if current_nodes else run.output_text
         run.score = min(scored) if scored else quality_score(run.output_text)
         run.prompt_tokens = sum(node.prompt_tokens for node in node_runs)
@@ -822,19 +985,15 @@ class ExecutionService:
             run.status = "失败"
             run.error = failed.error
             run.current_node = failed.node_name
-        elif run.score < 60:
+        elif review_node is not None:
             run.status = "需介入"
-            scored_node = next(
-                (node for node in node_runs if node.score == run.score),
-                node_runs[-1],
-            )
             session.add(HumanReviewRecord(
                 workspace_id=run.workspace_id,
                 run_id=run.id,
-                node_run_id=scored_node.id,
-                title=f"复核低分产出：{scored_node.node_name}",
+                node_run_id=review_node.id,
+                title=f"复核低分产出：{review_node.node_name}",
                 reason="基础质量门禁未通过：输出内容少于 20 个字符。",
-                score=run.score,
+                score=int(review_node.score),
             ))
         else:
             run.status = "已完成"
@@ -855,6 +1014,7 @@ class ExecutionService:
             for node_run in node_runs:
                 if (
                     node_run.node_type == "trigger"
+                    or node_run.status != "已完成"
                     or not node_run.output_text
                     or node_run.id in existing_artifact_node_ids
                 ):

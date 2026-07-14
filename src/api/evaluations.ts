@@ -11,14 +11,22 @@ import type {
 } from '../types'
 import { apiFetch, readJson } from './http'
 
+export interface RubricDimensionInput {
+  id: string
+  name: string
+  weight: number
+  criteria: string
+}
+
 export interface RubricInput {
   name: string
   artifact: string
-  dimensions: { name: string; weight: number }[]
+  dimensions: RubricDimensionInput[]
   gate: string
   passScore: number
   judgeType?: 'deterministic' | 'llm'
   judgeModel?: string
+  modelProviderId?: string | null
 }
 
 export interface RubricEvaluationInput {

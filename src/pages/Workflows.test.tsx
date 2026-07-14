@@ -137,6 +137,150 @@ const workflowVersion = {
   createdAt: '2026-06-25T08:00:00Z',
 }
 
+const evaluationProvider = {
+  id: 'provider-judge',
+  name: 'DeepSeek 主模型',
+  providerType: 'openai-compatible',
+  baseUrl: 'https://api.deepseek.com',
+  defaultModel: 'deepseek-chat',
+  secretRef: 'DEEPSEEK_RUNTIME_KEY',
+  status: 'draft',
+  createdBy: 'user-1',
+  createdAt: '2026-07-14T00:00:00Z',
+  updatedAt: '2026-07-14T00:00:00Z',
+}
+
+const disabledEvaluationProvider = {
+  ...evaluationProvider,
+  id: 'provider-disabled',
+  name: '已停用模型',
+  status: 'disabled',
+}
+
+const compatibleRubric = {
+  id: 'rubric-quality',
+  name: '质量模板',
+  artifact: '方案文档',
+  dimensions: [
+    {
+      id: 'completeness',
+      name: '完整性',
+      weight: 100,
+      criteria: '检查目标、步骤和交付物是否完整。',
+    },
+  ],
+  gate: '按维度标准评分',
+  passScore: 80,
+  judgeType: 'llm',
+  judgeModel: 'deepseek-chat',
+  modelProviderId: evaluationProvider.id,
+  version: 'v1.2.0',
+  status: 'active',
+}
+
+const compatibleRubricVersion = {
+  id: 'rubric-version-1-2',
+  version: 'v1.2.0',
+  snapshot: compatibleRubric,
+  createdAt: '2026-07-14T00:00:00Z',
+}
+
+const legacyRubricVersion = {
+  id: 'rubric-version-legacy',
+  version: 'v1.1.0',
+  snapshot: {
+    ...compatibleRubric,
+    version: 'v1.1.0',
+    dimensions: [{ name: '完整性', weight: 100 }],
+  },
+  createdAt: '2026-07-13T00:00:00Z',
+}
+
+const disabledProviderRubricVersion = {
+  id: 'rubric-version-disabled-provider',
+  version: 'v1.0.0',
+  snapshot: {
+    ...compatibleRubric,
+    version: 'v1.0.0',
+    modelProviderId: disabledEvaluationProvider.id,
+  },
+  createdAt: '2026-07-12T00:00:00Z',
+}
+
+const evaluationWorkflow = {
+  ...workflow,
+  nodes: [
+    {
+      id: 'evaluation-1',
+      type: 'evaluation',
+      position: { x: 300, y: 200 },
+      data: {
+        label: '方案评估',
+        subtitle: '请选择评估模板',
+        kind: 'evaluation',
+      },
+    },
+  ],
+  edges: [],
+}
+
+function evaluationWorkflowFetch({
+  workflowData = workflow,
+  rubrics = [compatibleRubric],
+  providers = [evaluationProvider, disabledEvaluationProvider],
+  versions = [
+    compatibleRubricVersion,
+    legacyRubricVersion,
+    disabledProviderRubricVersion,
+  ],
+  rubricStatus = 200,
+}: {
+  workflowData?: typeof workflow | typeof evaluationWorkflow
+  rubrics?: Array<Record<string, unknown>>
+  providers?: Array<Record<string, unknown>>
+  versions?: Array<Record<string, unknown>>
+  rubricStatus?: number
+} = {}) {
+  return vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? `${input.pathname}${input.search}`
+        : input.url
+    if (url === `/api/workspaces/${workspace.id}/workflows` && !init?.method) {
+      return Promise.resolve(new Response(JSON.stringify([workflowData]), { status: 200 }))
+    }
+    if (url === `/api/workspaces/${workspace.id}/workflows/${workflowData.id}` && init?.method === 'PATCH') {
+      return Promise.resolve(new Response(JSON.stringify(workflowData), { status: 200 }))
+    }
+    if (url === `/api/workspaces/${workspace.id}/agents` && !init?.method) {
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+    }
+    if (
+      url === `/api/workspaces/${workspace.id}/reviewers`
+      || url === `/api/workspaces/${workspace.id}/review-groups`
+    ) {
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+    }
+    if (url === `/api/workspaces/${workspace.id}/evaluations/rubrics`) {
+      return Promise.resolve(new Response(
+        rubricStatus === 200 ? JSON.stringify(rubrics) : JSON.stringify({ detail: 'rubric load failed' }),
+        { status: rubricStatus },
+      ))
+    }
+    if (url === `/api/workspaces/${workspace.id}/evaluations/rubrics/${compatibleRubric.id}/versions`) {
+      return Promise.resolve(new Response(JSON.stringify(versions), { status: 200 }))
+    }
+    if (url === `/api/workspaces/${workspace.id}/model-providers`) {
+      return Promise.resolve(new Response(JSON.stringify(providers), { status: 200 }))
+    }
+    if (url.endsWith('/versions')) {
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+    }
+    return Promise.resolve(new Response(JSON.stringify({ detail: 'not found' }), { status: 404 }))
+  })
+}
+
 function LocationProbe() {
   const location = useLocation()
   return <output data-testid="location">{location.pathname}{location.search}</output>
@@ -2429,5 +2573,177 @@ describe('Workflows', () => {
     expect(fetchMock.mock.calls.some(([url, init]) => (
       url === `/api/workspaces/${workspace.id}/workflows/workflow-1` && init?.method === 'PATCH'
     ))).toBe(false)
+  })
+
+  it('offers an evaluation node instead of the unimplemented quality gate', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    vi.stubGlobal('fetch', evaluationWorkflowFetch())
+
+    renderWorkflows()
+
+    const evaluationButton = await screen.findByRole('button', { name: '添加评估节点' })
+    expect(screen.queryByRole('button', { name: '添加质量门禁节点' })).not.toBeInTheDocument()
+
+    await user.click(evaluationButton)
+
+    const evaluationNode = await screen.findByTestId(/flow-node-evaluation-/)
+    expect(evaluationNode).toHaveTextContent('评估')
+
+    await user.click(evaluationNode)
+    expect(screen.getByText('请选择已发布评估模板')).toBeInTheDocument()
+  })
+
+  it('only offers workflow-compatible rubric versions and shows their scoring contract', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    vi.stubGlobal('fetch', evaluationWorkflowFetch({ workflowData: evaluationWorkflow }))
+
+    renderWorkflows()
+
+    await user.click(await screen.findByTestId('flow-node-evaluation-1'))
+
+    const templateSelect = await screen.findByLabelText('评估模板版本')
+    const compatibleOption = within(templateSelect).getByRole('option', {
+      name: '质量模板 · v1.2.0',
+    })
+    expect(within(templateSelect).queryByRole('option', {
+      name: '质量模板 · v1.1.0',
+    })).not.toBeInTheDocument()
+    expect(within(templateSelect).queryByRole('option', {
+      name: '质量模板 · v1.0.0',
+    })).not.toBeInTheDocument()
+
+    await user.selectOptions(templateSelect, compatibleOption)
+
+    expect(screen.getByText(/通过分\s*80/)).toBeInTheDocument()
+    expect(screen.getByText('DeepSeek 主模型')).toBeInTheDocument()
+    expect(screen.getAllByText('deepseek-chat').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText('完整性')).toBeInTheDocument()
+    expect(screen.getByText('检查目标、步骤和交付物是否完整。')).toBeInTheDocument()
+    expect(screen.queryByText('DEEPSEEK_RUNTIME_KEY')).not.toBeInTheDocument()
+  })
+
+  it('links to the evaluation center when no workflow-compatible templates exist', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    vi.stubGlobal('fetch', evaluationWorkflowFetch({
+      workflowData: evaluationWorkflow,
+      rubrics: [],
+      versions: [],
+    }))
+
+    renderWorkflows()
+
+    await user.click(await screen.findByTestId('flow-node-evaluation-1'))
+
+    const emptyStateLink = await screen.findByRole('link', { name: '去评估中心发布模板' })
+    expect(emptyStateLink).toHaveAttribute(
+      'href',
+      '/w/ai-capability-center/evaluations',
+    )
+  })
+
+  it('distinguishes template loading failures from a genuine empty state', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    vi.stubGlobal('fetch', evaluationWorkflowFetch({
+      workflowData: evaluationWorkflow,
+      rubricStatus: 500,
+    }))
+
+    renderWorkflows()
+
+    await user.click(await screen.findByTestId('flow-node-evaluation-1'))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('评估模板加载失败')
+    expect(screen.queryByRole('link', { name: '去评估中心发布模板' })).not.toBeInTheDocument()
+  })
+
+  it('reloads a saved rubricRef and persists a newly selected immutable template version', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    const nextRubricVersion = {
+      ...compatibleRubricVersion,
+      id: 'rubric-version-1-3',
+      version: 'v1.3.0',
+      snapshot: {
+        ...compatibleRubric,
+        version: 'v1.3.0',
+      },
+    }
+    const configuredEvaluationWorkflow = {
+      ...evaluationWorkflow,
+      nodes: [
+        {
+          ...evaluationWorkflow.nodes[0],
+          data: {
+            ...evaluationWorkflow.nodes[0].data,
+            subtitle: '质量模板 · v1.2.0',
+            rubricRef: {
+              rubricId: 'rubric-quality',
+              versionId: 'rubric-version-1-2',
+              version: 'v1.2.0',
+              name: '质量模板',
+            },
+          },
+        },
+      ],
+    }
+    const fetchMock = evaluationWorkflowFetch({
+      workflowData: configuredEvaluationWorkflow,
+      versions: [compatibleRubricVersion, nextRubricVersion],
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWorkflows()
+
+    await user.click(await screen.findByTestId('flow-node-evaluation-1'))
+
+    const templateSelect = await screen.findByLabelText('评估模板版本')
+    const currentOption = within(templateSelect).getByRole('option', {
+      name: '质量模板 · v1.2.0',
+    }) as HTMLOptionElement
+    const nextOption = within(templateSelect).getByRole('option', {
+      name: '质量模板 · v1.3.0',
+    })
+    expect(currentOption.selected).toBe(true)
+
+    await user.selectOptions(templateSelect, nextOption)
+    await user.click(screen.getByRole('button', { name: '保存草稿' }))
+
+    const patchCall = fetchMock.mock.calls.find(([url, init]) => (
+      url === `/api/workspaces/${workspace.id}/workflows/workflow-1` && init?.method === 'PATCH'
+    ))
+    expect(patchCall).toBeDefined()
+    const body = JSON.parse(patchCall?.[1]?.body as string)
+    const evaluationNode = body.nodes.find((node: { id: string }) => node.id === 'evaluation-1')
+    expect(evaluationNode.data.rubricRef).toEqual({
+      rubricId: 'rubric-quality',
+      versionId: 'rubric-version-1-3',
+      version: 'v1.3.0',
+      name: '质量模板',
+    })
   })
 })

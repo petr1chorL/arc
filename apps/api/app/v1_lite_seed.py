@@ -30,12 +30,13 @@ from app.models import (
     WorkflowVersionRecord,
     utc_now,
 )
+from app.runtime_security import is_valid_model_secret_ref
 from app.schemas import AgentRead, RubricRead, WorkflowRead
 
 
-AGENT_VERSION = "v1.0.0"
-WORKFLOW_VERSION = "v1.3.0"
-RUBRIC_VERSION = "v1.0.0"
+AGENT_VERSION = "v1.1.0"
+WORKFLOW_VERSION = "v1.4.0"
+RUBRIC_VERSION = "v1.1.0"
 WORKFLOW_NAME = "AI 赋能方案 V1.0 Lite 试点工作流"
 RUBRIC_NAME = "AI 赋能方案 V1.0 Lite Rubric"
 SAMPLE_SET_NAME = "AI 赋能方案 V1.0 Lite Golden Set"
@@ -152,11 +153,36 @@ AGENT_TEMPLATES: list[dict[str, Any]] = [
 
 
 RUBRIC_DIMENSIONS = [
-    {"name": "业务目标清晰度", "weight": 20},
-    {"name": "工作流可执行性", "weight": 25},
-    {"name": "质量评价可操作性", "weight": 25},
-    {"name": "风险控制", "weight": 20},
-    {"name": "可迭代性", "weight": 10},
+    {
+        "id": "business-goal-clarity",
+        "name": "业务目标清晰度",
+        "weight": 20,
+        "criteria": "业务目标、目标用户、输入材料和期望产出均清晰，且不依赖未声明的业务事实。",
+    },
+    {
+        "id": "workflow-executability",
+        "name": "工作流可执行性",
+        "weight": 25,
+        "criteria": "节点顺序、输入输出、责任角色和人工审核位置完整，可直接用于一次受控试点。",
+    },
+    {
+        "id": "evaluation-operability",
+        "name": "质量评价可操作性",
+        "weight": 25,
+        "criteria": "评分规则、通过线和失败处理可观察、可解释并能在相同输入下复测。",
+    },
+    {
+        "id": "risk-control",
+        "name": "风险控制",
+        "weight": 20,
+        "criteria": "识别关键业务与安全风险，保留人工审核，且提供可追溯的运行证据。",
+    },
+    {
+        "id": "iterability",
+        "name": "可迭代性",
+        "weight": 10,
+        "criteria": "明确当前试点边界、未解决问题和下一迭代建议，避免把规划描述成已实现能力。",
+    },
 ]
 
 RUBRIC_GATE = """通过门槛：
@@ -264,14 +290,28 @@ def _find_workspace(session: Session, workspace_slug: str | None) -> tuple[Organ
     return organization, workspace
 
 
-def _active_model_provider(session: Session, workspace_id: str) -> ModelProviderRecord | None:
-    return session.scalar(
+def _available_model_provider(session: Session, workspace_id: str) -> ModelProviderRecord:
+    providers = session.scalars(
         select(ModelProviderRecord)
         .where(
             ModelProviderRecord.workspace_id == workspace_id,
-            ModelProviderRecord.status == "active",
+            ModelProviderRecord.status != "disabled",
         )
         .order_by(ModelProviderRecord.created_at.asc()),
+    ).all()
+    for provider in providers:
+        required_values = (
+            provider.provider_type,
+            provider.base_url,
+            provider.default_model,
+            provider.secret_ref,
+        )
+        if any(not isinstance(value, str) or not value.strip() for value in required_values):
+            continue
+        if is_valid_model_secret_ref(provider.secret_ref):
+            return provider
+    raise RuntimeError(
+        "V1 Lite 种子需要当前 Workspace 中配置完整且未停用的模型 Provider。"
     )
 
 
@@ -303,7 +343,7 @@ def _ensure_reviewer(session: Session, workspace_id: str, admin: UserRecord) -> 
 def _ensure_agent_versions(
     session: Session,
     workspace_id: str,
-    provider: ModelProviderRecord | None,
+    provider: ModelProviderRecord,
 ) -> list[AgentRecord]:
     agents: list[AgentRecord] = []
     now = utc_now()
@@ -320,10 +360,10 @@ def _ensure_agent_versions(
                 name=template["name"],
                 role=template["role"],
                 owner="V1 Lite 试点团队",
-                model=provider.default_model if provider else "deepseek-v4-pro",
-                model_provider_id=provider.id if provider else None,
-                model_provider=provider.provider_type if provider else "openai-compatible",
-                model_base_url=provider.base_url if provider else "",
+                model=provider.default_model,
+                model_provider_id=provider.id,
+                model_provider=provider.provider_type,
+                model_base_url=provider.base_url,
                 temperature=0.2,
                 max_output_tokens=1600,
                 status="在线",
@@ -341,13 +381,10 @@ def _ensure_agent_versions(
         else:
             agent.role = template["role"]
             agent.owner = "V1 Lite 试点团队"
-            if provider:
-                agent.model = provider.default_model
-                agent.model_provider_id = provider.id
-                agent.model_provider = provider.provider_type
-                agent.model_base_url = provider.base_url
-            elif not agent.model:
-                agent.model = "deepseek-v4-pro"
+            agent.model = provider.default_model
+            agent.model_provider_id = provider.id
+            agent.model_provider = provider.provider_type
+            agent.model_base_url = provider.base_url
             agent.temperature = 0.2
             agent.max_output_tokens = 1600
             agent.status = "在线"
@@ -378,7 +415,12 @@ def _ensure_agent_versions(
     return agents
 
 
-def _workflow_nodes(agents: list[AgentRecord], reviewer: ReviewerRecord) -> list[dict[str, Any]]:
+def _workflow_nodes(
+    agents: list[AgentRecord],
+    reviewer: ReviewerRecord,
+    rubric: RubricRecord,
+    rubric_version: RubricVersionRecord,
+) -> list[dict[str, Any]]:
     agent_by_name = {agent.name: agent for agent in agents}
     return [
         {
@@ -448,8 +490,12 @@ def _workflow_nodes(agents: list[AgentRecord], reviewer: ReviewerRecord) -> list
             "position": {"x": 1540, "y": 0},
             "data": {
                 "label": "Rubric 评分",
-                "rubricName": RUBRIC_NAME,
-                "note": "执行引擎会记录该节点；正式评分请在评估中心保存 Evaluation Record。",
+                "rubricRef": {
+                    "rubricId": rubric.id,
+                    "versionId": rubric_version.id,
+                    "version": rubric_version.version,
+                    "name": rubric.name,
+                },
             },
         },
         {
@@ -492,8 +538,10 @@ def _ensure_workflow(
     workspace_id: str,
     agents: list[AgentRecord],
     reviewer: ReviewerRecord,
+    rubric: RubricRecord,
+    rubric_version: RubricVersionRecord,
 ) -> WorkflowRecord:
-    nodes = _workflow_nodes(agents, reviewer)
+    nodes = _workflow_nodes(agents, reviewer, rubric, rubric_version)
     edges = _workflow_edges()
     errors = validate_workflow(nodes, edges, session, workspace_id)
     if errors:
@@ -550,7 +598,11 @@ def _ensure_workflow(
     return workflow
 
 
-def _ensure_rubric(session: Session, workspace_id: str) -> RubricRecord:
+def _ensure_rubric(
+    session: Session,
+    workspace_id: str,
+    provider: ModelProviderRecord,
+) -> tuple[RubricRecord, RubricVersionRecord]:
     rubric = session.scalar(
         select(RubricRecord).where(
             RubricRecord.workspace_id == workspace_id,
@@ -558,6 +610,15 @@ def _ensure_rubric(session: Session, workspace_id: str) -> RubricRecord:
             RubricRecord.version == RUBRIC_VERSION,
         ),
     )
+    if rubric is None:
+        rubric = session.scalar(
+            select(RubricRecord)
+            .where(
+                RubricRecord.workspace_id == workspace_id,
+                RubricRecord.name == RUBRIC_NAME,
+            )
+            .order_by(RubricRecord.created_at.asc()),
+        )
     now = utc_now()
     if rubric is None:
         rubric = RubricRecord(
@@ -567,8 +628,9 @@ def _ensure_rubric(session: Session, workspace_id: str) -> RubricRecord:
             dimensions=RUBRIC_DIMENSIONS,
             gate=RUBRIC_GATE,
             pass_score=80,
-            judge_type="deterministic",
-            judge_model="",
+            judge_type="llm",
+            judge_model=provider.default_model,
+            model_provider_id=provider.id,
             version=RUBRIC_VERSION,
             status="active",
             sort_order=1,
@@ -582,9 +644,12 @@ def _ensure_rubric(session: Session, workspace_id: str) -> RubricRecord:
         rubric.dimensions = RUBRIC_DIMENSIONS
         rubric.gate = RUBRIC_GATE
         rubric.pass_score = 80
-        rubric.judge_type = "deterministic"
-        rubric.judge_model = ""
+        rubric.judge_type = "llm"
+        rubric.judge_model = provider.default_model
+        rubric.model_provider_id = provider.id
+        rubric.version = RUBRIC_VERSION
         rubric.status = "active"
+        rubric.sort_order = 1
         rubric.updated_at = now
 
     version = session.scalar(
@@ -595,16 +660,15 @@ def _ensure_rubric(session: Session, workspace_id: str) -> RubricRecord:
         ),
     )
     if version is None:
-        session.add(
-            RubricVersionRecord(
-                workspace_id=workspace_id,
-                rubric_id=rubric.id,
-                version=RUBRIC_VERSION,
-                snapshot=_rubric_snapshot(rubric),
-            ),
+        version = RubricVersionRecord(
+            workspace_id=workspace_id,
+            rubric_id=rubric.id,
+            version=RUBRIC_VERSION,
+            snapshot=_rubric_snapshot(rubric),
         )
+        session.add(version)
     session.flush()
-    return rubric
+    return rubric, version
 
 
 def _ensure_sample_set(session: Session, workspace_id: str, admin: UserRecord) -> RegressionSampleSetRecord:
@@ -712,11 +776,18 @@ def seed_v1_lite_assets(
 ) -> dict[str, Any]:
     organization, workspace = _find_workspace(session, workspace_slug)
     admin = _find_admin(session, organization.id)
-    provider = _active_model_provider(session, workspace.id)
+    provider = _available_model_provider(session, workspace.id)
     reviewer = _ensure_reviewer(session, workspace.id, admin)
     agents = _ensure_agent_versions(session, workspace.id, provider)
-    workflow = _ensure_workflow(session, workspace.id, agents, reviewer)
-    rubric = _ensure_rubric(session, workspace.id)
+    rubric, rubric_version = _ensure_rubric(session, workspace.id, provider)
+    workflow = _ensure_workflow(
+        session,
+        workspace.id,
+        agents,
+        reviewer,
+        rubric,
+        rubric_version,
+    )
     sample_set = _ensure_sample_set(session, workspace.id, admin)
     channel = _ensure_notification_channel(session, workspace.id, admin)
     session.commit()
@@ -745,7 +816,7 @@ def seed_v1_lite_assets(
             "id": provider.id,
             "name": provider.name,
             "model": provider.default_model,
-        } if provider else None,
+        },
         "reviewer": {
             "id": reviewer.id,
             "name": reviewer.name,

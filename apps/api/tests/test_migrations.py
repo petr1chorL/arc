@@ -115,3 +115,57 @@ def test_existing_human_task_table_is_upgraded_without_losing_rows(tmp_path):
         assert decision.reason == "历史决定"
         assert decision.tags == []
         assert decision.workspace_id == workspace.id
+
+
+def test_existing_rubrics_table_adds_model_provider_id(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'legacy-rubrics.db'}")
+    with engine.begin() as connection:
+        connection.execute(text("""
+            CREATE TABLE rubrics (
+                id VARCHAR(36) PRIMARY KEY,
+                workspace_id VARCHAR(36),
+                name VARCHAR(160) NOT NULL,
+                artifact VARCHAR(160) NOT NULL,
+                dimensions JSON NOT NULL,
+                gate TEXT NOT NULL,
+                pass_score INTEGER NOT NULL,
+                judge_type VARCHAR(32) NOT NULL DEFAULT 'deterministic',
+                judge_model VARCHAR(120) NOT NULL DEFAULT '',
+                version VARCHAR(32) NOT NULL,
+                status VARCHAR(32) NOT NULL,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL
+            )
+        """))
+        connection.exec_driver_sql("""
+            INSERT INTO rubrics (
+                id, workspace_id, name, artifact, dimensions, gate,
+                pass_score, judge_type, judge_model, version, status,
+                sort_order, created_at, updated_at
+            ) VALUES (
+                'legacy-rubric', 'workspace-1', '历史评分量规', '历史产出物',
+                '[{"name":"完整性","weight":100}]', '必须完整',
+                80, 'deterministic', '', 'v1.0.0', 'active', 1,
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+        """)
+
+    Base.metadata.create_all(engine)
+    ensure_current_schema(engine)
+
+    columns = {
+        column["name"] for column in inspect(engine).get_columns("rubrics")
+    }
+    assert "model_provider_id" in columns
+    with engine.connect() as connection:
+        row = connection.execute(text("""
+            SELECT id, name, model_provider_id
+            FROM rubrics
+            WHERE id = 'legacy-rubric'
+        """)).mappings().one()
+    assert row == {
+        "id": "legacy-rubric",
+        "name": "历史评分量规",
+        "model_provider_id": None,
+    }

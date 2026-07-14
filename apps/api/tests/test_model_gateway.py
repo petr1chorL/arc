@@ -31,7 +31,7 @@ def test_deepseek_gateway_uses_project_defaults_and_parses_usage(monkeypatch):
     result = OpenAICompatibleGateway(settings).complete(
         system_prompt="只输出结构化结果",
         user_input="分析新品机会",
-        model="ignored-agent-model",
+        model="",
     )
 
     assert captured["url"] == "https://api.deepseek.com/chat/completions"
@@ -46,6 +46,41 @@ def test_deepseek_gateway_uses_project_defaults_and_parses_usage(monkeypatch):
     assert result.completion_tokens == 9
 
 
+
+
+def test_explicit_model_overrides_global_default_model(monkeypatch):
+    captured: dict = {}
+
+    def fake_post(url, *, headers, json, timeout):
+        captured.update({
+            "url": url,
+            "headers": headers,
+            "json": json,
+            "timeout": timeout,
+        })
+        return httpx.Response(
+            200,
+            request=httpx.Request("POST", url),
+            json={
+                "model": "template-bound-model",
+                "choices": [{"message": {"content": "结构化执行结果"}}],
+                "usage": {"prompt_tokens": 3, "completion_tokens": 2},
+            },
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    settings = Settings(
+        model_api_key="test-key",
+        model_default_model="global-default-model",
+    )
+
+    OpenAICompatibleGateway(settings).complete(
+        system_prompt="只输出结构化结果",
+        user_input="分析新品机会",
+        model="template-bound-model",
+    )
+
+    assert captured["json"]["model"] == "template-bound-model"
 def test_gateway_resolves_provider_secret_ref_at_call_boundary(monkeypatch):
     captured: dict = {}
 

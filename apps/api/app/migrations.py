@@ -766,6 +766,7 @@ def ensure_current_schema(engine: Engine) -> None:
             "sort_order": "INTEGER NOT NULL DEFAULT 0",
             "judge_type": "VARCHAR(32) NOT NULL DEFAULT 'deterministic'",
             "judge_model": "VARCHAR(120) NOT NULL DEFAULT ''",
+            "model_provider_id": "VARCHAR(36)",
         },
     )
     ensure_columns(

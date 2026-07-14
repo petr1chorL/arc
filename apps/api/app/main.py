@@ -1,6 +1,7 @@
 import json
 from collections.abc import Callable, Iterator
 from datetime import datetime
+from uuid import uuid4
 from hashlib import sha256
 from time import monotonic
 
@@ -19,6 +20,7 @@ from app.auth import AuthenticationService
 from app.config import Settings
 from app.database import create_database, session_scope
 from app.domain import next_version, validate_workflow
+from app.evaluation_service import EvaluationError, EvaluationPlan, EvaluationService
 from app.execution import ExecutionService, WorkflowResumeService
 from app.human_tasks import HumanTaskConflict, HumanTaskPermission, HumanTaskService, HumanTaskValidation
 from app.judge_gateway import JudgeGateway, ModelJudgeGateway
@@ -303,6 +305,7 @@ def create_app(
     human_task_service = HumanTaskService(human_task_clock)
     resolved_model_gateway = model_gateway or OpenAICompatibleGateway(settings)
     resolved_judge_gateway = judge_gateway or ModelJudgeGateway(resolved_model_gateway)
+    evaluation_service = EvaluationService(resolved_judge_gateway)
     tool_runtime = ToolRuntimeExecutor(
         http_gateway=tool_gateway or HttpxToolGateway(settings),
         mcp_gateway=mcp_gateway,
@@ -311,6 +314,7 @@ def create_app(
         resolved_model_gateway,
         settings,
         human_task_service,
+        evaluation_service,
         tool_runtime=tool_runtime,
     )
     workflow_resume_service = WorkflowResumeService(
@@ -345,6 +349,7 @@ def create_app(
 
     app.state.session_factory = session_factory
     app.state.authentication_service = authentication_service
+    app.state.evaluation_service = evaluation_service
     app.state.execution_service = execution_service
     app.state.notification_dispatch_service = notification_dispatch_service
     app.include_router(
@@ -597,8 +602,95 @@ def create_app(
             raise HTTPException(status_code=404, detail="评分量规不存在")
         return rubric
 
+    def rubric_dimensions_for_storage(payload: RubricWrite) -> list[dict]:
+        stored_dimensions: list[dict] = []
+        for dimension in payload.dimensions:
+            stored_dimension = dimension.model_dump(exclude_none=True)
+            stored_dimension["id"] = dimension.id or str(uuid4())
+            stored_dimensions.append(stored_dimension)
+        return stored_dimensions
+
+    def resolve_rubric_model_provider(
+        session: Session,
+        *,
+        workspace_id: str,
+        provider_id: str,
+    ) -> ModelProviderRecord:
+        provider = session.scalar(
+            select(ModelProviderRecord).where(ModelProviderRecord.id == provider_id),
+        )
+        if provider is None or provider.workspace_id != workspace_id:
+            raise HTTPException(
+                status_code=422,
+                detail="模型 Provider 不属于当前 Workspace",
+            )
+        if provider.status == "disabled":
+            raise HTTPException(status_code=422, detail="模型 Provider 已停用")
+        required_values = (
+            provider.provider_type,
+            provider.base_url,
+            provider.default_model,
+            provider.secret_ref,
+        )
+        if any(
+            not isinstance(value, str) or not value.strip()
+            for value in required_values
+        ) or not is_valid_model_secret_ref(provider.secret_ref):
+            raise HTTPException(status_code=422, detail="模型 Provider 配置不完整")
+        return provider
+
+    def validate_llm_rubric_for_publish(
+        record: RubricRecord,
+        *,
+        session: Session,
+        workspace_id: str,
+    ) -> None:
+        if record.judge_type != "llm":
+            return
+        if not str(record.judge_model or "").strip():
+            raise HTTPException(status_code=422, detail="LLM 评分模板必须配置模型")
+        provider_id = str(record.model_provider_id or "").strip()
+        if not provider_id:
+            raise HTTPException(
+                status_code=422,
+                detail="LLM 评分模板必须配置模型 Provider",
+            )
+        resolve_rubric_model_provider(
+            session,
+            workspace_id=workspace_id,
+            provider_id=provider_id,
+        )
+        if not isinstance(record.dimensions, list) or not record.dimensions:
+            raise HTTPException(status_code=422, detail="LLM 评分模板必须配置评分维度")
+        dimension_ids: list[str] = []
+        dimension_names: list[str] = []
+        for dimension in record.dimensions:
+            if not isinstance(dimension, dict):
+                raise HTTPException(status_code=422, detail="评分维度格式无效")
+            dimension_id = dimension.get("id")
+            criteria = dimension.get("criteria")
+            name = dimension.get("name")
+            if (
+                not isinstance(dimension_id, str)
+                or not dimension_id.strip()
+                or not isinstance(criteria, str)
+                or not criteria.strip()
+            ):
+                raise HTTPException(
+                    status_code=422,
+                    detail="LLM 评分模板的每个维度必须配置 ID 和评分标准",
+                )
+            if not isinstance(name, str) or not name.strip():
+                raise HTTPException(status_code=422, detail="维度名称不能为空")
+            dimension_ids.append(dimension_id.strip().casefold())
+            dimension_names.append(name.strip().casefold())
+        if len(dimension_ids) != len(set(dimension_ids)):
+            raise HTTPException(status_code=422, detail="维度 ID 必须唯一")
+        if len(dimension_names) != len(set(dimension_names)):
+            raise HTTPException(status_code=422, detail="维度名称必须唯一")
+
     def rubric_snapshot(record: RubricRecord) -> dict:
-        return RubricRead.model_validate(record).model_dump(mode="json")
+        return RubricRead.model_validate(record).model_dump(exclude_none=True, mode="json")
 
     def next_rubric_version(session: Session, workspace_id: str, rubric_id: str) -> str:
         count = session.scalar(
@@ -609,121 +701,12 @@ def create_app(
         ) or 0
         return next_version(count)
 
-    def latest_rubric_version(
-        session: Session,
-        workspace_id: str,
-        rubric_id: str,
-    ) -> RubricVersionRecord | None:
-        return session.scalar(
-            select(RubricVersionRecord)
-            .where(
-                RubricVersionRecord.workspace_id == workspace_id,
-                RubricVersionRecord.rubric_id == rubric_id,
-            )
-            .order_by(RubricVersionRecord.created_at.desc()),
-        )
-
-    def active_rubric_snapshot(
-        session: Session,
-        workspace_id: str,
-        rubric: RubricRecord,
-    ) -> tuple[str, dict]:
-        published = latest_rubric_version(session, workspace_id, rubric.id)
-        if published is not None:
-            return published.version, published.snapshot
-        return rubric.version, rubric_snapshot(rubric)
-
-    def deterministic_dimension_score(artifact_text: str) -> int:
-        normalized = artifact_text.strip()
-        if not normalized:
-            return 0
-        lower = normalized.lower()
-        signal_keywords = (
-            "source",
-            "evidence",
-            "owner",
-            "risk",
-            "next action",
-            "acceptance",
-            "criteria",
-        )
-        keyword_score = min(14, sum(2 for keyword in signal_keywords if keyword in lower))
-        length_score = min(86, 42 + len(normalized) // 3)
-        return min(100, length_score + keyword_score)
-
-    def evaluate_with_rubric_snapshot(
-        snapshot: dict,
-        artifact_text: str,
-        *,
-        rubric_version: str,
-        subject_type: str,
-        subject_id: str | None,
-    ) -> tuple[list[dict], int, str, str, str, str, dict]:
-        judge_type = snapshot.get("judgeType", snapshot.get("judge_type", "deterministic"))
-        if judge_type == "llm":
-            judge_snapshot = {
-                **snapshot,
-                "passScore": snapshot.get("passScore", snapshot.get("pass_score")),
-                "judgeType": "llm",
-                "judgeModel": snapshot.get("judgeModel", snapshot.get("judge_model", "")),
-            }
-            try:
-                result = resolved_judge_gateway.evaluate(
-                    rubric_snapshot=judge_snapshot,
-                    rubric_version=rubric_version,
-                    artifact_text=artifact_text,
-                    subject_type=subject_type,
-                    subject_id=subject_id,
-                )
-            except RuntimeError as error:
-                raise HTTPException(status_code=422, detail=str(error)) from None
-            return (
-                result.dimension_scores,
-                result.score,
-                result.status,
-                result.rationale,
-                "llm",
-                result.model,
-                result.input_snapshot,
-            )
-        dimension_base_score = deterministic_dimension_score(artifact_text)
-        dimension_scores = [
-            {
-                "name": dimension["name"],
-                "weight": dimension["weight"],
-                "score": dimension_base_score,
-            }
-            for dimension in snapshot["dimensions"]
-        ]
-        weighted_score = round(
-            sum(
-                dimension["score"] * dimension["weight"]
-                for dimension in dimension_scores
-            ) / 100,
-        )
-        status_value = (
-            "passed"
-            if weighted_score >= snapshot["pass_score"]
-            else "failed"
-        )
-        rationale = (
-            "deterministic rubric evaluation: score is based on artifact "
-            "length and explicit quality signals; LLM judge is not enabled yet."
-        )
-        return (
-            dimension_scores,
-            weighted_score,
-            status_value,
-            rationale,
-            "deterministic",
-            "",
-            {
-                "artifactText": artifact_text,
-                "rubricVersion": rubric_version,
-                "subjectType": subject_type,
-                "subjectId": subject_id,
-            },
-        )
+    def evaluation_http_exception(error: EvaluationError) -> HTTPException:
+        status_code = {
+            "not_found": status.HTTP_404_NOT_FOUND,
+            "conflict": status.HTTP_409_CONFLICT,
+        }.get(error.kind, status.HTTP_422_UNPROCESSABLE_CONTENT)
+        return HTTPException(status_code=status_code, detail=str(error))
 
     def find_workflow(workspace_id: str, workflow_id: str, session: Session) -> WorkflowRecord:
         workflow = session.scalar(
@@ -5115,49 +5098,25 @@ def create_app(
         session: Session,
         context: RequestContext,
         rubric: RubricRecord,
-        rubric_version: str,
-        snapshot: dict,
+        plan: EvaluationPlan,
         sample_set_id: str | None,
         sample_set_name: str,
         batch_samples: list[dict[str, str]],
     ) -> tuple[RegressionRunRecord, list[EvaluationRecord]]:
         records: list[EvaluationRecord] = []
         for sample in batch_samples:
-            (
-                dimension_scores,
-                score,
-                status_value,
-                rationale,
-                evaluator_type,
-                evaluator_model,
-                evaluator_input,
-            ) = evaluate_with_rubric_snapshot(
-                snapshot,
-                sample["input"],
-                rubric_version=rubric_version,
-                subject_type="regression_run_sample",
-                subject_id=sample["id"],
-            )
-            record = EvaluationRecord(
-                workspace_id=context.workspace.id,
-                rubric_id=rubric.id,
-                rubric_version=rubric_version,
-                rubric_snapshot=snapshot,
-                subject_type="regression_run_sample",
-                subject_id=sample["id"],
-                artifact_text=sample["input"],
-                dimension_scores=dimension_scores,
-                score=score,
-                status=status_value,
-                rationale=rationale,
-                evaluator_type=evaluator_type,
-                evaluator_model=evaluator_model,
-                evaluator_input=evaluator_input,
-                created_by=context.user.id,
-            )
-            session.add(record)
-            records.append(record)
-        session.flush()
+            try:
+                result = evaluation_service.evaluate(
+                    session,
+                    plan=plan,
+                    artifact_text=sample["input"],
+                    subject_type="regression_run_sample",
+                    subject_id=sample["id"],
+                    created_by=context.user.id,
+                )
+            except EvaluationError as error:
+                raise evaluation_http_exception(error) from None
+            records.append(result.record)
         total_samples = len(records)
         passed_samples = len([record for record in records if record.status == "passed"])
         failed_samples = total_samples - passed_samples
@@ -5169,7 +5128,7 @@ def create_app(
             sample_set_name=sample_set_name,
             rubric_id=rubric.id,
             rubric_name=rubric.name,
-            rubric_version=rubric_version,
+            rubric_version=plan.rubric_version,
             status="completed",
             total_samples=total_samples,
             passed_samples=passed_samples,
@@ -5693,17 +5652,19 @@ def create_app(
         rubric = find_rubric(context.workspace.id, source_run.rubric_id, session)
         if rubric.status != "active":
             raise HTTPException(status_code=409, detail="只有已启用评分量规可以运行回归")
-        rubric_version, snapshot = active_rubric_snapshot(
-            session,
-            context.workspace.id,
-            rubric,
-        )
+        try:
+            plan = evaluation_service.prepare_active(
+                session,
+                workspace_id=context.workspace.id,
+                rubric_id=rubric.id,
+            )
+        except EvaluationError as error:
+            raise evaluation_http_exception(error) from None
         retest_run, records = create_regression_run_from_samples(
             session=session,
             context=context,
             rubric=rubric,
-            rubric_version=rubric_version,
-            snapshot=snapshot,
+            plan=plan,
             sample_set_id=None,
             sample_set_name="修复复测",
             batch_samples=batch_samples,
@@ -5848,11 +5809,14 @@ def create_app(
         rubric = find_rubric(context.workspace.id, payload.rubric_id, session)
         if rubric.status != "active":
             raise HTTPException(status_code=409, detail="只有已启用评分量规可以运行回归")
-        rubric_version, snapshot = active_rubric_snapshot(
-            session,
-            context.workspace.id,
-            rubric,
-        )
+        try:
+            plan = evaluation_service.prepare_active(
+                session,
+                workspace_id=context.workspace.id,
+                rubric_id=rubric.id,
+            )
+        except EvaluationError as error:
+            raise evaluation_http_exception(error) from None
         sample_set_id: str | None = None
         sample_set_name = "手动样本"
         batch_samples: list[dict[str, str]] = []
@@ -5895,8 +5859,7 @@ def create_app(
             session=session,
             context=context,
             rubric=rubric,
-            rubric_version=rubric_version,
-            snapshot=snapshot,
+            plan=plan,
             sample_set_id=sample_set_id,
             sample_set_name=sample_set_name,
             batch_samples=batch_samples,
@@ -5979,6 +5942,12 @@ def create_app(
             target_id=None,
             request=request,
         )
+        if payload.model_provider_id is not None:
+            resolve_rubric_model_provider(
+                session,
+                workspace_id=context.workspace.id,
+                provider_id=payload.model_provider_id,
+            )
         sort_order = session.scalar(
             select(func.max(RubricRecord.sort_order))
             .where(RubricRecord.workspace_id == context.workspace.id),
@@ -5988,9 +5957,10 @@ def create_app(
             workspace_id=context.workspace.id,
             name=payload.name,
             artifact=payload.artifact,
-            dimensions=[dimension.model_dump() for dimension in payload.dimensions],
+            dimensions=rubric_dimensions_for_storage(payload),
             gate=payload.gate,
             pass_score=payload.pass_score,
+            model_provider_id=payload.model_provider_id,
             judge_type=payload.judge_type,
             judge_model=payload.judge_model,
             version="v0.1.0",
@@ -6031,14 +6001,21 @@ def create_app(
             request=request,
         )
         record = find_rubric(context.workspace.id, rubric_id, session)
+        if payload.model_provider_id is not None:
+            resolve_rubric_model_provider(
+                session,
+                workspace_id=context.workspace.id,
+                provider_id=payload.model_provider_id,
+            )
         if record.status == "disabled":
             raise HTTPException(status_code=409, detail="已停用评分量规不允许编辑")
         record.name = payload.name
         record.artifact = payload.artifact
-        record.dimensions = [dimension.model_dump() for dimension in payload.dimensions]
+        record.dimensions = rubric_dimensions_for_storage(payload)
         record.gate = payload.gate
         record.pass_score = payload.pass_score
         record.judge_type = payload.judge_type
+        record.model_provider_id = payload.model_provider_id
         record.judge_model = payload.judge_model
         record.updated_at = utc_now()
         record_success(
@@ -6105,6 +6082,11 @@ def create_app(
         record = find_rubric(context.workspace.id, rubric_id, session)
         if record.status == "disabled":
             raise HTTPException(status_code=409, detail="已停用评分量规不允许发布")
+        validate_llm_rubric_for_publish(
+            record,
+            session=session,
+            workspace_id=context.workspace.id,
+        )
         version = next_rubric_version(session, context.workspace.id, rubric_id)
         record.version = version
         record.status = "active"
@@ -6205,54 +6187,29 @@ def create_app(
             target_id=rubric_id,
             request=request,
         )
-        rubric = find_rubric(context.workspace.id, rubric_id, session)
-        if rubric.status != "active":
-            raise HTTPException(status_code=409, detail="只有已启用评分量规可以运行评估")
-        rubric_version, snapshot = active_rubric_snapshot(
-            session,
-            context.workspace.id,
-            rubric,
-        )
-        (
-            dimension_scores,
-            score,
-            status_value,
-            rationale,
-            evaluator_type,
-            evaluator_model,
-            evaluator_input,
-        ) = evaluate_with_rubric_snapshot(
-            snapshot,
-            payload.artifact_text,
-            rubric_version=rubric_version,
-            subject_type=payload.subject_type,
-            subject_id=payload.subject_id,
-        )
-        record = EvaluationRecord(
-            workspace_id=context.workspace.id,
-            rubric_id=rubric.id,
-            rubric_version=rubric_version,
-            rubric_snapshot=snapshot,
-            subject_type=payload.subject_type,
-            subject_id=payload.subject_id,
-            artifact_text=payload.artifact_text,
-            dimension_scores=dimension_scores,
-            score=score,
-            status=status_value,
-            rationale=rationale,
-            evaluator_type=evaluator_type,
-            evaluator_model=evaluator_model,
-            evaluator_input=evaluator_input,
-            created_by=context.user.id,
-        )
-        session.add(record)
-        session.flush()
+        try:
+            plan = evaluation_service.prepare_active(
+                session,
+                workspace_id=context.workspace.id,
+                rubric_id=rubric_id,
+            )
+            result = evaluation_service.evaluate(
+                session,
+                plan=plan,
+                artifact_text=payload.artifact_text,
+                subject_type=payload.subject_type,
+                subject_id=payload.subject_id,
+                created_by=context.user.id,
+            )
+        except EvaluationError as error:
+            raise evaluation_http_exception(error) from None
+        record = result.record
         record_success(
             session,
             context,
             action="evaluation.run",
             target_type="rubric",
-            target_id=rubric.id,
+            target_id=rubric_id,
             request=request,
         )
         session.commit()
