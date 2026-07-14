@@ -48,6 +48,45 @@ const rubricAssets = [{
   status: 'active',
 }]
 
+const modelProviders = [
+  {
+    id: 'provider-judge',
+    name: 'DeepSeek 主模型',
+    providerType: 'openai-compatible',
+    baseUrl: 'https://api.deepseek.com',
+    defaultModel: 'deepseek-v4-pro',
+    secretRef: 'DEEPSEEK_RUNTIME_KEY',
+    status: 'draft',
+    createdBy: 'user-1',
+    createdAt: '2026-07-14T00:00:00Z',
+    updatedAt: '2026-07-14T00:00:00Z',
+  },
+  {
+    id: 'provider-disabled',
+    name: '已停用模型',
+    providerType: 'openai-compatible',
+    baseUrl: 'https://api.disabled.example',
+    defaultModel: 'disabled-model',
+    secretRef: 'DISABLED_RUNTIME_KEY',
+    status: 'disabled',
+    createdBy: 'user-1',
+    createdAt: '2026-07-14T00:00:00Z',
+    updatedAt: '2026-07-14T00:00:00Z',
+  },
+  {
+    id: 'provider-incomplete',
+    name: '配置不完整模型',
+    providerType: 'openai-compatible',
+    baseUrl: '',
+    defaultModel: 'incomplete-model',
+    secretRef: '',
+    status: 'draft',
+    createdBy: 'user-1',
+    createdAt: '2026-07-14T00:00:00Z',
+    updatedAt: '2026-07-14T00:00:00Z',
+  },
+]
+
 function response(data: unknown, status = 200) {
   return Promise.resolve(new Response(JSON.stringify(data), { status }))
 }
@@ -60,6 +99,34 @@ function renderPage(initialEntry = '/evaluations') {
       </WorkspaceProvider>
     </MemoryRouter>,
   )
+}
+
+function rubricFormFetch(rubrics: Array<Record<string, unknown>> = rubricAssets) {
+  return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input)
+    if (url === `/api/workspaces/${workspace.id}/evaluations/overview`) {
+      return response(overview)
+    }
+    if (url === `/api/workspaces/${workspace.id}/model-providers`) {
+      return response(modelProviders)
+    }
+    if (url === `/api/workspaces/${workspace.id}/evaluations/rubrics` && !init?.method) {
+      return response(rubrics)
+    }
+    if (url === `/api/workspaces/${workspace.id}/evaluations/records`) {
+      return response([])
+    }
+    if (url === `/api/workspaces/${workspace.id}/evaluations/sample-sets`) {
+      return response([])
+    }
+    if (url.endsWith('/versions')) {
+      return response([])
+    }
+    if (init?.method === 'PATCH' && url.includes('/evaluations/rubrics/')) {
+      return response(rubrics[0])
+    }
+    return response({ detail: 'not found' }, 404)
+  })
 }
 
 describe('Evaluations page', () => {
@@ -567,7 +634,7 @@ describe('Evaluations page', () => {
       name: '新品机会评分',
       artifact: '机会评估表',
       dimensions: [
-        { name: '用户价值', weight: 100 },
+        { id: 'user-value', name: '用户价值', weight: 100, criteria: '检查是否解决真实用户问题。' },
       ],
       gate: '必须有原始证据',
       passScore: 90,
@@ -603,6 +670,7 @@ describe('Evaluations page', () => {
     await user.type(screen.getByLabelText('适用产出物'), '机会评估表')
     await user.clear(screen.getByLabelText('维度 1 名称'))
     await user.type(screen.getByLabelText('维度 1 名称'), '用户价值')
+    await user.type(screen.getByLabelText('维度 1 评分标准'), createdRubric.dimensions[0].criteria)
     await user.clear(screen.getByLabelText('维度 1 权重'))
     await user.type(screen.getByLabelText('维度 1 权重'), '80')
     await user.clear(screen.getByLabelText('硬性门禁'))
@@ -634,13 +702,14 @@ describe('Evaluations page', () => {
       name: 'LLM 评审量规',
       artifact: '调研报告',
       dimensions: [
-        { name: '证据质量', weight: 100 },
+        { id: 'evidence-quality', name: '证据质量', weight: 100, criteria: '检查证据来源是否可靠且可追溯。' },
       ],
       gate: '必须说明证据来源',
       passScore: 85,
       judgeType: 'llm',
       judgeModel: 'deepseek-v4-pro',
       version: 'v0.1.0',
+      modelProviderId: 'provider-judge',
       status: 'draft',
     }
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -649,6 +718,9 @@ describe('Evaluations page', () => {
       }
       if (input === `/api/workspaces/${workspace.id}/evaluations/rubrics` && init?.method === 'POST') {
         return response(createdRubric, 201)
+      }
+      if (input === `/api/workspaces/${workspace.id}/model-providers`) {
+        return response(modelProviders)
       }
       if (input === `/api/workspaces/${workspace.id}/evaluations/rubrics`) {
         return response(rubricAssets)
@@ -671,7 +743,13 @@ describe('Evaluations page', () => {
     await user.type(screen.getByLabelText('硬性门禁'), createdRubric.gate)
     await user.clear(screen.getByLabelText('维度 1 名称'))
     await user.type(screen.getByLabelText('维度 1 名称'), createdRubric.dimensions[0].name)
+    await user.type(screen.getByLabelText('维度 1 评分标准'), createdRubric.dimensions[0].criteria)
     await user.selectOptions(screen.getByLabelText('评分器类型'), 'llm')
+    const providerSelect = await screen.findByLabelText('Model Provider')
+    expect(within(providerSelect).getByRole('option', { name: 'DeepSeek 主模型' })).toBeInTheDocument()
+    expect(within(providerSelect).queryByRole('option', { name: '已停用模型' })).not.toBeInTheDocument()
+    expect(within(providerSelect).queryByRole('option', { name: '配置不完整模型' })).not.toBeInTheDocument()
+    await user.selectOptions(providerSelect, 'provider-judge')
     await user.type(screen.getByLabelText('Judge 模型'), createdRubric.judgeModel)
     await user.click(screen.getByRole('button', { name: '保存评分量规' }))
 
@@ -686,7 +764,86 @@ describe('Evaluations page', () => {
     expect(JSON.parse(String(createInit.body))).toMatchObject({
       judgeType: 'llm',
       judgeModel: 'deepseek-v4-pro',
+      modelProviderId: 'provider-judge',
+      dimensions: [{
+        id: expect.any(String),
+        criteria: '检查证据来源是否可靠且可追溯。',
+      }],
     })
+    const requestBody = JSON.parse(String(createInit.body)) as { dimensions: { id: string }[] }
+    expect(requestBody.dimensions[0].id.trim()).not.toBe('')
+  })
+
+  it('requires dimension criteria and normalized unique names before saving', async () => {
+    const user = userEvent.setup()
+    const fetchMock = rubricFormFetch([])
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: '新建评分量规' }))
+    await user.type(screen.getByLabelText('名称'), '质量模板')
+    await user.type(screen.getByLabelText('适用产出物'), '方案文档')
+    await user.type(screen.getByLabelText('硬性门禁'), '按维度标准评分')
+    await user.type(screen.getByLabelText('维度 1 名称'), '用户价值')
+    await user.click(screen.getByRole('button', { name: '保存评分量规' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('维度评分标准不能为空')
+
+    await user.type(screen.getByLabelText('维度 1 评分标准'), '检查是否解决真实用户问题。')
+    await user.click(screen.getByRole('button', { name: '增加维度' }))
+    await user.type(screen.getByLabelText('维度 2 名称'), ' 用户价值 ')
+    await user.type(screen.getByLabelText('维度 2 评分标准'), '检查是否提供可验证价值。')
+    await user.clear(screen.getByLabelText('维度 1 权重'))
+    await user.type(screen.getByLabelText('维度 1 权重'), '50')
+    await user.clear(screen.getByLabelText('维度 2 权重'))
+    await user.type(screen.getByLabelText('维度 2 权重'), '50')
+    await user.click(screen.getByRole('button', { name: '保存评分量规' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('维度名称不能重复')
+    expect(fetchMock.mock.calls.some(([url, init]) => (
+      url === `/api/workspaces/${workspace.id}/evaluations/rubrics` && init?.method === 'POST'
+    ))).toBe(false)
+  })
+
+  it('rejects duplicate stable dimension ids when editing a rubric', async () => {
+    const user = userEvent.setup()
+    const duplicateIdRubric = {
+      id: 'rubric-duplicate-id',
+      name: '重复 ID 模板',
+      artifact: '方案文档',
+      dimensions: [
+        { id: 'same-id', name: '完整性', weight: 50, criteria: '检查内容完整。' },
+        { id: 'same-id', name: '准确性', weight: 50, criteria: '检查事实准确。' },
+      ],
+      gate: '按维度标准评分',
+      passScore: 80,
+      judgeType: 'llm',
+      judgeModel: 'deepseek-v4-pro',
+      modelProviderId: 'provider-judge',
+      version: 'v0.1.0',
+      status: 'draft',
+    }
+    const fetchMock = rubricFormFetch([duplicateIdRubric])
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage()
+
+    await screen.findByRole('heading', { name: '重复 ID 模板' })
+    await user.click(screen.getByRole('button', { name: '配置量规' }))
+    await user.click(await screen.findByRole('button', { name: '保存评分量规' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('维度 ID 不能重复')
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(false)
+  })
+
+  it('keeps legacy rubrics readable and marks them unavailable to workflow evaluation', async () => {
+    vi.stubGlobal('fetch', rubricFormFetch())
+
+    renderPage()
+
+    expect(await screen.findByRole('heading', { name: 'API 持久化 Rubric' })).toBeInTheDocument()
+    expect(screen.getByText(/旧版模板.*不能用于工作流评估节点/)).toBeInTheDocument()
   })
 
   it('runs a rubric evaluation from the configuration dialog', async () => {

@@ -16,6 +16,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
+  Beaker,
   Bot,
   Braces,
   Check,
@@ -33,7 +34,6 @@ import {
   Search,
   Send,
   ShieldAlert,
-  ShieldCheck,
   Trash2,
   Redo2,
   Undo2,
@@ -44,6 +44,8 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { useWorkspace } from '../auth/workspaceContextState'
 import { listAgentVersions, listAgents } from '../api/agents'
+import { getRubrics, listRubricVersions } from '../api/evaluations'
+import { listModelProviders } from '../api/modelProviders'
 import {
   createWorkflow,
   deleteWorkflow,
@@ -63,6 +65,10 @@ import type {
   ExecutionRun,
   Reviewer,
   ReviewGroup,
+  ModelProvider,
+  Rubric,
+  RubricVersion,
+  WorkflowRubricRef,
   WorkflowDraft,
   WorkflowVersion,
 } from '../types'
@@ -124,7 +130,7 @@ const palette: Array<{ label: string; icon: typeof Bot; kind: WorkflowNodeData['
   { label: '工具调用', icon: Wrench, kind: 'tool' },
   { label: '数据查询', icon: Database, kind: 'data' },
   { label: '条件分支', icon: GitBranch, kind: 'branch' },
-  { label: '质量门禁', icon: ShieldCheck, kind: 'gate' },
+  { label: '评估', icon: Beaker, kind: 'evaluation' },
   { label: '人工审核', icon: UserCheck, kind: 'human' },
   { label: '代码执行', icon: Braces, kind: 'code' },
   { label: '等待节点', icon: Clock3, kind: 'wait' },
@@ -135,6 +141,77 @@ interface PublishedAgentOption {
   agentId: string
   agentName: string
   version: AgentVersion
+}
+
+interface WorkflowEvaluationTemplateOption {
+  rubricId: string
+  rubricName: string
+  versionId: string
+  version: string
+  snapshot: Rubric
+  providerId: string
+  providerName: string
+  model: string
+}
+
+type EvaluationTemplateLoadState = 'loading' | 'ready' | 'error'
+
+function evaluationTemplateOptionValue(option: WorkflowEvaluationTemplateOption) {
+  return `${option.rubricId}|${option.versionId}`
+}
+
+function evaluationRubricRefValue(rubricRef?: WorkflowRubricRef) {
+  return rubricRef ? `${rubricRef.rubricId}|${rubricRef.versionId}` : ''
+}
+
+function isCompleteEvaluationProvider(provider: ModelProvider) {
+  return provider.status !== 'disabled'
+    && Boolean(provider.id.trim())
+    && Boolean(provider.name.trim())
+    && Boolean(provider.baseUrl.trim())
+    && Boolean(provider.defaultModel.trim())
+    && Boolean(provider.secretRef.trim())
+}
+
+function hasWorkflowCompatibleDimensions(rubric: Rubric) {
+  if (rubric.dimensions.length === 0) return false
+  const ids = new Set<string>()
+  const names = new Set<string>()
+  let totalWeight = 0
+  for (const dimension of rubric.dimensions) {
+    const id = dimension.id?.trim() ?? ''
+    const name = dimension.name.trim()
+    const normalizedName = name.toLocaleLowerCase('zh-CN')
+    const criteria = dimension.criteria?.trim() ?? ''
+    if (!id || !name || !criteria || ids.has(id) || names.has(normalizedName)) return false
+    if (!Number.isInteger(dimension.weight) || dimension.weight < 1 || dimension.weight > 100) return false
+    ids.add(id)
+    names.add(normalizedName)
+    totalWeight += dimension.weight
+  }
+  return totalWeight === 100
+}
+
+function toWorkflowEvaluationTemplateOption(
+  rubric: Rubric,
+  version: RubricVersion,
+  providersById: Map<string, ModelProvider>,
+): WorkflowEvaluationTemplateOption | null {
+  const snapshot = version.snapshot
+  const providerId = snapshot.modelProviderId?.trim() ?? ''
+  const provider = providersById.get(providerId)
+  if (snapshot.judgeType !== 'llm' || !snapshot.judgeModel.trim()) return null
+  if (!provider || !hasWorkflowCompatibleDimensions(snapshot)) return null
+  return {
+    rubricId: rubric.id,
+    rubricName: snapshot.name.trim() || rubric.name,
+    versionId: version.id,
+    version: version.version,
+    snapshot,
+    providerId,
+    providerName: provider.name,
+    model: snapshot.judgeModel.trim(),
+  }
 }
 
 interface NodeEdgeImpact {
@@ -536,6 +613,8 @@ export function Workflows() {
   const [selectedNode, setSelectedNode] = useState<Node | null>(null)
   const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null)
   const [agentOptions, setAgentOptions] = useState<PublishedAgentOption[]>([])
+  const [evaluationTemplateOptions, setEvaluationTemplateOptions] = useState<WorkflowEvaluationTemplateOption[]>([])
+  const [evaluationTemplateLoadState, setEvaluationTemplateLoadState] = useState<EvaluationTemplateLoadState>('loading')
   const [reviewers, setReviewers] = useState<Reviewer[]>([])
   const [reviewGroups, setReviewGroups] = useState<ReviewGroup[]>([])
   const [versions, setVersions] = useState<WorkflowVersion[]>([])
@@ -785,6 +864,52 @@ export function Workflows() {
   }, [activateWorkflow, resetToNewWorkflow, routeWorkflowId, workspace.id])
 
   const currentWorkflow = workflows.find((workflow) => workflow.id === currentId)
+
+  useEffect(() => {
+    let isActive = true
+    setEvaluationTemplateOptions([])
+    setEvaluationTemplateLoadState('loading')
+
+    async function loadEvaluationTemplates() {
+      try {
+        const [rubrics, providers] = await Promise.all([
+          getRubrics(workspace.id),
+          listModelProviders(workspace.id),
+        ])
+        const providersById = new Map(
+          providers
+            .filter(isCompleteEvaluationProvider)
+            .map((provider) => [provider.id, provider]),
+        )
+        const versionGroups = await Promise.all(
+          rubrics
+            .filter((rubric) => rubric.status === 'active')
+            .map(async (rubric) => ({
+              rubric,
+              versions: await listRubricVersions(workspace.id, rubric.id),
+            })),
+        )
+        const options = versionGroups.flatMap(({ rubric, versions: publishedVersions }) => (
+          publishedVersions.flatMap((version) => {
+            const option = toWorkflowEvaluationTemplateOption(rubric, version, providersById)
+            return option ? [option] : []
+          })
+        ))
+        if (!isActive) return
+        setEvaluationTemplateOptions(options)
+        setEvaluationTemplateLoadState('ready')
+      } catch {
+        if (!isActive) return
+        setEvaluationTemplateOptions([])
+        setEvaluationTemplateLoadState('error')
+      }
+    }
+
+    void loadEvaluationTemplates()
+    return () => {
+      isActive = false
+    }
+  }, [workspace.id])
   const requestWorkflowDelete = useCallback(() => {
     if (!currentWorkflow) return
     setWorkflowDeleteCandidate(currentWorkflow)
@@ -1032,11 +1157,13 @@ export function Workflows() {
           label,
           subtitle: kind === 'agent'
             ? '尚未绑定发布版本'
+            : kind === 'evaluation'
+            ? '请选择已发布评估模板'
             : kind === 'human'
             ? '指定用户审核'
             : '待配置',
           kind,
-          status: kind === 'agent' ? 'warning' : 'idle',
+          status: kind === 'agent' || kind === 'evaluation' ? 'warning' : 'idle',
           ...(kind === 'human'
             ? {
               assignmentType: 'direct_reviewer',
@@ -1471,7 +1598,10 @@ export function Workflows() {
             <Controls position="bottom-left" />
             <MiniMap position="bottom-right" pannable zoomable nodeColor={(node) => {
               const data = node.data as WorkflowNodeData
-              return data.kind === 'human' ? '#ef9f50' : data.kind === 'gate' ? '#2e7d6c' : '#707975'
+              if (data.kind === 'human') return '#ef9f50'
+              if (data.kind === 'evaluation') return '#6579a8'
+              if (data.kind === 'gate') return '#2e7d6c'
+              return '#707975'
             }} />
           </ReactFlow>
           <div className="canvas-status"><span className="live-dot" />{currentId ? '草稿已连接数据库' : '新草稿尚未保存'} · {nodes.length} 个节点</div>
@@ -1481,6 +1611,9 @@ export function Workflows() {
           <NodeInspector
             node={selectedNode}
             agentOptions={agentOptions}
+            evaluationTemplateOptions={evaluationTemplateOptions}
+            evaluationTemplateLoadState={evaluationTemplateLoadState}
+            evaluationCenterPath={workspacePath('evaluations')}
             reviewers={reviewers}
             reviewGroups={reviewGroups}
             edgeImpact={selectedNodeEdgeImpact}
@@ -1751,6 +1884,9 @@ export function Workflows() {
 function NodeInspector({
   node,
   agentOptions,
+  evaluationTemplateOptions,
+  evaluationTemplateLoadState,
+  evaluationCenterPath,
   reviewers,
   reviewGroups,
   edgeImpact,
@@ -1761,6 +1897,9 @@ function NodeInspector({
 }: {
   node: Node
   agentOptions: PublishedAgentOption[]
+  evaluationTemplateOptions: WorkflowEvaluationTemplateOption[]
+  evaluationTemplateLoadState: EvaluationTemplateLoadState
+  evaluationCenterPath: string
   reviewers: Reviewer[]
   reviewGroups: ReviewGroup[]
   edgeImpact: NodeEdgeImpact
@@ -1786,6 +1925,11 @@ function NodeInspector({
   const activeReviewers = useMemo(() => reviewers.filter((reviewer) => reviewer.isActive), [reviewers])
   const isAgent = data.kind === 'agent'
   const isHuman = data.kind === 'human'
+  const isEvaluation = data.kind === 'evaluation'
+  const selectedEvaluationTemplateValue = evaluationRubricRefValue(data.rubricRef)
+  const selectedEvaluationTemplate = evaluationTemplateOptions.find(
+    (option) => evaluationTemplateOptionValue(option) === selectedEvaluationTemplateValue,
+  )
   const optionsByAgent = useMemo(() => agentOptions, [agentOptions])
 
   useEffect(() => {
@@ -1825,6 +1969,87 @@ function NodeInspector({
           </select>
           {optionsByAgent.length === 0 && <small>请先在 Agent 详情页发布至少一个版本。</small>}
         </label>
+      )}
+      {isEvaluation && (
+        <div className="inspector-group evaluation-template-config">
+          <span className="inspector-group-title">评估模板</span>
+          {evaluationTemplateLoadState === 'loading' && (
+            <div className="evaluation-template-state">
+              <strong>请选择已发布评估模板</strong>
+              <small>正在加载可用于工作流的模板版本…</small>
+            </div>
+          )}
+          {evaluationTemplateLoadState === 'error' && (
+            <div className="evaluation-template-state error" role="alert">
+              <strong>评估模板加载失败</strong>
+              <small>工作流仍可继续编辑，请稍后重试。</small>
+            </div>
+          )}
+          {evaluationTemplateLoadState === 'ready' && evaluationTemplateOptions.length === 0 && (
+            <div className="evaluation-template-state">
+              <strong>暂无可用于工作流的已发布模板</strong>
+              <small>模板需要完整维度标准，并绑定未停用的模型配置。</small>
+              <a className="button secondary full" href={evaluationCenterPath}>去评估中心发布模板</a>
+            </div>
+          )}
+          {evaluationTemplateLoadState === 'ready' && evaluationTemplateOptions.length > 0 && (
+            <>
+              <label className="form-field">
+                <span>已发布评估模板版本</span>
+                <select
+                  aria-label="评估模板版本"
+                  value={selectedEvaluationTemplateValue}
+                  onChange={(event) => {
+                    const option = evaluationTemplateOptions.find(
+                      (item) => evaluationTemplateOptionValue(item) === event.target.value,
+                    )
+                    onUpdate(option ? {
+                      rubricRef: {
+                        rubricId: option.rubricId,
+                        versionId: option.versionId,
+                        version: option.version,
+                        name: option.rubricName,
+                      } satisfies WorkflowRubricRef,
+                      subtitle: `${option.rubricName} · ${option.version}`,
+                      status: 'idle',
+                    } : {
+                      rubricRef: undefined,
+                      subtitle: '请选择已发布评估模板',
+                      status: 'warning',
+                    })
+                  }}
+                >
+                  <option value="">请选择已发布评估模板</option>
+                  {evaluationTemplateOptions.map((option) => (
+                    <option value={evaluationTemplateOptionValue(option)} key={option.versionId}>
+                      {option.rubricName} · {option.version}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {selectedEvaluationTemplate && (
+                <div className="evaluation-template-summary">
+                  <div>
+                    <span>通过分 {selectedEvaluationTemplate.snapshot.passScore}</span>
+                    <span>{selectedEvaluationTemplate.providerName}</span>
+                    <span>{selectedEvaluationTemplate.model}</span>
+                  </div>
+                  <div className="evaluation-dimension-list">
+                    {selectedEvaluationTemplate.snapshot.dimensions.map((dimension) => (
+                      <article key={dimension.id ?? dimension.name}>
+                        <header>
+                          <strong>{dimension.name}</strong>
+                          <span>权重 {dimension.weight}%</span>
+                        </header>
+                        <p>{dimension.criteria}</p>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
       )}
       {isHuman && (
         <>
@@ -2017,7 +2242,12 @@ function NodeInspector({
       <div className="inspector-section">
         <div><span>节点类型</span><strong>{data.kind}</strong></div>
         <div><span>持久化状态</span><strong>随草稿保存</strong></div>
-        <div><span>发布约束</span><strong>{isAgent ? '必须引用版本' : isHuman ? '必须配置审核规则' : 'DAG 校验'}</strong></div>
+        <div>
+          <span>发布约束</span>
+          <strong>
+            {isAgent ? '必须引用版本' : isEvaluation ? '必须引用模板版本' : isHuman ? '必须配置审核规则' : 'DAG 校验'}
+          </strong>
+        </div>
       </div>
       <div className="inspector-section" aria-label="删除影响">
         <div><span>删除影响</span><strong>共影响 {edgeImpact.total} 条连线</strong></div>

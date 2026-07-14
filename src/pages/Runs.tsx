@@ -6,7 +6,14 @@ import { deleteRun, listRuns } from '../api/execution'
 import { listWorkflowVersions } from '../api/workflows'
 import { StatusBadge } from '../components/StatusBadge'
 import { displayStatus, isWaitingForHumanReview } from '../domain/statusText'
-import type { ArtifactCatalogItem, ExecutionRun, NodeExecution, WorkflowNodeContract, WorkflowVersion } from '../types'
+import type {
+  ArtifactCatalogItem,
+  ExecutionRun,
+  NodeExecution,
+  WorkflowEvaluationResult,
+  WorkflowNodeContract,
+  WorkflowVersion,
+} from '../types'
 
 function formatDuration(durationMs: number) {
   if (durationMs < 1000) return `${durationMs} ms`
@@ -163,6 +170,89 @@ function artifactPreview(content: string) {
   return normalized.length > 220 ? `${normalized.slice(0, 220)}...` : normalized
 }
 
+function isUnknownRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
+function parseWorkflowEvaluationResult(output: string): WorkflowEvaluationResult | null {
+  if (!output.trim()) return null
+  let value: unknown
+  try {
+    value = JSON.parse(output)
+  } catch {
+    return null
+  }
+  if (!isUnknownRecord(value)) return null
+  if (!isNonEmptyString(value.evaluationRecordId)
+    || !isNonEmptyString(value.templateId)
+    || !isNonEmptyString(value.templateVersion)
+    || !isNonEmptyString(value.modelProviderName)
+    || !isFiniteNumber(value.totalScore)
+    || typeof value.passed !== 'boolean'
+    || !isNonEmptyString(value.overallReason)
+    || !Array.isArray(value.dimensions)
+    || value.dimensions.length === 0
+  ) {
+    return null
+  }
+
+  const dimensions: WorkflowEvaluationResult['dimensions'] = []
+  for (const dimension of value.dimensions) {
+    if (!isUnknownRecord(dimension)
+      || !isNonEmptyString(dimension.dimensionId)
+      || !isNonEmptyString(dimension.dimensionName)
+      || !isFiniteNumber(dimension.score)
+      || !isFiniteNumber(dimension.weight)
+      || !isFiniteNumber(dimension.weightedScore)
+      || !isNonEmptyString(dimension.reason)
+    ) {
+      return null
+    }
+    dimensions.push({
+      dimensionId: dimension.dimensionId,
+      dimensionName: dimension.dimensionName,
+      score: dimension.score,
+      weight: dimension.weight,
+      weightedScore: dimension.weightedScore,
+      reason: dimension.reason,
+    })
+  }
+
+  return {
+    evaluationRecordId: value.evaluationRecordId,
+    templateId: value.templateId,
+    templateVersion: value.templateVersion,
+    ...(isNonEmptyString(value.modelProviderId) ? { modelProviderId: value.modelProviderId } : {}),
+    modelProviderName: value.modelProviderName,
+    ...(isNonEmptyString(value.model) ? { model: value.model } : {}),
+    totalScore: value.totalScore,
+    passed: value.passed,
+    overallReason: value.overallReason,
+    dimensions,
+  }
+}
+
+function evaluationTemplateName(
+  node: NodeExecution,
+  workflowVersion: WorkflowVersion | null,
+  result: WorkflowEvaluationResult,
+) {
+  const workflowNode = workflowVersion?.snapshot.nodes.find((item) => item.id === node.nodeId)
+  const rubricRef = workflowNode?.data.rubricRef
+  if (isUnknownRecord(rubricRef) && isNonEmptyString(rubricRef.name)) {
+    return rubricRef.name
+  }
+  return result.templateId
+}
+
 export function Runs() {
   const { workspace, workspacePath } = useWorkspace()
   const [runs, setRuns] = useState<ExecutionRun[]>([])
@@ -174,6 +264,7 @@ export function Runs() {
   const [artifactError, setArtifactError] = useState('')
   const [isArtifactsLoading, setIsArtifactsLoading] = useState(false)
   const [selectedWorkflowVersion, setSelectedWorkflowVersion] = useState<WorkflowVersion | null>(null)
+  const [resolvedWorkflowVersionKey, setResolvedWorkflowVersionKey] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [deleteCandidate, setDeleteCandidate] = useState<ExecutionRun | null>(null)
   const [deleteError, setDeleteError] = useState('')
@@ -254,6 +345,23 @@ export function Runs() {
     () => (selected ? buildRunGraphNodes(selected, selectedWorkflowVersion) : []),
     [selected, selectedWorkflowVersion],
   )
+  const selectedWorkflowVersionKey = selected?.workflowId && selected.workflowVersion
+    ? `${selected.workflowId}|${selected.workflowVersion}`
+    : ''
+  const evaluationNodeResults = useMemo(() => (
+    selected?.nodes
+      .filter((node) => node.nodeType === 'evaluation')
+      .map((node) => ({ node, result: parseWorkflowEvaluationResult(node.output) })) ?? []
+  ), [selected])
+  const evaluationDetailsReady = !selectedWorkflowVersionKey
+    || resolvedWorkflowVersionKey === selectedWorkflowVersionKey
+  const selectedOutputEvaluation = selected
+    ? parseWorkflowEvaluationResult(selected.output)
+    : null
+  const displayedRunOutput = selectedOutputEvaluation?.overallReason
+    ?? (evaluationNodeResults.length > 0 && selected?.output
+      ? '评估结果格式无效，详情见评估节点。'
+      : selected?.output || selected?.error || '本次运行没有产出内容。')
   const artifactsByNodeRunId = useMemo(() => {
     const grouped = new Map<string, ArtifactCatalogItem[]>()
     runArtifacts.forEach((artifact) => {
@@ -280,11 +388,13 @@ export function Runs() {
   useEffect(() => {
     if (!selected?.workflowId || !selected.workflowVersion) {
       setSelectedWorkflowVersion(null)
+      setResolvedWorkflowVersionKey('')
       return
     }
 
     let isActive = true
     setSelectedWorkflowVersion(null)
+    setResolvedWorkflowVersionKey('')
     void listWorkflowVersions(workspace.id, selected.workflowId)
       .then((versions) => {
         if (!isActive) return
@@ -295,11 +405,14 @@ export function Runs() {
       .catch(() => {
         if (isActive) setSelectedWorkflowVersion(null)
       })
+      .finally(() => {
+        if (isActive) setResolvedWorkflowVersionKey(selectedWorkflowVersionKey)
+      })
 
     return () => {
       isActive = false
     }
-  }, [selected?.workflowId, selected?.workflowVersion, workspace.id])
+  }, [selected?.workflowId, selected?.workflowVersion, selectedWorkflowVersionKey, workspace.id])
 
   useEffect(() => {
     if (!selected?.id) {
@@ -481,6 +594,22 @@ export function Runs() {
           <div><span>模型成本</span><strong>${selected.costUsd.toFixed(6)}</strong></div>
         </div>
 
+        {evaluationDetailsReady && evaluationNodeResults.map(({ node, result }) => (
+          result ? (
+            <EvaluationResultPanel
+              key={node.id}
+              node={node}
+              result={result}
+              templateName={evaluationTemplateName(node, selectedWorkflowVersion, result)}
+            />
+          ) : (
+            <div className="evaluation-result-error" role="alert" key={node.id}>
+              <strong>评估结果格式无效</strong>
+              <span>{node.nodeName} 的结构化结果无法安全解析，请查看节点错误信息或重新运行。</span>
+            </div>
+          )
+        ))}
+
         {isWaitingForHumanReview(selected.status) && (
           <div className="review-handoff-notice run-review-notice">
             <div>
@@ -493,7 +622,7 @@ export function Runs() {
 
         <div className="review-section">
           <div className="review-section-title"><h3>工作流最终产出</h3><span>{selected.model || '未记录模型'}</span></div>
-          <div className="artifact-preview"><p>{selected.output || selected.error || '本次运行没有产出内容。'}</p></div>
+          <div className="artifact-preview"><p>{displayedRunOutput}</p></div>
         </div>
 
         <section className="review-section run-artifact-section" aria-label="节点产出物">
@@ -577,9 +706,64 @@ export function Runs() {
   )
 }
 
+function EvaluationResultPanel({
+  node,
+  result,
+  templateName,
+}: {
+  node: NodeExecution
+  result: WorkflowEvaluationResult
+  templateName: string
+}) {
+  const actualModel = result.model || node.model || '未记录模型'
+  return (
+    <section className="evaluation-result-panel" aria-label="评估结果">
+      <header>
+        <div>
+          <span className="section-kicker">EVALUATION RESULT</span>
+          <h3>{node.nodeName}</h3>
+        </div>
+        <span className={`evaluation-outcome ${result.passed ? 'passed' : 'not-passed'}`}>
+          {result.passed ? '评估通过' : '评估未通过'}
+        </span>
+      </header>
+      <div className="evaluation-result-overview">
+        <div className="evaluation-total-score">
+          <span>总分</span>
+          <strong>{result.totalScore}</strong>
+        </div>
+        <p>{result.overallReason}</p>
+      </div>
+      <dl className="evaluation-result-meta">
+        <div><dt>模板版本</dt><dd>{templateName} · {result.templateVersion}</dd></div>
+        <div><dt>Model Provider</dt><dd>{result.modelProviderName}</dd></div>
+        <div><dt>实际模型</dt><dd>{actualModel}</dd></div>
+      </dl>
+      <div className="evaluation-result-dimensions">
+        {result.dimensions.map((dimension) => (
+          <article role="group" aria-label={dimension.dimensionName} key={dimension.dimensionId}>
+            <header>
+              <strong>{dimension.dimensionName}</strong>
+              <span>{dimension.score} 分</span>
+            </header>
+            <div>
+              <span>权重 {dimension.weight}%</span>
+              <span>加权分 {dimension.weightedScore.toFixed(2)}</span>
+            </div>
+            <p>{dimension.reason}</p>
+          </article>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 function TimelineItem({ node }: { node: NodeExecution }) {
   const state = node.status === '失败' ? 'idle' : node.status === '运行中' ? 'running' : 'success'
-  const detail = node.output || node.error || node.input
+  const evaluationResult = node.nodeType === 'evaluation' ? parseWorkflowEvaluationResult(node.output) : null
+  const detail = evaluationResult?.overallReason
+    ?? (node.nodeType === 'evaluation' && node.output
+      ? '评估结果格式无效' : node.output || node.error || node.input)
   return (
     <div className={`timeline-item ${state}`}>
       <div className="timeline-marker"><Play size={14} /></div>

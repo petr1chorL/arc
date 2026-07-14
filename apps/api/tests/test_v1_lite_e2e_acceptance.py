@@ -1,7 +1,16 @@
 import json
 from dataclasses import dataclass
 
+from sqlalchemy import func, select
+
 from api_test_support import create_authenticated_client, csrf_headers, workspace_url
+from app.judge_gateway import JudgeGatewayResult
+from app.models import (
+    EvaluationRecord,
+    ModelProviderRecord,
+    NodeRunRecord,
+    UserRecord,
+)
 from app.v1_lite_seed import seed_v1_lite_assets
 
 
@@ -23,7 +32,32 @@ class FakeGateway:
         return self.results.pop(0)
 
 
+class FakeJudgeGateway:
+    def __init__(self):
+        self.calls: list[dict] = []
+
+    def evaluate(self, **request) -> JudgeGatewayResult:
+        self.calls.append(request)
+        return JudgeGatewayResult(
+            dimension_scores=[
+                {
+                    "dimensionId": dimension["id"],
+                    "score": 90,
+                    "reason": f"{dimension['name']} 已满足对应验收标准。",
+                }
+                for dimension in request["rubric_snapshot"]["dimensions"]
+            ],
+            rationale="各维度均达到 V1 Lite 试点验收要求。",
+            model="fake-v1-lite-judge",
+            input_snapshot={"judgePromptVersion": "llm-judge-explainable-v1"},
+            prompt_tokens=12,
+            completion_tokens=8,
+            attempts=1,
+        )
+
+
 def test_v1_lite_seeded_assets_run_review_evaluate_regress_and_trace(tmp_path):
+    judge = FakeJudgeGateway()
     gateway = FakeGateway([
         FakeModelResult(
             json.dumps({
@@ -67,8 +101,24 @@ def test_v1_lite_seeded_assets_run_review_evaluate_regress_and_trace(tmp_path):
     client, workspace_id = create_authenticated_client(
         f"sqlite:///{tmp_path / 'v1-lite-e2e.db'}",
         model_gateway=gateway,
+        judge_gateway=judge,
     )
     with client.app.state.session_factory() as session:
+        admin_id = session.scalar(select(UserRecord.id))
+        assert admin_id is not None
+        session.add(
+            ModelProviderRecord(
+                workspace_id=workspace_id,
+                name="V1 Lite E2E Provider",
+                provider_type="openai-compatible",
+                base_url="https://api.deepseek.com",
+                default_model="deepseek-v4-pro",
+                secret_ref="DEEPSEEK_API_KEY",
+                status="draft",
+                created_by=admin_id,
+            ),
+        )
+        session.flush()
         seeded = seed_v1_lite_assets(session)
 
     workflow_id = seeded["workflow"]["id"]
@@ -144,20 +194,48 @@ def test_v1_lite_seeded_assets_run_review_evaluate_regress_and_trace(tmp_path):
     assert node_types.count("evaluation") == 1
     assert node_types.count("end") == 1
 
-    evaluation = client.post(
-        workspace_url(workspace_id, f"/evaluations/rubrics/{seeded['rubric']['id']}/evaluate"),
-        json={
-            "artifactText": completed_run["output"],
-            "subjectType": "workflow_run",
-            "subjectId": completed_run["id"],
-        },
-        headers=csrf_headers(client),
-    )
-    assert evaluation.status_code == 201
-    evaluation_record = evaluation.json()
-    assert evaluation_record["id"]
-    assert evaluation_record["rubricId"] == seeded["rubric"]["id"]
-    assert evaluation_record["subjectId"] == completed_run["id"]
+    with client.app.state.session_factory() as session:
+        source_node = session.scalar(
+            select(NodeRunRecord).where(
+                NodeRunRecord.run_id == completed_run["id"],
+                NodeRunRecord.node_id == "agent-revision",
+            ),
+        )
+        evaluation_node = session.scalar(
+            select(NodeRunRecord).where(
+                NodeRunRecord.run_id == completed_run["id"],
+                NodeRunRecord.node_id == "evaluation-placeholder",
+            ),
+        )
+        evaluation_record = session.scalar(
+            select(EvaluationRecord).where(
+                EvaluationRecord.workspace_id == workspace_id,
+            ),
+        )
+        assert source_node is not None
+        assert evaluation_node is not None
+        assert evaluation_record is not None
+        assert evaluation_record.rubric_id == seeded["rubric"]["id"]
+        assert evaluation_record.rubric_version == seeded["rubric"]["version"]
+        assert evaluation_record.subject_type == "node_run"
+        assert evaluation_record.subject_id == source_node.id
+
+        evaluation_output = json.loads(evaluation_node.output_text)
+        assert evaluation_output["evaluationRecordId"] == evaluation_record.id
+        assert evaluation_output["templateId"] == seeded["rubric"]["id"]
+        assert evaluation_output["templateVersion"] == seeded["rubric"]["version"]
+        assert evaluation_output["modelProviderId"] == seeded["modelProvider"]["id"]
+        assert evaluation_output["modelProviderName"] == seeded["modelProvider"]["name"]
+        assert evaluation_output["model"] == "fake-v1-lite-judge"
+        assert evaluation_output["totalScore"] == 90
+        assert evaluation_output["passed"] is True
+        assert evaluation_output["overallReason"] == "各维度均达到 V1 Lite 试点验收要求。"
+        assert len(evaluation_output["dimensions"]) == 5
+        assert all(
+            dimension["score"] == 90 and dimension["reason"].strip()
+            for dimension in evaluation_output["dimensions"]
+        )
+    assert len(judge.calls) == 1
 
     regression = client.post(
         workspace_url(workspace_id, "/evaluations/regression-runs"),
@@ -172,6 +250,13 @@ def test_v1_lite_seeded_assets_run_review_evaluate_regress_and_trace(tmp_path):
     assert regression_run["id"]
     assert regression_run["totalSamples"] == 3
     assert len(regression_run["evaluationIds"]) == 3
+    assert len(judge.calls) == 4
+    assert all(
+        call["rubric_version"] == seeded["rubric"]["version"]
+        for call in judge.calls
+    )
+    with client.app.state.session_factory() as session:
+        assert session.scalar(select(func.count()).select_from(EvaluationRecord)) == 4
 
     observability = client.get(
         workspace_url(workspace_id, f"/observability/runs/{completed_run['id']}"),

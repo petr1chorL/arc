@@ -75,7 +75,7 @@ class OpenAICompatibleGateway:
             effective_api_key = self.settings.model_api_key
         if not effective_api_key:
             raise ModelGatewayError("模型服务未配置")
-        resolved_model = self.settings.model_default_model or model
+        resolved_model = model.strip() or self.settings.model_default_model
         if not resolved_model:
             raise ModelGatewayError("模型名称未配置")
         endpoint = f"{effective_base_url.rstrip('/')}/chat/completions"

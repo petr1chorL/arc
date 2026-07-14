@@ -43,10 +43,12 @@ import {
   type RemediationTaskUpdateInput,
   type RubricInput,
 } from '../api/evaluations'
+import { listModelProviders } from '../api/modelProviders'
 import { useWorkspace } from '../auth/workspaceContextState'
 import type {
   EvaluationRecord,
   EvaluationOverview,
+  ModelProvider,
   RemediationTask,
   RegressionRun,
   RegressionSampleSet,
@@ -66,41 +68,111 @@ const emptyOverview: EvaluationOverview = {
   recentCandidates: [],
 }
 
-const emptyForm: RubricInput = {
-  name: '',
-  artifact: '',
-  dimensions: [{ name: '', weight: 100 }],
-  gate: '',
-  passScore: 85,
-  judgeType: 'deterministic',
-  judgeModel: '',
+let dimensionIdSequence = 0
+
+function createDimensionId() {
+  if (typeof globalThis.crypto?.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID()
+  }
+  dimensionIdSequence += 1
+  return `dimension-${Date.now().toString(36)}-${dimensionIdSequence.toString(36)}`
+}
+
+function createEmptyRubricForm(): RubricInput {
+  return {
+    name: '',
+    artifact: '',
+    dimensions: [{ id: createDimensionId(), name: '', weight: 100, criteria: '' }],
+    gate: '',
+    passScore: 85,
+    judgeType: 'deterministic',
+    judgeModel: '',
+    modelProviderId: null,
+  }
 }
 
 function toRubricInput(rubric: Rubric): RubricInput {
   return {
     name: rubric.name,
     artifact: rubric.artifact,
-    dimensions: rubric.dimensions.map((dimension) => ({ ...dimension })),
+    dimensions: rubric.dimensions.map((dimension) => ({
+      id: dimension.id?.trim() || createDimensionId(),
+      name: dimension.name,
+      weight: dimension.weight,
+      criteria: dimension.criteria ?? '',
+    })),
     gate: rubric.gate,
     passScore: rubric.passScore,
     judgeType: rubric.judgeType ?? 'deterministic',
     judgeModel: rubric.judgeModel ?? '',
+    modelProviderId: rubric.modelProviderId ?? null,
   }
 }
 
-function validateRubric(input: RubricInput): string {
+function normalizeIdentity(value: string) {
+  return value.trim().toLocaleLowerCase('zh-CN')
+}
+
+function isCompleteModelProvider(provider: ModelProvider) {
+  return provider.status !== 'disabled'
+    && Boolean(provider.id.trim())
+    && Boolean(provider.name.trim())
+    && Boolean(provider.baseUrl.trim())
+    && Boolean(provider.defaultModel.trim())
+    && Boolean(provider.secretRef.trim())
+}
+
+function hasWorkflowCompatibleDimensions(rubric: Rubric) {
+  if (rubric.dimensions.length === 0) return false
+  const ids = new Set<string>()
+  const names = new Set<string>()
+  let totalWeight = 0
+  for (const dimension of rubric.dimensions) {
+    const id = normalizeIdentity(dimension.id ?? '')
+    const name = normalizeIdentity(dimension.name)
+    if (!id || !name || !dimension.criteria?.trim() || ids.has(id) || names.has(name)) return false
+    if (!Number.isInteger(dimension.weight) || dimension.weight < 1 || dimension.weight > 100) return false
+    ids.add(id)
+    names.add(name)
+    totalWeight += dimension.weight
+  }
+  return totalWeight === 100
+}
+
+function isWorkflowCompatibleRubric(rubric: Rubric, providers: ModelProvider[]) {
+  const providerId = rubric.modelProviderId?.trim() ?? ''
+  return rubric.judgeType === 'llm'
+    && Boolean(rubric.judgeModel?.trim())
+    && providers.some((provider) => provider.id === providerId && isCompleteModelProvider(provider))
+    && hasWorkflowCompatibleDimensions(rubric)
+}
+
+function validateRubric(input: RubricInput, providers: ModelProvider[]): string {
   if (!input.name.trim()) return '名称不能为空'
   if (!input.artifact.trim()) return '适用产出物不能为空'
   if (!input.gate.trim()) return '硬性门禁不能为空'
   if (input.passScore < 0 || input.passScore > 100) return '通过分数必须在 0 到 100 之间'
   if (input.dimensions.length === 0) return '至少需要 1 个评分维度'
   if (input.dimensions.some((dimension) => !dimension.name.trim())) return '维度名称不能为空'
-  if (input.dimensions.some((dimension) => dimension.weight <= 0 || dimension.weight > 100)) {
+  if (input.dimensions.some((dimension) => !dimension.id.trim())) return '维度 ID 不能为空'
+  if (input.dimensions.some((dimension) => !dimension.criteria.trim())) return '维度评分标准不能为空'
+  const normalizedNames = input.dimensions.map((dimension) => normalizeIdentity(dimension.name))
+  if (new Set(normalizedNames).size !== normalizedNames.length) return '维度名称不能重复'
+  const normalizedIds = input.dimensions.map((dimension) => normalizeIdentity(dimension.id))
+  if (new Set(normalizedIds).size !== normalizedIds.length) return '维度 ID 不能重复'
+  if (input.dimensions.some((dimension) => (
+    !Number.isInteger(dimension.weight) || dimension.weight <= 0 || dimension.weight > 100
+  ))) {
     return '维度权重必须在 1 到 100 之间'
   }
   const totalWeight = input.dimensions.reduce((sum, dimension) => sum + dimension.weight, 0)
   if (totalWeight !== 100) return '维度权重合计必须等于 100'
-  if (input.judgeType === 'llm' && !input.judgeModel?.trim()) return 'LLM Judge 模型不能为空'
+  if (input.judgeType === 'llm') {
+    const providerId = input.modelProviderId?.trim() ?? ''
+    if (!providerId) return '请选择可用的 Model Provider'
+    if (!providers.some((provider) => provider.id === providerId)) return '所选 Model Provider 不可用'
+    if (!input.judgeModel?.trim()) return 'LLM Judge 模型不能为空'
+  }
   return ''
 }
 
@@ -607,11 +679,12 @@ export function Evaluations() {
   const highlightedRemediationTaskId = searchParams.get('taskId') ?? ''
   const [overview, setOverview] = useState<EvaluationOverview>(emptyOverview)
   const [rubrics, setRubrics] = useState<Rubric[]>([])
+  const [modelProviders, setModelProviders] = useState<ModelProvider[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
   const [isRubricDialogOpen, setIsRubricDialogOpen] = useState(false)
   const [editingRubric, setEditingRubric] = useState<Rubric | null>(null)
-  const [form, setForm] = useState<RubricInput>(emptyForm)
+  const [form, setForm] = useState<RubricInput>(() => createEmptyRubricForm())
   const [versions, setVersions] = useState<RubricVersion[]>([])
   const [formError, setFormError] = useState('')
   const [formFeedback, setFormFeedback] = useState('')
@@ -695,6 +768,7 @@ export function Evaluations() {
       const [
         nextOverview,
         nextRubrics,
+        nextModelProviders,
         nextRecords,
         nextSampleSets,
         nextRegressionRuns,
@@ -702,6 +776,7 @@ export function Evaluations() {
       ] = await Promise.all([
         getEvaluationOverview(workspace.id),
         getRubrics(workspace.id),
+        listModelProviders(workspace.id).catch(() => []),
         listEvaluationRecords(workspace.id),
         listRegressionSampleSets(workspace.id),
         listRegressionRuns(workspace.id).catch(() => []),
@@ -709,6 +784,7 @@ export function Evaluations() {
       ])
       setOverview(nextOverview)
       setRubrics(nextRubrics)
+      setModelProviders(nextModelProviders)
       setEvaluationRecords(nextRecords)
       setSampleSets(nextSampleSets)
       setRegressionRuns(nextRegressionRuns)
@@ -747,6 +823,11 @@ export function Evaluations() {
   const totalWeight = useMemo(
     () => form.dimensions.reduce((sum, dimension) => sum + dimension.weight, 0),
     [form.dimensions],
+  )
+
+  const availableModelProviders = useMemo(
+    () => modelProviders.filter(isCompleteModelProvider),
+    [modelProviders],
   )
 
   const filteredEvaluationRecords = useMemo(() => evaluationRecords.filter((record) => (
@@ -949,7 +1030,7 @@ export function Evaluations() {
   function openCreateDialog() {
     setIsRubricDialogOpen(true)
     setEditingRubric(null)
-    setForm({ ...emptyForm, dimensions: emptyForm.dimensions.map((dimension) => ({ ...dimension })) })
+    setForm(createEmptyRubricForm())
     setVersions([])
     setFormError('')
     setFormFeedback('')
@@ -977,7 +1058,7 @@ export function Evaluations() {
   function closeDialog() {
     setIsRubricDialogOpen(false)
     setEditingRubric(null)
-    setForm({ ...emptyForm, dimensions: emptyForm.dimensions.map((dimension) => ({ ...dimension })) })
+    setForm(createEmptyRubricForm())
     setVersions([])
     setFormError('')
     setFormFeedback('')
@@ -996,7 +1077,7 @@ export function Evaluations() {
   }
 
   async function saveRubric() {
-    const validationError = validateRubric(form)
+    const validationError = validateRubric(form, availableModelProviders)
     if (validationError) {
       setFormError(validationError)
       setFormFeedback('')
@@ -1012,9 +1093,12 @@ export function Evaluations() {
         gate: form.gate.trim(),
         judgeType: form.judgeType ?? 'deterministic',
         judgeModel: form.judgeType === 'llm' ? form.judgeModel?.trim() : '',
+        modelProviderId: form.judgeType === 'llm' ? form.modelProviderId?.trim() || null : null,
         dimensions: form.dimensions.map((dimension) => ({
+          id: dimension.id.trim(),
           name: dimension.name.trim(),
           weight: dimension.weight,
+          criteria: dimension.criteria.trim(),
         })),
       }
       const saved = editingRubric
@@ -2649,6 +2733,11 @@ export function Evaluations() {
                         ? `LLM Judge / ${rubric.judgeModel || '未指定模型'}`
                         : '确定性评分器'}
                     </p>
+                    {!isWorkflowCompatibleRubric(rubric, availableModelProviders) && (
+                      <p className="danger-text">
+                        旧版模板或配置不完整：缺少 LLM、Model Provider、维度 ID 或评分标准，不能用于工作流评估节点。
+                      </p>
+                    )}
                   </div>
                   <button
                     className="icon-button quiet"
@@ -2662,7 +2751,7 @@ export function Evaluations() {
                 <div className="gate-rule"><ShieldCheck size={16} /><span><b>硬性门禁</b>{rubric.gate}</span></div>
                 <div className="dimension-list">
                   {rubric.dimensions.map((dimension) => (
-                    <div key={dimension.name}>
+                    <div key={dimension.id ?? dimension.name}>
                       <span>{dimension.name}</span>
                       <div className="weight-track"><i style={{ width: `${dimension.weight}%` }} /></div>
                       <strong>{dimension.weight}%</strong>
@@ -2748,6 +2837,7 @@ export function Evaluations() {
                     ...current,
                     judgeType: event.target.value as RubricInput['judgeType'],
                     judgeModel: event.target.value === 'llm' ? current.judgeModel : '',
+                    modelProviderId: event.target.value === 'llm' ? current.modelProviderId : null,
                   }))}
                 >
                   <option value="deterministic">确定性评分器</option>
@@ -2755,16 +2845,36 @@ export function Evaluations() {
                 </select>
               </label>
               {(form.judgeType ?? 'deterministic') === 'llm' && (
-                <label className="dialog-field">
-                  Judge 模型
-                  <input
-                    aria-label="Judge 模型"
-                    placeholder="deepseek-v4-pro"
-                    value={form.judgeModel ?? ''}
-                    disabled={disabled}
-                    onChange={(event) => setForm((current) => ({ ...current, judgeModel: event.target.value }))}
-                  />
-                </label>
+                <>
+                  <label className="dialog-field">
+                    Model Provider
+                    <select
+                      aria-label="Model Provider"
+                      value={form.modelProviderId ?? ''}
+                      disabled={disabled}
+                      onChange={(event) => setForm((current) => ({
+                        ...current,
+                        modelProviderId: event.target.value || null,
+                      }))}
+                    >
+                      <option value="">请选择 Model Provider</option>
+                      {availableModelProviders.map((provider) => (
+                        <option key={provider.id} value={provider.id}>{provider.name}</option>
+                      ))}
+                    </select>
+                    {availableModelProviders.length === 0 && <small>暂无配置完整且未停用的 Model Provider</small>}
+                  </label>
+                  <label className="dialog-field">
+                    Judge 模型
+                    <input
+                      aria-label="Judge 模型"
+                      placeholder="deepseek-v4-pro"
+                      value={form.judgeModel ?? ''}
+                      disabled={disabled}
+                      onChange={(event) => setForm((current) => ({ ...current, judgeModel: event.target.value }))}
+                    />
+                  </label>
+                </>
               )}
 
               <div className="rubric-dimension-editor">
@@ -2773,7 +2883,7 @@ export function Evaluations() {
                   <strong className={totalWeight === 100 ? 'success-text' : 'danger-text'}>合计 {totalWeight}%</strong>
                 </div>
                 {form.dimensions.map((dimension, index) => (
-                  <div className="rubric-dimension-row" key={index}>
+                  <div className="rubric-dimension-row" key={`${dimension.id}-${index}`}>
                     <label className="dialog-field">
                       维度 {index + 1} 名称
                       <input
@@ -2781,6 +2891,16 @@ export function Evaluations() {
                         value={dimension.name}
                         disabled={disabled}
                         onChange={(event) => updateDimension(index, { name: event.target.value })}
+                      />
+                    </label>
+                    <label className="dialog-field">
+                      维度 {index + 1} 评分标准
+                      <textarea
+                        aria-label={`维度 ${index + 1} 评分标准`}
+                        rows={2}
+                        value={dimension.criteria}
+                        disabled={disabled}
+                        onChange={(event) => updateDimension(index, { criteria: event.target.value })}
                       />
                     </label>
                     <label className="dialog-field">
@@ -2816,7 +2936,7 @@ export function Evaluations() {
                   disabled={disabled}
                   onClick={() => setForm((current) => ({
                     ...current,
-                    dimensions: [...current.dimensions, { name: '', weight: 1 }],
+                    dimensions: [...current.dimensions, { id: createDimensionId(), name: '', weight: 1, criteria: '' }],
                   }))}
                 >
                   <Plus size={14} />增加维度

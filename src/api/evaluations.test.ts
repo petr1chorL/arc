@@ -74,9 +74,14 @@ describe('Evaluations API', () => {
       id: 'rubric-1',
       name: 'Lifecycle Rubric',
       artifact: 'Artifact',
-      dimensions: [{ name: 'Accuracy', weight: 100 }],
+      dimensions: [
+        { id: 'accuracy', name: 'Accuracy', weight: 100, criteria: 'Check factual accuracy.' },
+      ],
       gate: 'Must pass',
       passScore: 85,
+      judgeType: 'llm' as const,
+      judgeModel: 'deepseek-chat',
+      modelProviderId: 'provider-1',
       version: 'v0.1.0',
       status: 'draft',
     }
@@ -86,6 +91,9 @@ describe('Evaluations API', () => {
       dimensions: rubric.dimensions,
       gate: rubric.gate,
       passScore: rubric.passScore,
+      judgeType: rubric.judgeType,
+      judgeModel: rubric.judgeModel,
+      modelProviderId: rubric.modelProviderId,
     }
     const version = {
       id: 'version-1',
@@ -118,6 +126,8 @@ describe('Evaluations API', () => {
     const updateInit = fetchMock.mock.calls[1][1] as RequestInit
     expect(new Headers(createInit.headers).get('Content-Type')).toBe('application/json')
     expect(new Headers(updateInit.headers).get('Content-Type')).toBe('application/json')
+    expect(JSON.parse(String(createInit.body))).toEqual(input)
+    expect(JSON.parse(String(updateInit.body))).toEqual({ ...input, passScore: 90 })
   })
 
   it('runs and lists evaluation records for a rubric', async () => {

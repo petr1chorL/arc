@@ -1792,13 +1792,28 @@ class EvaluationOverviewRead(BaseModel):
 
 
 class RubricDimensionRead(BaseModel):
+    id: str | None = Field(default=None, exclude_if=lambda value: value is None)
     name: str
     weight: int
+    criteria: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class RubricDimensionWrite(BaseModel):
+    id: str | None = Field(default=None, max_length=80)
     name: str = Field(min_length=1, max_length=80)
     weight: int = Field(ge=1, le=100)
+    criteria: str | None = Field(default=None, max_length=4000)
+
+    @field_validator("id")
+    @classmethod
+    def reject_blank_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("维度 ID 不能为空")
+        return normalized
+
 
     @field_validator("name")
     @classmethod
@@ -1807,6 +1822,13 @@ class RubricDimensionWrite(BaseModel):
         if not normalized:
             raise ValueError("维度名称不能为空")
         return normalized
+
+    @field_validator("criteria")
+    @classmethod
+    def normalize_criteria(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        return value.strip()
 
 
 class RubricWrite(BaseModel):
@@ -1818,6 +1840,12 @@ class RubricWrite(BaseModel):
     judge_type: Literal["deterministic", "llm"] = Field(default="deterministic", alias="judgeType")
     judge_model: str = Field(default="", alias="judgeModel", max_length=120)
 
+    model_provider_id: str | None = Field(
+        default=None,
+        alias="modelProviderId",
+        max_length=36,
+    )
+
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     @field_validator("name", "artifact", "gate")
@@ -1828,11 +1856,34 @@ class RubricWrite(BaseModel):
             raise ValueError("字段不能为空")
         return normalized
 
+    @field_validator("judge_model")
+    @classmethod
+    def normalize_judge_model(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("model_provider_id")
+    @classmethod
+    def normalize_model_provider_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip()
+        return normalized or None
+
     @model_validator(mode="after")
     def require_weight_total(self) -> "RubricWrite":
         total = sum(dimension.weight for dimension in self.dimensions)
         if total != 100:
             raise ValueError("维度权重合计必须等于 100")
+        dimension_ids = [
+            dimension.id.casefold()
+            for dimension in self.dimensions
+            if dimension.id is not None
+        ]
+        if len(dimension_ids) != len(set(dimension_ids)):
+            raise ValueError("维度 ID 必须唯一")
+        dimension_names = [dimension.name.casefold() for dimension in self.dimensions]
+        if len(dimension_names) != len(set(dimension_names)):
+            raise ValueError("维度名称必须唯一")
         return self
 
 
@@ -1846,6 +1897,11 @@ class RubricRead(BaseModel):
     judge_type: Literal["deterministic", "llm"] = Field(serialization_alias="judgeType")
     judge_model: str = Field(serialization_alias="judgeModel")
     version: str
+    model_provider_id: str | None = Field(
+        default=None,
+        serialization_alias="modelProviderId",
+        exclude_if=lambda value: value is None,
+    )
     status: str
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
@@ -1888,6 +1944,19 @@ class EvaluationDimensionScoreRead(BaseModel):
     name: str
     weight: int
     score: int
+    dimension_id: str | None = Field(
+        default=None,
+        serialization_alias="dimensionId",
+        validation_alias="dimensionId",
+        exclude_if=lambda value: value is None,
+    )
+    weighted_score: float | None = Field(
+        default=None,
+        serialization_alias="weightedScore",
+        validation_alias="weightedScore",
+        exclude_if=lambda value: value is None,
+    )
+    reason: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class EvaluationRecordRead(BaseModel):

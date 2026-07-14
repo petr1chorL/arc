@@ -1,6 +1,8 @@
 import type { NodeProps } from '@xyflow/react'
+import type { WorkflowRubricRef } from '../types'
 import { Handle, Position } from '@xyflow/react'
 import {
+  Beaker,
   Bot,
   Braces,
   CircleCheck,
@@ -16,7 +18,8 @@ import {
 export type WorkflowNodeData = {
   label: string
   subtitle: string
-  kind: 'trigger' | 'agent' | 'tool' | 'data' | 'gate' | 'human' | 'branch' | 'code' | 'wait' | 'end'
+  kind: 'trigger' | 'agent' | 'tool' | 'data' | 'gate' | 'evaluation' | 'human' | 'branch' | 'code' | 'wait' | 'end'
+  rubricRef?: WorkflowRubricRef
   status?: 'idle' | 'running' | 'success' | 'warning' | 'error'
   score?: number
 }
@@ -27,6 +30,7 @@ const icons = {
   tool: Wrench,
   data: Database,
   gate: ShieldCheck,
+  evaluation: Beaker,
   human: UserCheck,
   branch: GitBranch,
   code: Braces,

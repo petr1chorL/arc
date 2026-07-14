@@ -80,6 +80,88 @@ const nodeArtifact = {
   createdAt: '2026-06-24T08:00:01Z',
 }
 
+const evaluationResult = {
+  evaluationRecordId: 'evaluation-record-1',
+  templateId: 'rubric-quality',
+  templateVersion: 'v1.2.0',
+  totalScore: 84,
+  passed: true,
+  overallReason: '整体方案可执行，但风险预案仍不够充分。',
+  modelProviderName: 'DeepSeek 主模型',
+  dimensions: [
+    {
+      dimensionId: 'completeness',
+      dimensionName: '完整性',
+      score: 90,
+      weight: 40,
+      weightedScore: 36,
+      reason: '目标、步骤和交付物完整。',
+    },
+    {
+      dimensionId: 'risk-control',
+      dimensionName: '风险控制',
+      score: 80,
+      weight: 60,
+      weightedScore: 48,
+      reason: '识别了主要风险，但触发阈值仍需补充。',
+    },
+  ],
+}
+
+const evaluationWorkflowVersion = {
+  id: 'workflow-version-evaluation',
+  version: 'v1.0.0',
+  createdAt: '2026-07-14T08:00:00Z',
+  snapshot: {
+    id: 'workflow-1',
+    name: '新品研究流程',
+    status: '已发布',
+    version: 'v1.0.0',
+    createdAt: '2026-07-14T08:00:00Z',
+    updatedAt: '2026-07-14T08:00:00Z',
+    inputSchema: {},
+    outputSchema: {},
+    nodes: [
+      {
+        id: 'evaluation-1',
+        type: 'evaluation',
+        position: { x: 320, y: 160 },
+        data: {
+          label: '方案评估',
+          kind: 'evaluation',
+          rubricRef: {
+            rubricId: 'rubric-quality',
+            versionId: 'rubric-version-1-2',
+            version: 'v1.2.0',
+            name: '质量模板',
+          },
+        },
+      },
+    ],
+    edges: [],
+  },
+}
+
+function evaluationRunFetch(runData: typeof run) {
+  return vi.fn((input: RequestInfo | URL) => {
+    const url = typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? `${input.pathname}${input.search}`
+        : input.url
+    if (url === `/api/workspaces/${workspace.id}/runs`) {
+      return Promise.resolve(new Response(JSON.stringify([runData]), { status: 200 }))
+    }
+    if (url === `/api/workspaces/${workspace.id}/workflows/workflow-1/versions`) {
+      return Promise.resolve(new Response(JSON.stringify([evaluationWorkflowVersion]), { status: 200 }))
+    }
+    if (url === `/api/workspaces/${workspace.id}/artifacts?runId=run-1`) {
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+    }
+    return Promise.resolve(new Response(JSON.stringify({ detail: 'not found' }), { status: 404 }))
+  })
+}
+
 describe('Runs', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
@@ -520,4 +602,89 @@ describe('Runs', () => {
     expect(await screen.findByRole('heading', { name: 'Second workflow run' })).toBeInTheDocument()
   })
 
+
+  it('renders a complete structured evaluation result with a reason for every dimension', async () => {
+    const serializedResult = JSON.stringify(evaluationResult)
+    const evaluationRun = {
+      ...run,
+      output: serializedResult,
+      score: 84,
+      nodes: [
+        {
+          ...run.nodes[0],
+          id: 'node-evaluation',
+          nodeId: 'evaluation-1',
+          nodeType: 'evaluation',
+          nodeName: '方案评估',
+          output: serializedResult,
+          model: 'deepseek-chat',
+          score: 84,
+          attempts: 1,
+        },
+      ],
+    }
+    vi.stubGlobal('fetch', evaluationRunFetch(evaluationRun))
+
+    render(
+      <WorkspaceProvider workspace={workspace}>
+        <Runs />
+      </WorkspaceProvider>,
+    )
+
+    expect(await screen.findByRole('heading', { name: '新品研究流程' })).toBeInTheDocument()
+    const evaluationRegion = await screen.findByRole('region', { name: '评估结果' })
+    expect(evaluationRegion).toHaveTextContent('总分')
+    expect(evaluationRegion).toHaveTextContent('84')
+    expect(evaluationRegion).toHaveTextContent('评估通过')
+    expect(evaluationRegion).toHaveTextContent('整体方案可执行，但风险预案仍不够充分。')
+    expect(evaluationRegion).toHaveTextContent('质量模板 · v1.2.0')
+    expect(evaluationRegion).toHaveTextContent('DeepSeek 主模型')
+    expect(evaluationRegion).toHaveTextContent('deepseek-chat')
+
+    const completeness = within(evaluationRegion).getByRole('group', { name: '完整性' })
+    expect(completeness).toHaveTextContent(/90\s*分/)
+    expect(completeness).toHaveTextContent(/权重\s*40%/)
+    expect(completeness).toHaveTextContent(/加权分\s*36\.00/)
+    expect(completeness).toHaveTextContent('目标、步骤和交付物完整。')
+
+    const riskControl = within(evaluationRegion).getByRole('group', { name: '风险控制' })
+    expect(riskControl).toHaveTextContent(/80\s*分/)
+    expect(riskControl).toHaveTextContent(/权重\s*60%/)
+    expect(riskControl).toHaveTextContent(/加权分\s*48\.00/)
+    expect(riskControl).toHaveTextContent('识别了主要风险，但触发阈值仍需补充。')
+    expect(screen.queryByText(serializedResult)).not.toBeInTheDocument()
+  })
+
+  it('degrades a damaged evaluation output without crashing the run detail', async () => {
+    const damagedOutput = '{"totalScore":84,"dimensions":"invalid"}'
+    const damagedRun = {
+      ...run,
+      output: damagedOutput,
+      score: 84,
+      nodes: [
+        {
+          ...run.nodes[0],
+          id: 'node-evaluation',
+          nodeId: 'evaluation-1',
+          nodeType: 'evaluation',
+          nodeName: '方案评估',
+          output: damagedOutput,
+          model: 'deepseek-chat',
+          score: 84,
+          attempts: 1,
+        },
+      ],
+    }
+    vi.stubGlobal('fetch', evaluationRunFetch(damagedRun))
+
+    render(
+      <WorkspaceProvider workspace={workspace}>
+        <Runs />
+      </WorkspaceProvider>,
+    )
+
+    expect(await screen.findByRole('heading', { name: '新品研究流程' })).toBeInTheDocument()
+    expect(screen.getAllByText('方案评估').length).toBeGreaterThanOrEqual(1)
+    expect(await screen.findByRole('alert')).toHaveTextContent('评估结果格式无效')
+  })
 })

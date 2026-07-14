@@ -784,6 +784,7 @@ class RubricRecord(Base):
     pass_score: Mapped[int] = mapped_column(Integer)
     judge_type: Mapped[str] = mapped_column(String(32), default="deterministic")
     judge_model: Mapped[str] = mapped_column(String(120), default="")
+    model_provider_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     version: Mapped[str] = mapped_column(String(32))
     status: Mapped[str] = mapped_column(String(32), default="active")
     sort_order: Mapped[int] = mapped_column(Integer, default=0)

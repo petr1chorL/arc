@@ -458,20 +458,35 @@ export interface ValidationResult {
   errors: string[]
 }
 
+export interface RubricDimension {
+  id?: string
+  name: string
+  weight: number
+  criteria?: string
+}
+
 export interface Rubric {
   id: string
   name: string
   artifact: string
-  dimensions: { name: string; weight: number }[]
+  dimensions: RubricDimension[]
   gate: string
   passScore: number
   judgeType: 'deterministic' | 'llm'
   judgeModel: string
+  modelProviderId?: string | null
   version: string
   status?: string
 }
 
 export type RubricVersion = AssetVersion<Rubric>
+
+export interface WorkflowRubricRef {
+  rubricId: string
+  versionId: string
+  version: string
+  name: string
+}
 
 export interface EvaluationDimensionScore {
   name: string
@@ -540,7 +555,30 @@ export interface NodeExecution {
   score: number | null
   error: string
   startedAt: string
+
   completedAt: string | null
+}
+
+export interface WorkflowEvaluationDimensionResult {
+  dimensionId: string
+  dimensionName: string
+  score: number
+  weight: number
+  weightedScore: number
+  reason: string
+}
+
+export interface WorkflowEvaluationResult {
+  evaluationRecordId: string
+  templateId: string
+  templateVersion: string
+  modelProviderId?: string
+  modelProviderName: string
+  model?: string
+  totalScore: number
+  passed: boolean
+  overallReason: string
+  dimensions: WorkflowEvaluationDimensionResult[]
 }
 
 export interface ExecutionRun {

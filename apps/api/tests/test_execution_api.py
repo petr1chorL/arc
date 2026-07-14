@@ -3,13 +3,14 @@ from datetime import timedelta
 
 from fastapi.testclient import TestClient
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from api_test_support import create_authenticated_client, csrf_headers, workspace_url
 from app.models import (
     ArtifactRecord,
     ArtifactVersionRecord,
     AuditEventRecord,
+    EvaluationRecord,
     ExecutionJobRecord,
     NodeRunRecord,
     WorkflowRunRecord,
@@ -2135,3 +2136,116 @@ def test_human_review_decision_rejects_invalid_payload_without_changing_state(tm
     after_run_status = client.get(workspace_url(workspace_id, f"/runs/{run['id']}")).json()["status"]
     assert after_review_status == before_review_status
     assert after_run_status == before_run_status
+
+def test_async_worker_rolls_back_dirty_attempt_before_retry(tmp_path, monkeypatch):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'async-dirty-attempt.db'}",
+        model_gateway=FakeGateway([]),
+    )
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(client, workspace_id, agent, version)
+    queued = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Run dirty attempt.", "asyncMode": True},
+        headers=csrf_headers(client),
+    ).json()
+
+    def dirty_attempt(**kwargs):
+        session = kwargs["session"]
+        run = kwargs["run"]
+        partial_node = NodeRunRecord(
+            workspace_id=workspace_id,
+            run_id=run.id,
+            node_id="evaluation",
+            node_type="evaluation",
+            node_name="Evaluation",
+            status="运行中",
+            input_text="partial",
+            output_text="partial",
+        )
+        session.add(partial_node)
+        session.flush()
+        session.add(EvaluationRecord(
+            workspace_id=workspace_id,
+            rubric_id="partial-rubric",
+            rubric_version="v1.0.0",
+            rubric_snapshot={},
+            subject_type="node_run",
+            subject_id=partial_node.id,
+            artifact_text="partial",
+            dimension_scores=[],
+            score=0,
+            status="failed",
+            rationale="partial",
+            created_by="system",
+        ))
+        session.flush()
+        raise RuntimeError("unexpected failure after flush")
+
+    monkeypatch.setattr(
+        client.app.state.execution_service,
+        "execute_workflow_from",
+        dirty_attempt,
+    )
+
+    response = client.post(
+        workspace_url(workspace_id, "/execution-jobs/next"),
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == queued["id"]
+    assert response.json()["status"] == "排队中"
+    with client.app.state.session_factory() as session:
+        job = session.scalar(select(ExecutionJobRecord))
+        assert job is not None
+        assert job.status == "queued"
+        assert job.attempts == 1
+        assert job.error == "后台执行失败，请稍后重试"
+        assert session.scalar(select(func.count()).select_from(NodeRunRecord)) == 0
+        assert session.scalar(select(func.count()).select_from(EvaluationRecord)) == 0
+        assert session.scalar(select(func.count()).select_from(ArtifactRecord)) == 0
+
+
+def test_finish_run_does_not_create_artifact_for_failed_node_with_output(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'failed-output-artifact.db'}",
+        model_gateway=FakeGateway([]),
+    )
+    with client.app.state.session_factory() as session:
+        run = WorkflowRunRecord(
+            workspace_id=workspace_id,
+            kind="workflow",
+            name="Failed evaluation",
+            status="运行中",
+            input_text="input",
+        )
+        session.add(run)
+        session.flush()
+        node_run = NodeRunRecord(
+            workspace_id=workspace_id,
+            run_id=run.id,
+            node_id="evaluation",
+            node_type="evaluation",
+            node_name="Evaluation",
+            status="失败",
+            input_text="input",
+            output_text="partial evaluation",
+            error="failed",
+        )
+        session.add(node_run)
+        session.flush()
+
+        client.app.state.execution_service.finish_run(
+            session,
+            run,
+            [node_run],
+            0.0,
+        )
+
+        assert run.status == "失败"
+        assert session.scalar(
+            select(func.count())
+            .select_from(ArtifactRecord)
+            .where(ArtifactRecord.source_node_run_id == node_run.id),
+        ) == 0
