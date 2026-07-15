@@ -44,6 +44,7 @@ def create_authenticated_client(
     database_url: str,
     *,
     model_gateway=None,
+    agent_api_gateway=None,
     human_task_clock=None,
     tool_gateway=None,
     mcp_gateway=None,
@@ -70,6 +71,7 @@ def create_authenticated_client(
         create_app(
             database_url,
             model_gateway=model_gateway,
+            agent_api_gateway=agent_api_gateway,
             human_task_clock=human_task_clock or (lambda: FIXED_NOW),
             auth_clock=lambda: FIXED_NOW,
             tool_gateway=tool_gateway,

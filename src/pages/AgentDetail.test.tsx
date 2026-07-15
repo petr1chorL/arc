@@ -34,9 +34,124 @@ const agent = {
   updatedAt: '2026-06-24T07:00:00Z',
 }
 
+const remoteApiManifest = {
+  runtime: 'remote_http',
+  sourceType: 'remote_api',
+  protocolVersion: 'arc-agent-v1',
+  endpointUrl: 'https://agent-api.example.com/v1/invoke',
+  secretRef: 'RESEARCH_AGENT_API_TOKEN',
+  timeoutSeconds: 30,
+}
+
 describe('AgentDetail', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
+  })
+
+  it('rejects an IP literal Agent API address', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.endsWith('/versions') || url.endsWith('/model-providers') || url.endsWith('/asset-library')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify(agent), { status: 200 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <WorkspaceProvider workspace={workspace}>
+        <MemoryRouter initialEntries={['/w/ai-capability-center/agents/agent-1']}>
+          <Routes>
+            <Route path="/w/ai-capability-center/agents/:agentId" element={<AgentDetail />} />
+          </Routes>
+        </MemoryRouter>
+      </WorkspaceProvider>,
+    )
+
+    await user.selectOptions(await screen.findByRole('combobox', { name: '执行方式' }), 'remote_api')
+    await user.type(screen.getByLabelText('Agent API 地址'), 'https://127.0.0.1/v1/invoke')
+    await user.type(screen.getByLabelText('Secret Ref（环境变量名）'), remoteApiManifest.secretRef)
+    await user.click(screen.getByRole('button', { name: '保存草稿' }))
+
+    expect(await screen.findByText('Agent API 地址必须使用域名和 443 端口，且不能包含凭证、查询参数或片段')).toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(false)
+  })
+
+  it('shows invalid remote configuration before opening the publish dialog', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.endsWith('/versions') || url.endsWith('/model-providers') || url.endsWith('/asset-library')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify(agent), { status: 200 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <WorkspaceProvider workspace={workspace}>
+        <MemoryRouter initialEntries={['/w/ai-capability-center/agents/agent-1']}>
+          <Routes>
+            <Route path="/w/ai-capability-center/agents/:agentId" element={<AgentDetail />} />
+          </Routes>
+        </MemoryRouter>
+      </WorkspaceProvider>,
+    )
+
+    await user.selectOptions(await screen.findByRole('combobox', { name: '执行方式' }), 'remote_api')
+    await user.type(screen.getByLabelText('Agent API 地址'), 'http://agent-api.example.com/v1/invoke')
+    await user.type(screen.getByLabelText('Secret Ref（环境变量名）'), remoteApiManifest.secretRef)
+    await user.click(screen.getByRole('button', { name: '发布新版本' }))
+
+    expect(await screen.findByText('请输入完整的 HTTPS Agent API 地址')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: '发布版本备注' })).not.toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(false)
+  })
+
+  it('publishes a validated remote Agent API runtime manifest', async () => {
+    const user = userEvent.setup()
+    const savedAgent = { ...agent, runtimeManifest: remoteApiManifest }
+    const publishedVersion = {
+      id: 'version-remote-1',
+      version: 'v1.0.0',
+      snapshot: { ...savedAgent, status: '在线', version: 'v1.0.0' },
+      note: '接入远程研究 Agent',
+      createdAt: '2026-07-15T08:00:00Z',
+    }
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith('/versions') || url.endsWith('/model-providers') || url.endsWith('/asset-library')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (url.endsWith('/publish')) {
+        return Promise.resolve(new Response(JSON.stringify(publishedVersion), { status: 201 }))
+      }
+      if (init?.method === 'PATCH') {
+        return Promise.resolve(new Response(JSON.stringify(savedAgent), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify(agent), { status: 200 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <WorkspaceProvider workspace={workspace}>
+        <MemoryRouter initialEntries={['/w/ai-capability-center/agents/agent-1']}>
+          <Routes>
+            <Route path="/w/ai-capability-center/agents/:agentId" element={<AgentDetail />} />
+          </Routes>
+        </MemoryRouter>
+      </WorkspaceProvider>,
+    )
+
+    await user.selectOptions(await screen.findByRole('combobox', { name: '执行方式' }), 'remote_api')
+    await user.type(screen.getByLabelText('Agent API 地址'), remoteApiManifest.endpointUrl)
+    await user.type(screen.getByLabelText('Secret Ref（环境变量名）'), remoteApiManifest.secretRef)
+    await user.click(screen.getByRole('button', { name: '发布新版本' }))
+    await user.type(await screen.findByLabelText('发布备注'), '接入远程研究 Agent')
+    await user.click(screen.getByRole('button', { name: '确认发布版本' }))
+
+    const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH')
+    expect(JSON.parse(patchCall?.[1]?.body as string).runtimeManifest).toEqual(remoteApiManifest)
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/publish'))).toBe(true)
+    expect(await screen.findByText('v1.0.0 已发布')).toBeInTheDocument()
   })
 
   it('edits, publishes and deactivates an Agent', async () => {
@@ -141,8 +256,8 @@ describe('AgentDetail', () => {
     )
 
     expect(await screen.findByText('运行配置')).toBeInTheDocument()
-    await user.clear(screen.getByLabelText('Base URL'))
-    await user.type(screen.getByLabelText('Base URL'), 'https://api.deepseek.com')
+    await user.clear(screen.getByLabelText('模型 Base URL'))
+    await user.type(screen.getByLabelText('模型 Base URL'), 'https://api.deepseek.com')
     await user.clear(screen.getByLabelText('温度'))
     await user.type(screen.getByLabelText('温度'), '0.4')
     await user.clear(screen.getByLabelText('最大输出 Tokens'))
@@ -317,18 +432,11 @@ describe('AgentDetail', () => {
     expect(await screen.findByText('草稿已保存')).toBeInTheDocument()
   })
 
-  it('imports Python package runtime metadata into the Agent draft', async () => {
+  it('saves a valid remote Agent API runtime manifest into the Agent draft', async () => {
     const user = userEvent.setup()
     const savedAgent = {
       ...agent,
-      runtimeManifest: {
-        runtime: 'langchain',
-        sourceType: 'python_package',
-        packageName: 'arc-langchain-agents',
-        packageVersion: '1.0.3',
-        entrypoint: 'arc_agents.research:create_agent',
-        packageHash: 'sha256:abc123',
-      },
+      runtimeManifest: remoteApiManifest,
     }
     const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
       if (url.endsWith('/versions')) {
@@ -354,37 +462,77 @@ describe('AgentDetail', () => {
       </WorkspaceProvider>,
     )
 
-    expect(await screen.findByText('Runtime / Python Package')).toBeInTheDocument()
-    expect(screen.queryByLabelText('Manifest JSON')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('Package 来源')).not.toBeInTheDocument()
-
-    await user.type(screen.getByLabelText('Package 名称'), 'arc-langchain-agents')
-    await user.type(screen.getByLabelText('Package 版本'), '1.0.3')
-    await user.type(screen.getByLabelText('Package EntryPoint'), 'arc_agents.weather:create_agent')
-    await user.type(screen.getByLabelText('Package Hash'), 'sha256:abc123')
-    await user.click(screen.getByRole('button', { name: '导入 Python Package' }))
-    expect(screen.getAllByText('arc-langchain-agents==1.0.3').length).toBeGreaterThanOrEqual(1)
+    const executionMode = await screen.findByRole('combobox', { name: '执行方式' })
+    await user.selectOptions(executionMode, 'remote_api')
+    await user.type(screen.getByLabelText('Agent API 地址'), remoteApiManifest.endpointUrl)
+    await user.type(screen.getByLabelText('Secret Ref（环境变量名）'), remoteApiManifest.secretRef)
+    const timeoutInput = screen.getByLabelText('请求超时（秒）')
+    await user.clear(timeoutInput)
+    await user.type(timeoutInput, String(remoteApiManifest.timeoutSeconds))
 
     await user.click(screen.getByRole('button', { name: '保存草稿' }))
 
     const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH')
     const patchBody = JSON.parse(patchCall?.[1]?.body as string)
-    expect(patchBody.runtimeManifest).toEqual({
-      runtime: 'langchain',
-      sourceType: 'python_package',
-      packageName: 'arc-langchain-agents',
-      packageVersion: '1.0.3',
-      entrypoint: 'arc_agents.weather:create_agent',
-      packageHash: 'sha256:abc123',
-    })
+    expect(patchBody.runtimeManifest).toEqual(remoteApiManifest)
     expect(patchBody).toEqual(expect.objectContaining({
       model: 'GPT-5',
       temperature: 0.2,
       maxOutputTokens: 2000,
     }))
+    expect(patchBody).not.toHaveProperty('apiKey')
+    expect(screen.queryByRole('button', { name: '导入 Python Package' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Package 名称')).not.toBeInTheDocument()
   })
 
-  it('shows Python package metadata from the latest published snapshot when the draft is empty', async () => {
+  it.each([
+    ['非 HTTPS 地址', 'Agent API 地址', 'http://agent-api.example.com/v1/invoke', '请输入完整的 HTTPS Agent API 地址'],
+    ['非法 Secret Ref', 'Secret Ref（环境变量名）', 'inline-secret-value', 'Secret Ref 只能填写后端环境变量名'],
+    ['非法请求超时', '请求超时（秒）', '0', '请求超时必须是 1–60 秒的整数'],
+  ])('blocks saving remote Agent API configuration with %s', async (_scenario, fieldLabel, invalidValue, expectedError) => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith('/versions') || url.endsWith('/model-providers') || url.endsWith('/asset-library')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (init?.method === 'PATCH') {
+        return Promise.resolve(new Response(JSON.stringify(agent), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify(agent), { status: 200 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <WorkspaceProvider workspace={workspace}>
+        <MemoryRouter initialEntries={['/w/ai-capability-center/agents/agent-1']}>
+          <Routes>
+            <Route path="/w/ai-capability-center/agents/:agentId" element={<AgentDetail />} />
+          </Routes>
+        </MemoryRouter>
+      </WorkspaceProvider>,
+    )
+
+    await user.selectOptions(await screen.findByRole('combobox', { name: '执行方式' }), 'remote_api')
+    const endpointInput = screen.getByLabelText('Agent API 地址')
+    const secretRefInput = screen.getByLabelText('Secret Ref（环境变量名）')
+    const timeoutInput = screen.getByLabelText('请求超时（秒）')
+    await user.clear(endpointInput)
+    await user.type(endpointInput, remoteApiManifest.endpointUrl)
+    await user.clear(secretRefInput)
+    await user.type(secretRefInput, remoteApiManifest.secretRef)
+    await user.clear(timeoutInput)
+    await user.type(timeoutInput, String(remoteApiManifest.timeoutSeconds))
+
+    const invalidInput = screen.getByLabelText(fieldLabel)
+    await user.clear(invalidInput)
+    await user.type(invalidInput, invalidValue)
+    await user.click(screen.getByRole('button', { name: '保存草稿' }))
+
+    expect(await screen.findByText(expectedError)).toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(false)
+  })
+
+  it('shows migration guidance for a historical Python package version and keeps it non-runnable', async () => {
     const versionManifest = {
       runtime: 'langchain',
       sourceType: 'python_package' as const,
@@ -422,15 +570,70 @@ describe('AgentDetail', () => {
       </WorkspaceProvider>,
     )
 
-    expect(await screen.findByDisplayValue('arc-langchain-weather-demo')).toBeInTheDocument()
-    expect(screen.getByDisplayValue('arc_langchain_weather_demo.weather_agent:create_agent')).toBeInTheDocument()
-    expect(screen.getByText('Python Package 当前仅登记元数据，尚未接入隔离执行器。')).toBeInTheDocument()
+    expect(await screen.findByText('该版本包含旧 Python Package 元数据，当前不可运行。请选择新的执行方式并发布新版本。')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Package 名称')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Package EntryPoint')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '导入 Python Package' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '运行 Agent' })).toBeDisabled()
   })
 
-  it('runs a published Agent and shows the persisted result', async () => {
+  it('requires an explicit execution-mode migration for a legacy Python Package draft', async () => {
     const user = userEvent.setup()
-    const publishedAgent = { ...agent, status: '在线', version: 'v1.0.0' }
+    const versionManifest = {
+      runtime: 'langchain',
+      sourceType: 'python_package' as const,
+      packageName: 'arc-langchain-weather-demo',
+      packageVersion: '0.1.0',
+      entrypoint: 'arc_langchain_weather_demo.weather_agent:create_agent',
+      packageSource: 'local-wheelhouse',
+      packageHash: 'sha256:abc123',
+    }
+    const legacyDraftAgent = { ...agent, runtimeManifest: versionManifest }
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith('/versions') || url.endsWith('/model-providers') || url.endsWith('/asset-library')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+      if (init?.method === 'PATCH') {
+        return Promise.resolve(new Response(JSON.stringify({ ...agent, runtimeManifest: {} }), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify(legacyDraftAgent), { status: 200 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <WorkspaceProvider workspace={workspace}>
+        <MemoryRouter initialEntries={['/w/ai-capability-center/agents/agent-1']}>
+          <Routes>
+            <Route path="/w/ai-capability-center/agents/:agentId" element={<AgentDetail />} />
+          </Routes>
+        </MemoryRouter>
+      </WorkspaceProvider>,
+    )
+
+    const executionMode = await screen.findByRole('combobox', { name: '执行方式' })
+    expect(executionMode).toHaveValue('legacy_unsupported')
+    await user.click(screen.getByRole('button', { name: '保存草稿' }))
+    expect(await screen.findByText('请先明确选择平台托管或远程 Agent API，再保存或发布新版本')).toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(false)
+
+    await user.click(screen.getByRole('button', { name: '发布新版本' }))
+    expect(screen.queryByRole('dialog', { name: '发布版本备注' })).not.toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/publish'))).toBe(false)
+
+    await user.selectOptions(executionMode, 'builtin')
+    await user.click(screen.getByRole('button', { name: '保存草稿' }))
+    const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH')
+    expect(JSON.parse(patchCall?.[1]?.body as string).runtimeManifest).toEqual({})
+  })
+
+  it('loads and runs a published remote Agent API version', async () => {
+    const user = userEvent.setup()
+    const publishedAgent = {
+      ...agent,
+      status: '在线',
+      version: 'v1.0.0',
+      runtimeManifest: remoteApiManifest,
+    }
     const publishedVersion = {
       id: 'version-1',
       version: 'v1.0.0',
@@ -482,7 +685,13 @@ describe('AgentDetail', () => {
       </WorkspaceProvider>,
     )
 
-    await user.type(await screen.findByLabelText('测试输入'), '分析新需求')
+    expect(await screen.findByRole('combobox', { name: '执行方式' })).toHaveValue('remote_api')
+    expect(screen.getByLabelText('Agent API 地址')).toHaveValue(remoteApiManifest.endpointUrl)
+    expect(screen.getByLabelText('Secret Ref（环境变量名）')).toHaveValue(remoteApiManifest.secretRef)
+    expect(screen.getByLabelText('请求超时（秒）')).toHaveValue(remoteApiManifest.timeoutSeconds)
+
+    await user.type(screen.getByLabelText('测试输入'), '分析新需求')
+    expect(screen.getByRole('button', { name: '运行 Agent' })).toBeEnabled()
     await user.click(screen.getByRole('button', { name: '运行 Agent' }))
 
     expect(await screen.findByText('这是 Agent 真实执行后返回的结构化结果。')).toBeInTheDocument()

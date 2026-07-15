@@ -44,6 +44,7 @@ def build_e2e_environment(
             "MODEL_API_KEY": "",
             "MODEL_ALLOWED_HOSTS": "",
             "TOOL_HTTP_ALLOWED_HOSTS": "",
+            "AGENT_API_ALLOWED_BINDINGS": "",
         }
     )
     return environment, database_path

@@ -1,5 +1,8 @@
 # P0 运行时安全收口验收记录
 
+> 历史验收记录：本文第 3 项所述 Python Package 元数据登记/UI 已于 2026-07-15 被远程
+> Agent API 切片取代；当前行为与新证据见 `docs/ACCEPTANCE_REMOTE_AGENT_API.md`。
+
 日期：2026-07-10
 
 ## 验收范围

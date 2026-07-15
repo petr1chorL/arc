@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy import func, select
 
 from api_test_support import create_authenticated_client, csrf_headers, workspace_url
+from app.agent_api_gateway import AgentApiGatewayError
 from app.models import (
     ArtifactRecord,
     ArtifactVersionRecord,
@@ -13,9 +14,11 @@ from app.models import (
     EvaluationRecord,
     ExecutionJobRecord,
     NodeRunRecord,
+    ToolSkillAssetInvocationRecord,
     WorkflowRunRecord,
     utc_now,
 )
+from app.tool_runtime import ToolRuntimeGatewayResult
 
 
 @dataclass
@@ -33,6 +36,52 @@ class FakeGateway:
 
     def complete(self, **request):
         self.calls.append(request)
+        result = self.results.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+
+@dataclass
+class FakeAgentApiResult:
+    output_text: str
+    model: str = "remote-agent-model"
+    prompt_tokens: int = 14
+    completion_tokens: int = 9
+    cost_usd: float = 0.006
+    tool_calls: list[dict] | None = None
+
+
+class FakeAgentApiGateway:
+    def __init__(self, result: FakeAgentApiResult):
+        self.result = result
+        self.calls: list[dict] = []
+
+    def execute(self, **request):
+        self.calls.append(request)
+        return self.result
+
+
+class SequencedAgentApiGateway:
+    def __init__(self, results: list[FakeAgentApiResult | Exception]):
+        self.results = results
+        self.calls: list[dict] = []
+
+    def execute(self, **request):
+        self.calls.append(request)
+        result = self.results.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+
+class SequencedHttpToolGateway:
+    def __init__(self, results: list[ToolRuntimeGatewayResult | Exception]):
+        self.results = results
+        self.calls: list[dict] = []
+
+    def execute(self, *, config: dict, parameters: dict) -> ToolRuntimeGatewayResult:
+        self.calls.append({"config": config, "parameters": parameters})
         result = self.results.pop(0)
         if isinstance(result, Exception):
             raise result
@@ -80,6 +129,131 @@ def create_published_agent(
         headers=csrf_headers(client),
     ).json()
     return agent, version
+
+
+def test_remote_agent_api_test_run_persists_remote_result_without_model_call(tmp_path):
+    model_gateway = FakeGateway([])
+    agent_api_gateway = FakeAgentApiGateway(FakeAgentApiResult(
+        output_text="Remote Agent returned a persisted actionable result.",
+        tool_calls=[],
+    ))
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'remote-agent-execution.db'}",
+        model_gateway=model_gateway,
+        agent_api_gateway=agent_api_gateway,
+    )
+    agent = client.post(
+        workspace_url(workspace_id, "/agents"),
+        json={
+            "name": "Remote Insight Agent",
+            "role": "Call a remote Agent service.",
+            "owner": "Platform Team",
+            "model": "remote-managed",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    manifest = {
+        "runtime": "remote_http",
+        "sourceType": "remote_api",
+        "protocolVersion": "arc-agent-v1",
+        "endpointUrl": "https://agent.example.com/v1/invoke",
+        "secretRef": "REMOTE_AGENT_API_TOKEN",
+        "timeoutSeconds": 30,
+    }
+    update_response = client.patch(
+        workspace_url(workspace_id, f"/agents/{agent['id']}"),
+        json={
+            "systemPrompt": "Return an actionable result.",
+            "runtimeManifest": manifest,
+        },
+        headers=csrf_headers(client),
+    )
+    assert update_response.status_code == 200
+    version = client.post(
+        workspace_url(workspace_id, f"/agents/{agent['id']}/publish"),
+        headers=csrf_headers(client),
+    ).json()
+
+    response = client.post(
+        workspace_url(workspace_id, f"/agents/{agent['id']}/test-runs"),
+        json={"input": "Analyze this request.", "version": version["version"]},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 201
+    run = response.json()
+    assert run["status"] == "已完成"
+    assert run["output"] == "Remote Agent returned a persisted actionable result."
+    assert run["model"] == "remote-agent-model"
+    assert run["promptTokens"] == 14
+    assert run["completionTokens"] == 9
+    assert run["costUsd"] == 0.006
+    assert model_gateway.calls == []
+    assert len(agent_api_gateway.calls) == 1
+    call = agent_api_gateway.calls[0]
+    assert call["endpoint_url"] == manifest["endpointUrl"]
+    assert call["secret_ref"] == manifest["secretRef"]
+    assert call["timeout_seconds"] == 30
+    assert call["run_id"] == run["id"]
+    assert call["node_run_id"]
+    assert call["invocation_id"]
+
+
+def test_remote_agent_api_runs_as_workflow_node_and_persists_artifact(tmp_path):
+    model_gateway = FakeGateway([])
+    agent_api_gateway = FakeAgentApiGateway(FakeAgentApiResult(
+        output_text="Remote workflow Agent produced a downstream artifact.",
+        tool_calls=[],
+    ))
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'remote-agent-workflow.db'}",
+        model_gateway=model_gateway,
+        agent_api_gateway=agent_api_gateway,
+    )
+    agent, _ = create_published_agent(client, workspace_id, name="Remote Workflow Agent")
+    manifest = {
+        "runtime": "remote_http",
+        "sourceType": "remote_api",
+        "protocolVersion": "arc-agent-v1",
+        "endpointUrl": "https://agent.example.com/v1/invoke",
+        "secretRef": "REMOTE_AGENT_API_TOKEN",
+        "timeoutSeconds": 30,
+    }
+    update_response = client.patch(
+        workspace_url(workspace_id, f"/agents/{agent['id']}"),
+        json={"runtimeManifest": manifest},
+        headers=csrf_headers(client),
+    )
+    assert update_response.status_code == 200
+    version = client.post(
+        workspace_url(workspace_id, f"/agents/{agent['id']}/publish"),
+        headers=csrf_headers(client),
+    ).json()
+    workflow = create_published_workflow(client, workspace_id, agent, version)
+
+    response = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Analyze this workflow request."},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 201
+    run = response.json()
+    assert run["status"] == "已完成"
+    agent_node_run = next(node for node in run["nodes"] if node["nodeType"] == "agent")
+    assert agent_node_run["output"] == "Remote workflow Agent produced a downstream artifact."
+    artifacts_response = client.get(
+        workspace_url(
+            workspace_id,
+            f"/artifacts?runId={run['id']}&sourceNodeRunId={agent_node_run['id']}",
+        ),
+    )
+    assert artifacts_response.status_code == 200
+    artifacts = artifacts_response.json()
+    assert len(artifacts) == 1
+    assert artifacts[0]["content"] == "Remote workflow Agent produced a downstream artifact."
+    assert len(agent_api_gateway.calls) == 1
+    assert model_gateway.calls == []
 
 
 def test_execution_service_rejects_agent_version_from_another_workspace(tmp_path):
@@ -157,6 +331,62 @@ def create_published_workflow(
     }
     if input_schema is not None:
         payload["inputSchema"] = input_schema
+    workflow = client.post(
+        workspace_url(workspace_id, "/workflows"),
+        json=payload,
+        headers=csrf_headers(client),
+    ).json()
+    publish_response = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/publish"),
+        headers=csrf_headers(client),
+    )
+    assert publish_response.status_code == 201
+    return workflow
+
+
+def create_published_linear_agent_workflow(
+    client: TestClient,
+    workspace_id: str,
+    agent: dict,
+    versions: list[dict],
+) -> dict:
+    agent_nodes = [
+        {
+            "id": f"agent-{index}",
+            "type": "agent",
+            "position": {"x": index * 200, "y": 0},
+            "data": {
+                "label": f"Agent {index}",
+                "agentId": agent["id"],
+                "agentVersion": version["version"],
+                "retryMaxAttempts": 1,
+            },
+        }
+        for index, version in enumerate(versions, start=1)
+    ]
+    node_ids = ["start", *(node["id"] for node in agent_nodes), "end"]
+    payload = {
+        "name": "Linear Agent Workflow",
+        "nodes": [
+            {
+                "id": "start",
+                "type": "trigger",
+                "position": {"x": 0, "y": 0},
+                "data": {"label": "Start"},
+            },
+            *agent_nodes,
+            {
+                "id": "end",
+                "type": "end",
+                "position": {"x": (len(versions) + 1) * 200, "y": 0},
+                "data": {"label": "End"},
+            },
+        ],
+        "edges": [
+            {"id": f"{source}-{target}", "source": source, "target": target}
+            for source, target in zip(node_ids, node_ids[1:])
+        ],
+    }
     workflow = client.post(
         workspace_url(workspace_id, "/workflows"),
         json=payload,
@@ -1077,10 +1307,276 @@ def test_async_execution_job_retries_failure_before_dead_letter(tmp_path):
     assert second_attempt.status_code == 200
     assert second_attempt.json()["status"] == "已完成"
     assert second_attempt.json()["output"].startswith("The retry completed")
+    assert [
+        node["nodeId"] for node in second_attempt.json()["nodes"]
+    ] == ["start", "agent", "agent", "end"]
     with client.app.state.session_factory() as session:
         job = session.scalar(select(ExecutionJobRecord))
         assert job.status == "succeeded"
         assert job.attempts == 2
+
+
+def test_remote_agent_async_retry_reuses_the_complete_idempotent_request(tmp_path):
+    upstream_output = "The first upstream result must stay frozen across queue retries."
+    model_gateway = FakeGateway([FakeModelResult(upstream_output)])
+    agent_api_gateway = SequencedAgentApiGateway([
+        AgentApiGatewayError("temporary remote outage", retryable=True),
+        FakeAgentApiResult(output_text="Remote retry completed with one logical invocation."),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'remote-async-retry.db'}",
+        model_gateway=model_gateway,
+        agent_api_gateway=agent_api_gateway,
+    )
+    agent, built_in_version = create_published_agent(
+        client,
+        workspace_id,
+        name="Remote Retry Agent",
+    )
+    manifest = {
+        "runtime": "remote_http",
+        "sourceType": "remote_api",
+        "protocolVersion": "arc-agent-v1",
+        "endpointUrl": "https://agent.example.com/v1/invoke",
+        "secretRef": "REMOTE_AGENT_API_TOKEN",
+        "timeoutSeconds": 30,
+    }
+    update_response = client.patch(
+        workspace_url(workspace_id, f"/agents/{agent['id']}"),
+        json={"runtimeManifest": manifest},
+        headers=csrf_headers(client),
+    )
+    assert update_response.status_code == 200
+    remote_version = client.post(
+        workspace_url(workspace_id, f"/agents/{agent['id']}/publish"),
+        headers=csrf_headers(client),
+    ).json()
+    workflow = create_published_linear_agent_workflow(
+        client,
+        workspace_id,
+        agent,
+        [built_in_version, remote_version],
+    )
+    queue_response = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Retry one logical remote invocation.", "asyncMode": True},
+        headers=csrf_headers(client),
+    )
+    assert queue_response.status_code == 201
+
+    first_attempt = client.post(
+        workspace_url(workspace_id, "/execution-jobs/next"),
+        headers=csrf_headers(client),
+    )
+    assert first_attempt.status_code == 200
+    assert first_attempt.json()["status"] == "排队中"
+    make_queued_execution_job_claimable(client)
+
+    second_attempt = client.post(
+        workspace_url(workspace_id, "/execution-jobs/next"),
+        headers=csrf_headers(client),
+    )
+    assert second_attempt.status_code == 200
+    assert second_attempt.json()["status"] == "已完成"
+    assert len(agent_api_gateway.calls) == 2
+    assert agent_api_gateway.calls[0] == agent_api_gateway.calls[1]
+    assert agent_api_gateway.calls[0]["input_text"] == upstream_output
+    assert len(model_gateway.calls) == 1
+    assert [
+        node["nodeId"] for node in second_attempt.json()["nodes"]
+    ] == ["start", "agent-1", "agent-2", "agent-2", "end"]
+
+
+def test_remote_agent_async_retry_reuses_frozen_http_tool_result(tmp_path):
+    tool_gateway = SequencedHttpToolGateway([
+        ToolRuntimeGatewayResult(output_summary="tool-result-A"),
+        ToolRuntimeGatewayResult(output_summary="tool-result-B"),
+    ])
+    agent_api_gateway = SequencedAgentApiGateway([
+        AgentApiGatewayError("temporary remote outage", retryable=True),
+        FakeAgentApiResult(output_text="Remote retry reused the frozen tool result."),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'remote-tool-async-retry.db'}",
+        model_gateway=FakeGateway([]),
+        agent_api_gateway=agent_api_gateway,
+        tool_gateway=tool_gateway,
+    )
+    persisted_before_send: list[tuple[str, str] | None] = []
+
+    def inspecting_execute(**request):
+        with client.app.state.session_factory() as session:
+            persisted = session.scalar(
+                select(NodeRunRecord)
+                .where(
+                    NodeRunRecord.run_id == request["run_id"],
+                    NodeRunRecord.node_id == request["node_id"],
+                )
+                .order_by(NodeRunRecord.started_at.desc()),
+            )
+            persisted_before_send.append(
+                None if persisted is None else (persisted.status, persisted.input_text),
+            )
+        agent_api_gateway.calls.append(request)
+        result = agent_api_gateway.results.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    agent_api_gateway.execute = inspecting_execute
+    tool_response = client.post(
+        workspace_url(workspace_id, "/asset-library"),
+        json={
+            "assetType": "tool",
+            "name": "Remote Evidence",
+            "description": "Fetch evidence before the remote Agent call.",
+            "parameterSchema": {"type": "object"},
+            "adapterType": "http",
+            "adapterConfig": {
+                "method": "POST",
+                "url": "https://internal.example.test/evidence",
+            },
+        },
+        headers=csrf_headers(client),
+    )
+    assert tool_response.status_code == 201
+    agent = client.post(
+        workspace_url(workspace_id, "/agents"),
+        json={
+            "name": "Remote Tool Agent",
+            "role": "Use frozen tool evidence.",
+            "owner": "Platform Team",
+            "model": "remote-managed",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    manifest = {
+        "runtime": "remote_http",
+        "sourceType": "remote_api",
+        "protocolVersion": "arc-agent-v1",
+        "endpointUrl": "https://agent.example.com/v1/invoke",
+        "secretRef": "REMOTE_AGENT_API_TOKEN",
+        "timeoutSeconds": 30,
+    }
+    update_response = client.patch(
+        workspace_url(workspace_id, f"/agents/{agent['id']}"),
+        json={
+            "systemPrompt": "Use the fetched evidence.",
+            "tools": ["Remote Evidence"],
+            "runtimeManifest": manifest,
+        },
+        headers=csrf_headers(client),
+    )
+    assert update_response.status_code == 200
+    version = client.post(
+        workspace_url(workspace_id, f"/agents/{agent['id']}/publish"),
+        headers=csrf_headers(client),
+    ).json()
+    workflow = create_published_workflow(
+        client,
+        workspace_id,
+        agent,
+        version,
+        retry_max_attempts=1,
+    )
+    queue_response = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Use one frozen tool result.", "asyncMode": True},
+        headers=csrf_headers(client),
+    )
+    assert queue_response.status_code == 201
+
+    first_attempt = client.post(
+        workspace_url(workspace_id, "/execution-jobs/next"),
+        headers=csrf_headers(client),
+    )
+    assert first_attempt.status_code == 200
+    assert first_attempt.json()["status"] == "排队中"
+    make_queued_execution_job_claimable(client)
+    second_attempt = client.post(
+        workspace_url(workspace_id, "/execution-jobs/next"),
+        headers=csrf_headers(client),
+    )
+
+    assert second_attempt.status_code == 200
+    assert second_attempt.json()["status"] == "已完成"
+    assert len(tool_gateway.calls) == 1
+    assert len(agent_api_gateway.calls) == 2
+    assert agent_api_gateway.calls[0] == agent_api_gateway.calls[1]
+    assert persisted_before_send[0] is not None
+    assert persisted_before_send[0][0] == "运行中"
+    assert "tool-result-A" in persisted_before_send[0][1]
+    assert "tool-result-A" in agent_api_gateway.calls[0]["input_text"]
+    assert "tool-result-B" not in agent_api_gateway.calls[0]["input_text"]
+    with client.app.state.session_factory() as session:
+        invocation_count = session.scalar(
+            select(func.count())
+            .select_from(ToolSkillAssetInvocationRecord)
+            .where(ToolSkillAssetInvocationRecord.run_id == queue_response.json()["id"]),
+        )
+        assert invocation_count == 1
+
+
+def test_remote_agent_usage_respects_remaining_run_integer_budget(tmp_path):
+    agent_api_gateway = FakeAgentApiGateway(FakeAgentApiResult(
+        output_text="Remote Agent returned a result with very large reported usage.",
+        prompt_tokens=1_500_000_000,
+        completion_tokens=0,
+    ))
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'remote-agent-run-usage-budget.db'}",
+        model_gateway=FakeGateway([]),
+        agent_api_gateway=agent_api_gateway,
+    )
+    agent, _ = create_published_agent(
+        client,
+        workspace_id,
+        name="Remote Usage Budget Agent",
+    )
+    manifest = {
+        "runtime": "remote_http",
+        "sourceType": "remote_api",
+        "protocolVersion": "arc-agent-v1",
+        "endpointUrl": "https://agent.example.com/v1/invoke",
+        "secretRef": "REMOTE_AGENT_API_TOKEN",
+        "timeoutSeconds": 30,
+    }
+    update_response = client.patch(
+        workspace_url(workspace_id, f"/agents/{agent['id']}"),
+        json={"runtimeManifest": manifest},
+        headers=csrf_headers(client),
+    )
+    assert update_response.status_code == 200
+    remote_version = client.post(
+        workspace_url(workspace_id, f"/agents/{agent['id']}/publish"),
+        headers=csrf_headers(client),
+    ).json()
+    workflow = create_published_linear_agent_workflow(
+        client,
+        workspace_id,
+        agent,
+        [remote_version, remote_version],
+    )
+
+    response = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Keep aggregate token usage inside the database limit."},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 201
+    run = response.json()
+    assert run["status"] == "失败"
+    assert run["totalTokens"] == 1_500_000_000
+    assert [node["nodeId"] for node in run["nodes"]] == [
+        "start",
+        "agent-1",
+        "agent-2",
+    ]
+    assert run["nodes"][-1]["status"] == "失败"
+    assert len(agent_api_gateway.calls) == 2
+    assert agent_api_gateway.calls[0]["max_total_tokens"] == 2_147_483_647
+    assert agent_api_gateway.calls[1]["max_total_tokens"] == 647_483_647
 
 
 def test_async_execution_job_retry_uses_future_backoff_before_next_claim(tmp_path):

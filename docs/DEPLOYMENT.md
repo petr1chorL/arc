@@ -94,11 +94,15 @@ RATE_LIMIT_WINDOW_SECONDS=60
 MODEL_BASE_URL=https://api.deepseek.com
 MODEL_ALLOWED_HOSTS=api.deepseek.com
 MODEL_DEFAULT_MODEL=deepseek-v4-pro
+AGENT_API_ALLOWED_BINDINGS=<workspace-id>@<host>=<SECRET_REF>[,...], or empty to disable
+AGENT_API_MAX_RESPONSE_BYTES=1048576
 ```
 
 模型凭证只通过 Zeabur Secret/环境变量注入。Agent 或模型资产保存的是环境变量名，
 不是明文 Key。生产启动会拒绝非 PostgreSQL、非 HTTPS Origin、缺少公网 Host、关闭
 HSTS、关闭 Secure Cookie 或关闭限流的配置。
+远程 Agent API 的 Secret Ref 对应 Token 和 `AGENT_API_ALLOWED_BINDINGS` 必须同时注入 API
+服务与 Execution Worker；每项绑定使用 `<workspace-id>@<host>=<SECRET_REF>`。列表为空时默认不外呼。
 
 ## 合并前验证
 

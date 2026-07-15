@@ -102,6 +102,35 @@ def test_workflow_rejects_agent_version_from_another_workspace(tmp_path):
     assert publish.json()["detail"] == validation.json()["errors"]
 
 
+def test_workflow_rejects_agent_retry_count_outside_bounded_range(tmp_path):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'workflow-retry-limit.db'}",
+    )
+    agent_id, agent_version = published_agent(client, workspace_id)
+    graph = valid_graph(agent_id, agent_version)
+    graph["nodes"][1]["data"]["retryMaxAttempts"] = 999
+    workflow = client.post(
+        workspace_url(workspace_id, "/workflows"),
+        json={"name": "Unbounded Retry Workflow", **graph},
+        headers=csrf_headers(client),
+    ).json()
+
+    validation = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/validate"),
+        headers=csrf_headers(client),
+    )
+    publish = client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/publish"),
+        headers=csrf_headers(client),
+    )
+
+    expected_error = "Agent 节点 agent 的重试次数必须是 1–3 的整数"
+    assert validation.status_code == 200
+    assert expected_error in validation.json()["errors"]
+    assert publish.status_code == 422
+    assert expected_error in publish.json()["detail"]
+
+
 def test_workflow_draft_publishes_an_immutable_snapshot(tmp_path):
     client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'workflows.db'}")
     agent_id, agent_version = published_agent(client, workspace_id)

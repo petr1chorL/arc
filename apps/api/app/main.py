@@ -14,6 +14,8 @@ from sqlalchemy.orm import Session
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.access import AuthorizationService, RequestContext, RequestContextService
+from app.agent_api_gateway import AgentApiGateway, HttpxAgentApiGateway
+from app.agent_manifest import normalize_agent_runtime_manifest
 from app.artifact_schema_validation import validate_artifact_schema
 from app.audit import AuditService
 from app.auth import AuthenticationService
@@ -270,6 +272,7 @@ def notification_error_code_matches(payload: dict, error_code: str | None) -> bo
 def create_app(
     database_url: str | None = None,
     model_gateway: ModelGateway | None = None,
+    agent_api_gateway: AgentApiGateway | None = None,
     human_task_clock: Callable[[], datetime] = utc_now,
     auth_clock: Callable[[], datetime] = utc_now,
     tool_gateway: HttpToolGateway | None = None,
@@ -304,6 +307,7 @@ def create_app(
     context_service = RequestContextService(authentication_service, settings, audit_service)
     human_task_service = HumanTaskService(human_task_clock)
     resolved_model_gateway = model_gateway or OpenAICompatibleGateway(settings)
+    resolved_agent_api_gateway = agent_api_gateway or HttpxAgentApiGateway(settings)
     resolved_judge_gateway = judge_gateway or ModelJudgeGateway(resolved_model_gateway)
     evaluation_service = EvaluationService(resolved_judge_gateway)
     tool_runtime = ToolRuntimeExecutor(
@@ -316,6 +320,7 @@ def create_app(
         human_task_service,
         evaluation_service,
         tool_runtime=tool_runtime,
+        agent_api_gateway=resolved_agent_api_gateway,
     )
     workflow_resume_service = WorkflowResumeService(
         execution_service,
@@ -1581,6 +1586,12 @@ def create_app(
         record = find_agent(context.workspace.id, agent_id, session)
         if record.status == "宸插仠鐢?":
             raise HTTPException(status_code=409, detail="宸插仠鐢?Agent 不允许发布")
+        try:
+            record.runtime_manifest = normalize_agent_runtime_manifest(
+                record.runtime_manifest,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from None
         ensure_agent_assets_available(
             session,
             workspace_id=context.workspace.id,

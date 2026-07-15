@@ -2,11 +2,19 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 import json
 from time import perf_counter
+from uuid import NAMESPACE_URL, uuid5
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
-from app.agent_runtime import AgentRuntimeExecutor, AgentRuntimeRequest, quality_score
+from app.agent_api_gateway import AgentApiGateway
+from app.agent_manifest import is_remote_agent_api_manifest
+from app.agent_runtime import (
+    MAX_TOTAL_TOKENS,
+    AgentRuntimeExecutor,
+    AgentRuntimeRequest,
+    quality_score,
+)
 from app.config import Settings
 from app.domain import topological_order
 from app.evaluation_service import EvaluationError, EvaluationService
@@ -127,6 +135,7 @@ class ExecutionService:
         human_task_service: HumanTaskService,
         evaluation_service: EvaluationService,
         tool_runtime: ToolRuntimeExecutor | None = None,
+        agent_api_gateway: AgentApiGateway | None = None,
     ):
         self.gateway = gateway
         self.settings = settings
@@ -138,6 +147,7 @@ class ExecutionService:
         self.agent_runtime = AgentRuntimeExecutor(
             gateway=gateway,
             cost_calculator=self.calculate_cost,
+            agent_api_gateway=agent_api_gateway,
         )
 
     def calculate_cost(self, prompt_tokens: int, completion_tokens: int) -> float:
@@ -267,6 +277,7 @@ class ExecutionService:
         agent_id: str,
         agent_version: str,
         max_attempts: int = 2,
+        frozen_runtime_input: str | None = None,
     ) -> NodeRunRecord:
         version = session.scalar(
             select(AgentVersionRecord).where(
@@ -280,6 +291,8 @@ class ExecutionService:
         snapshot = version.snapshot
         system_prompt = snapshot.get("systemPrompt", "").strip()
         role = snapshot.get("role", "")
+        runtime_manifest = snapshot.get("runtimeManifest", {})
+        is_remote_runtime = is_remote_agent_api_manifest(runtime_manifest)
         tool_asset_refs = snapshot.get("toolAssetRefs", [])
         skill_asset_refs = snapshot.get("skillAssetRefs", [])
         tool_names = self._asset_ref_names(tool_asset_refs) or snapshot.get("tools", [])
@@ -297,22 +310,31 @@ class ExecutionService:
             node_name=node_name,
             agent_id=agent_id,
             agent_version=agent_version,
-            input_text=input_text,
+            input_text=(
+                frozen_runtime_input
+                if is_remote_runtime and frozen_runtime_input is not None
+                else input_text
+            ),
             started_at=utc_now(),
         )
         session.add(node_run)
         session.flush()
-        tool_call_summaries = self._invoke_bound_http_tools(
-            session=session,
-            run=run,
-            node_run=node_run,
-            agent_id=agent_id,
-            agent_version=agent_version,
-            tool_asset_refs=tool_asset_refs,
-            tool_names=snapshot.get("tools", []),
-            input_text=input_text,
-        )
-        runtime_input = self._input_with_tool_summaries(input_text, tool_call_summaries)
+        if is_remote_runtime and frozen_runtime_input is not None:
+            runtime_input = frozen_runtime_input
+        else:
+            tool_call_summaries = self._invoke_bound_http_tools(
+                session=session,
+                run=run,
+                node_run=node_run,
+                agent_id=agent_id,
+                agent_version=agent_version,
+                tool_asset_refs=tool_asset_refs,
+                tool_names=snapshot.get("tools", []),
+                input_text=input_text,
+            )
+            runtime_input = self._input_with_tool_summaries(input_text, tool_call_summaries)
+            if is_remote_runtime:
+                node_run.input_text = runtime_input
         model_provider_id = snapshot.get("modelProviderId")
         model_secret_ref = snapshot.get("modelSecretRef", "")
         if model_provider_id and not model_secret_ref:
@@ -324,6 +346,35 @@ class ExecutionService:
             )
             if provider is not None:
                 model_secret_ref = provider.secret_ref
+        invocation_key = (
+            f"{run.workspace_id}:{run.id}:{node_id}:{agent_id}:{agent_version}"
+        )
+        invocation_id = str(uuid5(NAMESPACE_URL, f"arc-one:{invocation_key}"))
+        remote_node_run_id = str(uuid5(
+            NAMESPACE_URL,
+            f"arc-one-node-run:{invocation_key}",
+        ))
+        used_total_tokens = sum(
+            int(value or 0)
+            for value in session.scalars(
+                select(NodeRunRecord.total_tokens).where(
+                    NodeRunRecord.workspace_id == run.workspace_id,
+                    NodeRunRecord.run_id == run.id,
+                ),
+            )
+        )
+        max_total_tokens = max(MAX_TOTAL_TOKENS - used_total_tokens, 0)
+        running_job_id = None
+        if is_remote_runtime:
+            running_job_id = session.scalar(
+                select(ExecutionJobRecord.id).where(
+                    ExecutionJobRecord.workspace_id == run.workspace_id,
+                    ExecutionJobRecord.run_id == run.id,
+                    ExecutionJobRecord.status == "running",
+                ),
+            )
+        if running_job_id is not None:
+            session.commit()
         result = self.agent_runtime.execute(
             AgentRuntimeRequest(
                 workspace_id=run.workspace_id,
@@ -341,9 +392,12 @@ class ExecutionService:
                 model_secret_ref=model_secret_ref,
                 temperature=snapshot.get("temperature", 0.2),
                 max_output_tokens=snapshot.get("maxOutputTokens", 2000),
+                max_total_tokens=max_total_tokens,
                 tools=tool_names,
                 skills=skill_names,
-                runtime_manifest=snapshot.get("runtimeManifest", {}),
+                runtime_manifest=runtime_manifest,
+                invocation_id=invocation_id,
+                node_run_id=remote_node_run_id,
             ),
             max_attempts=max_attempts,
         )
@@ -610,6 +664,19 @@ class ExecutionService:
             job.completed_at = utc_now()
             session.commit()
             return None
+        retry_node_run = session.scalar(
+            select(NodeRunRecord)
+            .where(
+                NodeRunRecord.workspace_id == workspace_id,
+                NodeRunRecord.run_id == run.id,
+                NodeRunRecord.status.in_(("失败", "运行中")),
+            )
+            .order_by(NodeRunRecord.started_at.desc()),
+        )
+        if retry_node_run is not None and retry_node_run.status == "运行中":
+            retry_node_run.status = "失败"
+            retry_node_run.error = "后台执行租约已失效，已按原输入重试"
+            retry_node_run.completed_at = now
         job_id = job.id
         run_id = run.id
         job.status = "running"
@@ -629,6 +696,8 @@ class ExecutionService:
                 session=session,
                 run=run,
                 snapshot=snapshot,
+                start_node_id=retry_node_run.node_id if retry_node_run else None,
+                retry_node_run=retry_node_run,
             )
             if run.status == "失败":
                 self._retry_or_dead_letter_job(
@@ -815,6 +884,7 @@ class ExecutionService:
         snapshot: dict,
         start_node_id: str | None = None,
         seed_outputs: dict[str, str] | None = None,
+        retry_node_run: NodeRunRecord | None = None,
     ) -> WorkflowRunRecord:
         started = perf_counter()
         existing_node_runs = list(session.scalars(
@@ -850,6 +920,12 @@ class ExecutionService:
             ) or run.input_text
             run.current_node = node["data"].get("label", node_id)
             if node["type"] == "agent":
+                configured_attempts = node["data"].get("retryMaxAttempts", 2)
+                max_attempts = (
+                    min(configured_attempts, 3)
+                    if type(configured_attempts) is int and configured_attempts > 0
+                    else 1
+                )
                 node_run = self.execute_agent(
                     session=session,
                     run=run,
@@ -858,7 +934,13 @@ class ExecutionService:
                     input_text=node_input,
                     agent_id=node["data"]["agentId"],
                     agent_version=node["data"]["agentVersion"],
-                    max_attempts=int(node["data"].get("retryMaxAttempts", 2)),
+                    max_attempts=max_attempts,
+                    frozen_runtime_input=(
+                        retry_node_run.input_text
+                        if retry_node_run is not None
+                        and retry_node_run.node_id == node_id
+                        else None
+                    ),
                 )
             elif node["type"] == "evaluation":
                 source_node_run = None

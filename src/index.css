@@ -4637,7 +4637,7 @@ kbd {
   font-size: 13px;
 }
 
-.runtime-package-note {
+.runtime-source-note {
   margin: 0;
   padding: 10px 12px;
   border-radius: 8px;
@@ -4648,7 +4648,7 @@ kbd {
   line-height: 1.65;
 }
 
-.runtime-package-note span {
+.runtime-source-note span {
   display: block;
 }
 
@@ -4703,15 +4703,21 @@ kbd {
   min-height: 148px;
 }
 
-.runtime-package-fields {
+.runtime-source-fields {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px 12px;
 }
 
-.runtime-package-fields .form-field:nth-child(3),
-.runtime-package-fields .form-field:nth-child(4) {
+.runtime-source-fields > .full {
   grid-column: 1 / -1;
+}
+
+.runtime-mode-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
 }
 
 .runtime-import-actions {
@@ -7156,7 +7162,7 @@ kbd {
 
   .runtime-import-grid,
   .runtime-linkage-grid,
-  .runtime-package-fields {
+  .runtime-source-fields {
     grid-template-columns: 1fr;
   }
 

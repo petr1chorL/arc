@@ -20,6 +20,8 @@ services:
       context: ./apps/api
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-arc_one}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-arc_one}
+      AGENT_API_ALLOWED_BINDINGS: ${AGENT_API_ALLOWED_BINDINGS:-}
+      AGENT_API_MAX_RESPONSE_BYTES: ${AGENT_API_MAX_RESPONSE_BYTES:-1048576}
     ports:
       - "8000:8000"
     depends_on:
@@ -32,6 +34,8 @@ services:
       context: ./apps/api
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-arc_one}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-arc_one}
+      AGENT_API_ALLOWED_BINDINGS: ${AGENT_API_ALLOWED_BINDINGS:-}
+      AGENT_API_MAX_RESPONSE_BYTES: ${AGENT_API_MAX_RESPONSE_BYTES:-1048576}
     depends_on:
       postgres:
         condition: service_healthy

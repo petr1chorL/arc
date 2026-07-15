@@ -15,8 +15,9 @@
   审计事件已接入后端；关键版本查询带 Workspace 边界。
 - **模型凭证：** Provider 只保存环境变量名，拒绝明文 Key；请求前校验 HTTPS 与
   `MODEL_ALLOWED_HOSTS` 精确 Host。
-- **Package 执行：** Python Package 仅登记元数据，隔离执行器上线前不在 API 进程中
+- **历史 Package：** Python Package 新配置已移除；历史快照只读且不在 API 进程中
   动态导入或执行。
+- **远程 Agent API：** 仅允许 HTTPS、默认 443，并通过 `AGENT_API_ALLOWED_BINDINGS` 精确绑定 Workspace、Host 与 Secret Ref；响应有大小和总时限上限，不跟随重定向，也不使用环境代理。
 - **CI：** GitHub Actions 运行前后端测试、lint、生产构建和部署配置校验。
 - **发布来源：** Zeabur workflow 只部署通过 CI 的 `master` commit SHA；`ZEABUR_TOKEN`
   只从 GitHub Secret 读取。
@@ -40,10 +41,14 @@ RATE_LIMIT_WINDOW_SECONDS=60
 MODEL_BASE_URL=https://api.deepseek.com
 MODEL_ALLOWED_HOSTS=api.deepseek.com
 MODEL_DEFAULT_MODEL=deepseek-v4-pro
+AGENT_API_ALLOWED_BINDINGS=<workspace-id>@<host>=<SECRET_REF>[,...], or empty to disable
+AGENT_API_MAX_RESPONSE_BYTES=1048576
 ```
 
 真实模型凭证使用 Zeabur Secret/环境变量。Agent 或 Provider 记录中只允许出现相应环境
 变量名。不要把密钥写入仓库、日志、截图、Issue、Pull Request 或聊天记录。
+远程 Agent Manifest 同样只保存 Secret Ref 标签。API 服务和 Execution Worker 都必须配置
+相同的 Workspace、目标 Host 与 Secret Ref 三元绑定及对应环境变量；绑定列表为空时默认关闭。
 
 ## 生产启动保护
 
@@ -72,6 +77,7 @@ Nginx 负责公网同源容器的响应头；FastAPI 在独立运行时仍保留
 - [ ] HSTS、Secure Cookie、请求体限制与限流保持开启。
 - [ ] 模型凭证只存在于部署平台环境变量中。
 - [ ] `MODEL_ALLOWED_HOSTS` 只包含批准的精确 Host。
+- [ ] `AGENT_API_ALLOWED_BINDINGS` 仅包含批准的 Workspace、Host、Secret Ref 组合；Token 只存在于 API/Worker 环境变量。
 - [ ] `npm test -- --run` 通过。
 - [ ] `python -m pytest apps/api/tests -q` 通过。
 - [ ] `npm run lint`、`npm run deploy:check` 和 `npm run build` 通过。
@@ -92,6 +98,6 @@ Nginx 负责公网同源容器的响应头；FastAPI 在独立运行时仍保留
 
 - 建立 staging 与 production 隔离。
 - 完成 PostgreSQL 备份、恢复演练和迁移治理。
-- 接入隔离的 Package 执行器与资源配额。
+- 为远程 Agent API 增加 Endpoint 资产、专用出口代理、DNS/私网策略、异步协议和资源配额。
 - 增加集中日志、告警、审计导出与保留策略。
 - 形成自动回滚前的数据库兼容性检查。

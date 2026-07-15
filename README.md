@@ -171,6 +171,9 @@ Regression Run 和 Observability，并输出 Run ID、Human Task ID、Evaluation
 Regression Run ID 与 Trace ID。真实服务验收需要运行中的 API 已配置模型密钥，
 例如 `MODEL_API_KEY` 或 Agent Provider `secretRef` 指向的环境变量；目标模型 Host
 还必须位于 `MODEL_ALLOWED_HOSTS` 精确允许名单中。
+远程 Agent API 还要求 API 服务与 Execution Worker 同时配置 `AGENT_API_ALLOWED_BINDINGS`，
+每项格式为 `<workspace-id>@<host>=<SECRET_REF>`，并把相应 Token 作为后端环境变量注入；
+绑定列表为空时默认不外呼。
 
 V1.0 Lite 签收审查：
 

@@ -70,6 +70,7 @@ Zeabur 服务中的数据库密码、管理员密码和模型凭证。
 - `HSTS_ENABLED`、`COOKIE_SECURE` 和 `RATE_LIMIT_ENABLED` 为 `true`。
 - `MODEL_ALLOWED_HOSTS` 只列出获准接收模型凭证的精确 Host。
 - 模型 Secret 只通过环境变量注入，资产保存环境变量名而不是明文值。
+- 远程 Agent API 通过 `AGENT_API_ALLOWED_BINDINGS` 绑定 Workspace、精确 Host 与 Secret Ref；实际 Token 同时注入 API 与 Execution Worker 环境。
 
 数据库数据卷和运行环境变量归 Zeabur 服务管理，源码发布不会覆盖它们。
 

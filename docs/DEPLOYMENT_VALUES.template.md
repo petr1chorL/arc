@@ -47,9 +47,13 @@ MODEL_API_KEY=<optional platform environment variable>
 MODEL_BASE_URL=https://api.deepseek.com
 MODEL_ALLOWED_HOSTS=api.deepseek.com
 MODEL_DEFAULT_MODEL=deepseek-v4-pro
+AGENT_API_ALLOWED_BINDINGS=<workspace-id>@<host>=<SECRET_REF>[,...], or empty to disable
+AGENT_API_MAX_RESPONSE_BYTES=1048576
 ```
 
 Agent 绑定其他模型凭证时，只保存环境变量名，并在 Zeabur 环境中配置对应值。
+远程 Agent 也只保存 Secret Ref。对应 Token 和 `AGENT_API_ALLOWED_BINDINGS` 必须同时配置到
+API 服务与 Execution Worker；绑定列表为空时远程调用保持关闭。
 
 ## 上线记录
 

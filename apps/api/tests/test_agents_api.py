@@ -1,9 +1,10 @@
 from uuid import UUID
 
+import pytest
 from fastapi.testclient import TestClient
 
 from api_test_support import create_authenticated_client, csrf_headers, workspace_url
-from app.models import ModelProviderRecord
+from app.models import AgentRecord, ModelProviderRecord
 
 
 def test_create_agent_rejects_blank_name(tmp_path):
@@ -118,27 +119,26 @@ def test_agent_runtime_configuration_is_saved_and_published_without_secrets(tmp_
     assert "apiKey" not in published["snapshot"]
 
 
-def test_agent_runtime_manifest_is_saved_and_published(tmp_path):
+def test_remote_agent_runtime_manifest_is_saved_and_published(tmp_path):
     database_url = f"sqlite:///{tmp_path / 'agents-runtime-manifest.db'}"
     client, workspace_id = create_authenticated_client(database_url)
     created = client.post(
         workspace_url(workspace_id, "/agents"),
         json={
-            "name": "LangChain Package Agent",
-            "role": "Run an external LangChain Python package.",
+            "name": "Remote Research Agent",
+            "role": "Run through a governed remote HTTP API.",
             "owner": "Platform Team",
-            "model": "deepseek-v4-pro",
+            "model": "remote-managed",
         },
         headers=csrf_headers(client),
     ).json()
     runtime_manifest = {
-        "runtime": "langchain",
-        "sourceType": "python_package",
-        "packageName": "arc-langchain-agents",
-        "packageVersion": "1.0.3",
-        "entrypoint": "arc_agents.weather:create_agent",
-        "packageSource": "internal-pypi",
-        "packageHash": "sha256:abc123",
+        "runtime": "remote_http",
+        "sourceType": "remote_api",
+        "protocolVersion": "arc-agent-v1",
+        "endpointUrl": "https://agent.example.com/v1/invoke",
+        "secretRef": "REMOTE_AGENT_API_TOKEN",
+        "timeoutSeconds": 30,
     }
 
     update_response = client.patch(
@@ -153,11 +153,143 @@ def test_agent_runtime_manifest_is_saved_and_published(tmp_path):
 
     published = client.post(
         workspace_url(workspace_id, f"/agents/{created['id']}/publish"),
-        json={"note": "Register Python package runtime entrypoint"},
+        json={"note": "Bind immutable remote Agent API contract"},
         headers=csrf_headers(client),
     ).json()
 
     assert published["snapshot"]["runtimeManifest"] == runtime_manifest
+
+
+def test_agent_runtime_manifest_rejects_new_python_package_configuration(tmp_path):
+    database_url = f"sqlite:///{tmp_path / 'agents-package-rejected.db'}"
+    client, workspace_id = create_authenticated_client(database_url)
+    created = client.post(
+        workspace_url(workspace_id, "/agents"),
+        json={
+            "name": "Rejected Package Agent",
+            "role": "Must not register new executable Python packages.",
+            "owner": "Platform Team",
+            "model": "remote-managed",
+        },
+        headers=csrf_headers(client),
+    ).json()
+
+    response = client.patch(
+        workspace_url(workspace_id, f"/agents/{created['id']}"),
+        json={"runtimeManifest": {
+            "runtime": "langchain",
+            "sourceType": "python_package",
+            "packageName": "arc-langchain-agents",
+            "packageVersion": "1.0.3",
+            "entrypoint": "arc_agents.weather:create_agent",
+            "packageHash": "sha256:abc123",
+        }},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 422
+    stored = client.get(workspace_url(workspace_id, f"/agents/{created['id']}"))
+    assert stored.json()["runtimeManifest"] == {}
+
+
+def test_agent_publish_rejects_legacy_python_package_draft(tmp_path):
+    database_url = f"sqlite:///{tmp_path / 'agents-package-publish-rejected.db'}"
+    client, workspace_id = create_authenticated_client(database_url)
+    created = client.post(
+        workspace_url(workspace_id, "/agents"),
+        json={
+            "name": "Legacy Package Draft",
+            "role": "Remain visible but fail closed at publish.",
+            "owner": "Platform Team",
+            "model": "remote-managed",
+        },
+        headers=csrf_headers(client),
+    ).json()
+    with client.app.state.session_factory() as session:
+        stored_agent = session.get(AgentRecord, created["id"])
+        assert stored_agent is not None
+        stored_agent.runtime_manifest = {
+            "runtime": "langchain",
+            "sourceType": "python_package",
+            "packageName": "legacy-package",
+            "packageVersion": "1.0.0",
+            "entrypoint": "legacy:create_agent",
+        }
+        session.commit()
+
+    response = client.post(
+        workspace_url(workspace_id, f"/agents/{created['id']}/publish"),
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 422
+
+
+INVALID_REMOTE_MANIFESTS = [
+    None,
+    {
+        "runtime": "remote_http",
+        "sourceType": "remote_api",
+        "protocolVersion": "arc-agent-v1",
+        "endpointUrl": "http://agent.example.com/v1/invoke",
+        "secretRef": "REMOTE_AGENT_API_TOKEN",
+        "timeoutSeconds": 30,
+    },
+    {
+        "runtime": "remote_http",
+        "sourceType": "remote_api",
+        "protocolVersion": "arc-agent-v1",
+        "endpointUrl": "https://agent.example.com/v1/invoke",
+        "secretRef": "inline-secret-value",
+        "timeoutSeconds": 30,
+    },
+    {
+        "runtime": "remote_http",
+        "sourceType": "remote_api",
+        "protocolVersion": "arc-agent-v1",
+        "endpointUrl": "https://agent.example.com/v1/invoke",
+        "secretRef": "REMOTE_AGENT_API_TOKEN",
+        "timeoutSeconds": 61,
+    },
+    {
+        "runtime": "remote_http",
+        "sourceType": "remote_api",
+        "protocolVersion": "arc-agent-v1",
+        "endpointUrl": "https://agent.example.com/v1/invoke",
+        "secretRef": "REMOTE_AGENT_API_TOKEN",
+        "timeoutSeconds": 30,
+        "unknownField": "must-be-rejected",
+    },
+]
+
+
+@pytest.mark.parametrize("runtime_manifest", INVALID_REMOTE_MANIFESTS)
+def test_agent_runtime_manifest_rejects_invalid_remote_configuration(
+    tmp_path,
+    runtime_manifest,
+):
+    database_url = f"sqlite:///{tmp_path / 'agents-invalid-remote.db'}"
+    client, workspace_id = create_authenticated_client(database_url)
+    created = client.post(
+        workspace_url(workspace_id, "/agents"),
+        json={
+            "name": "Invalid Remote Agent",
+            "role": "Reject unsafe remote runtime configuration.",
+            "owner": "Platform Team",
+            "model": "remote-managed",
+        },
+        headers=csrf_headers(client),
+    ).json()
+
+    response = client.patch(
+        workspace_url(workspace_id, f"/agents/{created['id']}"),
+        json={"runtimeManifest": runtime_manifest},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 422
+    stored = client.get(workspace_url(workspace_id, f"/agents/{created['id']}"))
+    assert stored.json()["runtimeManifest"] == {}
 
 
 def test_agent_can_bind_workspace_model_provider_asset(tmp_path):

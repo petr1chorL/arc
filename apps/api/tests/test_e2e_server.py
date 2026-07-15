@@ -19,4 +19,5 @@ def test_build_e2e_environment_isolates_database_and_credentials(tmp_path: Path)
     assert environment["MODEL_API_KEY"] == ""
     assert environment["MODEL_ALLOWED_HOSTS"] == ""
     assert environment["TOOL_HTTP_ALLOWED_HOSTS"] == ""
+    assert environment["AGENT_API_ALLOWED_BINDINGS"] == ""
     assert environment["PATH"] == "test-path"

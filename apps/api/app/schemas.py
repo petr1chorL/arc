@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.agent_manifest import normalize_agent_runtime_manifest
+
 
 class LoginCreate(BaseModel):
     email: str = Field(min_length=3, max_length=320)
@@ -218,6 +220,12 @@ class AgentCreate(BaseModel):
         return value.strip()
 
 
+    @field_validator("runtime_manifest")
+    @classmethod
+    def validate_runtime_manifest(cls, value: dict) -> dict:
+        return normalize_agent_runtime_manifest(value)
+
+
 class AgentUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=80)
     role: str | None = Field(default=None, max_length=240)
@@ -256,6 +264,14 @@ class AgentUpdate(BaseModel):
         if value is None:
             return value
         return value.strip()
+
+
+    @field_validator("runtime_manifest")
+    @classmethod
+    def validate_runtime_manifest(cls, value: dict | None) -> dict | None:
+        if value is None:
+            raise ValueError("runtimeManifest 不能为 null")
+        return normalize_agent_runtime_manifest(value)
 
 
 class AgentAssetRefRead(BaseModel):

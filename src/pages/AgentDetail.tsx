@@ -2,7 +2,6 @@ import {
   ArrowLeft,
   Check,
   History,
-  Package,
   PackageCheck,
   Play,
   Save,
@@ -53,31 +52,84 @@ function toggleValue(text: string, value: string, checked: boolean) {
   return joinValues(nextValues)
 }
 
-function runtimeTitle(manifest: AgentRuntimeManifest) {
-  if (manifest.packageName && manifest.packageVersion) {
-    return `${manifest.packageName}==${manifest.packageVersion}`
-  }
-  return manifest.entrypoint || '尚未导入 Python Package'
+const REMOTE_AGENT_PROTOCOL_VERSION = 'arc-agent-v1'
+
+type AgentExecutionMode = 'builtin' | 'remote_api' | 'legacy_unsupported'
+
+interface RemoteAgentDraft {
+  endpointUrl: string
+  secretRef: string
+  timeoutSeconds: string
 }
 
-function packageDraftFromManifest(manifest: AgentRuntimeManifest) {
-  return {
-    packageName: manifest.packageName ?? '',
-    packageVersion: manifest.packageVersion ?? '',
-    entrypoint: manifest.entrypoint ?? '',
-    packageHash: manifest.packageHash ?? '',
-  }
+function hasRemoteAgentRuntime(manifest?: AgentRuntimeManifest) {
+  return manifest?.runtime === 'remote_http' && manifest.sourceType === 'remote_api'
 }
 
-function hasPythonPackageRuntime(manifest?: AgentRuntimeManifest) {
+function hasLegacyPythonPackageRuntime(manifest?: AgentRuntimeManifest) {
   return Boolean(
-    manifest?.sourceType === 'python_package'
-    && manifest.packageName
-    && manifest.packageVersion
-    && manifest.entrypoint,
+    manifest
+    && (manifest.sourceType === 'python_package' || manifest.runtime === 'langchain'),
   )
 }
 
+function isIpLiteral(hostname: string) {
+  const normalized = hostname.replace(/^\[|\]$/g, '')
+  return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalized) || normalized.includes(':')
+}
+
+function remoteDraftFromManifest(manifest?: AgentRuntimeManifest): RemoteAgentDraft {
+  return {
+    endpointUrl: hasRemoteAgentRuntime(manifest) ? manifest?.endpointUrl ?? '' : '',
+    secretRef: hasRemoteAgentRuntime(manifest) ? manifest?.secretRef ?? '' : '',
+    timeoutSeconds: String(
+      hasRemoteAgentRuntime(manifest) ? manifest?.timeoutSeconds ?? 30 : 30,
+    ),
+  }
+}
+
+function validateRemoteAgentDraft(draft: RemoteAgentDraft) {
+  const endpointUrl = draft.endpointUrl.trim()
+  let parsedUrl: URL
+  try {
+    parsedUrl = new URL(endpointUrl)
+  } catch {
+    return '请输入完整的 HTTPS Agent API 地址'
+  }
+  if (parsedUrl.protocol !== 'https:') {
+    return '请输入完整的 HTTPS Agent API 地址'
+  }
+  if (
+    !parsedUrl.hostname
+    || isIpLiteral(parsedUrl.hostname)
+    || parsedUrl.username
+    || parsedUrl.password
+    || parsedUrl.search
+    || parsedUrl.hash
+    || (parsedUrl.port && parsedUrl.port !== '443')
+  ) {
+    return 'Agent API 地址必须使用域名和 443 端口，且不能包含凭证、查询参数或片段'
+  }
+  if (!/^[A-Z_][A-Z0-9_]*$/.test(draft.secretRef.trim())) {
+    return 'Secret Ref 只能填写后端环境变量名'
+  }
+  const timeoutSeconds = Number(draft.timeoutSeconds)
+  if (!Number.isInteger(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > 60) {
+    return '请求超时必须是 1–60 秒的整数'
+  }
+  return ''
+}
+
+function remoteManifestFromDraft(draft: RemoteAgentDraft): AgentRuntimeManifest {
+  return {
+    runtime: 'remote_http',
+    sourceType: 'remote_api',
+    protocolVersion: REMOTE_AGENT_PROTOCOL_VERSION,
+    endpointUrl: draft.endpointUrl.trim(),
+    secretRef: draft.secretRef.trim(),
+    timeoutSeconds: Number(draft.timeoutSeconds),
+  }
+}
 export function AgentDetail() {
   const { workspace, workspacePath } = useWorkspace()
   const { agentId = '' } = useParams()
@@ -90,8 +142,8 @@ export function AgentDetail() {
   const [skillsText, setSkillsText] = useState('')
   const [temperatureText, setTemperatureText] = useState('0.2')
   const [maxOutputTokensText, setMaxOutputTokensText] = useState('2000')
-  const [packageDraft, setPackageDraft] = useState(packageDraftFromManifest({}))
-  const [runtimeFeedback, setRuntimeFeedback] = useState('')
+  const [executionMode, setExecutionMode] = useState<AgentExecutionMode>('builtin')
+  const [remoteDraft, setRemoteDraft] = useState(remoteDraftFromManifest())
   const [runtimeError, setRuntimeError] = useState('')
   const [feedback, setFeedback] = useState('')
   const [error, setError] = useState('')
@@ -114,10 +166,7 @@ export function AgentDetail() {
       setVersions(nextVersions)
       setModelProviders(Array.isArray(providerAssets) ? providerAssets : [])
       setToolSkillAssets(Array.isArray(workspaceAssets) ? workspaceAssets : [])
-      const effectiveRuntimeManifest = hasPythonPackageRuntime(nextAgent.runtimeManifest)
-        ? nextAgent.runtimeManifest
-        : nextVersions.find((version) => hasPythonPackageRuntime(version.snapshot.runtimeManifest))
-          ?.snapshot.runtimeManifest ?? nextAgent.runtimeManifest ?? {}
+      const runtimeManifest = nextAgent.runtimeManifest ?? {}
       setForm({
         name: nextAgent.name,
         role: nextAgent.role,
@@ -131,13 +180,19 @@ export function AgentDetail() {
         systemPrompt: nextAgent.systemPrompt,
         tools: nextAgent.tools,
         skills: nextAgent.skills,
-        runtimeManifest: effectiveRuntimeManifest,
+        runtimeManifest,
       })
       setToolsText(joinValues(nextAgent.tools))
       setSkillsText(joinValues(nextAgent.skills))
       setTemperatureText(String(nextAgent.temperature))
       setMaxOutputTokensText(String(nextAgent.maxOutputTokens))
-      setPackageDraft(packageDraftFromManifest(effectiveRuntimeManifest))
+      setExecutionMode(
+        hasRemoteAgentRuntime(runtimeManifest)
+          ? 'remote_api'
+          : hasLegacyPythonPackageRuntime(runtimeManifest) ? 'legacy_unsupported' : 'builtin',
+      )
+      setRemoteDraft(remoteDraftFromManifest(runtimeManifest))
+      setRuntimeError('')
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Agent 加载失败')
     }
@@ -152,38 +207,21 @@ export function AgentDetail() {
     setFeedback('')
   }
 
-  function updateRuntimeManifest(runtimeManifest: AgentRuntimeManifest) {
-    setForm((current) => {
-      if (!current) return current
-      return {
-        ...current,
-        runtimeManifest,
-      }
-    })
+  function selectExecutionMode(value: AgentExecutionMode) {
+    if (value === 'legacy_unsupported') return
+    setExecutionMode(value)
+    setRuntimeError('')
+    setFeedback('')
+    if (value === 'builtin') {
+      setForm((current) => current ? { ...current, runtimeManifest: {} } : current)
+    }
+  }
+
+  function updateRemoteDraft(field: keyof RemoteAgentDraft, value: string) {
+    setRemoteDraft((current) => ({ ...current, [field]: value }))
+    setRuntimeError('')
     setFeedback('')
   }
-
-  function importPythonPackage() {
-    setRuntimeError('')
-    setRuntimeFeedback('')
-    const packageName = packageDraft.packageName.trim()
-    const packageVersion = packageDraft.packageVersion.trim()
-    const entrypoint = packageDraft.entrypoint.trim()
-    if (!packageName || !packageVersion || !entrypoint) {
-      setRuntimeError('Package 名称、版本和 EntryPoint 必填')
-      return
-    }
-    updateRuntimeManifest({
-      runtime: 'langchain',
-      sourceType: 'python_package',
-      packageName,
-      packageVersion,
-      entrypoint,
-      packageHash: packageDraft.packageHash.trim() || undefined,
-    })
-    setRuntimeFeedback('Python Package 元数据已导入草稿')
-  }
-
   function selectModelProvider(providerId: string) {
     setForm((current) => {
       if (!current) return current
@@ -211,6 +249,13 @@ export function AgentDetail() {
     setFeedback('')
   }
 
+  function executionConfigurationError() {
+    if (executionMode === 'legacy_unsupported') {
+      return '请先明确选择平台托管或远程 Agent API，再保存或发布新版本'
+    }
+    return executionMode === 'remote_api' ? validateRemoteAgentDraft(remoteDraft) : ''
+  }
+
   function buildAgentUpdateInput(formInput: UpdateAgentInput): UpdateAgentInput {
     return {
       ...formInput,
@@ -218,12 +263,23 @@ export function AgentDetail() {
       maxOutputTokens: Number(maxOutputTokensText),
       tools: splitValues(toolsText),
       skills: splitValues(skillsText),
-      runtimeManifest: formInput.runtimeManifest ?? {},
+      runtimeManifest: executionMode === 'remote_api'
+        ? remoteManifestFromDraft(remoteDraft)
+        : executionMode === 'builtin'
+          ? {}
+          : formInput.runtimeManifest,
     }
   }
 
   async function saveDraft() {
     if (!form) return
+    const validationError = executionConfigurationError()
+    if (validationError) {
+      setRuntimeError(validationError)
+      setError('')
+      return
+    }
+    setRuntimeError('')
     setIsBusy(true)
     setError('')
     try {
@@ -240,6 +296,13 @@ export function AgentDetail() {
   }
 
   function openPublishNoteDialog() {
+    const validationError = executionConfigurationError()
+    if (validationError) {
+      setRuntimeError(validationError)
+      setError('')
+      return
+    }
+    setRuntimeError('')
     setPublishNote('')
     setPublishNoteError('')
     setShowPublishNote(true)
@@ -248,6 +311,13 @@ export function AgentDetail() {
 
   async function publish(note: string) {
     const trimmedNote = note.trim()
+    const validationError = executionConfigurationError()
+    if (validationError) {
+      setRuntimeError(validationError)
+      setError('')
+      return
+    }
+    setRuntimeError('')
     setIsBusy(true)
     setError('')
     try {
@@ -312,8 +382,8 @@ export function AgentDetail() {
       return
     }
     const publishedVersion = versions.find((version) => version.version === agent?.version)
-    if (hasPythonPackageRuntime(publishedVersion?.snapshot.runtimeManifest)) {
-      setError('Python Package 当前仅登记元数据，尚未接入隔离执行器')
+    if (hasLegacyPythonPackageRuntime(publishedVersion?.snapshot.runtimeManifest)) {
+      setError('该版本使用已停止支持的运行方式，请配置远程 Agent API 并发布新版本')
       return
     }
     setIsBusy(true)
@@ -345,10 +415,11 @@ export function AgentDetail() {
   const skillAssets = toolSkillAssets.filter((asset) => asset.assetType === 'skill')
   const selectedTools = splitValues(toolsText)
   const selectedSkills = splitValues(skillsText)
-  const runtimeManifest = form.runtimeManifest ?? {}
   const publishedRuntimeManifest = versions.find((version) => version.version === agent.version)
     ?.snapshot.runtimeManifest
-  const packageExecutionBlocked = hasPythonPackageRuntime(publishedRuntimeManifest)
+  const legacyPackageExecutionBlocked = hasLegacyPythonPackageRuntime(publishedRuntimeManifest)
+  const legacyRuntimeRequiresMigration = legacyPackageExecutionBlocked
+    || hasLegacyPythonPackageRuntime(form.runtimeManifest)
 
   return (
     <div className="page-stack asset-detail-page">
@@ -398,49 +469,97 @@ export function AgentDetail() {
             <label className="form-field"><span>名称</span><input disabled={disabled} value={form.name} onChange={(event) => updateField('name', event.target.value)} /></label>
             <label className="form-field"><span>负责人</span><input disabled={disabled} value={form.owner} onChange={(event) => updateField('owner', event.target.value)} /></label>
             <label className="form-field full"><span>职责</span><textarea disabled={disabled} rows={3} value={form.role} onChange={(event) => updateField('role', event.target.value)} /></label>
-            <label className="form-field"><span>模型</span><input disabled={disabled} value={form.model} onChange={(event) => updateField('model', event.target.value)} /></label>
+            <label className="form-field"><span>模型</span><input disabled={disabled || executionMode !== 'builtin'} value={form.model} onChange={(event) => updateField('model', event.target.value)} /></label>
             <label className="form-field"><span>当前发布版本</span><input readOnly value={agent.version} /></label>
-            <section className="runtime-manifest-card full" aria-label="Runtime / Python Package">
+            <section className="runtime-manifest-card full" aria-label="Agent 执行方式">
               <header>
                 <div>
-                  <span className="section-kicker">Runtime / Python Package</span>
-                  <h4>{runtimeTitle(runtimeManifest)}</h4>
-                </div>
-                <div className="runtime-header-actions">
-                  <button className="button ghost" disabled={disabled} type="button" onClick={importPythonPackage}>
-                    <Package size={15} />导入 Python Package
-                  </button>
+                  <span className="section-kicker">EXECUTION</span>
+                  <h4>{executionMode === 'remote_api'
+                    ? '远程 Agent API'
+                    : executionMode === 'legacy_unsupported'
+                      ? '旧 Python Package（需迁移）'
+                      : '平台托管（ModelGateway）'}</h4>
                 </div>
               </header>
-              <p className="runtime-package-note">
-                <span>Python Package 当前仅登记元数据，尚未接入隔离执行器。</span>
-                <span>包名、版本、入口函数与内容指纹会进入版本快照；模型参数仍由下方 Runtime 配置维护。</span>
+              <p className="runtime-source-note">
+                <span>远程 Agent API 由 ARC.ONE 后端调用，浏览器不会直接请求目标地址，也不会保存密钥值。</span>
+                <span>执行配置需发布为新版本后才参与运行。</span>
               </p>
-              <div className="runtime-linkage-grid">
-                <div>
-                  <span>ARC 生效配置</span>
-                  <strong>{form.model} · temp {temperatureText} · max {maxOutputTokensText}</strong>
-                </div>
-              </div>
               <div className="runtime-import-grid">
-                <div className="runtime-package-fields">
-                  <label className="form-field"><span>Package 名称</span><input disabled={disabled} value={packageDraft.packageName} onChange={(event) => setPackageDraft((current) => ({ ...current, packageName: event.target.value }))} /></label>
-                  <label className="form-field"><span>Package 版本</span><input disabled={disabled} value={packageDraft.packageVersion} onChange={(event) => setPackageDraft((current) => ({ ...current, packageVersion: event.target.value }))} /></label>
-                  <label className="form-field"><span>Package EntryPoint</span><input disabled={disabled} value={packageDraft.entrypoint} onChange={(event) => setPackageDraft((current) => ({ ...current, entrypoint: event.target.value }))} /></label>
-                  <label className="form-field"><span>Package Hash</span><input disabled={disabled} value={packageDraft.packageHash} onChange={(event) => setPackageDraft((current) => ({ ...current, packageHash: event.target.value }))} /></label>
+                <div className="runtime-source-fields">
+                  <label className="form-field">
+                    <span>执行方式</span>
+                    <select
+                      disabled={disabled}
+                      value={executionMode}
+                      onChange={(event) => selectExecutionMode(event.target.value as AgentExecutionMode)}
+                    >
+                      {executionMode === 'legacy_unsupported' && (
+                        <option value="legacy_unsupported" disabled>旧 Python Package（需迁移）</option>
+                      )}
+                      <option value="builtin">平台托管（ModelGateway）</option>
+                      <option value="remote_api">远程 Agent API</option>
+                    </select>
+                  </label>
+                  {executionMode === 'remote_api' ? (
+                    <>
+                      <label className="form-field full">
+                        <span>Agent API 地址</span>
+                        <input
+                          disabled={disabled}
+                          value={remoteDraft.endpointUrl}
+                          onChange={(event) => updateRemoteDraft('endpointUrl', event.target.value)}
+                          placeholder="https://agent.example.com/v1/invoke"
+                        />
+                      </label>
+                      <label className="form-field">
+                        <span>Secret Ref（环境变量名）</span>
+                        <input
+                          disabled={disabled}
+                          value={remoteDraft.secretRef}
+                          onChange={(event) => updateRemoteDraft('secretRef', event.target.value)}
+                          placeholder="RESEARCH_AGENT_API_TOKEN"
+                        />
+                      </label>
+                      <label className="form-field">
+                        <span>请求超时（秒）</span>
+                        <input
+                          disabled={disabled}
+                          min={1}
+                          max={60}
+                          step={1}
+                          type="number"
+                          value={remoteDraft.timeoutSeconds}
+                          onChange={(event) => updateRemoteDraft('timeoutSeconds', event.target.value)}
+                        />
+                      </label>
+                      <p className="runtime-mode-hint full">远程 API 模式下模型由目标服务管理，下方模型配置不参与执行。</p>
+                    </>
+                  ) : (
+                    <div className="runtime-linkage-grid full">
+                      <div>
+                        <span>ARC 生效配置</span>
+                        <strong>{form.model} · temp {temperatureText} · max {maxOutputTokensText}</strong>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
-              {(runtimeFeedback || runtimeError) && (
-                <p className={`runtime-manifest-feedback ${runtimeError ? 'error' : ''}`}>
-                  {runtimeError || runtimeFeedback}
+              {legacyRuntimeRequiresMigration && (
+                <p className="runtime-manifest-feedback error">
+                  该版本包含旧 Python Package 元数据，当前不可运行。请选择新的执行方式并发布新版本。
                 </p>
+              )}
+              {runtimeError && (
+                <p className="runtime-manifest-feedback error">{runtimeError}</p>
               )}
             </section>
             <div className="form-section-heading"><span>RUNTIME</span><strong>运行配置</strong></div>
             <label className="form-field">
               <span>模型资产</span>
               <select
-                disabled={disabled}
+                disabled={disabled || executionMode !== 'builtin'}
                 value={form.modelProviderId ?? ''}
                 onChange={(event) => selectModelProvider(event.target.value)}
               >
@@ -452,9 +571,9 @@ export function AgentDetail() {
                 ))}
               </select>
             </label>
-            <label className="form-field"><span>Base URL</span><input disabled={disabled} value={form.modelBaseUrl ?? ''} onChange={(event) => updateField('modelBaseUrl', event.target.value)} placeholder="https://api.deepseek.com" /></label>
-            <label className="form-field"><span>温度</span><input disabled={disabled} inputMode="decimal" value={temperatureText} onChange={(event) => setTemperatureText(event.target.value)} /></label>
-            <label className="form-field"><span>最大输出 Tokens</span><input disabled={disabled} inputMode="numeric" value={maxOutputTokensText} onChange={(event) => setMaxOutputTokensText(event.target.value)} /></label>
+            <label className="form-field"><span>模型 Base URL</span><input disabled={disabled || executionMode !== 'builtin'} value={form.modelBaseUrl ?? ''} onChange={(event) => updateField('modelBaseUrl', event.target.value)} placeholder="https://api.deepseek.com" /></label>
+            <label className="form-field"><span>温度</span><input disabled={disabled || executionMode !== 'builtin'} inputMode="decimal" value={temperatureText} onChange={(event) => setTemperatureText(event.target.value)} /></label>
+            <label className="form-field"><span>最大输出 Tokens</span><input disabled={disabled || executionMode !== 'builtin'} inputMode="numeric" value={maxOutputTokensText} onChange={(event) => setMaxOutputTokensText(event.target.value)} /></label>
             <label className="form-field full prompt-field">
               <span><Sparkles size={14} />System Prompt</span>
               <textarea disabled={disabled} rows={10} value={form.systemPrompt} onChange={(event) => updateField('systemPrompt', event.target.value)} placeholder="定义 Agent 的职责、约束、输出格式和质量要求" />
@@ -550,13 +669,13 @@ export function AgentDetail() {
         <div className="agent-test-actions">
           <button
             className="button primary"
-            disabled={disabled || isBusy || versions.length === 0 || packageExecutionBlocked}
+            disabled={disabled || isBusy || versions.length === 0 || legacyPackageExecutionBlocked}
             onClick={() => void testRun()}
           >
             <Play size={15} />运行 Agent
           </button>
           {versions.length === 0 && <small>请先发布一个 Agent 版本。</small>}
-          {packageExecutionBlocked && <small>该版本包含 Python Package，隔离执行器上线前不可运行。</small>}
+          {legacyPackageExecutionBlocked && <small>该历史版本使用已停止支持的运行方式，请配置远程 Agent API 并发布新版本。</small>}
         </div>
         {runResult && (
           <div className="agent-test-result">

@@ -123,7 +123,7 @@ export interface Agent {
   updatedAt: string
 }
 
-export type AgentRuntimeSourceType = 'manifest' | 'python_package'
+export type AgentRuntimeSourceType = 'manifest' | 'python_package' | 'remote_api'
 
 export interface AgentRuntimeDefaults {
   modelProviderId?: string | null
@@ -137,6 +137,10 @@ export interface AgentRuntimeDefaults {
 export interface AgentRuntimeManifest {
   runtime?: string
   sourceType?: AgentRuntimeSourceType
+  protocolVersion?: string
+  endpointUrl?: string
+  secretRef?: string
+  timeoutSeconds?: number
   repo?: string
   gitSha?: string
   manifestPath?: string

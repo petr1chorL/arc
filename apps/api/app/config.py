@@ -62,12 +62,15 @@ class Settings(BaseSettings):
     model_timeout_seconds: float = 60
     tool_http_allowed_hosts: str | tuple[str, ...] = ()
     tool_http_timeout_seconds: float = 10
+    agent_api_allowed_bindings: str | tuple[str, ...] = ()
+    agent_api_max_response_bytes: PositiveInt = 1_048_576
 
     @field_validator(
         "allowed_origins",
         "allowed_hosts",
         "model_allowed_hosts",
         "tool_http_allowed_hosts",
+        "agent_api_allowed_bindings",
         mode="after",
     )
     @classmethod

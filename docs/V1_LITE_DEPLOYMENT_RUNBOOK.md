@@ -244,10 +244,15 @@ MODEL_API_KEY=<set in Zeabur secret/environment variables, optional for page bro
 MODEL_BASE_URL=https://api.deepseek.com
 MODEL_ALLOWED_HOSTS=api.deepseek.com
 MODEL_DEFAULT_MODEL=deepseek-v4-pro
+AGENT_API_ALLOWED_BINDINGS=<workspace-id>@agent.example.com=RESEARCH_AGENT_API_TOKEN
+AGENT_API_MAX_RESPONSE_BYTES=1048576
+RESEARCH_AGENT_API_TOKEN=<set in Zeabur secret/environment variables>
 ```
 
-`ARC_ONE_ADMIN_PASSWORD` 和 `MODEL_API_KEY` 只能通过部署平台 Secret 或环境变量注入，
-不得写入代码、文档、截图或日志。
+`ARC_ONE_ADMIN_PASSWORD`、`MODEL_API_KEY` 和远程 Agent 的实际 Token 只能通过部署平台
+Secret 或环境变量注入，不得写入代码、文档、截图或日志。多组远程绑定用英文逗号分隔；
+列表为空即关闭远程 Agent 外呼。`AGENT_API_ALLOWED_BINDINGS` 与其中引用的 Secret 必须
+以相同值注入 API 和 Execution Worker。
 
 ## 验收
 

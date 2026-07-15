@@ -254,6 +254,12 @@ def validate_workflow(
             continue
 
         if node["type"] == "agent":
+            retry_max_attempts = node["data"].get("retryMaxAttempts", 2)
+            if (
+                type(retry_max_attempts) is not int
+                or not 1 <= retry_max_attempts <= 3
+            ):
+                errors.append(f"Agent 节点 {node['id']} 的重试次数必须是 1–3 的整数")
             agent_id = node["data"].get("agentId")
             agent_version = node["data"].get("agentVersion")
             if not agent_id or not agent_version:

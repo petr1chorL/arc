@@ -28,7 +28,9 @@ Agent 执行已引入第一版 Runtime 合约：`app.agent_runtime` 负责统一
 
 Agent 草稿已新增第一版运行配置入口：后端持久化 `modelProvider`、`modelBaseUrl`、`temperature` 和 `maxOutputTokens`，Agent 详情页可编辑这些非密钥字段，保存草稿和发布版本时会进入不可变 Agent 快照。Agent 直接运行和工作流 Agent 节点执行时，会把已发布快照里的模型、Provider ID、Provider 类型、Base URL、温度和最大输出 Tokens 传入 Agent Runtime。绑定 Provider 的运行必须使用符合环境变量名格式的 `secretRef`，引用为空或环境变量不存在时不再回退全局 Key；ModelGateway 在任何 HTTP 请求前要求 HTTPS，并按 `MODEL_ALLOWED_HOSTS` 精确校验目标 Host。
 
-Agent 详情页的 Runtime / Python Package 区域当前只支持登记 Python Package 元数据，包括 `packageName`、`packageVersion`、`entrypoint` 和 `packageHash`；Package 来源不作为详情页手工维护字段。发布版本时这些元数据会进入 AgentVersion 快照，但在独立隔离执行器上线前，API 进程不会修改 `sys.path`、动态导入或执行 Package，相关发布版本的测试运行入口会禁用。该区域不保存密钥，也不代表 Package 已具备运行能力。
+Agent 详情页的执行方式现支持“平台托管（ModelGateway）”和“远程 Agent API”。远程方式保存固定 `arc-agent-v1` 协议、HTTPS `endpointUrl`、后端环境变量名形式的 `secretRef` 和 1-60 秒超时，并随 AgentVersion 冻结。浏览器不直连目标服务、不接收或保存 Token；远程模式下模型由目标服务管理，ARC.ONE 仍负责 Run、NodeRun、Artifact、Human Review、Evaluation、重试与审计状态。
+
+Python Package 新配置和发布入口已经移除。历史不可变快照仍可通过版本 API 读取，页面只显示迁移提示；旧草稿必须显式选择新的执行方式，旧发布版本运行失败关闭，不会回退 ModelGateway、CLI、进程内 import 或自动迁移。远程执行出口在最终发送前再次校验 HTTPS、默认 443、非 IP literal，以及 `Workspace + Host + Secret Ref` 三元精确绑定，随后才解析 Secret Ref；HTTP Client 不跟随重定向且 `trust_env=False`。首版只支持同步 POST 和单一文本输出，不包含独立 Endpoint 资产、异步轮询/回调、SSE、协作式取消、mTLS/Vault、完整私网 DNS 防护或多 Artifact 协议。
 
 模型 Provider 已新增 Workspace 级资产入口：`model_providers` 表保存 Provider 名称、类型、Base URL、默认模型、`secretRef` 和状态；前端“模型资产”页面可创建 Provider、查看列表、测试连接、编辑非密钥配置并停用 Provider。`secretRef` 现在只接受后端环境变量名，不再接受或兼容内联 Key；非法值在写库前以固定错误拒绝且不回显。应用启动时会幂等清空历史 Provider 和 AgentVersion 快照中的非法引用，不记录原值。Agent 草稿可绑定当前 Workspace 的启用 Provider，发布时冻结非密钥配置与合法引用标签。
 
