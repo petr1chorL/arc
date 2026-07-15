@@ -1,6 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { fetchWithRetry } from './check-live-deployment.mjs'
+import { checkLiveDeployment, fetchWithRetry } from './check-live-deployment.mjs'
+
+function okResponse(body, headers = {}) {
+  return {
+    ok: true,
+    status: 200,
+    headers: new Headers(headers),
+    json: vi.fn().mockResolvedValue(body),
+  }
+}
 
 describe('fetchWithRetry', () => {
   it('waits through a transient startup response', async () => {
@@ -29,5 +38,40 @@ describe('fetchWithRetry', () => {
       retryDelayMs: 0,
     })).rejects.toThrow('API health check returned 503 after 3 attempts')
     expect(fetchFn).toHaveBeenCalledTimes(3)
+  })
+})
+
+describe('checkLiveDeployment', () => {
+  it('checks the Nginx health route and the API contract', async () => {
+    const frontendOrigin = 'https://arc.example.com'
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce(okResponse(undefined, {
+        'x-content-type-options': 'nosniff',
+        'x-frame-options': 'DENY',
+        'content-security-policy': "default-src 'self'; frame-ancestors 'none'",
+      }))
+      .mockResolvedValueOnce(okResponse({ status: 'ok' }))
+      .mockResolvedValueOnce(okResponse({ status: 'ok' }, {
+        'x-content-type-options': 'nosniff',
+        'x-frame-options': 'DENY',
+      }))
+      .mockResolvedValueOnce(okResponse(undefined, {
+        'access-control-allow-origin': frontendOrigin,
+      }))
+
+    await checkLiveDeployment({
+      frontendUrl: frontendOrigin,
+      apiUrl: frontendOrigin,
+      fetchFn,
+      maxAttempts: 1,
+      retryDelayMs: 0,
+    })
+
+    expect(fetchFn.mock.calls.map(([url]) => url)).toEqual([
+      frontendOrigin,
+      `${frontendOrigin}/healthz`,
+      `${frontendOrigin}/api/health`,
+      `${frontendOrigin}/api/agents`,
+    ])
   })
 })

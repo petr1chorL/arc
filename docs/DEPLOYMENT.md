@@ -100,6 +100,11 @@ MODEL_DEFAULT_MODEL=deepseek-v4-pro
 不是明文 Key。生产启动会拒绝非 PostgreSQL、非 HTTPS Origin、缺少公网 Host、关闭
 HSTS、关闭 Secure Cookie 或关闭限流的配置。
 
+
+根镜像入口会同步执行 Bootstrap 与 V1 Lite Seed，先启动 FastAPI 并等待本机健康接口，再开放
+Nginx 公网端口。Seed 只有在缺少配置完整且未停用的 Model Provider 时会结构化跳过；数据库、
+校验和其他写入错误仍会终止容器。API 就绪超时、提前退出或运行期退出也会结束容器，避免留下
+静态页 200/API 502 的分裂状态。
 ## 合并前验证
 
 ```powershell
@@ -120,7 +125,7 @@ $env:API_URL="https://<application-host>"
 npm run deploy:check:live
 ```
 
-该检查覆盖首页、安全响应头、`/api/health` 和同源 CORS。完成后还应通过浏览器检查
+该检查覆盖首页、安全响应头、代理 FastAPI 的 `/healthz`、`/api/health` 和同源 CORS。完成后还应通过浏览器检查
 登录、主工作区页面、关键导航和控制台错误。
 
 ## 回滚

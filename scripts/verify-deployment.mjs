@@ -20,6 +20,7 @@ const requiredFiles = [
   'Dockerfile',
   'nginx.conf.template',
   'scripts/check-live-deployment.mjs',
+  'scripts/start-production.sh',
   'scripts/check-live-deployment.test.mjs',
   'scripts/zeabur-deployment-policy.mjs',
   'scripts/zeabur-deployment-policy.test.mjs',
@@ -67,6 +68,7 @@ const checks = [
       /branches: \[master, main\]/,
       /npm test -- --run/,
       /python -m pytest apps\/api\/tests -q/,
+      /sh -n scripts\/start-production\.sh/,
       /npm run lint/,
       /npm run deploy:check/,
       /npm run build/,
@@ -133,10 +135,27 @@ const checks = [
       /RUN VITE_API_BASE_URL= npm run build\s/,
       /FROM python:3\.12-slim/,
       /python -m pip install --no-cache-dir -e "\.\[postgres\]"/,
-      /uvicorn app\.main:app --app-dir \/app\/api --host 127\.0\.0\.1 --port 8000/,
-      /nginx -g 'daemon off;'/,
+      /COPY scripts\/start-production\.sh \/usr\/local\/bin\/start-production/,
+      /RUN chmod \+x \/usr\/local\/bin\/start-production/,
+      /CMD \["\/usr\/local\/bin\/start-production"\]/,
     ],
     forbiddenPatterns: [/build:pages/],
+  },
+  {
+    name: 'Production entrypoint gates Nginx on FastAPI readiness and supervises the API',
+    file: 'scripts/start-production.sh',
+    patterns: [
+      /^#!\/bin\/sh/m,
+      /^set -eu$/m,
+      /python -m app\.bootstrap/,
+      /python -m app\.v1_lite_seed --json --skip-if-provider-unavailable/,
+      /uvicorn app\.main:app --app-dir \/app\/api --host 127\.0\.0\.1 --port 8000 &/,
+      /http:\/\/127\.0\.0\.1:8000\/api\/health/,
+      /^nginx$/m,
+      /trap on_signal INT TERM/,
+      /trap cleanup EXIT/,
+      /wait "\$api_pid"/,
+    ],
   },
   {
     name: 'Zeabur Nginx config proxies API requests to local FastAPI',
@@ -150,6 +169,8 @@ const checks = [
       /connect-src 'self';/,
       /location \/api\//,
       /proxy_pass http:\/\/127\.0\.0\.1:8000/,
+      /location = \/healthz \{/,
+      /proxy_http_version 1\.1/,
       /try_files \$uri \$uri\/ \/index\.html/,
     ],
   },
@@ -253,6 +274,8 @@ const checks = [
     patterns: [
       /FRONTEND_URL/,
       /API_URL/,
+      /\/healthz/,
+      /Gateway health check/,
       /\/api\/health/,
       /x-content-type-options/,
       /x-frame-options/,
@@ -290,6 +313,47 @@ for (const check of checks) {
   for (const pattern of check.forbiddenPatterns ?? []) {
     if (pattern.test(content)) {
       failures.push(`${check.name}: ${check.file} must not match ${pattern}`)
+    }
+  }
+}
+
+const entrypointPath = join(root, 'scripts/start-production.sh')
+if (existsSync(entrypointPath)) {
+  const entrypoint = readFileSync(entrypointPath, 'utf8')
+  const commands = entrypoint.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+  const bootstrapIndex = commands.indexOf('python -m app.bootstrap')
+  const seedIndex = commands.findIndex((line) => line.startsWith('python -m app.v1_lite_seed '))
+  const uvicornIndex = commands.findIndex((line) => line.startsWith('uvicorn '))
+  const healthIndex = commands.findIndex((line) => line.includes('/api/health'))
+  const nginxIndex = commands.indexOf('nginx')
+
+  if (
+    [bootstrapIndex, seedIndex, uvicornIndex, healthIndex, nginxIndex].includes(-1)
+    || !(bootstrapIndex < seedIndex && seedIndex < uvicornIndex
+      && uvicornIndex < healthIndex && healthIndex < nginxIndex)
+  ) {
+    failures.push(
+      'Production entrypoint must initialize, start FastAPI, wait for health, then start Nginx',
+    )
+  }
+  if (entrypoint.includes('\r\n')) {
+    failures.push('Production entrypoint must use LF line endings')
+  }
+}
+
+const nginxPath = join(root, 'nginx.conf.template')
+if (existsSync(nginxPath)) {
+  const nginxConfig = readFileSync(nginxPath, 'utf8')
+  const healthzLocation = nginxConfig.match(/location = \/healthz\s*\{([^{}]*)\}/)
+  if (!healthzLocation) {
+    failures.push('Nginx config must define an exact /healthz location block')
+  } else {
+    const healthzBlock = healthzLocation[1]
+    if (!/proxy_pass http:\/\/127\.0\.0\.1:8000\/api\/health;/.test(healthzBlock)) {
+      failures.push('Nginx /healthz must proxy the FastAPI health endpoint')
+    }
+    if (/\breturn\b/.test(healthzBlock)) {
+      failures.push('Nginx /healthz must not return a fixed response')
     }
   }
 }

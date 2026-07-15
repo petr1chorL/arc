@@ -637,6 +637,15 @@ def backfill_v07a_workspace(engine: Engine) -> None:
 
 
 def ensure_current_schema(engine: Engine) -> None:
+    if engine.dialect.name == "postgresql":
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "ALTER TABLE rubrics "
+                    "ADD COLUMN IF NOT EXISTS model_provider_id VARCHAR(36)"
+                ),
+            )
+        return
     if engine.dialect.name != "sqlite":
         return
     Base.metadata.create_all(engine)

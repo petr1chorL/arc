@@ -226,7 +226,8 @@ docker compose up --build api execution-worker notification-worker
 
 - Nginx 负责前端静态文件。
 - Nginx 将 `/api/` 反代到同容器内的 FastAPI。
-- 启动时先执行管理员初始化，再执行 V1 Lite 种子资产写入。
+- 启动时先执行管理员初始化与 V1 Lite 种子资产写入，再启动 FastAPI。
+- FastAPI 本机健康检查通过后才开放 Nginx 公网端口；API 退出会结束容器。
 
 这种同源部署是登录、Session Cookie 和 CSRF 的推荐方式。不要把前端和 API 放在不同
 子域名上承载 V1 Lite 登录版，否则浏览器无法从前端域名读取 API 域名下的 CSRF Cookie。
@@ -235,7 +236,7 @@ Zeabur 服务环境变量：
 
 ```text
 DATABASE_URL=<Zeabur PostgreSQL connection string>
-ALLOWED_ORIGINS=https://arc-web-lindabaoz.zeabur.app
+ALLOWED_ORIGINS=https://arc-v1-lite-lindabaoz.zeabur.app
 COOKIE_SECURE=true
 ARC_ONE_ADMIN_EMAIL=<pilot admin email>
 ARC_ONE_ADMIN_PASSWORD=<set in Zeabur secret/environment variables>
@@ -249,13 +250,21 @@ MODEL_DEFAULT_MODEL=deepseek-v4-pro
 `ARC_ONE_ADMIN_PASSWORD` 和 `MODEL_API_KEY` 只能通过部署平台 Secret 或环境变量注入，
 不得写入代码、文档、截图或日志。
 
+若启动日志中的 Seed 结果为 `model_provider_unavailable`，平台会保持可登录，但试点评估资产
+尚未完成升级。管理员应先在“模型资产”配置一个完整、未停用的 Provider，并确保其 Secret Ref
+对应环境变量已安全注入；随后重启服务让入口自动重试，或在受控环境中显式执行
+`scripts/seed-v1-lite.ps1`。只有 Seed 返回 `completed` 或显式脚本成功，才能把试点资产视为
+已就绪。其他 Seed、Bootstrap 或数据库错误仍会终止容器。
+
 ## 验收
 
 启动后至少验证：
 
 - [ ] 前端首页可打开。
+- [ ] `/healthz` 与 `/api/health` 均返回 `{"status":"ok"}`。
 - [ ] API 文档可打开。
 - [ ] `.\scripts\check-v1-lite.ps1` 通过。
+- [ ] 启动 Seed 状态为 `completed`，或 `skipped` 后已配置 Provider 并完成重试。
 - [ ] `.\scripts\seed-v1-lite.ps1` 已成功输出试点资产。
 - [ ] `.\scripts\accept-v1-lite.ps1` 已成功输出 Run ID、Human Task ID、Evaluation ID、Regression Run ID 和 Trace ID。
 - [ ] 可以登录或进入已配置 Workspace。

@@ -2,6 +2,7 @@ import pytest
 from sqlalchemy import func, select
 
 from api_test_support import ADMIN_EMAIL, ADMIN_PASSWORD, FIXED_NOW
+from app import v1_lite_seed
 from app.bootstrap import bootstrap_organization_admin
 from app.database import create_database
 from app.domain import validate_workflow
@@ -246,12 +247,59 @@ def test_v1_lite_seed_requires_available_configured_provider(
     )
 
     with session_factory() as session:
-        with pytest.raises(RuntimeError, match="配置完整且未停用的模型 Provider"):
+        with pytest.raises(
+            v1_lite_seed.V1LiteModelProviderUnavailableError,
+            match="配置完整且未停用的模型 Provider",
+        ):
             seed_v1_lite_assets(session, workspace_slug=DEFAULT_WORKSPACE_SLUG)
 
         assert count_records(session, AgentRecord) == 0
         assert count_records(session, RubricRecord) == 0
         assert count_records(session, WorkflowRecord) == 0
+
+
+def test_v1_lite_startup_seed_skips_only_unavailable_provider(tmp_path):
+    session_factory = bootstrap_seed_database(
+        f"sqlite:///{tmp_path / 'v1-lite-startup-provider-missing.db'}",
+        create_provider=False,
+    )
+
+    with session_factory() as session:
+        outcome = v1_lite_seed.seed_v1_lite_assets_for_startup(
+            session,
+            workspace_slug=DEFAULT_WORKSPACE_SLUG,
+        )
+
+        assert outcome == {
+            "status": "skipped",
+            "reason": "model_provider_unavailable",
+        }
+        assert count_records(session, AgentRecord) == 0
+        assert count_records(session, RubricRecord) == 0
+        assert count_records(session, WorkflowRecord) == 0
+
+
+def test_v1_lite_startup_seed_does_not_hide_unknown_failures(monkeypatch):
+    class RecordingSession:
+        rolled_back = False
+
+        def rollback(self):
+            self.rolled_back = True
+
+    session = RecordingSession()
+
+    def explode(*args, **kwargs):
+        raise ValueError("unexpected seed failure")
+
+    monkeypatch.setattr(v1_lite_seed, "seed_v1_lite_assets", explode)
+
+    with pytest.raises(ValueError, match="unexpected seed failure"):
+        v1_lite_seed.seed_v1_lite_assets_for_startup(
+            session,
+            workspace_slug=DEFAULT_WORKSPACE_SLUG,
+        )
+
+    assert session.rolled_back is False
 
 
 def test_v1_lite_seed_publishes_new_versions_without_rewriting_legacy_snapshots(

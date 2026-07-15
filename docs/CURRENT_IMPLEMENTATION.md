@@ -1,8 +1,8 @@
 # ARC.ONE 当前版本实现说明
 
-> 当前版本：P0 运行时安全收口
-> 上一阶段：V0.31F Notification Channel Enable
-> 更新时间：2026-07-11
+> 当前版本：工作流评估节点与生产启动可用性恢复
+> 上一阶段：工作流评估模板节点
+> 更新时间：2026-07-15
 
 > 阅读边界：本文保存详细实现说明和连续版本记录，因此包含历史验证数量与旧阶段描述。
 > 项目级当前状态、能力边界、最新验证和优先级以
@@ -76,7 +76,27 @@ flowchart LR
 
 Agent、工作流、运行记录、Human Task、审核决定、审计事件和反馈数据通过本机 `/api` 发送到 FastAPI，并保存到默认 SQLite 文件 `apps/api/data/arc_one.db`。刷新页面或重启 API 后会重新读取持久化记录。
 
-V1.0 Lite 试点资产种子入口 `scripts/seed-v1-lite.ps1` 调用 `app.v1_lite_seed`，要求当前 Workspace 已存在配置完整且未停用的 Model Provider；缺失、停用或 Secret Ref 语法无效时失败关闭。当前 Seed 发布 `v1.1.0` Agent、`v1.1.0` LLM Rubric 和 `v1.4.0` Workflow：Workflow 的 `evaluation` 节点固定引用该 Rubric Version，并在运行时直接生成 Evaluation Record 与结构化评分输出。重复 Seed 不重复创建相同版本或样本；升级旧库时保留 Agent `v1.0.0`、Rubric `v1.0.0` 和 Workflow `v1.3.0` 等历史不可变快照。`scripts/bootstrap-v1-lite-admin.ps1` 可初始化本地验收管理员；相关脚本均支持 `-EnvFile`，不会输出或复制密钥。
+V1.0 Lite 显式种子入口 `scripts/seed-v1-lite.ps1` 调用 `app.v1_lite_seed`，要求当前
+Workspace 已存在配置完整且未停用的 Model Provider；缺失、停用或 Secret Ref 语法无效时
+仍然失败关闭。生产同源容器会使用 `--skip-if-provider-unavailable` 尝试同一 Seed：只在
+没有可用 Provider 时输出结构化 `skipped` 并继续启动 API，其他数据库、校验或写入异常
+继续使容器失败。该模式不会创建占位 Provider，也不会恢复隐式全局模型回退。
+
+生产根镜像由 LF 行尾的 `scripts/start-production.sh` 统一启动：Bootstrap、兼容补列和 Seed
+先同步完成，Uvicorn 启动后必须在 30 秒内让本机 `/api/health` 返回 `status=ok`，随后才启动
+Nginx。入口进程等待并监督 Uvicorn；API 提前退出、就绪超时或运行期退出都会结束容器并停止
+Nginx，不再留下仅静态页面可用的假健康状态。Nginx `/healthz` 代理 FastAPI，发布验收同时
+请求 `/healthz` 与 `/api/health`。
+
+2026-07-15 本地热修复证据：迁移、Seed 与启动契约聚焦后端 25 项通过；live check 3 项通过；
+后端全量 355 项、前端 43 个文件 255 项通过；`npm run lint`、标准 `npm run build`、
+`npm run deploy:check`、`git diff --check` 与入口脚本 `sh -n` 通过。Docker Desktop 引擎未启动，
+因此尚未取得根镜像本地运行证据；必须由 PR CI 与合并后的 Zeabur 精确 SHA 构建、`/healthz`、
+`/api/health` 和真实登录补齐，当前不能宣称生产已经恢复。
+
+当前 Seed 发布 `v1.1.0` Agent、`v1.1.0` LLM Rubric 和 `v1.4.0` Workflow；重复
+执行不重复创建相同版本或样本，并保留历史不可变快照。旧 PostgreSQL 只针对本次新增的
+`rubrics.model_provider_id` 执行幂等可空补列；这不等于正式迁移体系已经完成。
 
 V1.0 Lite 端到端自动验收测试位于 `apps/api/tests/test_v1_lite_e2e_acceptance.py`。该测试使用 FakeGateway 与 FakeJudgeGateway，不访问外部模型服务，覆盖 Seed、Workflow Run、Human Review 认领和通过、下游 Agent 恢复、工作流评估节点生成逐维度理由、Golden Set Regression Run 和 Observability Trace。
 

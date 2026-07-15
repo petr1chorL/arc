@@ -64,11 +64,19 @@ export async function fetchWithRetry(url, init, {
   throw new Error(`${label} failed after ${maxAttempts} attempts: ${detail}`)
 }
 
-async function main() {
-  const frontendOrigin = normalizeOrigin(process.env.FRONTEND_URL, 'FRONTEND_URL')
-  const apiOrigin = normalizeOrigin(process.env.API_URL, 'API_URL')
+export async function checkLiveDeployment({
+  frontendUrl,
+  apiUrl,
+  fetchFn = fetch,
+  maxAttempts = DEFAULT_MAX_ATTEMPTS,
+  retryDelayMs = DEFAULT_RETRY_DELAY_MS,
+} = {}) {
+  const frontendOrigin = normalizeOrigin(frontendUrl, 'FRONTEND_URL')
+  const apiOrigin = normalizeOrigin(apiUrl, 'API_URL')
+  const retryOptions = { fetchFn, maxAttempts, retryDelayMs }
 
   const frontend = await fetchWithRetry(frontendOrigin, undefined, {
+    ...retryOptions,
     label: 'Frontend',
   })
   expectHeader(frontend.headers, 'x-content-type-options', 'nosniff')
@@ -78,9 +86,19 @@ async function main() {
     throw new Error('Frontend CSP must include frame-ancestors none')
   }
 
+  const gatewayHealth = await fetchWithRetry(`${frontendOrigin}/healthz`, undefined, {
+    ...retryOptions,
+    label: 'Gateway health check',
+  })
+  const gatewayBody = await gatewayHealth.json().catch(() => undefined)
+  if (gatewayBody?.status !== 'ok') {
+    throw new Error('Gateway health check must return {"status":"ok"}')
+  }
+
   const health = await fetchWithRetry(`${apiOrigin}/api/health`, {
     headers: { Origin: frontendOrigin },
   }, {
+    ...retryOptions,
     label: 'API health check',
   })
   const body = await health.json().catch(() => undefined)
@@ -97,11 +115,19 @@ async function main() {
       'Access-Control-Request-Method': 'GET',
     },
   }, {
+    ...retryOptions,
     label: 'API CORS preflight',
   })
   expectHeader(cors.headers, 'access-control-allow-origin', frontendOrigin)
 
   console.log('Live deployment check passed.')
+}
+
+async function main() {
+  await checkLiveDeployment({
+    frontendUrl: process.env.FRONTEND_URL,
+    apiUrl: process.env.API_URL,
+  })
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
