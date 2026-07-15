@@ -35,7 +35,9 @@ WORKDIR /app
 
 COPY --from=web-build /app/dist /usr/share/nginx/html
 COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY scripts/start-production.sh /usr/local/bin/start-production
+RUN chmod +x /usr/local/bin/start-production
 
 EXPOSE 8080
 
-CMD ["sh", "-c", "python -m app.bootstrap && python -m app.v1_lite_seed --json && uvicorn app.main:app --app-dir /app/api --host 127.0.0.1 --port 8000 & envsubst '${PORT}' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]
+CMD ["/usr/local/bin/start-production"]

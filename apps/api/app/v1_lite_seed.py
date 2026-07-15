@@ -44,6 +44,10 @@ REVIEWER_NAME = "V1 Lite 业务审核人"
 CHANNEL_NAME = "V1 Lite 页面内通知"
 
 
+class V1LiteModelProviderUnavailableError(RuntimeError):
+    pass
+
+
 WORKFLOW_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "required": ["sourceNotes", "businessContext", "desiredOutput", "riskConcerns"],
@@ -310,7 +314,7 @@ def _available_model_provider(session: Session, workspace_id: str) -> ModelProvi
             continue
         if is_valid_model_secret_ref(provider.secret_ref):
             return provider
-    raise RuntimeError(
+    raise V1LiteModelProviderUnavailableError(
         "V1 Lite 种子需要当前 Workspace 中配置完整且未停用的模型 Provider。"
     )
 
@@ -849,11 +853,41 @@ def seed_v1_lite_assets(
     }
 
 
+def seed_v1_lite_assets_for_startup(
+    session: Session,
+    *,
+    workspace_slug: str | None = DEFAULT_WORKSPACE_SLUG,
+) -> dict[str, Any]:
+    try:
+        assets = seed_v1_lite_assets(
+            session,
+            workspace_slug=workspace_slug,
+        )
+    except V1LiteModelProviderUnavailableError:
+        session.rollback()
+        return {
+            "status": "skipped",
+            "reason": "model_provider_unavailable",
+        }
+    return {
+        "status": "completed",
+        "assets": assets,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Seed ARC.ONE V1.0 Lite pilot assets.")
     parser.add_argument("--database-url", default=None)
     parser.add_argument("--workspace-slug", default=DEFAULT_WORKSPACE_SLUG)
     parser.add_argument("--json", action="store_true", dest="as_json")
+    parser.add_argument(
+        "--skip-if-provider-unavailable",
+        action="store_true",
+        help=(
+            "Skip V1 Lite asset preparation when the Workspace has no "
+            "available configured model Provider."
+        ),
+    )
     args = parser.parse_args()
 
     settings = Settings()
@@ -862,11 +896,30 @@ def main() -> None:
     Base.metadata.create_all(engine)
     ensure_current_schema(engine)
     with session_factory() as session:
-        result = seed_v1_lite_assets(session, workspace_slug=args.workspace_slug)
+        if args.skip_if_provider_unavailable:
+            outcome = seed_v1_lite_assets_for_startup(
+                session,
+                workspace_slug=args.workspace_slug,
+            )
+        else:
+            outcome = {
+                "status": "completed",
+                "assets": seed_v1_lite_assets(
+                    session,
+                    workspace_slug=args.workspace_slug,
+                ),
+            }
 
     if args.as_json:
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+        payload = outcome if args.skip_if_provider_unavailable else outcome["assets"]
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
         return
+
+    if outcome["status"] == "skipped":
+        print("V1.0 Lite 试点资产已跳过：当前 Workspace 没有可用模型 Provider")
+        return
+
+    result = outcome["assets"]
 
     print("V1.0 Lite 试点资产已就绪")
     print(f"Workspace: {result['workspace']['name']} ({result['workspace']['slug']})")

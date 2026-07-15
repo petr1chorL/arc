@@ -37,6 +37,9 @@ jobs:
       - name: Run backend tests
         run: python -m pytest apps/api/tests -q
 
+      - name: Validate production entrypoint syntax
+        run: sh -n scripts/start-production.sh
+
       - name: Run lint
         run: npm run lint
 

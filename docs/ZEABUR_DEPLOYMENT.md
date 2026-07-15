@@ -13,8 +13,9 @@ ARC.ONE 公网原型使用一个 **同源应用服务** 和一个 **Zeabur Postg
 ```
 
 应用服务从仓库根目录 `Dockerfile` 构建。前端在构建阶段执行标准 `npm run build`；
-运行阶段先初始化后端和 V1 Lite 种子数据，再启动 FastAPI 与 Nginx。Nginx 统一提供
-SPA 路由回退、安全响应头、请求体限制和 API 反向代理。
+运行阶段由 `scripts/start-production.sh` 先初始化后端和 V1 Lite 种子数据，再启动 FastAPI；
+本机健康检查通过后才启动 Nginx。入口进程等待 FastAPI，API 退出时会停止 Nginx 并结束容器。
+Nginx 统一提供 SPA 路由回退、安全响应头、请求体限制和 API 反向代理。
 
 `apps/api/Dockerfile` 保留给本地 Compose API 与 execution worker，不是第二个公网服务。
 
@@ -27,6 +28,7 @@ https://arc-v1-lite-lindabaoz.zeabur.app
 健康检查：
 
 ```text
+https://arc-v1-lite-lindabaoz.zeabur.app/healthz
 https://arc-v1-lite-lindabaoz.zeabur.app/api/health
 ```
 
@@ -72,6 +74,12 @@ Zeabur 服务中的数据库密码、管理员密码和模型凭证。
 - 模型 Secret 只通过环境变量注入，资产保存环境变量名而不是明文值。
 - 远程 Agent API 通过 `AGENT_API_ALLOWED_BINDINGS` 绑定 Workspace、精确 Host 与 Secret Ref；实际 Token 同时注入 API 与 Execution Worker 环境。
 
+
+生产入口会尝试写入 V1 Lite 种子资产。若 Workspace 尚无配置完整且未停用的 Model Provider，
+Seed 会输出 `{"status":"skipped","reason":"model_provider_unavailable"}`，但平台仍启动，
+以便管理员登录后完成 Provider 配置。配置完成后必须重启应用服务以自动重试，或在受控环境中
+显式执行 Seed；显式 Seed 仍会在 Provider 缺失、停用或配置不完整时失败。数据库和其他未知
+错误不会被跳过，且任何路径都不会输出 Provider Secret。
 数据库数据卷和运行环境变量归 Zeabur 服务管理，源码发布不会覆盖它们。
 
 ## 自动发布
@@ -97,8 +105,8 @@ Zeabur 构建是异步的，所以“CLI 已提交”不等于“新版本已上
 https://<application-host>/deployment.json?sha=<full-sha>
 ```
 
-只有其中的 `commit` 与目标 SHA 完全相同，才执行首页和 `/api/health` 检查。live check
-会在有限次数内重试，以容忍静态页面先于同容器 API 就绪；持续失败仍会阻断发布。这样旧版本
+只有其中的 `commit` 与目标 SHA 完全相同，才执行首页、`/healthz` 和 `/api/health` 检查。live check
+会在有限次数内重试，以容忍 Zeabur 切换新容器的短暂窗口；持续失败仍会阻断发布。这样旧版本
 仍健康时不会产生错误的完成结论。
 
 ## 手动发布与回滚
