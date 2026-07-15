@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import yaml
@@ -65,3 +66,54 @@ def test_combined_image_delegates_security_headers_to_nginx():
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
 
     assert "ENV SECURITY_HEADERS_ENABLED=false" in dockerfile
+
+
+def test_combined_image_uses_readiness_gated_entrypoint():
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    entrypoint = (ROOT / "scripts/start-production.sh").read_text(encoding="utf-8")
+    command_lines = [
+        line for line in dockerfile.splitlines() if line.startswith("CMD ")
+    ]
+    assert len(command_lines) == 1
+    command = json.loads(command_lines[0].removeprefix("CMD "))
+
+    assert command == ["/usr/local/bin/start-production"]
+    assert (
+        "COPY scripts/start-production.sh /usr/local/bin/start-production"
+        in dockerfile
+    )
+    assert "RUN chmod +x /usr/local/bin/start-production" in dockerfile
+
+    commands = [line.strip() for line in entrypoint.splitlines() if line.strip()]
+    assert "set -eu" in commands
+    assert "python -m app.bootstrap" in commands
+    assert (
+        "python -m app.v1_lite_seed --json "
+        "--skip-if-provider-unavailable"
+    ) in entrypoint
+    assert entrypoint.index("python -m app.bootstrap") < entrypoint.index(
+        "python -m app.v1_lite_seed"
+    )
+    uvicorn_index = next(
+        index for index, command in enumerate(commands) if command.startswith("uvicorn ")
+    )
+    health_probe_index = next(
+        index for index, command in enumerate(commands) if "/api/health" in command
+    )
+    assert uvicorn_index < health_probe_index < commands.index("nginx")
+    assert "api_pid=$!" in commands
+    assert 'kill -0 "$api_pid"' in entrypoint
+    assert "trap on_signal INT TERM" in commands
+    assert "trap cleanup EXIT" in commands
+    assert 'wait "$api_pid"' in entrypoint
+
+
+def test_nginx_healthz_proxies_fastapi_health():
+    nginx_config = (ROOT / "nginx.conf.template").read_text(encoding="utf-8")
+
+    assert "location = /healthz {" in nginx_config
+    healthz_block = nginx_config.split("location = /healthz {", 1)[1].split(
+        "\n    }", 1
+    )[0]
+    assert "proxy_pass http://127.0.0.1:8000/api/health;" in healthz_block
+    assert 'return 200 "ok";' not in healthz_block

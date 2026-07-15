@@ -909,9 +909,23 @@ def test_legacy_audit_events_become_platform_compatible(tmp_path):
         assert reviewer_event.actor_user_id is not None
 
 
-def test_ensure_current_schema_skips_non_sqlite_schema_creation(monkeypatch):
+def test_ensure_current_schema_applies_targeted_postgresql_compatibility(monkeypatch):
+    statements = []
+
+    class FakeConnection:
+        def execute(self, statement):
+            statements.append(str(statement))
+
+    class FakeBegin:
+        def __enter__(self):
+            return FakeConnection()
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            return False
+
     fake_engine = SimpleNamespace(
         dialect=SimpleNamespace(name="postgresql"),
+        begin=FakeBegin,
     )
 
     def explode(*args, **kwargs):
@@ -920,3 +934,8 @@ def test_ensure_current_schema_skips_non_sqlite_schema_creation(monkeypatch):
     monkeypatch.setattr(Base.metadata, "create_all", explode)
 
     ensure_current_schema(fake_engine)
+
+    assert statements == [
+        "ALTER TABLE rubrics "
+        "ADD COLUMN IF NOT EXISTS model_provider_id VARCHAR(36)",
+    ]
