@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { AuthProvider } from './auth/AuthProvider'
 import { useAuth } from './auth/authContext'
 import { getPreferredWorkspace } from './auth/authNavigation'
@@ -16,6 +16,7 @@ import { Login } from './pages/Login'
 import { Members } from './pages/Members'
 import { ModelProviders } from './pages/ModelProviders'
 import { Observability } from './pages/Observability'
+import { QualityOperations } from './pages/QualityOperations'
 import { Reviews } from './pages/Reviews'
 import { Runs } from './pages/Runs'
 import { Workflows } from './pages/Workflows'
@@ -52,7 +53,19 @@ function LegacyWorkspaceRedirect({ suffix }: { suffix?: string }) {
   }
   const nextSuffix = suffix ?? location.pathname.replace(/^\/+/, '')
   const normalized = nextSuffix ? `/${nextSuffix}` : ''
-  return <Navigate to={`/w/${workspace.slug}${normalized}`} replace />
+  return <Navigate to={`/w/${workspace.slug}${normalized}${location.search}`} replace />
+}
+
+function EvaluationRoute() {
+  const location = useLocation()
+  const { workspaceSlug } = useParams()
+  const searchParams = new URLSearchParams(location.search)
+
+  if (searchParams.has('taskId') && workspaceSlug) {
+    return <Navigate to={`/w/${workspaceSlug}/quality-operations${location.search}`} replace />
+  }
+
+  return <Evaluations />
 }
 
 function App() {
@@ -67,6 +80,7 @@ function App() {
           <Route path="/agents" element={<LegacyWorkspaceRedirect suffix="agents" />} />
           <Route path="/agents/:agentId" element={<LegacyWorkspaceRedirect />} />
           <Route path="/evaluations" element={<LegacyWorkspaceRedirect suffix="evaluations" />} />
+          <Route path="/quality-operations" element={<LegacyWorkspaceRedirect suffix="quality-operations" />} />
           <Route path="/runs" element={<LegacyWorkspaceRedirect suffix="runs" />} />
           <Route path="/artifacts" element={<LegacyWorkspaceRedirect suffix="artifacts" />} />
           <Route path="/observability" element={<LegacyWorkspaceRedirect suffix="observability" />} />
@@ -79,7 +93,8 @@ function App() {
                 <Route path="workflows/:workflowId" element={<Workflows />} />
                 <Route path="agents" element={<Agents />} />
                 <Route path="agents/:agentId" element={<AgentDetail />} />
-                <Route path="evaluations" element={<Evaluations />} />
+                <Route path="evaluations" element={<EvaluationRoute />} />
+                <Route path="quality-operations" element={<QualityOperations />} />
                 <Route path="runs" element={<Runs />} />
                 <Route path="artifacts" element={<Artifacts />} />
                 <Route path="observability" element={<Observability />} />

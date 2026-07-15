@@ -141,4 +141,34 @@ describe('App workspace auth routing', () => {
       expect(window.location.pathname).toBe('/w/ai-capability-center/agents')
     })
   })
+
+  it('把旧整改深链重定向到质量运营并保留 taskId', async () => {
+    window.history.replaceState({}, '', '/evaluations?taskId=remediation-task-1')
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
+      if (url === '/api/auth/session') {
+        return Promise.resolve(new Response(JSON.stringify({
+          user: { id: 'user-1', email: 'builder@example.com', displayName: 'Builder' },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      }
+      if (url === '/api/workspaces') {
+        return Promise.resolve(new Response(JSON.stringify([{
+          id: 'workspace-1', slug: 'ai-capability-center', name: 'AI 能力中心',
+          role: 'builder', isOrganizationAdmin: false,
+        }]), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      }
+      return Promise.resolve(new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+    }))
+
+    render(<App />)
+
+    await waitFor(() => {
+      expect(`${window.location.pathname}${window.location.search}`).toBe(
+        '/w/ai-capability-center/quality-operations?taskId=remediation-task-1',
+      )
+    })
+  })
 })

@@ -35,6 +35,7 @@ const titles: Record<string, { title: string; eyebrow: string }> = {
   '/workflows': { title: '工作流编排', eyebrow: 'ORCHESTRATION' },
   '/agents': { title: 'Agent 资产', eyebrow: 'AGENT REGISTRY' },
   '/evaluations': { title: '评估中心', eyebrow: 'EVALUATION OPS' },
+  '/quality-operations': { title: '质量运营', eyebrow: 'QUALITY OPERATIONS' },
   '/runs': { title: '运行中心', eyebrow: 'RUNTIME' },
   '/artifacts': { title: '产出物', eyebrow: 'ARTIFACT CATALOG' },
   '/observability': { title: '运行观测', eyebrow: 'OBSERVABILITY' },

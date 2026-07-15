@@ -268,7 +268,7 @@ export function Artifacts() {
 
   function remediationTaskPath(task: RemediationTask) {
     const params = new URLSearchParams({ taskId: task.id })
-    return workspacePath(`evaluations?${params.toString()}`)
+    return workspacePath(`quality-operations?${params.toString()}`)
   }
 
   async function createArtifactRemediationTask(
