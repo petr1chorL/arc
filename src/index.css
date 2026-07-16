@@ -999,6 +999,52 @@ kbd {
 .rubric-card footer { border-color: var(--soft-line); color: var(--muted); }
 .rubric-card footer button { color: var(--teal); }
 
+.rubric-card {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.rubric-card-heading {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 16px;
+}
+
+.rubric-card-title {
+  min-width: 0;
+}
+
+.rubric-card h3 {
+  margin: 7px 0 0;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.rubric-card-description,
+.rubric-card-model {
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.rubric-card-description {
+  font-size: 11px !important;
+}
+
+.rubric-card-model {
+  font-size: 10px !important;
+}
+
+.rubric-card-meta {
+  justify-content: flex-start;
+  max-width: none;
+}
+
+.rubric-card-heading .status-pill {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
 .evaluation-assets {
   padding: 22px;
   border: 0;
@@ -1405,8 +1451,8 @@ kbd {
 .run-graph-step-wrap {
   display: inline-flex;
   align-items: center;
-  flex: 1 0 230px;
-  min-width: 230px;
+  flex: 1 0 330px;
+  min-width: 330px;
 }
 
 .run-graph-step-wrap > i {
@@ -1435,10 +1481,10 @@ kbd {
   position: relative;
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr) auto;
-  gap: 9px;
-  align-items: center;
+  gap: 10px;
+  align-items: start;
   width: 100%;
-  min-height: 104px;
+  min-height: 122px;
   padding: 12px 13px;
   border: 1px solid rgba(101, 121, 168, 0.14);
   border-radius: 8px;
@@ -1480,12 +1526,23 @@ kbd {
   font-size: 9px;
 }
 
+.run-graph-step-heading {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding-top: 1px;
+}
+
 .run-graph-step strong {
-  overflow: hidden;
   color: var(--ink);
   font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.run-graph-node-title {
+  min-height: 34px;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .run-graph-index {
@@ -1500,6 +1557,7 @@ kbd {
 }
 
 .run-graph-status {
+  align-self: start;
   justify-self: end;
   padding: 4px 7px;
   border-radius: 999px;
@@ -1508,6 +1566,8 @@ kbd {
   font-size: 9px !important;
   font-weight: 800;
 }
+
+.run-graph-status { white-space: nowrap; }
 
 .run-graph-step.success .run-graph-status { color: #3f8061 !important; background: rgba(77, 143, 111, 0.12); }
 .run-graph-step.warning .run-graph-status { color: #9a642e !important; background: rgba(239, 159, 80, 0.14); }
@@ -1535,6 +1595,16 @@ kbd {
   margin: 0;
 }
 
+@media (max-width: 760px) {
+  .run-graph-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .run-graph-header .workflow-runtime-legend {
+    align-self: flex-start;
+  }
+}
 .run-graph-step dt {
   color: #7d89a0;
   font-size: 8px;
@@ -2308,7 +2378,7 @@ kbd {
 }
 
 .rubric-dialog {
-  width: min(720px, 100%);
+  width: min(960px, 100%);
 }
 
 .rubric-dimension-editor {
@@ -2330,11 +2400,58 @@ kbd {
 }
 
 .rubric-dimension-row {
-  grid-template-columns: minmax(0, 1fr) 120px auto;
+  grid-template-columns: minmax(180px, 0.9fr) minmax(280px, 1.5fr) 96px auto;
+  align-items: start;
+  padding: 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.34);
+  box-shadow: var(--shadow-raised-sm);
+}
+
+.rubric-dimension-criteria textarea {
+  min-height: 92px;
+  line-height: 1.55;
 }
 
 .rubric-dimension-row .button {
   align-self: end;
+  white-space: nowrap;
+}
+
+@media (max-width: 860px) {
+  .rubric-dimension-row {
+    grid-template-columns: minmax(0, 1fr) 96px;
+  }
+
+  .rubric-dimension-criteria {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .rubric-dimension-row .button {
+    grid-column: 1 / -1;
+    justify-self: end;
+  }
+}
+
+@media (max-width: 560px) {
+  .rubric-card-heading,
+  .rubric-dimension-row {
+    grid-template-columns: 1fr;
+  }
+
+  .rubric-card-heading .status-pill,
+  .rubric-dimension-criteria,
+  .rubric-dimension-weight,
+  .rubric-dimension-row .button {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .rubric-card-heading .status-pill,
+  .rubric-dimension-row .button {
+    justify-self: start;
+  }
 }
 
 .success-text { color: var(--teal); }
@@ -6623,9 +6740,9 @@ kbd {
   font-size: 8px;
 }
 
-.sla-dot.即将到期,
-.sla-dot.已逾期,
-.sla-dot.已升级 {
+.sla-dot.????,
+.sla-dot.???,
+.sla-dot.??? {
   color: var(--orange);
 }
 

@@ -8,20 +8,20 @@ import { Runs } from './Runs'
 const workspace = {
   id: 'workspace-1',
   slug: 'ai-capability-center',
-  name: 'AI 能力中心',
+  name: 'AI ????',
 }
 
 const run: ExecutionRun = {
   id: 'run-1',
   kind: 'workflow',
-  name: '新品研究流程',
+  name: '??????',
   workflowId: 'workflow-1',
   workflowVersion: 'v1.0.0',
   agentId: null,
   agentVersion: null,
-  status: '已完成',
-  input: '分析用户需求',
-  output: '这是由真实运行记录返回的完整分析结果。',
+  status: '???',
+  input: '??????',
+  output: '???????????????????',
   score: 100,
   model: 'configured-model',
   promptTokens: 12,
@@ -29,7 +29,7 @@ const run: ExecutionRun = {
   totalTokens: 20,
   costUsd: 0.001,
   durationMs: 1200,
-  currentNode: '流程结束',
+  currentNode: '????',
   error: '',
   startedAt: '2026-06-24T08:00:00Z',
   completedAt: '2026-06-24T08:00:01Z',
@@ -37,10 +37,10 @@ const run: ExecutionRun = {
     id: 'node-1',
     nodeId: 'agent',
     nodeType: 'agent',
-    nodeName: '需求分析 Agent',
-    status: '已完成',
-    input: '分析用户需求',
-    output: '这是由真实运行记录返回的完整分析结果。',
+    nodeName: '???? Agent',
+    status: '???',
+    input: '??????',
+    output: '???????????????????',
     model: 'configured-model',
     promptTokens: 12,
     completionTokens: 8,
@@ -61,21 +61,21 @@ const nodeArtifact = {
   version: 1,
   runId: 'run-1',
   sourceNodeRunId: 'node-agent',
-  workflowName: '新品研究流程',
-  runStatus: '已完成',
-  sourceNodeName: '选择执行 Agent',
+  workflowName: '??????',
+  runStatus: '???',
+  sourceNodeName: '???? Agent',
   sourceNodeType: 'agent',
-  sourceNodeStatus: '已完成',
+  sourceNodeStatus: '???',
   sourceNodeDurationMs: 1100,
   sourceNodeScore: 100,
-  content: '节点产出物内容：包含结构化分析、关键证据和下一步建议。',
+  content: '???????????????????????????',
   score: 96,
   dataObjectDefinitionId: null,
   dataObjectVersionId: null,
   dataObjectSnapshot: null,
   schemaValidation: {
     status: 'passed',
-    label: 'Schema 已通过',
+    label: 'Schema ???',
     reasons: [],
   },
   createdAt: '2026-06-24T08:00:01Z',
@@ -87,24 +87,24 @@ const evaluationResult = {
   templateVersion: 'v1.2.0',
   totalScore: 84,
   passed: true,
-  overallReason: '整体方案可执行，但风险预案仍不够充分。',
-  modelProviderName: 'DeepSeek 主模型',
+  overallReason: '???????????????????',
+  modelProviderName: 'DeepSeek ???',
   dimensions: [
     {
       dimensionId: 'completeness',
-      dimensionName: '完整性',
+      dimensionName: '???',
       score: 90,
       weight: 40,
       weightedScore: 36,
-      reason: '目标、步骤和交付物完整。',
+      reason: '????????????',
     },
     {
       dimensionId: 'risk-control',
-      dimensionName: '风险控制',
+      dimensionName: '????',
       score: 80,
       weight: 60,
       weightedScore: 48,
-      reason: '识别了主要风险，但触发阈值仍需补充。',
+      reason: '??????????????????',
     },
   ],
 }
@@ -115,8 +115,8 @@ const evaluationWorkflowVersion = {
   createdAt: '2026-07-14T08:00:00Z',
   snapshot: {
     id: 'workflow-1',
-    name: '新品研究流程',
-    status: '已发布',
+    name: '??????',
+    status: '???',
     version: 'v1.0.0',
     createdAt: '2026-07-14T08:00:00Z',
     updatedAt: '2026-07-14T08:00:00Z',
@@ -128,13 +128,13 @@ const evaluationWorkflowVersion = {
         type: 'evaluation',
         position: { x: 320, y: 160 },
         data: {
-          label: '方案评估',
+          label: '????',
           kind: 'evaluation',
           rubricRef: {
             rubricId: 'rubric-quality',
             versionId: 'rubric-version-1-2',
             version: 'v1.2.0',
-            name: '质量模板',
+            name: '????',
           },
         },
       },
@@ -173,7 +173,7 @@ describe('Runs', () => {
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
       if (url === `/api/workspaces/${workspace.id}/runs`) {
-        return Promise.resolve(new Response(JSON.stringify([{ ...run, status: '宸插畬鎴?' }]), { status: 200 }))
+        return Promise.resolve(new Response(JSON.stringify([{ ...run, status: '?????' }]), { status: 200 }))
       }
       if (url === `/api/workspaces/${workspace.id}/artifacts?runId=run-1`) {
         return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
@@ -190,22 +190,22 @@ describe('Runs', () => {
       </WorkspaceProvider>,
     )
 
-    expect(await screen.findByRole('heading', { name: '新品研究流程' })).toBeInTheDocument()
-    expect(screen.getAllByText('这是由真实运行记录返回的完整分析结果。')).toHaveLength(2)
-    expect(screen.getAllByText('已完成').length).toBeGreaterThanOrEqual(1)
-    expect(screen.queryByText('宸插畬鎴?')).not.toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '??????' })).toBeInTheDocument()
+    expect(screen.getAllByText('???????????????????')).toHaveLength(2)
+    expect(screen.getAllByText('???').length).toBeGreaterThanOrEqual(1)
+    expect(screen.queryByText('?????')).not.toBeInTheDocument()
     expect(screen.getByText('20')).toBeInTheDocument()
-    expect(screen.getByText(/尝试 2 次/)).toBeInTheDocument()
+    expect(screen.getByText(/?? 2 ?/)).toBeInTheDocument()
   })
 
   it('renders a workflow run graph with node status colors and labels', async () => {
     const visualRun = {
       ...run,
-      status: '需介入',
-      currentNode: '人工审核',
+      status: '???',
+      currentNode: '????',
       nodes: [
-        { ...run.nodes[0], id: 'node-agent', nodeName: '选择执行 Agent', status: '已完成' },
-        { ...run.nodes[0], id: 'node-human', nodeId: 'human', nodeType: 'human', nodeName: '人工审核', status: '需介入', durationMs: 0 },
+        { ...run.nodes[0], id: 'node-agent', nodeName: '???? Agent', status: '???' },
+        { ...run.nodes[0], id: 'node-human', nodeId: 'human', nodeType: 'human', nodeName: '????', status: '???', durationMs: 0 },
       ],
     }
     const workflowVersion = {
@@ -214,17 +214,17 @@ describe('Runs', () => {
       createdAt: '2026-06-24T08:00:00Z',
       snapshot: {
         id: 'workflow-1',
-        name: '新品研究流程',
-        status: '已发布',
+        name: '??????',
+        status: '???',
         version: 'v1.0.0',
         createdAt: '2026-06-24T08:00:00Z',
         updatedAt: '2026-06-24T08:00:00Z',
         inputSchema: {},
         outputSchema: {},
         nodes: [
-          { id: 'agent', type: 'workflow', position: { x: 120, y: 160 }, data: { label: '选择执行 Agent', kind: 'agent' } },
-          { id: 'human', type: 'workflow', position: { x: 420, y: 160 }, data: { label: '人工审核', kind: 'human' } },
-          { id: 'end', type: 'workflow', position: { x: 720, y: 160 }, data: { label: '流程完成', kind: 'end' } },
+          { id: 'agent', type: 'workflow', position: { x: 120, y: 160 }, data: { label: '???? Agent', kind: 'agent' } },
+          { id: 'human', type: 'workflow', position: { x: 420, y: 160 }, data: { label: '????', kind: 'human' } },
+          { id: 'end', type: 'workflow', position: { x: 720, y: 160 }, data: { label: '????', kind: 'end' } },
         ],
         edges: [
           { id: 'agent-human', source: 'agent', target: 'human' },
@@ -253,17 +253,21 @@ describe('Runs', () => {
       </WorkspaceProvider>,
     )
 
-    expect(await screen.findByText('完整工作流链路')).toBeInTheDocument()
-    expect(await screen.findByText(/3\s*个节点/)).toBeInTheDocument()
-    expect(screen.getByText(/已执行\s*2\s*个/)).toBeInTheDocument()
-    expect(screen.getByText(/当前节点：人工审核/)).toBeInTheDocument()
-    expect(screen.getAllByText('选择执行 Agent').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('人工审核').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('流程完成').length).toBeGreaterThanOrEqual(1)
+    expect(await screen.findByText('???????')).toBeInTheDocument()
+    expect(await screen.findByText(/3\s*???/)).toBeInTheDocument()
+    expect(screen.getByText(/???\s*2\s*?/)).toBeInTheDocument()
+    expect(screen.getByText(/?????????/)).toBeInTheDocument()
+    expect(screen.getAllByText('???? Agent').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('????').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('????').length).toBeGreaterThanOrEqual(1)
+    const agentStep = Array.from(document.querySelectorAll('.run-graph-step'))
+      .find((step) => step.textContent?.includes('???? Agent'))
+    expect(agentStep?.querySelector('.run-graph-step-heading')).toBeInTheDocument()
+    expect(agentStep?.querySelector('.run-graph-node-title')).toBeInTheDocument()
     expect(screen.getAllByTestId('run-graph-connector')).toHaveLength(2)
-    expect(screen.getAllByText(/通过/).length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText(/等待/).length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText(/未开始/).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText(/??/).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText(/??/).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText(/???/).length).toBeGreaterThanOrEqual(1)
   })
 
   it('filters workflow runs by displayed status', async () => {
@@ -272,9 +276,9 @@ describe('Runs', () => {
       ...run,
       id: 'run-failed',
       name: 'Failed workflow run',
-      status: '失败',
+      status: '??',
       output: '',
-      error: '失败运行',
+      error: '????',
     }
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
@@ -295,20 +299,20 @@ describe('Runs', () => {
     )
 
     expect(await screen.findByRole('button', { name: /Failed workflow run/ })).toBeInTheDocument()
-    await user.selectOptions(screen.getByLabelText('流程状态筛选'), '失败')
+    await user.selectOptions(screen.getByLabelText('??????'), '??')
 
     expect(screen.getByRole('button', { name: /Failed workflow run/ })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /新品研究流程/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /??????/ })).not.toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: 'Failed workflow run' })).toBeInTheDocument()
   })
 
   it('keeps the current graph node green when the run has completed', async () => {
     const completedRun = {
       ...run,
-      currentNode: '流程完成',
+      currentNode: '????',
       nodes: [
-        { ...run.nodes[0], id: 'node-agent', nodeName: '选择执行 Agent', status: '已完成' },
-        { ...run.nodes[0], id: 'node-end', nodeId: 'end', nodeType: 'end', nodeName: '流程完成', status: '已完成', durationMs: 0 },
+        { ...run.nodes[0], id: 'node-agent', nodeName: '???? Agent', status: '???' },
+        { ...run.nodes[0], id: 'node-end', nodeId: 'end', nodeType: 'end', nodeName: '????', status: '???', durationMs: 0 },
       ],
     }
     const workflowVersion = {
@@ -317,16 +321,16 @@ describe('Runs', () => {
       createdAt: '2026-06-24T08:00:00Z',
       snapshot: {
         id: 'workflow-1',
-        name: '新品研究流程',
-        status: '已发布',
+        name: '??????',
+        status: '???',
         version: 'v1.0.0',
         createdAt: '2026-06-24T08:00:00Z',
         updatedAt: '2026-06-24T08:00:00Z',
         inputSchema: {},
         outputSchema: {},
         nodes: [
-          { id: 'agent', type: 'workflow', position: { x: 120, y: 160 }, data: { label: '选择执行 Agent', kind: 'agent' } },
-          { id: 'end', type: 'workflow', position: { x: 420, y: 160 }, data: { label: '流程完成', kind: 'end' } },
+          { id: 'agent', type: 'workflow', position: { x: 120, y: 160 }, data: { label: '???? Agent', kind: 'agent' } },
+          { id: 'end', type: 'workflow', position: { x: 420, y: 160 }, data: { label: '????', kind: 'end' } },
         ],
         edges: [
           { id: 'agent-end', source: 'agent', target: 'end' },
@@ -354,9 +358,9 @@ describe('Runs', () => {
       </WorkspaceProvider>,
     )
 
-    expect(await screen.findByText('完整工作流链路')).toBeInTheDocument()
+    expect(await screen.findByText('???????')).toBeInTheDocument()
     const completedStep = Array.from(document.querySelectorAll('.run-graph-step'))
-      .find((step) => step.textContent?.includes('流程完成'))
+      .find((step) => step.textContent?.includes('????'))
     expect(completedStep).toHaveClass('success')
     expect(completedStep).toHaveClass('current')
   })
@@ -365,9 +369,9 @@ describe('Runs', () => {
     const failedRun = {
       ...run,
       id: 'run-failed',
-      status: '失败',
+      status: '??',
       output: '',
-      error: 'Agent 执行失败，请去工作流编排重新运行',
+      error: 'Agent ????????????????',
     }
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
@@ -387,14 +391,14 @@ describe('Runs', () => {
       </WorkspaceProvider>,
     )
 
-    expect(await screen.findByText('Agent 执行失败，请去工作流编排重新运行')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '从失败点恢复' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '重新运行' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '编辑输入重跑' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '批量重跑' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '批量恢复' })).not.toBeInTheDocument()
+    expect(await screen.findByText('Agent ????????????????')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '??????' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '????' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '??????' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '????' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '????' })).not.toBeInTheDocument()
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
-    expect(screen.queryByText('操作历史')).not.toBeInTheDocument()
+    expect(screen.queryByText('????')).not.toBeInTheDocument()
   })
 
   it('selects the run requested by the runId query parameter', async () => {
@@ -459,7 +463,7 @@ describe('Runs', () => {
       </WorkspaceProvider>,
     )
 
-    expect(await screen.findByRole('heading', { name: '新品研究流程' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '??????' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /Second workflow run/ }))
 
     expect(await screen.findByRole('heading', { name: 'Second workflow run' })).toBeInTheDocument()
@@ -470,7 +474,7 @@ describe('Runs', () => {
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
       if (url === `/api/workspaces/${workspace.id}/runs`) {
-        return Promise.resolve(new Response(JSON.stringify([{ ...run, status: '需介入', currentNode: '人工审核' }]), { status: 200 }))
+        return Promise.resolve(new Response(JSON.stringify([{ ...run, status: '???', currentNode: '????' }]), { status: 200 }))
       }
       if (url === `/api/workspaces/${workspace.id}/artifacts?runId=run-1`) {
         return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
@@ -484,8 +488,8 @@ describe('Runs', () => {
       </WorkspaceProvider>,
     )
 
-    expect(await screen.findByText('等待人工审核')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '去人工审核处理' })).toHaveAttribute(
+    expect(await screen.findByText('??????')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '???????' })).toHaveAttribute(
       'href',
       '/w/ai-capability-center/reviews',
     )
@@ -495,8 +499,8 @@ describe('Runs', () => {
     const visualRun = {
       ...run,
       nodes: [
-        { ...run.nodes[0], id: 'node-agent', nodeName: '选择执行 Agent', status: '已完成' },
-        { ...run.nodes[0], id: 'node-human', nodeId: 'human', nodeType: 'human', nodeName: '人工审核', status: '已完成', output: '' },
+        { ...run.nodes[0], id: 'node-agent', nodeName: '???? Agent', status: '???' },
+        { ...run.nodes[0], id: 'node-human', nodeId: 'human', nodeType: 'human', nodeName: '????', status: '???', output: '' },
       ],
     }
     const workflowVersion = {
@@ -505,16 +509,16 @@ describe('Runs', () => {
       createdAt: '2026-06-24T08:00:00Z',
       snapshot: {
         id: 'workflow-1',
-        name: '新品研究流程',
-        status: '已发布',
+        name: '??????',
+        status: '???',
         version: 'v1.0.0',
         createdAt: '2026-06-24T08:00:00Z',
         updatedAt: '2026-06-24T08:00:00Z',
         inputSchema: {},
         outputSchema: {},
         nodes: [
-          { id: 'agent', type: 'workflow', position: { x: 120, y: 160 }, data: { label: '选择执行 Agent', kind: 'agent' } },
-          { id: 'human', type: 'workflow', position: { x: 420, y: 160 }, data: { label: '人工审核', kind: 'human' } },
+          { id: 'agent', type: 'workflow', position: { x: 120, y: 160 }, data: { label: '???? Agent', kind: 'agent' } },
+          { id: 'human', type: 'workflow', position: { x: 420, y: 160 }, data: { label: '????', kind: 'human' } },
         ],
         edges: [
           { id: 'agent-human', source: 'agent', target: 'human' },
@@ -542,13 +546,13 @@ describe('Runs', () => {
       </WorkspaceProvider>,
     )
 
-    expect(await screen.findByText('节点产出物')).toBeInTheDocument()
-    expect(await screen.findByText('节点产出物内容：包含结构化分析、关键证据和下一步建议。')).toBeInTheDocument()
+    expect(await screen.findByText('?????')).toBeInTheDocument()
+    expect(await screen.findByText('???????????????????????????')).toBeInTheDocument()
     expect(screen.getByText('artifact-version-1')).toBeInTheDocument()
-    expect(screen.getByText('Schema 已通过')).toBeInTheDocument()
-    const artifactSection = screen.getByRole('region', { name: '节点产出物' })
-    const humanNode = within(artifactSection).getByText('人工审核').closest('.run-artifact-node')
-    expect(humanNode).toHaveTextContent('无')
+    expect(screen.getByText('Schema ???')).toBeInTheDocument()
+    const artifactSection = screen.getByRole('region', { name: '?????' })
+    const humanNode = within(artifactSection).getByText('????').closest('.run-artifact-node')
+    expect(humanNode).toHaveTextContent('?')
   })
 
   it('deletes a selected run record after confirmation', async () => {
@@ -616,7 +620,7 @@ describe('Runs', () => {
           id: 'node-evaluation',
           nodeId: 'evaluation-1',
           nodeType: 'evaluation',
-          nodeName: '方案评估',
+          nodeName: '????',
           output: serializedResult,
           model: 'deepseek-chat',
           score: 84,
@@ -632,45 +636,45 @@ describe('Runs', () => {
       </WorkspaceProvider>,
     )
 
-    expect(await screen.findByRole('heading', { name: '新品研究流程' })).toBeInTheDocument()
-    const evaluationRegion = await screen.findByRole('region', { name: '评估结果' })
-    expect(evaluationRegion).toHaveTextContent('总分')
+    expect(await screen.findByRole('heading', { name: '??????' })).toBeInTheDocument()
+    const evaluationRegion = await screen.findByRole('region', { name: '????' })
+    expect(evaluationRegion).toHaveTextContent('??')
     expect(evaluationRegion).toHaveTextContent('84')
-    expect(evaluationRegion).toHaveTextContent('评估通过')
-    expect(evaluationRegion).toHaveTextContent('整体方案可执行，但风险预案仍不够充分。')
-    expect(evaluationRegion).toHaveTextContent('质量模板 · v1.2.0')
-    expect(evaluationRegion).toHaveTextContent('DeepSeek 主模型')
+    expect(evaluationRegion).toHaveTextContent('????')
+    expect(evaluationRegion).toHaveTextContent('???????????????????')
+    expect(evaluationRegion).toHaveTextContent('???? ? v1.2.0')
+    expect(evaluationRegion).toHaveTextContent('DeepSeek ???')
     expect(evaluationRegion).toHaveTextContent('deepseek-chat')
 
-    const completeness = within(evaluationRegion).getByRole('group', { name: '完整性' })
-    expect(completeness).toHaveTextContent(/90\s*分/)
-    expect(completeness).toHaveTextContent(/权重\s*40%/)
-    expect(completeness).toHaveTextContent(/加权分\s*36\.00/)
-    expect(completeness).toHaveTextContent('目标、步骤和交付物完整。')
+    const completeness = within(evaluationRegion).getByRole('group', { name: '???' })
+    expect(completeness).toHaveTextContent(/90\s*?/)
+    expect(completeness).toHaveTextContent(/??\s*40%/)
+    expect(completeness).toHaveTextContent(/???\s*36\.00/)
+    expect(completeness).toHaveTextContent('????????????')
 
-    const riskControl = within(evaluationRegion).getByRole('group', { name: '风险控制' })
-    expect(riskControl).toHaveTextContent(/80\s*分/)
-    expect(riskControl).toHaveTextContent(/权重\s*60%/)
-    expect(riskControl).toHaveTextContent(/加权分\s*48\.00/)
-    expect(riskControl).toHaveTextContent('识别了主要风险，但触发阈值仍需补充。')
+    const riskControl = within(evaluationRegion).getByRole('group', { name: '????' })
+    expect(riskControl).toHaveTextContent(/80\s*?/)
+    expect(riskControl).toHaveTextContent(/??\s*60%/)
+    expect(riskControl).toHaveTextContent(/???\s*48\.00/)
+    expect(riskControl).toHaveTextContent('??????????????????')
     expect(screen.queryByText(serializedResult)).not.toBeInTheDocument()
   })
 
   it('shows the evaluation node error when execution failed before producing output', async () => {
     const failedRun: ExecutionRun = {
       ...run,
-      status: '恢复失败',
-      error: '工作流恢复失败，请稍后重试',
+      status: '????',
+      error: '?????????????',
       nodes: [
         {
           ...run.nodes[0],
           id: 'node-evaluation',
           nodeId: 'evaluation-1',
           nodeType: 'evaluation',
-          nodeName: '方案评估',
-          status: '失败',
+          nodeName: '????',
+          status: '??',
           output: '',
-          error: '评估模型调用失败',
+          error: '????????',
           model: 'deepseek-chat',
           score: null,
           attempts: 2,
@@ -686,9 +690,9 @@ describe('Runs', () => {
     )
 
     const alert = await screen.findByRole('alert')
-    expect(alert).toHaveTextContent('评估执行失败')
-    expect(alert).toHaveTextContent('评估模型调用失败')
-    expect(alert).not.toHaveTextContent('评估结果格式无效')
+    expect(alert).toHaveTextContent('??????')
+    expect(alert).toHaveTextContent('????????')
+    expect(alert).not.toHaveTextContent('????????')
   })
 
   it('degrades a damaged evaluation output without crashing the run detail', async () => {
@@ -703,7 +707,7 @@ describe('Runs', () => {
           id: 'node-evaluation',
           nodeId: 'evaluation-1',
           nodeType: 'evaluation',
-          nodeName: '方案评估',
+          nodeName: '????',
           output: damagedOutput,
           model: 'deepseek-chat',
           score: 84,
@@ -719,8 +723,8 @@ describe('Runs', () => {
       </WorkspaceProvider>,
     )
 
-    expect(await screen.findByRole('heading', { name: '新品研究流程' })).toBeInTheDocument()
-    expect(screen.getAllByText('方案评估').length).toBeGreaterThanOrEqual(1)
-    expect(await screen.findByRole('alert')).toHaveTextContent('评估结果格式无效')
+    expect(await screen.findByRole('heading', { name: '??????' })).toBeInTheDocument()
+    expect(screen.getAllByText('????').length).toBeGreaterThanOrEqual(1)
+    expect(await screen.findByRole('alert')).toHaveTextContent('????????')
   })
 })
