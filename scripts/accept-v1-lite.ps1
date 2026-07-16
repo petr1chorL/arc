@@ -36,6 +36,11 @@ if ($ResumeLatest) {
 }
 
 Push-Location $root
+$utf8Encoding = [System.Text.UTF8Encoding]::new($false)
+$previousConsoleOutputEncoding = [Console]::OutputEncoding
+$previousOutputEncoding = $OutputEncoding
+[Console]::OutputEncoding = $utf8Encoding
+$OutputEncoding = $utf8Encoding
 try {
   $previousApiUrl = $env:ARC_ONE_API_URL
   $previousWorkspaceSlug = $env:ARC_ONE_WORKSPACE_SLUG
@@ -50,6 +55,12 @@ try {
     if ($LASTEXITCODE -ne 0) {
       throw "V1 Lite runtime acceptance failed with exit code $LASTEXITCODE"
     }
+    $resultText = [string]::Join([Environment]::NewLine, [string[]]@($result))
+    try {
+      $null = $resultText | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+      throw "V1 Lite runtime acceptance returned invalid JSON evidence: $($_.Exception.Message)"
+    }
     if ($OutputPath.Trim()) {
       $resolvedOutput = if ([System.IO.Path]::IsPathRooted($OutputPath)) {
         $OutputPath
@@ -60,10 +71,10 @@ try {
       if ($outputDir -and -not (Test-Path $outputDir)) {
         New-Item -ItemType Directory -Force $outputDir | Out-Null
       }
-      $result | Set-Content -Encoding utf8 $resolvedOutput
+      [System.IO.File]::WriteAllText($resolvedOutput, $resultText + [Environment]::NewLine, $utf8Encoding)
       Write-Host "V1.0 Lite runtime acceptance evidence written to $resolvedOutput"
     } else {
-      $result
+      $resultText
     }
   } finally {
     if ($null -eq $previousApiUrl) { Remove-Item Env:\ARC_ONE_API_URL -ErrorAction SilentlyContinue } else { $env:ARC_ONE_API_URL = $previousApiUrl }
@@ -72,5 +83,7 @@ try {
     if ($null -eq $previousPassword) { Remove-Item Env:\ARC_ONE_ACCEPTANCE_PASSWORD -ErrorAction SilentlyContinue } else { $env:ARC_ONE_ACCEPTANCE_PASSWORD = $previousPassword }
   }
 } finally {
+  [Console]::OutputEncoding = $previousConsoleOutputEncoding
+  $OutputEncoding = $previousOutputEncoding
   Pop-Location
 }

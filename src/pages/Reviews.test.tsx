@@ -427,7 +427,7 @@ describe('Reviews', () => {
     expect(copiedUrl.pathname).toBe('/w/ai-capability-center/reviews')
     expect(copiedUrl.searchParams.get('source')).toBe('sla')
     expect(copiedUrl.searchParams.get('taskId')).toBe('task-1')
-    expect(within(context).getByText('复制失败，请手动复制地址栏链接')).toBeInTheDocument()
+    expect(await within(context).findByText('复制失败，请手动复制地址栏链接')).toBeInTheDocument()
   })
 
   it('keeps legacy SLA data out of the Lite review queue filters', async () => {

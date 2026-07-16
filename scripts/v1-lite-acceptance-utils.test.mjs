@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 import {
   findLatestRecoverableRun,
@@ -129,5 +131,17 @@ describe('formatRunFailure', () => {
     expect(message).toContain('质量评分: 模型返回格式无效')
     expect(message).not.toContain('sensitive input')
     expect(message).not.toContain('sensitive output')
+  })
+})
+
+describe('accept-v1-lite PowerShell wrapper', () => {
+  it('decodes Node output and writes validated evidence as UTF-8 JSON', () => {
+    const wrapperPath = join(process.cwd(), 'scripts', 'accept-v1-lite.ps1')
+    const wrapper = readFileSync(wrapperPath, 'utf8')
+
+    expect(wrapper).toContain('[Console]::OutputEncoding = $utf8Encoding')
+    expect(wrapper).toContain('$resultText | ConvertFrom-Json')
+    expect(wrapper).toContain('[System.IO.File]::WriteAllText(')
+    expect(wrapper).toContain('[Console]::OutputEncoding = $previousConsoleOutputEncoding')
   })
 })
