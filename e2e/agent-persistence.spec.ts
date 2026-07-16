@@ -93,7 +93,7 @@ test('publishes an Agent version and references it from a published workflow', a
   await expect(page.getByText('v1.0.0 已发布')).toBeVisible()
 
   await page.getByRole('button', { name: '返回工作流列表' }).click()
-  await page.getByRole('button', { name: `编辑 ${workflowName}` }).click()
+  await page.getByRole('button', { name: workflowName, exact: true }).click()
   await page.reload()
 
   await expect(page.getByLabel('工作流名称')).toHaveText(workflowName)

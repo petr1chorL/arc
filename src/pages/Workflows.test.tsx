@@ -343,8 +343,9 @@ describe('Workflows', () => {
 
     expect(await screen.findByRole('heading', { name: '工作流列表' })).toBeInTheDocument()
     expect(screen.queryByTestId('flow-node-human-1')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '运行 新品研究流程' })).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: '编辑 新品研究流程' }))
+    expect(screen.getByRole('button', { name: `运行 ${workflow.name}` })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: `编辑 ${workflow.name}` })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: workflow.name }))
 
     expect(screen.getByTestId('location')).toHaveTextContent('/w/ai-capability-center/workflows/workflow-1')
     expect(screen.getByLabelText('工作流名称')).toHaveTextContent('新品研究流程')
