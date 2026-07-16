@@ -4,7 +4,8 @@ param(
   [string]$Email = "",
   [string]$Password = "",
   [string]$OutputPath = "",
-  [switch]$SkipReviewerGrant
+  [switch]$SkipReviewerGrant,
+  [switch]$ResumeLatest
 )
 
 $ErrorActionPreference = "Stop"
@@ -29,6 +30,9 @@ $arguments = @(
 )
 if ($SkipReviewerGrant) {
   $arguments += @("--ensure-reviewer", "false")
+}
+if ($ResumeLatest) {
+  $arguments += @("--resume-latest", "true")
 }
 
 Push-Location $root

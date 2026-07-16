@@ -61,10 +61,38 @@ export async function apiFetch(
   return response
 }
 
+function validationLocation(value: unknown): string | null {
+  if (!Array.isArray(value)) return null
+  for (let index = value.length - 1; index >= 0; index -= 1) {
+    const segment = value[index]
+    if (typeof segment === 'string' && segment !== 'body') return segment
+  }
+  return null
+}
+
+function detailMessage(value: unknown): string | null {
+  if (typeof value === 'string') return value.trim() || null
+  if (!value || typeof value !== 'object') return null
+  const message = 'msg' in value && typeof value.msg === 'string'
+    ? value.msg.trim()
+    : ''
+  if (!message) return null
+  const location = 'loc' in value ? validationLocation(value.loc) : null
+  return location ? location + '：' + message : message
+}
+
+function formatErrorDetail(detail: unknown): string {
+  if (Array.isArray(detail)) {
+    const messages = detail.map(detailMessage).filter((message): message is string => Boolean(message))
+    return messages.length > 0 ? messages.join('；') : '请求失败'
+  }
+  return detailMessage(detail) ?? '请求失败'
+}
+
 export async function readJson<T>(response: Response): Promise<T> {
-  let data: T | { detail?: string | string[] }
+  let data: T | { detail?: unknown }
   try {
-    data = await response.json() as T | { detail?: string | string[] }
+    data = await response.json() as T | { detail?: unknown }
   } catch {
     if (!response.ok) {
       const message = response.status >= 500
@@ -76,10 +104,9 @@ export async function readJson<T>(response: Response): Promise<T> {
   }
   if (!response.ok) {
     const detail = 'detail' in (data as object)
-      ? (data as { detail?: string | string[] }).detail
+      ? (data as { detail?: unknown }).detail
       : undefined
-    const message = Array.isArray(detail) ? detail.join('；') : detail ?? '请求失败'
-    throw new ApiError(response.status, message)
+    throw new ApiError(response.status, formatErrorDetail(detail))
   }
   return data as T
 }

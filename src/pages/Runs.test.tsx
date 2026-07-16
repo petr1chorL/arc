@@ -2,6 +2,7 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WorkspaceProvider } from '../auth/WorkspaceContext'
+import type { ExecutionRun } from '../types'
 import { Runs } from './Runs'
 
 const workspace = {
@@ -10,7 +11,7 @@ const workspace = {
   name: 'AI 能力中心',
 }
 
-const run = {
+const run: ExecutionRun = {
   id: 'run-1',
   kind: 'workflow',
   name: '新品研究流程',
@@ -142,7 +143,7 @@ const evaluationWorkflowVersion = {
   },
 }
 
-function evaluationRunFetch(runData: typeof run) {
+function evaluationRunFetch(runData: ExecutionRun) {
   return vi.fn((input: RequestInfo | URL) => {
     const url = typeof input === 'string'
       ? input
@@ -653,6 +654,41 @@ describe('Runs', () => {
     expect(riskControl).toHaveTextContent(/加权分\s*48\.00/)
     expect(riskControl).toHaveTextContent('识别了主要风险，但触发阈值仍需补充。')
     expect(screen.queryByText(serializedResult)).not.toBeInTheDocument()
+  })
+
+  it('shows the evaluation node error when execution failed before producing output', async () => {
+    const failedRun: ExecutionRun = {
+      ...run,
+      status: '恢复失败',
+      error: '工作流恢复失败，请稍后重试',
+      nodes: [
+        {
+          ...run.nodes[0],
+          id: 'node-evaluation',
+          nodeId: 'evaluation-1',
+          nodeType: 'evaluation',
+          nodeName: '方案评估',
+          status: '失败',
+          output: '',
+          error: '评估模型调用失败',
+          model: 'deepseek-chat',
+          score: null,
+          attempts: 2,
+        },
+      ],
+    }
+    vi.stubGlobal('fetch', evaluationRunFetch(failedRun))
+
+    render(
+      <WorkspaceProvider workspace={workspace}>
+        <Runs />
+      </WorkspaceProvider>,
+    )
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('评估执行失败')
+    expect(alert).toHaveTextContent('评估模型调用失败')
+    expect(alert).not.toHaveTextContent('评估结果格式无效')
   })
 
   it('degrades a damaged evaluation output without crashing the run detail', async () => {

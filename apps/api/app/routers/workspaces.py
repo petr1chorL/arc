@@ -34,6 +34,7 @@ from app.schemas import (
     WorkspaceMemberRead,
     WorkspacePermissionMatrixRead,
     WorkspaceRead,
+    WorkspaceSummaryRead,
 )
 from app.security import SecurityService
 
@@ -56,6 +57,13 @@ def create_workspaces_router(
 
     def build_activation_url(request: Request, token: str) -> str:
         return str(request.base_url).rstrip("/") + f"/activate/{token}"
+
+    def serialize_workspace_summary(
+        workspace: WorkspaceRecord,
+        role: str,
+    ) -> WorkspaceSummaryRead:
+        workspace_fields = WorkspaceRead.model_validate(workspace).model_dump()
+        return WorkspaceSummaryRead(**workspace_fields, role=role)
 
     def organization_context(
         request: Request,
@@ -194,12 +202,12 @@ def create_workspaces_router(
             activation_url=build_activation_url(request, raw_token) if raw_token else None,
         )
 
-    @router.get("", response_model=list[WorkspaceRead])
+    @router.get("", response_model=list[WorkspaceSummaryRead])
     def list_workspaces(
         context_bundle: tuple[RequestContext, Session] = Depends(
             organization_context,
         ),
-    ) -> list[WorkspaceRecord]:
+    ) -> list[WorkspaceSummaryRead]:
         context, session = context_bundle
         if context.user.is_organization_admin:
             statement = (
@@ -210,9 +218,13 @@ def create_workspaces_router(
                 )
                 .order_by(WorkspaceRecord.created_at.asc())
             )
-            return list(session.scalars(statement))
+            workspaces = list(session.scalars(statement))
+            return [
+                serialize_workspace_summary(workspace, "workspace_admin")
+                for workspace in workspaces
+            ]
         statement = (
-            select(WorkspaceRecord)
+            select(WorkspaceRecord, WorkspaceMembershipRecord.role)
             .join(
                 WorkspaceMembershipRecord,
                 WorkspaceMembershipRecord.workspace_id == WorkspaceRecord.id,
@@ -225,7 +237,10 @@ def create_workspaces_router(
             )
             .order_by(WorkspaceRecord.created_at.asc())
         )
-        return list(session.scalars(statement))
+        return [
+            serialize_workspace_summary(workspace, role)
+            for workspace, role in session.execute(statement).all()
+        ]
 
     @router.post(
         "",

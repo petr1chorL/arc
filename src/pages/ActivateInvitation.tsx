@@ -26,10 +26,20 @@ export function ActivateInvitation() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    setIsSubmitting(true)
+    const normalizedDisplayName = displayName.trim()
+    setMessage('')
     setError('')
+    if (!normalizedDisplayName) {
+      setError('请输入显示名称')
+      return
+    }
+    if (password.length < 12) {
+      setError('密码至少需要 12 个字符')
+      return
+    }
+    setIsSubmitting(true)
     try {
-      await activateInvitation(token, { displayName: displayName.trim(), password })
+      await activateInvitation(token, { displayName: normalizedDisplayName, password })
       setMessage('账号已激活，请返回登录。')
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : '邀请激活失败')
@@ -53,16 +63,22 @@ export function ActivateInvitation() {
         <form className="auth-form" onSubmit={handleSubmit}>
           <label className="form-field">
             <span>显示名称</span>
-            <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+            <input required maxLength={120} value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
           </label>
           <label className="form-field">
             <span>密码</span>
             <input
+              aria-label="密码"
+              aria-describedby="activation-password-hint"
               autoComplete="new-password"
               type="password"
+              required
+              minLength={12}
+              maxLength={1024}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
             />
+            <small id="activation-password-hint">至少 12 个字符</small>
           </label>
           {message && <div className="inline-feedback" role="status">{message}</div>}
           {error && <div className="inline-feedback error" role="alert">{error}</div>}

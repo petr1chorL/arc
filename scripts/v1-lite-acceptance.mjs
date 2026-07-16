@@ -1,3 +1,11 @@
+import {
+  AcceptanceApiError,
+  findLatestRecoverableRun,
+  formatRunFailure,
+  readAcceptanceResponse,
+  waitForRunCompletion,
+} from './v1-lite-acceptance-utils.mjs'
+
 const args = new Map()
 for (let index = 2; index < process.argv.length; index += 1) {
   const key = process.argv[index]
@@ -16,6 +24,7 @@ const workspaceSlug = args.get('workspace-slug') ?? process.env.ARC_ONE_WORKSPAC
 const email = args.get('email') ?? process.env.ARC_ONE_ACCEPTANCE_EMAIL
 const password = args.get('password') ?? process.env.ARC_ONE_ACCEPTANCE_PASSWORD
 const ensureReviewer = args.get('ensure-reviewer') !== 'false'
+const resumeLatest = args.get('resume-latest') === 'true'
 
 if (!email || !password) {
   throw new Error('Missing acceptance credentials. Set ARC_ONE_ACCEPTANCE_EMAIL and ARC_ONE_ACCEPTANCE_PASSWORD, or pass --email and --password.')
@@ -65,13 +74,7 @@ async function api(path, options = {}) {
     headers,
   })
   storeCookies(response.headers)
-  const text = await response.text()
-  const data = text ? JSON.parse(text) : null
-  if (!response.ok) {
-    const detail = data?.detail ?? text
-    throw new Error(`${method} ${path} failed with HTTP ${response.status}: ${Array.isArray(detail) ? detail.join('; ') : detail}`)
-  }
-  return data
+  return readAcceptanceResponse(response, { method, path })
 }
 
 function findByName(records, expectedName, label) {
@@ -126,10 +129,23 @@ const runInput = {
   desiredOutput: '平台落地路线与一个可执行试点流程',
   riskConcerns: '不要大而全失控，先快速试点；质量评分体系要可落地',
 }
-const pausedRun = await api(`/api/workspaces/${workspace.id}/workflows/${workflow.id}/runs`, {
-  method: 'POST',
-  body: JSON.stringify({ input: JSON.stringify(runInput) }),
-})
+const serializedRunInput = JSON.stringify(runInput)
+let pausedRun = null
+if (resumeLatest) {
+  const runs = await api(`/api/workspaces/${workspace.id}/runs`)
+  pausedRun = findLatestRecoverableRun(runs, {
+    workflowId: workflow.id,
+    input: serializedRunInput,
+  })
+  if (!pausedRun) {
+    throw new Error('No matching Workflow Run waiting for review was found in the last 6 hours. Refusing to create a duplicate while --resume-latest is enabled.')
+  }
+} else {
+  pausedRun = await api(`/api/workspaces/${workspace.id}/workflows/${workflow.id}/runs`, {
+    method: 'POST',
+    body: JSON.stringify({ input: serializedRunInput }),
+  })
+}
 if (!['等待审核', '审核中'].includes(pausedRun.status)) {
   throw new Error([
     `Expected Workflow Run to pause for Human Review, got status: ${pausedRun.status}.`,
@@ -168,19 +184,37 @@ if (task.status !== '审核中') {
 }
 
 const taskDetail = await api(`/api/workspaces/${workspace.id}/human-tasks/${task.id}`)
-await api(`/api/workspaces/${workspace.id}/human-tasks/${task.id}/decisions`, {
-  method: 'POST',
-  body: JSON.stringify({
-    decision: 'approve',
-    reason: 'V1 Lite runtime acceptance: approve the pilot artifact for scoring and observability evidence.',
-    artifactVersionId: taskDetail.artifactVersionId,
-    idempotencyKey: `${task.id}-${Date.now()}-v1-lite-approve`,
-  }),
-})
+let decisionGatewayError = null
+try {
+  await api(`/api/workspaces/${workspace.id}/human-tasks/${task.id}/decisions`, {
+    method: 'POST',
+    body: JSON.stringify({
+      decision: 'approve',
+      reason: 'V1 Lite runtime acceptance: approve the pilot artifact for scoring and observability evidence.',
+      artifactVersionId: taskDetail.artifactVersionId,
+      idempotencyKey: `${task.id}-${Date.now()}-v1-lite-approve`,
+    }),
+  })
+} catch (error) {
+  if (!(error instanceof AcceptanceApiError) || ![502, 504].includes(error.status)) throw error
+  decisionGatewayError = error
+}
 
-const completedRun = await api(`/api/workspaces/${workspace.id}/runs/${pausedRun.id}`)
+let completedRun = null
+try {
+  completedRun = await waitForRunCompletion(
+    () => api(`/api/workspaces/${workspace.id}/runs/${pausedRun.id}`),
+  )
+} catch (error) {
+  if (decisionGatewayError) {
+    throw new Error(`${decisionGatewayError.message}; ${error.message}`)
+  }
+  throw error
+}
 if (completedRun.status !== '已完成') {
-  throw new Error(`Expected completed Workflow Run after Human Review, got status: ${completedRun.status}`)
+  throw new Error(
+    `Expected completed Workflow Run after Human Review, got status: ${completedRun.status}. ${formatRunFailure(completedRun)}`,
+  )
 }
 if (!completedRun.output) {
   throw new Error('Completed Workflow Run has no output artifact text.')
@@ -206,6 +240,7 @@ const notifications = await api(`/api/workspaces/${workspace.id}/notifications/o
 
 const evidence = {
   status: 'passed',
+  resumedRun: resumeLatest,
   apiUrl,
   workspace: {
     id: workspace.id,

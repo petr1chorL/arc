@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
@@ -51,6 +51,42 @@ describe('App workspace auth routing', () => {
 
     expect(await screen.findByRole('heading', { name: '运营总览' })).toBeInTheDocument()
     expect(window.location.pathname).toBe('/w/ai-capability-center')
+  })
+
+  it('shows every implemented sidebar entry for a workspace admin', async () => {
+    window.history.replaceState({}, '', '/w/ai-capability-center')
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        user: {
+          id: 'user-admin',
+          email: 'workspace-admin@example.com',
+          displayName: 'Workspace Admin',
+          isOrganizationAdmin: false,
+        },
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([
+        {
+          id: 'workspace-1',
+          slug: 'ai-capability-center',
+          name: 'AI Workspace',
+          role: 'workspace_admin',
+          isOrganizationAdmin: false,
+        },
+      ]), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })))
+
+    render(<App />)
+
+    const navigation = await screen.findByRole('navigation', { name: '\u4e3b\u5bfc\u822a' })
+    for (const label of [
+      '\u8fd0\u8425\u603b\u89c8', '\u5de5\u4f5c\u6d41\u7f16\u6392', 'Agent \u8d44\u4ea7', '\u8bc4\u4f30\u4e2d\u5fc3', '\u8fd0\u884c\u4e2d\u5fc3',
+      '\u4eba\u5de5\u5ba1\u6838', '\u6a21\u578b\u8d44\u4ea7', 'Tool / Skill', '\u6210\u5458\u4e0e\u6743\u9650',
+    ]) {
+      expect(within(navigation).getByRole('link', { name: label })).toBeInTheDocument()
+    }
   })
 
   it('shows inaccessible state for workspace slugs outside the current session scope', async () => {
