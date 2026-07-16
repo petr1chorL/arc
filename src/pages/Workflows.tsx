@@ -1339,7 +1339,19 @@ export function Workflows() {
               >
                 <div className="workflow-directory-main">
                   <span>{active ? '当前编排中' : '工作流资产'}</span>
-                  <strong>{workflow.name}</strong>
+                  <strong
+                    role="button"
+                    tabIndex={0}
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => openWorkflowEditor(workflow.id)}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter' && event.key !== ' ') return
+                      event.preventDefault()
+                      openWorkflowEditor(workflow.id)
+                    }}
+                  >
+                    {workflow.name}
+                  </strong>
                   <small>{new Date(workflow.updatedAt).toLocaleString('zh-CN')} 更新</small>
                 </div>
                 <div className="workflow-directory-meta" aria-label={`${workflow.name} 元信息`}>
