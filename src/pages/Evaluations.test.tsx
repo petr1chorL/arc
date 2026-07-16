@@ -49,6 +49,9 @@ describe('Evaluations template library', () => {
 
     expect(await screen.findByRole('heading', { name: '评估模板' })).toBeInTheDocument()
     const card = screen.getByRole('article', { name: '研究报告质量模板' })
+    expect(card.querySelector('.rubric-card-heading')).toBeInTheDocument()
+    expect(card.querySelector('.rubric-card-description')).toBeInTheDocument()
+    expect(card.querySelector('.rubric-card-meta')).toBeInTheDocument()
     expect(within(card).getByText('已发布')).toBeInTheDocument()
     expect(within(card).getByText('v1.0')).toBeInTheDocument()
     expect(within(card).getByText('2 个维度')).toBeInTheDocument()
@@ -88,6 +91,11 @@ describe('Evaluations template library', () => {
 
     renderPage()
     await user.click(await screen.findByRole('button', { name: '管理研究报告质量模板' }))
+    const firstDimension = screen.getByLabelText('维度 1 名称').closest('.rubric-dimension-row')
+    expect(firstDimension).toBeInTheDocument()
+    expect(firstDimension?.querySelector('.rubric-dimension-name')).toBeInTheDocument()
+    expect(firstDimension?.querySelector('.rubric-dimension-criteria')).toBeInTheDocument()
+    expect(firstDimension?.querySelector('.rubric-dimension-weight')).toBeInTheDocument()
     expect(await screen.findByText('版本 v1.0')).toBeInTheDocument()
     await user.clear(screen.getByLabelText('模板名称'))
     await user.type(screen.getByLabelText('模板名称'), '研究报告质量模板 v2')

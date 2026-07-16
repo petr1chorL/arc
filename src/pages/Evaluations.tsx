@@ -292,19 +292,19 @@ export function Evaluations() {
               : '确定性评分'
             return (
               <article className="rubric-card" aria-label={rubric.name} key={rubric.id}>
-                <header>
-                  <div><span className="eyebrow">{rubric.artifact}</span><h3>{rubric.name}</h3></div>
+                <header className="rubric-card-heading">
+                  <div className="rubric-card-title"><span className="eyebrow">{rubric.artifact}</span><h3>{rubric.name}</h3></div>
                   <span className={`status-pill ${rubric.status === 'active' ? 'success' : rubric.status === 'disabled' ? 'danger' : ''}`}>
                     {statusLabel(rubric.status)}
                   </span>
                 </header>
-                <p>{rubric.gate}</p>
-                <div className="candidate-tags">
+                <p className="rubric-card-description">{rubric.gate}</p>
+                <div className="candidate-tags rubric-card-meta">
                   <span>{rubric.version}</span>
                   <span>{rubric.dimensions.length} 个维度</span>
                   <span>通过分 {rubric.passScore}</span>
                 </div>
-                <p>{model}</p>
+                <p className="rubric-card-model">{model}</p>
                 <footer>
                   <button type="button" aria-label={`管理${rubric.name}`} onClick={() => void openManage(rubric)}>
                     <SlidersHorizontal size={15} />管理模板
@@ -372,13 +372,13 @@ export function Evaluations() {
                 </div>
                 {form.dimensions.map((dimension, index) => (
                   <div className="rubric-dimension-row" key={`${dimension.id}-${index}`}>
-                    <label className="dialog-field">维度 {index + 1} 名称
+                    <label className="dialog-field rubric-dimension-name">维度 {index + 1} 名称
                       <input aria-label={`维度 ${index + 1} 名称`} value={dimension.name} disabled={disabled} onChange={(event) => updateDimension(index, { name: event.target.value })} />
                     </label>
-                    <label className="dialog-field">维度 {index + 1} 评分标准
+                    <label className="dialog-field rubric-dimension-criteria">维度 {index + 1} 评分标准
                       <textarea aria-label={`维度 ${index + 1} 评分标准`} rows={2} value={dimension.criteria} disabled={disabled} onChange={(event) => updateDimension(index, { criteria: event.target.value })} />
                     </label>
-                    <label className="dialog-field">维度 {index + 1} 权重
+                    <label className="dialog-field rubric-dimension-weight">维度 {index + 1} 权重
                       <input aria-label={`维度 ${index + 1} 权重`} type="number" min={1} max={100} value={dimension.weight} disabled={disabled} onChange={(event) => updateDimension(index, { weight: Number(event.target.value) })} />
                     </label>
                     {form.dimensions.length > 1 && <button className="button secondary" type="button" disabled={disabled} onClick={() => setForm((current) => ({ ...current, dimensions: current.dimensions.filter((_, itemIndex) => itemIndex !== index) }))}>删除维度</button>}

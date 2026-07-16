@@ -559,7 +559,7 @@ export function Runs() {
               <div className="run-graph-viewport">
                 <div
                   className="run-graph-strip"
-                  style={{ minWidth: `${Math.max(780, runGraphNodes.length * 250)}px` }}
+                  style={{ minWidth: `${Math.max(900, runGraphNodes.length * 340)}px` }}
                 >
                   {runGraphNodes.map((node, index) => (
                     <div className="run-graph-step-wrap" key={node.id}>
@@ -567,9 +567,9 @@ export function Runs() {
                         className={`run-graph-step ${runGraphVisualStatus(node.status)} ${node.nodeName === selected.currentNode ? 'current' : ''}`}
                       >
                         <span className="run-graph-index">{String(index + 1).padStart(2, '0')}</span>
-                        <div>
+                        <div className="run-graph-step-heading">
                           <small>{node.nodeType}</small>
-                          <strong>{node.nodeName}</strong>
+                          <strong className="run-graph-node-title">{node.nodeName}</strong>
                         </div>
                         <span className="run-graph-status">{node.executed ? runGraphVisualLabel(node.status) : '未开始'}</span>
                         <dl>
