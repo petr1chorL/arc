@@ -6740,9 +6740,9 @@ kbd {
   font-size: 8px;
 }
 
-.sla-dot.????,
-.sla-dot.???,
-.sla-dot.??? {
+.sla-dot.即将到期,
+.sla-dot.已逾期,
+.sla-dot.已升级 {
   color: var(--orange);
 }
 

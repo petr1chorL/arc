@@ -26,19 +26,19 @@ function formatTime(value: string) {
 
 function runGraphVisualStatus(statusValue: string) {
   const status = displayStatus(statusValue)
-  if (status === '??' || status === '????') return 'error'
-  if (status === '???' || status === '????' || status === '???' || status === '???') return 'warning'
-  if (status === '???' || status === '???') return 'running'
-  if (status === '???' || status === '???' || status === '?????') return 'success'
+  if (status === '失败' || status === '恢复失败') return 'error'
+  if (status === '需介入' || status === '等待审核' || status === '待认领' || status === '审核中') return 'warning'
+  if (status === '运行中' || status === '排队中') return 'running'
+  if (status === '已完成' || status === '已通过' || status === '修改后通过') return 'success'
   return 'idle'
 }
 
 function runGraphVisualLabel(statusValue: string) {
   const status = displayStatus(statusValue)
-  if (status === '??' || status === '????') return '??'
-  if (status === '???' || status === '????' || status === '???' || status === '???') return '??'
-  if (status === '???' || status === '???') return '???'
-  if (status === '???' || status === '???' || status === '?????') return '??'
+  if (status === '失败' || status === '恢复失败') return '报错'
+  if (status === '需介入' || status === '等待审核' || status === '待认领' || status === '审核中') return '等待'
+  if (status === '运行中' || status === '排队中') return '运行中'
+  if (status === '已完成' || status === '已通过' || status === '修改后通过') return '通过'
   return status
 }
 
@@ -139,7 +139,7 @@ function buildRunGraphNodes(run: ExecutionRun, workflowVersion: WorkflowVersion 
       nodeId: workflowNode.id,
       nodeType: workflowNodeKind(workflowNode),
       nodeName: workflowNodeLabel(workflowNode),
-      status: '???',
+      status: '未开始',
       durationMs: 0,
       attempts: null,
       score: null,
@@ -166,7 +166,7 @@ function clearRunIdFromLocation() {
 
 function artifactPreview(content: string) {
   const normalized = content.trim().replace(/\s+/g, ' ')
-  if (!normalized) return '????'
+  if (!normalized) return '空产出物'
   return normalized.length > 220 ? `${normalized.slice(0, 220)}...` : normalized
 }
 
@@ -282,7 +282,7 @@ export function Runs() {
           : nextRuns.find((run) => run.id === requestedRunIdFromLocation())?.id ?? nextRuns[0]?.id ?? ''
       ))
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : '????????')
+      setError(loadError instanceof Error ? loadError.message : '运行记录加载失败')
     } finally {
       setIsLoading(false)
     }
@@ -334,7 +334,7 @@ export function Runs() {
       }
       setDeleteCandidate(null)
     } catch (runDeleteError) {
-      setDeleteError(runDeleteError instanceof Error ? runDeleteError.message : '????????')
+      setDeleteError(runDeleteError instanceof Error ? runDeleteError.message : '删除运行记录失败')
     } finally {
       setIsDeleting(false)
     }
@@ -360,8 +360,8 @@ export function Runs() {
     : null
   const displayedRunOutput = selectedOutputEvaluation?.overallReason
     ?? (evaluationNodeResults.length > 0 && selected?.output
-      ? '?????????????????'
-      : selected?.output || selected?.error || '???????????')
+      ? '评估结果格式无效，详情见评估节点。'
+      : selected?.output || selected?.error || '本次运行没有产出内容。')
   const artifactsByNodeRunId = useMemo(() => {
     const grouped = new Map<string, ArtifactCatalogItem[]>()
     runArtifacts.forEach((artifact) => {
@@ -432,7 +432,7 @@ export function Runs() {
       .catch((artifactsError) => {
         if (!isActive) return
         setRunArtifacts([])
-        setArtifactError(artifactsError instanceof Error ? artifactsError.message : '?????????')
+        setArtifactError(artifactsError instanceof Error ? artifactsError.message : '节点产出物加载失败')
       })
       .finally(() => {
         if (isActive) setIsArtifactsLoading(false)
@@ -444,20 +444,20 @@ export function Runs() {
   }, [selected?.id, workspace.id])
 
   if (isLoading) {
-    return <div className="panel table-state">?????????</div>
+    return <div className="panel table-state">正在加载运行记录…</div>
   }
   if (error) {
     return (
       <div className="panel table-state error" role="alert">
         {error}
         <button className="button secondary" onClick={() => void load()}>
-          <RefreshCw size={15} />??
+          <RefreshCw size={15} />重试
         </button>
       </div>
     )
   }
   if (!selected) {
-    return <div className="panel table-state">???????????????? Agent ?????</div>
+    return <div className="panel table-state">暂无运行记录，请先运行一个已发布 Agent 或工作流。</div>
   }
 
   return (
@@ -467,30 +467,30 @@ export function Runs() {
           <label className="field-search">
             <Search size={16} />
             <input
-              aria-label="??????"
-              placeholder="?????ID ???"
+              aria-label="搜索运行记录"
+              placeholder="搜索名称、ID 或状态"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
           </label>
           <label className="run-status-filter">
-            <span>????</span>
+            <span>流程状态</span>
             <select
-              aria-label="??????"
+              aria-label="流程状态筛选"
               value={statusFilter}
               onChange={(event) => setStatusFilter(event.target.value)}
             >
-              <option value="">????</option>
+              <option value="">全部状态</option>
               {statusOptions.map((status) => (
                 <option key={status} value={status}>{status}</option>
               ))}
             </select>
           </label>
-          <button className="icon-button quiet" title="??????" onClick={() => void load()}>
+          <button className="icon-button quiet" title="刷新运行记录" onClick={() => void load()}>
             <RefreshCw size={16} />
           </button>
         </div>
-        <div className="run-list-head"><span>???????</span><strong>{filteredRuns.length} ???</strong></div>
+        <div className="run-list-head"><span>持久化运行记录</span><strong>{filteredRuns.length} 个实例</strong></div>
         <div className="run-list-scroll">
         {filteredRuns.map((run) => (
           <div className="run-list-row" key={run.id}>
@@ -503,8 +503,8 @@ export function Runs() {
             >
               <div>
                 <strong>{run.name}</strong>
-                <span><b>??</b>{formatTime(run.startedAt)}</span>
-                <span><b>??</b>{formatDuration(run.durationMs)}</span>
+                <span><b>启动</b>{formatTime(run.startedAt)}</span>
+                <span><b>耗时</b>{formatDuration(run.durationMs)}</span>
               </div>
               <StatusBadge status={run.status} />
               <div className="run-progress"><i style={{ width: '100%' }} /></div>
@@ -513,7 +513,7 @@ export function Runs() {
                 type="button"
                 className="icon-button quiet run-delete-button"
                 aria-label="Delete run record"
-              title="??????"
+              title="删除运行记录"
               onClick={() => {
                 setDeleteCandidate(run)
                 setDeleteError('')
@@ -523,7 +523,7 @@ export function Runs() {
             </button>
           </div>
         ))}
-        {filteredRuns.length === 0 && <div className="table-state compact">??????????</div>}
+        {filteredRuns.length === 0 && <div className="table-state compact">当前筛选没有运行记录</div>}
         </div>
       </section>
 
@@ -532,7 +532,7 @@ export function Runs() {
           <div>
             <span className="mono">{selected.kind === 'agent' ? 'AGENT RUN' : 'WORKFLOW RUN'}</span>
             <h2>{selected.name}</h2>
-            <p><b>??</b>{formatTime(selected.startedAt)}<b>??</b>{formatDuration(selected.durationMs)}<b>{selected.kind === 'agent' ? '??' : '??'}</b>{selected.kind === 'agent' ? 'Agent ????' : selected.workflowVersion}</p>
+            <p><b>启动</b>{formatTime(selected.startedAt)}<b>耗时</b>{formatDuration(selected.durationMs)}<b>{selected.kind === 'agent' ? '类型' : '版本'}</b>{selected.kind === 'agent' ? 'Agent 测试运行' : selected.workflowVersion}</p>
           </div>
           <div className="run-actions">
             <StatusBadge status={selected.status} />
@@ -540,21 +540,21 @@ export function Runs() {
         </header>
 
         {selected.kind === 'workflow' && (
-          <section className="run-graph-panel" aria-label="???????">
+          <section className="run-graph-panel" aria-label="完整工作流链路">
             <div className="run-graph-header">
               <div>
                 <span className="section-kicker">WORKFLOW RUN MAP</span>
-                <h3>???????</h3>
-                <p>{runGraphNodes.length} ??? ? ??? {selected.nodes.length} ? ? ?????{selected.currentNode || '???'}</p>
+                <h3>完整工作流链路</h3>
+                <p>{runGraphNodes.length} 个节点 · 已执行 {selected.nodes.length} 个 · 当前节点：{selected.currentNode || '未记录'}</p>
               </div>
-              <div className="workflow-runtime-legend" aria-label="????????">
-                <span><i className="success" />??</span>
-                <span><i className="warning" />??</span>
-                <span><i className="error" />??</span>
+              <div className="workflow-runtime-legend" aria-label="节点运行状态图例">
+                <span><i className="success" />通过</span>
+                <span><i className="warning" />等待</span>
+                <span><i className="error" />报错</span>
               </div>
             </div>
             {runGraphNodes.length === 0 ? (
-              <div className="run-graph-empty">?????????</div>
+              <div className="run-graph-empty">暂无节点运行记录。</div>
             ) : (
               <div className="run-graph-viewport">
                 <div
@@ -571,11 +571,11 @@ export function Runs() {
                           <small>{node.nodeType}</small>
                           <strong className="run-graph-node-title">{node.nodeName}</strong>
                         </div>
-                        <span className="run-graph-status">{node.executed ? runGraphVisualLabel(node.status) : '???'}</span>
+                        <span className="run-graph-status">{node.executed ? runGraphVisualLabel(node.status) : '未开始'}</span>
                         <dl>
-                          <div><dt>??</dt><dd>{formatDuration(node.durationMs)}</dd></div>
-                          <div><dt>??</dt><dd>{node.attempts === null ? '-' : `${node.attempts} ?`}</dd></div>
-                          <div><dt>??</dt><dd>{node.score ?? '???'}</dd></div>
+                          <div><dt>耗时</dt><dd>{formatDuration(node.durationMs)}</dd></div>
+                          <div><dt>尝试</dt><dd>{node.attempts === null ? '-' : `${node.attempts} 次`}</dd></div>
+                          <div><dt>得分</dt><dd>{node.score ?? '待评估'}</dd></div>
                         </dl>
                       </div>
                       {index < runGraphNodes.length - 1 && <i aria-hidden="true" data-testid="run-graph-connector" />}
@@ -588,10 +588,10 @@ export function Runs() {
         )}
 
         <div className="run-kpis">
-          <div><span>???</span><strong>{formatDuration(selected.durationMs)}</strong></div>
+          <div><span>总耗时</span><strong>{formatDuration(selected.durationMs)}</strong></div>
           <div><span>Token</span><strong>{selected.totalTokens}</strong></div>
-          <div><span>????</span><strong>{selected.score ?? '???'}</strong></div>
-          <div><span>????</span><strong>${selected.costUsd.toFixed(6)}</strong></div>
+          <div><span>质量得分</span><strong>{selected.score ?? '待评估'}</strong></div>
+          <div><span>模型成本</span><strong>${selected.costUsd.toFixed(6)}</strong></div>
         </div>
 
         {evaluationDetailsReady && evaluationNodeResults.map(({ node, result }) => (
@@ -602,15 +602,15 @@ export function Runs() {
               result={result}
               templateName={evaluationTemplateName(node, selectedWorkflowVersion, result)}
             />
-          ) : node.error || node.status === '??' ? (
+          ) : node.error || node.status === '失败' ? (
             <div className="evaluation-result-error" role="alert" key={node.id}>
-              <strong>??????</strong>
-              <span>{node.error || `${node.nodeName} ????????????????`}</span>
+              <strong>评估执行失败</strong>
+              <span>{node.error || `${node.nodeName} 执行失败，请查看运行日志后重试。`}</span>
             </div>
           ) : (
             <div className="evaluation-result-error" role="alert" key={node.id}>
-              <strong>????????</strong>
-              <span>{node.nodeName} ????????????????????????????</span>
+              <strong>评估结果格式无效</strong>
+              <span>{node.nodeName} 的结构化结果无法安全解析，请查看节点错误信息或重新运行。</span>
             </div>
           )
         ))}
@@ -618,24 +618,24 @@ export function Runs() {
         {isWaitingForHumanReview(selected.status) && (
           <div className="review-handoff-notice run-review-notice">
             <div>
-              <strong>??????</strong>
-              <span>?????? {selected.currentNode || '??????'}????? Human Task ????????????</span>
+              <strong>等待人工审核</strong>
+              <span>当前运行停在 {selected.currentNode || '人工审核节点'}。处理对应 Human Task 后，运行状态会继续更新。</span>
             </div>
-            <a className="button primary" href={workspacePath('reviews')}>???????</a>
+            <a className="button primary" href={workspacePath('reviews')}>去人工审核处理</a>
           </div>
         )}
 
         <div className="review-section">
-          <div className="review-section-title"><h3>???????</h3><span>{selected.model || '?????'}</span></div>
+          <div className="review-section-title"><h3>工作流最终产出</h3><span>{selected.model || '未记录模型'}</span></div>
           <div className="artifact-preview"><p>{displayedRunOutput}</p></div>
         </div>
 
-        <section className="review-section run-artifact-section" aria-label="?????">
+        <section className="review-section run-artifact-section" aria-label="节点产出物">
           <div className="review-section-title">
-            <h3>?????</h3>
-            <span>{runArtifacts.length} ? Artifact</span>
+            <h3>节点产出物</h3>
+            <span>{runArtifacts.length} 个 Artifact</span>
           </div>
-          {isArtifactsLoading && <div className="table-state compact">??????????</div>}
+          {isArtifactsLoading && <div className="table-state compact">正在加载节点产出物…</div>}
           {artifactError && <div className="table-state error compact" role="alert">{artifactError}</div>}
           {!isArtifactsLoading && !artifactError && (
             <div className="run-artifact-node-list">
@@ -648,10 +648,10 @@ export function Runs() {
                         <span className="mono">{node.nodeType}</span>
                         <strong>{node.nodeName}</strong>
                       </div>
-                      <StatusBadge status={node.executed ? node.status : '???'} />
+                      <StatusBadge status={node.executed ? node.status : '未开始'} />
                     </header>
                     {artifacts.length === 0 ? (
-                      <div className="run-artifact-empty">?</div>
+                      <div className="run-artifact-empty">无</div>
                     ) : (
                       <div className="run-artifact-list">
                         {artifacts.map((artifact) => (
@@ -662,8 +662,8 @@ export function Runs() {
                             </div>
                             <p>{artifactPreview(artifact.content)}</p>
                             <footer>
-                              <span>{artifact.schemaValidation?.label ?? '??? Schema'}</span>
-                              <span>{artifact.score === null ? '???' : `${artifact.score} ?`}</span>
+                              <span>{artifact.schemaValidation?.label ?? '未校验 Schema'}</span>
+                              <span>{artifact.score === null ? '待评估' : `${artifact.score} 分`}</span>
                             </footer>
                           </div>
                         ))}
@@ -677,7 +677,7 @@ export function Runs() {
         </section>
 
         <div className="timeline">
-          <h3>???????</h3>
+          <h3>节点执行时间线</h3>
           {selected.nodes.map((node) => <TimelineItem node={node} key={node.id} />)}
         </div>
       </section>
@@ -688,20 +688,20 @@ export function Runs() {
             <header>
               <div>
                 <span className="eyebrow">DELETE RUN RECORD</span>
-                <h2 id="run-delete-title">??????</h2>
+                <h2 id="run-delete-title">删除运行记录</h2>
               </div>
             </header>
             <div className="run-delete-dialog-body">
-              <p>?????????????????????????????????</p>
+              <p>这只会删除运行中心里的这条运行实例，不会删除工作流编排里的工作流。</p>
               <strong>{deleteCandidate.name}</strong>
               {deleteError && <div className="table-state error compact" role="alert">{deleteError}</div>}
             </div>
             <footer className="run-delete-dialog-actions">
               <button className="button secondary" type="button" onClick={() => setDeleteCandidate(null)} disabled={isDeleting}>
-                ??
+                取消
               </button>
               <button className="button danger" type="button" onClick={() => void handleDeleteRun()} disabled={isDeleting}>
-                {isDeleting ? '???...' : 'Confirm delete run record'}
+                {isDeleting ? '删除中...' : 'Confirm delete run record'}
               </button>
             </footer>
           </section>
@@ -720,40 +720,40 @@ function EvaluationResultPanel({
   result: WorkflowEvaluationResult
   templateName: string
 }) {
-  const actualModel = result.model || node.model || '?????'
+  const actualModel = result.model || node.model || '未记录模型'
   return (
-    <section className="evaluation-result-panel" aria-label="????">
+    <section className="evaluation-result-panel" aria-label="评估结果">
       <header>
         <div>
           <span className="section-kicker">EVALUATION RESULT</span>
           <h3>{node.nodeName}</h3>
         </div>
         <span className={`evaluation-outcome ${result.passed ? 'passed' : 'not-passed'}`}>
-          {result.passed ? '????' : '?????'}
+          {result.passed ? '评估通过' : '评估未通过'}
         </span>
       </header>
       <div className="evaluation-result-overview">
         <div className="evaluation-total-score">
-          <span>??</span>
+          <span>总分</span>
           <strong>{result.totalScore}</strong>
         </div>
         <p>{result.overallReason}</p>
       </div>
       <dl className="evaluation-result-meta">
-        <div><dt>????</dt><dd>{templateName} ? {result.templateVersion}</dd></div>
+        <div><dt>模板版本</dt><dd>{templateName} · {result.templateVersion}</dd></div>
         <div><dt>Model Provider</dt><dd>{result.modelProviderName}</dd></div>
-        <div><dt>????</dt><dd>{actualModel}</dd></div>
+        <div><dt>实际模型</dt><dd>{actualModel}</dd></div>
       </dl>
       <div className="evaluation-result-dimensions">
         {result.dimensions.map((dimension) => (
           <article role="group" aria-label={dimension.dimensionName} key={dimension.dimensionId}>
             <header>
               <strong>{dimension.dimensionName}</strong>
-              <span>{dimension.score} ?</span>
+              <span>{dimension.score} 分</span>
             </header>
             <div>
-              <span>?? {dimension.weight}%</span>
-              <span>??? {dimension.weightedScore.toFixed(2)}</span>
+              <span>权重 {dimension.weight}%</span>
+              <span>加权分 {dimension.weightedScore.toFixed(2)}</span>
             </div>
             <p>{dimension.reason}</p>
           </article>
@@ -764,17 +764,17 @@ function EvaluationResultPanel({
 }
 
 function TimelineItem({ node }: { node: NodeExecution }) {
-  const state = node.status === '??' ? 'idle' : node.status === '???' ? 'running' : 'success'
+  const state = node.status === '失败' ? 'idle' : node.status === '运行中' ? 'running' : 'success'
   const evaluationResult = node.nodeType === 'evaluation' ? parseWorkflowEvaluationResult(node.output) : null
   const detail = evaluationResult?.overallReason
     ?? (node.nodeType === 'evaluation' && node.output
-      ? '????????' : node.output || node.error || node.input)
+      ? '评估结果格式无效' : node.output || node.error || node.input)
   return (
     <div className={`timeline-item ${state}`}>
       <div className="timeline-marker"><Play size={14} /></div>
       <div><strong>{node.nodeName}</strong><span>{detail}</span></div>
-      <small>{node.status} ? {formatDuration(node.durationMs)} ? ?? {node.attempts} ?</small>
-      {node.score !== null && <b>{node.score} ?</b>}
+      <small>{node.status} · {formatDuration(node.durationMs)} · 尝试 {node.attempts} 次</small>
+      {node.score !== null && <b>{node.score} 分</b>}
     </div>
   )
 }
