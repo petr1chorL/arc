@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Plus, RefreshCw, Save, Send, ShieldOff, SlidersHorizontal, X } from 'lucide-react'
+import { ArrowLeft, History, PencilLine, Plus, RefreshCw, Save, Send, ShieldOff, X } from 'lucide-react'
 import {
   createRubric,
   deactivateRubric,
@@ -10,6 +10,7 @@ import {
   type RubricInput,
 } from '../api/evaluations'
 import { listModelProviders } from '../api/modelProviders'
+import { useNavigate, useParams } from 'react-router-dom'
 import { useWorkspace } from '../auth/workspaceContextState'
 import type { ModelProvider, Rubric, RubricVersion } from '../types'
 
@@ -100,14 +101,20 @@ function statusLabel(status?: string) {
 }
 
 export function Evaluations() {
-  const { workspace } = useWorkspace()
+  const { workspace, workspacePath } = useWorkspace()
+  const navigate = useNavigate()
+  const { rubricId: routeRubricId } = useParams()
+  const isEditorRoute = Boolean(routeRubricId)
   const [rubrics, setRubrics] = useState<Rubric[]>([])
   const [providers, setProviders] = useState<ModelProvider[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
-  const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingRubric, setEditingRubric] = useState<Rubric | null>(null)
   const [versions, setVersions] = useState<RubricVersion[]>([])
+  const [activeEditorId, setActiveEditorId] = useState<string | null>(null)
+  const [versionDialogRubric, setVersionDialogRubric] = useState<Rubric | null>(null)
+  const [isLoadingVersions, setIsLoadingVersions] = useState(false)
+  const [versionLoadError, setVersionLoadError] = useState('')
   const [form, setForm] = useState<RubricInput>(() => emptyForm())
   const [isBusy, setIsBusy] = useState(false)
   const [formError, setFormError] = useState('')
@@ -138,36 +145,64 @@ export function Evaluations() {
     void loadAssets()
   }, [loadAssets])
 
-  function openCreate() {
+  useEffect(() => {
+    if (!routeRubricId || isLoading || activeEditorId === routeRubricId) return
+    setVersions([])
+    setFormError('')
+    setFeedback('')
+    setActiveEditorId(routeRubricId)
+    if (routeRubricId === 'new') {
+      setEditingRubric(null)
+      setForm(emptyForm())
+      return
+    }
+    const rubric = rubrics.find((item) => item.id === routeRubricId)
+    if (!rubric) {
+      setEditingRubric(null)
+      setForm(emptyForm())
+      setFormError('评估模板不存在或已被移除')
+      return
+    }
+    setEditingRubric(rubric)
+    setForm(formFromRubric(rubric))
+    void listRubricVersions(workspace.id, rubric.id)
+      .then(setVersions)
+      .catch((error) => setFormError(error instanceof Error ? error.message : '模板版本加载失败'))
+  }, [activeEditorId, isLoading, routeRubricId, rubrics, workspace.id])
+
+  function openEditor(rubricId: string) {
+    setActiveEditorId(null)
+    navigate(workspacePath(`evaluations/${rubricId}`))
+  }
+
+  function returnToList() {
+    setActiveEditorId(null)
     setEditingRubric(null)
     setVersions([])
     setForm(emptyForm())
     setFormError('')
     setFeedback('')
-    setIsDialogOpen(true)
+    navigate(workspacePath('evaluations'))
   }
 
-  async function openManage(rubric: Rubric) {
-    setEditingRubric(rubric)
-    setForm(formFromRubric(rubric))
+  async function openVersionDialog(rubric: Rubric) {
+    setVersionDialogRubric(rubric)
     setVersions([])
-    setFormError('')
-    setFeedback('')
-    setIsDialogOpen(true)
+    setVersionLoadError('')
+    setIsLoadingVersions(true)
     try {
       setVersions(await listRubricVersions(workspace.id, rubric.id))
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : '模板版本加载失败')
+      setVersionLoadError(error instanceof Error ? error.message : '模板版本加载失败')
+    } finally {
+      setIsLoadingVersions(false)
     }
   }
 
-  function closeDialog() {
-    setIsDialogOpen(false)
-    setEditingRubric(null)
+  function closeVersionDialog() {
+    setVersionDialogRubric(null)
     setVersions([])
-    setForm(emptyForm())
-    setFormError('')
-    setFeedback('')
+    setVersionLoadError('')
   }
 
   function updateDimension(index: number, patch: Partial<RubricInput['dimensions'][number]>) {
@@ -213,6 +248,10 @@ export function Evaluations() {
       setEditingRubric(saved)
       setForm(formFromRubric(saved))
       setFeedback(editingRubric ? '评估模板已保存' : '评估模板已创建')
+      if (!editingRubric) {
+        setActiveEditorId(saved.id)
+        navigate(workspacePath(`evaluations/${saved.id}`))
+      }
     } catch (error) {
       setFormError(error instanceof Error ? error.message : '评估模板保存失败')
     } finally {
@@ -258,73 +297,94 @@ export function Evaluations() {
 
   return (
     <div className="page-stack">
-      <section className="page-toolbar">
-        <div>
-          <p className="eyebrow">EVALUATION TEMPLATES</p>
-          <h2>评估模板</h2>
-          <p>管理可被工作流评估节点复用的评分标准、模型绑定和发布版本。</p>
-        </div>
-        <div className="toolbar-actions">
-          <button className="button secondary" type="button" onClick={() => void loadAssets()} disabled={isLoading}>
-            <RefreshCw size={16} />刷新
-          </button>
-          <button className="button primary" type="button" onClick={openCreate}>
-            <Plus size={16} />新建评估模板
-          </button>
-        </div>
-      </section>
+      {!isEditorRoute && (
+        <>
+          <section className="page-toolbar">
+            <div>
+              <p className="eyebrow">EVALUATION TEMPLATES</p>
+              <h2>评估模板</h2>
+              <p>管理可被工作流评估节点复用的评分标准、模型绑定和发布版本。</p>
+            </div>
+            <div className="toolbar-actions">
+              <button className="button secondary" type="button" onClick={() => void loadAssets()} disabled={isLoading}>
+                <RefreshCw size={16} />刷新
+              </button>
+              <button className="button primary" type="button" onClick={() => openEditor('new')}>
+                <Plus size={16} />新建评估模板
+              </button>
+            </div>
+          </section>
 
-      {isLoading && <section className="panel table-state">正在加载评估模板…</section>}
-      {loadError && <section className="panel inline-feedback error" role="alert">{loadError}</section>}
-      {!isLoading && !loadError && rubrics.length === 0 && (
-        <section className="panel table-state">
-          <h3>还没有评估模板</h3>
-          <p>创建第一个模板，发布后即可在工作流评估节点中选择。</p>
-          <button className="button primary" type="button" onClick={openCreate}>创建第一个模板</button>
-        </section>
-      )}
-      {!isLoading && !loadError && rubrics.length > 0 && (
-        <section className="rubric-grid" aria-label="评估模板库">
-          {rubrics.map((rubric) => {
-            const provider = providers.find((item) => item.id === rubric.modelProviderId)
-            const model = rubric.judgeType === 'llm'
-              ? `${provider?.name ?? '未绑定 Provider'} / ${rubric.judgeModel || '未配置模型'}`
-              : '确定性评分'
-            return (
-              <article className="rubric-card" aria-label={rubric.name} key={rubric.id}>
-                <header className="rubric-card-heading">
-                  <div className="rubric-card-title"><span className="eyebrow">{rubric.artifact}</span><h3>{rubric.name}</h3></div>
-                  <span className={`status-pill ${rubric.status === 'active' ? 'success' : rubric.status === 'disabled' ? 'danger' : ''}`}>
-                    {statusLabel(rubric.status)}
-                  </span>
-                </header>
-                <p className="rubric-card-description">{rubric.gate}</p>
-                <div className="candidate-tags rubric-card-meta">
-                  <span>{rubric.version}</span>
-                  <span>{rubric.dimensions.length} 个维度</span>
-                  <span>通过分 {rubric.passScore}</span>
-                </div>
-                <p className="rubric-card-model">{model}</p>
-                <footer>
-                  <button type="button" aria-label={`管理${rubric.name}`} onClick={() => void openManage(rubric)}>
-                    <SlidersHorizontal size={15} />管理模板
-                  </button>
-                </footer>
-              </article>
-            )
-          })}
-        </section>
+          {isLoading && <section className="panel table-state">正在加载评估模板…</section>}
+          {loadError && <section className="panel inline-feedback error" role="alert">{loadError}</section>}
+          {!isLoading && !loadError && rubrics.length === 0 && (
+            <section className="panel table-state">
+              <h3>还没有评估模板</h3>
+              <p>创建第一个模板，发布后即可在工作流评估节点中选择。</p>
+              <button className="button primary" type="button" onClick={() => openEditor('new')}>创建第一个模板</button>
+            </section>
+          )}
+          {!isLoading && !loadError && rubrics.length > 0 && (
+            <section className="evaluation-directory-panel" aria-label="评估模板列表">
+              <div className="evaluation-directory-list">
+                {rubrics.map((rubric) => {
+                  const provider = providers.find((item) => item.id === rubric.modelProviderId)
+                  const model = rubric.judgeType === 'llm'
+                    ? `${provider?.name ?? '未绑定 Provider'} / ${rubric.judgeModel || '未配置模型'}`
+                    : '确定性评分'
+                  return (
+                    <article className="evaluation-directory-row" aria-label={rubric.name} key={rubric.id}>
+                      <div className="evaluation-directory-main">
+                        <button type="button" onClick={() => openEditor(rubric.id)}>{rubric.name}</button>
+                      </div>
+                      <div className="evaluation-directory-meta" aria-label={`${rubric.name} 元信息`}>
+                        <span className="model"><small>使用模型</small><strong>{model}</strong></span>
+                        <span><small>版本</small><strong>{rubric.version}</strong></span>
+                        <span><small>状态</small><strong>{statusLabel(rubric.status)}</strong></span>
+                        <span><small>通过分</small><strong>{rubric.passScore}</strong></span>
+                        <span><small>维度</small><strong>{rubric.dimensions.length} 个维度</strong></span>
+                      </div>
+                      <div className="evaluation-directory-actions">
+                        <button
+                          aria-label={`查看版本记录 ${rubric.name}`}
+                          className="button ghost compact"
+                          type="button"
+                          onClick={() => void openVersionDialog(rubric)}
+                        >
+                          <History size={14} />版本记录
+                        </button>
+                        <button
+                          aria-label={`编辑 ${rubric.name}`}
+                          className="button primary compact"
+                          type="button"
+                          onClick={() => openEditor(rubric.id)}
+                        >
+                          <PencilLine size={14} />编辑
+                        </button>
+                      </div>
+                    </article>
+                  )
+                })}
+              </div>
+            </section>
+          )}
+        </>
       )}
 
-      {isDialogOpen && (
-        <div className="dialog-backdrop">
-          <section className="agent-dialog rubric-dialog" role="dialog" aria-modal="true" aria-labelledby="template-dialog-title">
+      {isEditorRoute && isLoading && <section className="panel table-state">正在加载评估模板…</section>}
+      {isEditorRoute && !isLoading && (
+        <>
+          <div className="rubric-editor-return">
+            <button className="button ghost" type="button" onClick={returnToList}>
+              <ArrowLeft size={15} />返回评估模板列表
+            </button>
+          </div>
+          <section className="panel rubric-editor-page" aria-labelledby="template-editor-title">
             <header>
               <div>
                 <p className="eyebrow">{editingRubric ? 'MANAGE TEMPLATE' : 'CREATE TEMPLATE'}</p>
-                <h2 id="template-dialog-title">{editingRubric ? '管理评估模板' : '新建评估模板'}</h2>
+                <h2 id="template-editor-title">{editingRubric ? '管理评估模板' : '新建评估模板'}</h2>
               </div>
-              <button className="icon-button quiet" type="button" title="关闭" onClick={closeDialog}><X size={18} /></button>
             </header>
             <form onSubmit={(event) => { event.preventDefault(); void saveTemplate() }}>
               <label className="dialog-field">模板名称
@@ -392,7 +452,7 @@ export function Evaluations() {
               {formError && <p className="dialog-error" role="alert">{formError}</p>}
               {feedback && !formError && <p className="inline-feedback" role="status">{feedback}</p>}
               <footer>
-                <button className="button secondary" type="button" onClick={closeDialog}>关闭</button>
+                <button className="button secondary" type="button" onClick={returnToList}>返回列表</button>
                 {editingRubric && (
                   <>
                     <button className="button secondary" type="button" disabled={isBusy || disabled} onClick={() => void publishCurrent()}><Send size={15} />发布版本</button>
@@ -409,6 +469,27 @@ export function Evaluations() {
                 {versions.map((version) => <p key={version.id}><strong>版本 {version.version}</strong> · {new Date(version.createdAt).toLocaleString('zh-CN')}</p>)}
               </div>
             )}
+          </section>
+        </>
+      )}
+
+      {versionDialogRubric && (
+        <div className="dialog-backdrop">
+          <section className="agent-dialog rubric-version-dialog" role="dialog" aria-modal="true" aria-labelledby="rubric-version-title">
+            <header>
+              <div>
+                <p className="eyebrow">IMMUTABLE SNAPSHOTS</p>
+                <h2 id="rubric-version-title">评估模板版本记录</h2>
+                <span className="dialog-subtitle">{versionDialogRubric.name}</span>
+              </div>
+              <button className="icon-button quiet" type="button" title="关闭" onClick={closeVersionDialog}><X size={18} /></button>
+            </header>
+            <div className="rubric-version-list standalone">
+              {isLoadingVersions && <p>正在加载版本记录</p>}
+              {!isLoadingVersions && versionLoadError && <p className="dialog-error" role="alert">{versionLoadError}</p>}
+              {!isLoadingVersions && !versionLoadError && versions.length === 0 && <p>暂无已发布版本</p>}
+              {versions.map((version) => <p key={version.id}><strong>版本 {version.version}</strong> · {new Date(version.createdAt).toLocaleString('zh-CN')}</p>)}
+            </div>
           </section>
         </div>
       )}

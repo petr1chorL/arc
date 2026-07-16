@@ -999,51 +999,123 @@ kbd {
 .rubric-card footer { border-color: var(--soft-line); color: var(--muted); }
 .rubric-card footer button { color: var(--teal); }
 
-.rubric-card {
+.evaluation-directory-panel {
   display: grid;
   gap: 12px;
-  min-width: 0;
+  padding: 14px;
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  box-shadow: var(--shadow-raised-md);
 }
 
-.rubric-card-heading {
-  display: grid !important;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
+.evaluation-directory-list {
+  display: grid;
+  gap: 8px;
+}
+
+.evaluation-directory-row {
+  display: grid;
+  grid-template-columns: minmax(210px, 0.75fr) minmax(500px, 1.8fr) auto;
   gap: 16px;
+  align-items: center;
+  min-height: 76px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(241, 246, 252, 0.78);
+  box-shadow: var(--shadow-in);
 }
 
-.rubric-card-title {
+.evaluation-directory-row:hover {
+  background: rgba(246, 250, 255, 0.94);
+  box-shadow: var(--shadow-raised-sm);
+}
+
+.evaluation-directory-main,
+.evaluation-directory-main button {
   min-width: 0;
 }
 
-.rubric-card h3 {
-  margin: 7px 0 0;
-  line-height: 1.45;
-  overflow-wrap: anywhere;
-}
-
-.rubric-card-description,
-.rubric-card-model {
-  line-height: 1.65;
-  overflow-wrap: anywhere;
-}
-
-.rubric-card-description {
-  font-size: 11px !important;
-}
-
-.rubric-card-model {
-  font-size: 10px !important;
-}
-
-.rubric-card-meta {
-  justify-content: flex-start;
-  max-width: none;
-}
-
-.rubric-card-heading .status-pill {
-  flex: 0 0 auto;
+.evaluation-directory-main button {
+  overflow: hidden;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 760;
+  text-align: left;
+  text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
+}
+
+.evaluation-directory-main button:hover {
+  color: #526b9d;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.evaluation-directory-meta {
+  display: grid;
+  grid-template-columns: minmax(180px, 2fr) repeat(4, minmax(68px, 0.7fr));
+  gap: 6px;
+  min-width: 0;
+}
+
+.evaluation-directory-meta span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 9px;
+  background: rgba(94, 124, 182, 0.1);
+}
+
+.evaluation-directory-meta small {
+  color: #7786a0;
+  font-size: 9px;
+  font-weight: 680;
+}
+
+.evaluation-directory-meta strong {
+  overflow: hidden;
+  color: #42536f;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.evaluation-directory-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.evaluation-directory-actions .button {
+  min-width: 88px;
+  white-space: nowrap;
+}
+
+@media (max-width: 1180px) {
+  .evaluation-directory-row {
+    grid-template-columns: minmax(180px, 0.7fr) minmax(0, 1.3fr);
+  }
+
+  .evaluation-directory-actions {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 760px) {
+  .evaluation-directory-row,
+  .evaluation-directory-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .evaluation-directory-actions {
+    justify-content: flex-start;
+  }
 }
 .evaluation-assets {
   padding: 22px;
@@ -2377,6 +2449,44 @@ kbd {
   margin-top: 4px;
 }
 
+.rubric-editor-return {
+  display: flex;
+  align-items: center;
+}
+
+.rubric-editor-page {
+  width: min(1100px, 100%);
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.rubric-editor-page > header {
+  margin-bottom: 20px;
+}
+
+.rubric-editor-page h2 {
+  margin: 4px 0 0;
+}
+
+.rubric-editor-page form {
+  display: grid;
+  gap: 15px;
+}
+
+.rubric-editor-page form > footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.rubric-version-dialog {
+  width: min(620px, 100%);
+}
+
+.rubric-version-list.standalone {
+  margin-top: 20px;
+}
 .rubric-dialog {
   width: min(960px, 100%);
 }
@@ -2435,12 +2545,10 @@ kbd {
 }
 
 @media (max-width: 560px) {
-  .rubric-card-heading,
   .rubric-dimension-row {
     grid-template-columns: 1fr;
   }
 
-  .rubric-card-heading .status-pill,
   .rubric-dimension-criteria,
   .rubric-dimension-weight,
   .rubric-dimension-row .button {
@@ -2448,7 +2556,6 @@ kbd {
     grid-row: auto;
   }
 
-  .rubric-card-heading .status-pill,
   .rubric-dimension-row .button {
     justify-self: start;
   }
