@@ -94,6 +94,7 @@ function App() {
                 <Route path="agents" element={<Agents />} />
                 <Route path="agents/:agentId" element={<AgentDetail />} />
                 <Route path="evaluations" element={<EvaluationRoute />} />
+                <Route path="evaluations/:rubricId" element={<EvaluationRoute />} />
                 <Route path="quality-operations" element={<QualityOperations />} />
                 <Route path="runs" element={<Runs />} />
                 <Route path="artifacts" element={<Artifacts />} />
