@@ -12,6 +12,23 @@ describe('readJson', () => {
       new ApiError(500, '服务暂时不可用，请稍后重试'),
     )
   })
+
+  it('formats structured validation errors without object coercion', async () => {
+    const response = new Response(JSON.stringify({
+      detail: [{
+        type: 'string_too_short',
+        loc: ['body', 'password'],
+        msg: 'String should have at least 12 characters',
+      }],
+    }), {
+      status: 422,
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    await expect(readJson(response)).rejects.toEqual(
+      new ApiError(422, 'password：String should have at least 12 characters'),
+    )
+  })
 })
 
 describe('apiFetch', () => {

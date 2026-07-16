@@ -1,5 +1,6 @@
 export type AgentStatus = '在线' | '调试中' | '已停用'
 export type RunStatus = '运行中' | '已完成' | '需介入' | '失败'
+  | '\u6062\u590d\u5931\u8d25'
 export type ReviewStatus = '待处理' | '处理中' | '已完成' | '已驳回'
 export type ModelProviderType = 'openai-compatible' | 'anthropic-compatible'
 export type WorkspaceRole = 'viewer' | 'operator' | 'builder' | 'workspace_admin'

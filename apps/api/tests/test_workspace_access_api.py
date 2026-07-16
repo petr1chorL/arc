@@ -395,9 +395,17 @@ def test_get_workspaces_returns_only_accessible_active_workspaces_and_org_admin_
     login_client(client, email=workspace_context["users"]["builder"])
     member_response = client.get("/api/workspaces")
     assert member_response.status_code == 200
-    assert [workspace["id"] for workspace in member_response.json()] == [
+    member_workspaces = member_response.json()
+    assert [workspace["id"] for workspace in member_workspaces] == [
         workspace_context["workspaces"]["a"],
     ]
+    assert member_workspaces[0]["role"] == "builder"
+
+    client.cookies.clear()
+    login_client(client, email=workspace_context["users"]["workspace_admin"])
+    workspace_admin_response = client.get("/api/workspaces")
+    assert workspace_admin_response.status_code == 200
+    assert workspace_admin_response.json()[0]["role"] == "workspace_admin"
 
     client.cookies.clear()
     login_admin(client)
@@ -407,6 +415,10 @@ def test_get_workspaces_returns_only_accessible_active_workspaces_and_org_admin_
         workspace_context["workspaces"]["a"],
         workspace_context["workspaces"]["b"],
     }
+    assert all(
+        workspace["role"] == "workspace_admin"
+        for workspace in admin_response.json()
+    )
 
 
 def test_post_workspaces_requires_org_admin_creates_workspace_and_membership_and_audit(

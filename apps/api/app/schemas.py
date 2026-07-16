@@ -78,6 +78,10 @@ class WorkspaceRead(BaseModel):
 WorkspaceRole = Literal["viewer", "operator", "builder", "workspace_admin"]
 
 
+class WorkspaceSummaryRead(WorkspaceRead):
+    role: WorkspaceRole
+
+
 class InvitationCreate(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     role: WorkspaceRole

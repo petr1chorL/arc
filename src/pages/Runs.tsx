@@ -602,6 +602,11 @@ export function Runs() {
               result={result}
               templateName={evaluationTemplateName(node, selectedWorkflowVersion, result)}
             />
+          ) : node.error || node.status === '失败' ? (
+            <div className="evaluation-result-error" role="alert" key={node.id}>
+              <strong>评估执行失败</strong>
+              <span>{node.error || `${node.nodeName} 执行失败，请查看运行日志后重试。`}</span>
+            </div>
           ) : (
             <div className="evaluation-result-error" role="alert" key={node.id}>
               <strong>评估结果格式无效</strong>
