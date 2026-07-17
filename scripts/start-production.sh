@@ -8,12 +8,19 @@ envsubst '${PORT}' < /etc/nginx/templates/default.conf.template > /etc/nginx/con
 uvicorn app.main:app --app-dir /app/api --host 127.0.0.1 --port 8000 &
 api_pid=$!
 
+worker_pid=""
 cleanup() {
   nginx -s quit >/dev/null 2>&1 || true
   if kill -0 "$api_pid" 2>/dev/null; then
     kill "$api_pid" 2>/dev/null || true
   fi
+  if [ -n "$worker_pid" ] && kill -0 "$worker_pid" 2>/dev/null; then
+    kill "$worker_pid" 2>/dev/null || true
+  fi
   wait "$api_pid" >/dev/null 2>&1 || true
+  if [ -n "$worker_pid" ]; then
+    wait "$worker_pid" >/dev/null 2>&1 || true
+  fi
 }
 
 on_signal() {
@@ -40,6 +47,18 @@ until python -c "import json, urllib.request; payload=json.load(urllib.request.u
   fi
   sleep 1
 done
+python -m app.worker --worker-id production-worker --poll-interval 2 &
+worker_pid=$!
 
 nginx
-wait "$api_pid"
+while kill -0 "$api_pid" 2>/dev/null && kill -0 "$worker_pid" 2>/dev/null; do
+  sleep 2
+done
+if ! kill -0 "$api_pid" 2>/dev/null; then
+  wait "$api_pid" || true
+  echo "FastAPI exited unexpectedly" >&2
+else
+  wait "$worker_pid" || true
+  echo "Execution worker exited unexpectedly" >&2
+fi
+exit 1

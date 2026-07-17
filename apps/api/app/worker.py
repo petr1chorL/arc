@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.execution import ExecutionService
 from app.model_gateway import ModelGateway
 from app.models import WorkspaceRecord
+from app.scheduling import ScheduleService
 
 
 class ExecutionQueueWorker:
@@ -16,22 +17,40 @@ class ExecutionQueueWorker:
         *,
         session_factory: sessionmaker[Session],
         execution_service: ExecutionService,
-        workspace_ids: Iterable[str],
+        workspace_ids: Iterable[str] | None,
+        schedule_service: ScheduleService | None = None,
         worker_id: str = "execution-worker",
         poll_interval_seconds: float = 2.0,
         sleeper: Callable[[float], None] = sleep,
     ):
         self.session_factory = session_factory
         self.execution_service = execution_service
-        self.workspace_ids = list(workspace_ids)
+        self.workspace_ids = list(workspace_ids) if workspace_ids is not None else None
+        self.schedule_service = schedule_service
         self.worker_id = worker_id
         self.poll_interval_seconds = poll_interval_seconds
         self.sleeper = sleeper
 
     def process_once(self) -> int:
         processed = 0
-        for workspace_id in self.workspace_ids:
+        workspace_ids = self.workspace_ids
+        if workspace_ids is None:
             with self.session_factory() as session:
+                workspace_ids = list(
+                    session.scalars(
+                        WorkspaceRecord.__table__.select()
+                        .with_only_columns(WorkspaceRecord.__table__.c.id)
+                        .where(WorkspaceRecord.__table__.c.status == "active"),
+                    ),
+                )
+        for workspace_id in workspace_ids:
+            with self.session_factory() as session:
+                if self.schedule_service is not None:
+                    self.schedule_service.dispatch_due(
+                        session=session,
+                        workspace_id=workspace_id,
+                        execution_service=self.execution_service,
+                    )
                 run = self.execution_service.process_next_execution_job(
                     session=session,
                     workspace_id=workspace_id,
@@ -69,18 +88,11 @@ def create_execution_queue_worker(
 
     app = create_app(database_url, model_gateway=model_gateway)
     session_factory = app.state.session_factory
-    with session_factory() as session:
-        workspace_ids = list(
-            session.scalars(
-                WorkspaceRecord.__table__.select()
-                .with_only_columns(WorkspaceRecord.__table__.c.id)
-                .where(WorkspaceRecord.__table__.c.status == "active"),
-            ),
-        )
     return ExecutionQueueWorker(
         session_factory=session_factory,
         execution_service=app.state.execution_service,
-        workspace_ids=workspace_ids,
+        workspace_ids=None,
+        schedule_service=app.state.schedule_service,
         worker_id=worker_id,
         poll_interval_seconds=poll_interval_seconds,
     )

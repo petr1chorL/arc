@@ -321,6 +321,54 @@ class WorkflowVersionRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class WorkflowScheduleRecord(Base):
+    __tablename__ = "workflow_schedules"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "name",
+            name="uq_workflow_schedule_workspace_name",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str] = mapped_column(String(36), index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    workflow_id: Mapped[str] = mapped_column(String(36), index=True)
+    workflow_version_id: Mapped[str] = mapped_column(String(36), index=True)
+    workflow_version: Mapped[str] = mapped_column(String(20))
+    cron_expression: Mapped[str] = mapped_column(String(120))
+    timezone: Mapped[str] = mapped_column(String(120), default="UTC")
+    input_text: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="active", index=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    last_scheduled_for: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_run_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    created_by: Mapped[str] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class ScheduleDispatchRecord(Base):
+    __tablename__ = "schedule_dispatches"
+    __table_args__ = (
+        UniqueConstraint(
+            "schedule_id",
+            "scheduled_for",
+            name="uq_schedule_dispatch_scheduled_for",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str] = mapped_column(String(36), index=True)
+    schedule_id: Mapped[str] = mapped_column(String(36), index=True)
+    scheduled_for: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    status: Mapped[str] = mapped_column(String(20), index=True)
+    run_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    reason: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class WorkflowRunRecord(Base):
     __tablename__ = "workflow_runs"
 
