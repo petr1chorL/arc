@@ -1,8 +1,8 @@
 # ARC.ONE 当前版本实现说明
 
-> 当前版本：工作流评估节点与生产启动可用性恢复
+> 当前版本：V1 Lite 调度中心、工作流评估节点与生产启动可用性恢复
 > 上一阶段：工作流评估模板节点
-> 更新时间：2026-07-15
+> 更新时间：2026-07-18
 
 > 阅读边界：本文保存详细实现说明和连续版本记录，因此包含历史验证数量与旧阶段描述。
 > 项目级当前状态、能力边界、最新验证和优先级以
@@ -13,6 +13,10 @@
 当前版本是 React 单页应用与 FastAPI 服务组成的可运行原型。
 
 Agent 资产页和工作流设计器已经接入 SQLAlchemy。Agent 支持草稿编辑、版本发布、停用和测试运行；工作流支持草稿持久化、DAG 校验、Agent 版本引用、不可变发布和按拓扑顺序运行。
+调度中心已提供第一版定时运行闭环：Workspace 管理员可为不可变的已发布 WorkflowVersion 创建五段 Cron 计划，配置 IANA 时区和固定 JSON 输入，并执行编辑、暂停、恢复与立即触发。常驻执行 Worker 会扫描到期计划、写入带唯一 `(schedule_id, scheduled_for)` 约束的派发记录，再复用异步执行队列创建 Run；漏过的周期不补跑，同一计划的上一条 Run 未结束时跳过本次派发。页面展示下一次执行、最近运行状态和最近 50 条派发记录。
+
+当前调度能力是单工作流时间触发，不是 DolphinScheduler 的完整替代：尚不包含跨工作流依赖、补数、业务日历、Worker 分组、资源配额、复杂告警、高可用调度器或分布式数据库锁。生产根容器会同时守护 FastAPI 与执行 Worker，任一进程退出都会终止容器并交给平台重启。
+
 
 工作流草稿已新增工作流级输入输出契约：后端持久化 `inputSchema` 和 `outputSchema`，前端编排页可编辑两段 JSON Schema 文本，保存前会校验它们必须是合法 JSON 对象。发布工作流版本时，这两段 Schema 会进入不可变 WorkflowVersion 快照。运行已发布工作流时，前端会基于简单对象型 `inputSchema` 生成第一版结构化运行输入表单，并在提交时序列化为现有运行 API 接受的 JSON 字符串；空 Schema 或复杂 Schema 继续回退到原来的自由文本输入。
 
@@ -617,7 +621,7 @@ POST /api/workspaces/{workspace_id}/evaluations/remediation-tasks/{task_id}/rete
 
 - 更深层的 LLM Judge 一致性评估和成本统计。
 - Golden Set 样本导入、导出、版本对比和停用。
-- 定时调度、常驻后台 worker、Run 取消、Run 重试和异步回归任务。
+- 跨工作流依赖、调度补数、业务日历、Worker 分组、资源配额、复杂告警和异步回归任务。
 - 真正的数据库行级并发锁、失败重试退避、独立死信队列运营详情页和手动重投操作。
 - 评价一致性校准。
 - 修复任务的负责人、截止时间、评论、通知、自动复测和复测失败自动重开。
@@ -929,7 +933,7 @@ TypeScript 编译检查
 - SQLAlchemy。
 - SQLite，支持通过 `DATABASE_URL` 切换 PostgreSQL。
 
-当前已引入轻量 `execution_jobs` 队列骨架、失败指数退避重新入队、`dead_letter` 终态、worker 租约、heartbeat、观测页队列运营卡片、队列任务详情 API、死信手动重新入队、主动取消、队列运营审计、常驻 worker 代码骨架、worker CLI 入口和 Compose worker 服务定义，但仍未引入操作系统级 worker 服务、真正的数据库行级并发锁、独立队列运营详情页和外部通知 SDK。
+当前已引入轻量 `execution_jobs` 队列骨架、失败指数退避重新入队、`dead_letter` 终态、worker 租约、heartbeat、观测页队列运营卡片、队列任务详情 API、死信手动重新入队、主动取消、队列运营审计、Cron 调度、常驻 worker CLI、Compose worker 服务定义与生产根容器 Worker 守护，但仍未引入高可用调度器、真正的数据库行级并发锁、独立队列运营详情页和外部通知 SDK。
 
 ## 17. 当前版本验证记录
 

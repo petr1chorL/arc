@@ -19,6 +19,7 @@ import { Observability } from './pages/Observability'
 import { QualityOperations } from './pages/QualityOperations'
 import { Reviews } from './pages/Reviews'
 import { Runs } from './pages/Runs'
+import { Schedules } from './pages/Schedules'
 import { Workflows } from './pages/Workflows'
 
 function WorkspaceLandingRedirect() {
@@ -77,6 +78,7 @@ function App() {
           <Route path="/activate/:token" element={<ActivateInvitation />} />
           <Route path="/" element={<WorkspaceLandingRedirect />} />
           <Route path="/workflows" element={<LegacyWorkspaceRedirect suffix="workflows" />} />
+          <Route path="/schedules" element={<LegacyWorkspaceRedirect suffix="schedules" />} />
           <Route path="/agents" element={<LegacyWorkspaceRedirect suffix="agents" />} />
           <Route path="/agents/:agentId" element={<LegacyWorkspaceRedirect />} />
           <Route path="/evaluations" element={<LegacyWorkspaceRedirect suffix="evaluations" />} />
@@ -91,6 +93,7 @@ function App() {
                 <Route index element={<Dashboard />} />
                 <Route path="workflows" element={<Workflows />} />
                 <Route path="workflows/:workflowId" element={<Workflows />} />
+                <Route path="schedules" element={<Schedules />} />
                 <Route path="agents" element={<Agents />} />
                 <Route path="agents/:agentId" element={<AgentDetail />} />
                 <Route path="evaluations" element={<EvaluationRoute />} />

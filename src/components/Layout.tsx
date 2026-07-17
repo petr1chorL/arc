@@ -2,6 +2,7 @@ import {
   Activity,
   Blocks,
   Bot,
+  CalendarClock,
   ChevronDown,
   CircleHelp,
   ClipboardCheck,
@@ -24,6 +25,7 @@ import { useWorkspace } from '../auth/workspaceContextState'
 const navigation = [
   { path: '', label: '运营总览', icon: Gauge },
   { path: 'workflows', label: '工作流编排', icon: Network },
+  { path: 'schedules', label: '调度中心', icon: CalendarClock },
   { path: 'agents', label: 'Agent 资产', icon: Bot },
   { path: 'evaluations', label: '评估中心', icon: ClipboardCheck },
   { path: 'runs', label: '运行中心', icon: Activity },
@@ -33,6 +35,7 @@ const navigation = [
 const titles: Record<string, { title: string; eyebrow: string }> = {
   '': { title: '运营总览', eyebrow: 'CONTROL CENTER' },
   '/workflows': { title: '工作流编排', eyebrow: 'ORCHESTRATION' },
+  '/schedules': { title: '调度中心', eyebrow: 'WORKFLOW SCHEDULER' },
   '/agents': { title: 'Agent 资产', eyebrow: 'AGENT REGISTRY' },
   '/evaluations': { title: '评估中心', eyebrow: 'EVALUATION OPS' },
   '/quality-operations': { title: '质量运营', eyebrow: 'QUALITY OPERATIONS' },

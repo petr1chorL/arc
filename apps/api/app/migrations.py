@@ -22,6 +22,8 @@ WORKSPACE_TABLES = (
     "agent_versions",
     "workflows",
     "workflow_versions",
+    "workflow_schedules",
+    "schedule_dispatches",
     "workflow_runs",
     "execution_jobs",
     "node_runs",

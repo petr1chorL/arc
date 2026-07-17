@@ -9,7 +9,7 @@ from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Query, Req
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import delete, func, or_, select
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -56,6 +56,7 @@ from app.models import (
     RemediationTaskRecord,
     ReviewerRecord,
     ResumeRequestRecord,
+    ScheduleDispatchRecord,
     ReviewGroupRecord,
     ReviewDecisionRecord,
     RubricRecord,
@@ -65,6 +66,7 @@ from app.models import (
     WorkspaceRecord,
     WorkflowRecord,
     WorkflowRunRecord,
+    WorkflowScheduleRecord,
     WorkflowVersionRecord,
     utc_now,
 )
@@ -76,6 +78,7 @@ from app.notification_dispatcher import (
     NotificationOutboxConflict,
     NotificationOutboxDispatchService,
 )
+from app.scheduling import ScheduleService, ScheduleValidationError
 from app.tool_runtime import HttpToolGateway, HttpxToolGateway, McpToolGateway, ToolRuntimeExecutor
 from app.routers.auth import (
     SessionAuthenticationError,
@@ -167,6 +170,7 @@ from app.schemas import (
     RunBatchRerunRequest,
     RunCreate,
     RunOperationHistoryEventRead,
+    ScheduleDispatchRead,
     RunRead,
     RunRerunRequest,
     ToolSkillAssetAuditEventRead,
@@ -184,6 +188,9 @@ from app.schemas import (
     WorkflowCreate,
     WorkflowPublish,
     WorkflowRead,
+    WorkflowScheduleCreate,
+    WorkflowScheduleRead,
+    WorkflowScheduleUpdate,
     WorkflowUpdate,
 )
 from app.security import SecurityService
@@ -322,6 +329,7 @@ def create_app(
         tool_runtime=tool_runtime,
         agent_api_gateway=resolved_agent_api_gateway,
     )
+    schedule_service = ScheduleService()
     workflow_resume_service = WorkflowResumeService(
         execution_service,
         human_task_service,
@@ -356,6 +364,7 @@ def create_app(
     app.state.authentication_service = authentication_service
     app.state.evaluation_service = evaluation_service
     app.state.execution_service = execution_service
+    app.state.schedule_service = schedule_service
     app.state.notification_dispatch_service = notification_dispatch_service
     app.include_router(
         create_auth_router(
@@ -3019,6 +3028,314 @@ def create_app(
         session.commit()
         session.refresh(published)
         return published
+
+    def find_schedule(
+        workspace_id: str,
+        schedule_id: str,
+        session: Session,
+    ) -> WorkflowScheduleRecord:
+        schedule = session.scalar(
+            select(WorkflowScheduleRecord).where(
+                WorkflowScheduleRecord.id == schedule_id,
+                WorkflowScheduleRecord.workspace_id == workspace_id,
+            ),
+        )
+        if schedule is None:
+            raise HTTPException(status_code=404, detail="schedule not found")
+        return schedule
+
+    def schedule_read(
+        session: Session,
+        schedule: WorkflowScheduleRecord,
+    ) -> WorkflowScheduleRead:
+        version = session.scalar(
+            select(WorkflowVersionRecord).where(
+                WorkflowVersionRecord.id == schedule.workflow_version_id,
+                WorkflowVersionRecord.workspace_id == schedule.workspace_id,
+            ),
+        )
+        run = (
+            session.scalar(
+                select(WorkflowRunRecord).where(
+                    WorkflowRunRecord.id == schedule.last_run_id,
+                    WorkflowRunRecord.workspace_id == schedule.workspace_id,
+                ),
+            )
+            if schedule.last_run_id
+            else None
+        )
+        workflow_name = (
+            str(version.snapshot.get("name") or "")
+            if version is not None and isinstance(version.snapshot, dict)
+            else ""
+        )
+        return WorkflowScheduleRead.model_validate({
+            "id": schedule.id,
+            "name": schedule.name,
+            "workflow_id": schedule.workflow_id,
+            "workflow_name": workflow_name,
+            "workflow_version_id": schedule.workflow_version_id,
+            "workflow_version": schedule.workflow_version,
+            "cron_expression": schedule.cron_expression,
+            "timezone": schedule.timezone,
+            "input_text": schedule.input_text,
+            "status": schedule.status,
+            "next_run_at": schedule.next_run_at,
+            "last_scheduled_for": schedule.last_scheduled_for,
+            "last_run_id": schedule.last_run_id,
+            "last_run_status": run.status if run is not None else None,
+            "created_by": schedule.created_by,
+            "created_at": schedule.created_at,
+            "updated_at": schedule.updated_at,
+        })
+
+    def dispatch_read(
+        session: Session,
+        dispatch: ScheduleDispatchRecord,
+    ) -> ScheduleDispatchRead:
+        run = (
+            session.scalar(
+                select(WorkflowRunRecord).where(
+                    WorkflowRunRecord.id == dispatch.run_id,
+                    WorkflowRunRecord.workspace_id == dispatch.workspace_id,
+                ),
+            )
+            if dispatch.run_id
+            else None
+        )
+        return ScheduleDispatchRead.model_validate({
+            "id": dispatch.id,
+            "schedule_id": dispatch.schedule_id,
+            "scheduled_for": dispatch.scheduled_for,
+            "status": dispatch.status,
+            "run_id": dispatch.run_id,
+            "run_status": run.status if run is not None else None,
+            "reason": dispatch.reason,
+            "created_at": dispatch.created_at,
+        })
+
+    @router.get("/schedules", response_model=list[WorkflowScheduleRead])
+    def list_schedules(
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> list[WorkflowScheduleRead]:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "run.read",
+            action="schedule.list",
+            target_type="workflow_schedule",
+            target_id=None,
+            request=request,
+        )
+        records = session.scalars(
+            select(WorkflowScheduleRecord)
+            .where(WorkflowScheduleRecord.workspace_id == context.workspace.id)
+            .order_by(WorkflowScheduleRecord.created_at.desc()),
+        )
+        return [schedule_read(session, record) for record in records]
+
+    @router.post(
+        "/schedules",
+        response_model=WorkflowScheduleRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_schedule(
+        payload: WorkflowScheduleCreate,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> WorkflowScheduleRead:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "workspace.manage",
+            action="schedule.create",
+            target_type="workflow_schedule",
+            target_id=None,
+            request=request,
+        )
+        try:
+            record = schedule_service.create(
+                session,
+                workspace_id=context.workspace.id,
+                name=payload.name,
+                workflow_id=payload.workflow_id,
+                workflow_version=payload.workflow_version,
+                cron_expression=payload.cron_expression,
+                timezone_name=payload.timezone,
+                input_text=payload.input_text,
+                status=payload.status,
+                created_by=context.user.id,
+            )
+        except ScheduleValidationError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        except IntegrityError as error:
+            session.rollback()
+            raise HTTPException(status_code=409, detail="schedule name already exists") from error
+        record_success(
+            session,
+            context,
+            action="schedule.create",
+            target_type="workflow_schedule",
+            target_id=record.id,
+            request=request,
+        )
+        session.commit()
+        return schedule_read(session, record)
+
+    @router.patch("/schedules/{schedule_id}", response_model=WorkflowScheduleRead)
+    def update_schedule(
+        schedule_id: str,
+        payload: WorkflowScheduleUpdate,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> WorkflowScheduleRead:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "workspace.manage",
+            action="schedule.update",
+            target_type="workflow_schedule",
+            target_id=schedule_id,
+            request=request,
+        )
+        record = find_schedule(context.workspace.id, schedule_id, session)
+        changes = payload.model_dump(exclude_unset=True)
+        try:
+            record = schedule_service.update(session, record, changes=changes)
+        except ScheduleValidationError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        except IntegrityError as error:
+            session.rollback()
+            raise HTTPException(status_code=409, detail="schedule name already exists") from error
+        record_success(
+            session,
+            context,
+            action="schedule.update",
+            target_type="workflow_schedule",
+            target_id=record.id,
+            request=request,
+        )
+        session.commit()
+        return schedule_read(session, record)
+
+    def change_schedule_status(
+        schedule_id: str,
+        next_status: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session],
+    ) -> WorkflowScheduleRead:
+        context, session = context_bundle
+        action = f"schedule.{next_status}"
+        authorization_service.require_capability(
+            session,
+            context,
+            "workspace.manage",
+            action=action,
+            target_type="workflow_schedule",
+            target_id=schedule_id,
+            request=request,
+        )
+        record = find_schedule(context.workspace.id, schedule_id, session)
+        record = schedule_service.set_status(session, record, next_status)
+        record_success(
+            session,
+            context,
+            action=action,
+            target_type="workflow_schedule",
+            target_id=record.id,
+            request=request,
+        )
+        session.commit()
+        return schedule_read(session, record)
+
+    @router.post("/schedules/{schedule_id}/pause", response_model=WorkflowScheduleRead)
+    def pause_schedule(
+        schedule_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> WorkflowScheduleRead:
+        return change_schedule_status(schedule_id, "paused", request, context_bundle)
+
+    @router.post("/schedules/{schedule_id}/resume", response_model=WorkflowScheduleRead)
+    def resume_schedule(
+        schedule_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> WorkflowScheduleRead:
+        return change_schedule_status(schedule_id, "active", request, context_bundle)
+
+    @router.post(
+        "/schedules/{schedule_id}/trigger",
+        response_model=ScheduleDispatchRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def trigger_schedule(
+        schedule_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(write_workspace_context),
+    ) -> ScheduleDispatchRead:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "workspace.manage",
+            action="schedule.trigger",
+            target_type="workflow_schedule",
+            target_id=schedule_id,
+            request=request,
+        )
+        record = find_schedule(context.workspace.id, schedule_id, session)
+        dispatch = schedule_service.trigger_now(
+            session=session,
+            schedule=record,
+            execution_service=execution_service,
+        )
+        record_success(
+            session,
+            context,
+            action="schedule.trigger",
+            target_type="workflow_schedule",
+            target_id=record.id,
+            request=request,
+            metadata={"dispatchId": dispatch.id, "runId": dispatch.run_id},
+        )
+        session.commit()
+        return dispatch_read(session, dispatch)
+
+    @router.get(
+        "/schedules/{schedule_id}/dispatches",
+        response_model=list[ScheduleDispatchRead],
+    )
+    def list_schedule_dispatches(
+        schedule_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> list[ScheduleDispatchRead]:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "run.read",
+            action="schedule.dispatch.list",
+            target_type="workflow_schedule",
+            target_id=schedule_id,
+            request=request,
+        )
+        find_schedule(context.workspace.id, schedule_id, session)
+        dispatches = session.scalars(
+            select(ScheduleDispatchRecord)
+            .where(
+                ScheduleDispatchRecord.workspace_id == context.workspace.id,
+                ScheduleDispatchRecord.schedule_id == schedule_id,
+            )
+            .order_by(ScheduleDispatchRecord.created_at.desc())
+            .limit(50),
+        )
+        return [dispatch_read(session, dispatch) for dispatch in dispatches]
 
     @router.post(
         "/workflows/{workflow_id}/runs",

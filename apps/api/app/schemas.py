@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 from typing import Literal
 
@@ -774,6 +775,101 @@ class WorkflowRead(BaseModel):
     updated_at: datetime = Field(serialization_alias="updatedAt")
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+def require_schedule_json(value: str | None) -> str | None:
+    if value is None:
+        return value
+    try:
+        json.loads(value)
+    except (json.JSONDecodeError, TypeError) as error:
+        raise ValueError("运行参数必须是合法 JSON") from error
+    return value
+
+
+class WorkflowScheduleCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    workflow_id: str = Field(alias="workflowId", min_length=1, max_length=36)
+    workflow_version: str = Field(alias="workflowVersion", min_length=1, max_length=20)
+    cron_expression: str = Field(alias="cronExpression", min_length=1, max_length=120)
+    timezone: str = Field(default="UTC", min_length=1, max_length=120)
+    input_text: str = Field(default="{}", alias="input", max_length=50000)
+    status: Literal["active", "paused"] = "active"
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    @field_validator("name", "workflow_id", "workflow_version", "cron_expression", "timezone")
+    @classmethod
+    def reject_blank_schedule_values(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("schedule field must not be blank")
+        return normalized
+
+    @field_validator("input_text")
+    @classmethod
+    def validate_input_json(cls, value: str) -> str:
+        return require_schedule_json(value)
+
+
+class WorkflowScheduleUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    workflow_id: str | None = Field(default=None, alias="workflowId", min_length=1, max_length=36)
+    workflow_version: str | None = Field(
+        default=None,
+        alias="workflowVersion",
+        min_length=1,
+        max_length=20,
+    )
+    cron_expression: str | None = Field(
+        default=None,
+        alias="cronExpression",
+        min_length=1,
+        max_length=120,
+    )
+    timezone: str | None = Field(default=None, min_length=1, max_length=120)
+    input_text: str | None = Field(default=None, alias="input", max_length=50000)
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    @field_validator("input_text")
+    @classmethod
+    def validate_input_json(cls, value: str | None) -> str | None:
+        return require_schedule_json(value)
+
+
+class WorkflowScheduleRead(BaseModel):
+    id: str
+    name: str
+    workflow_id: str = Field(serialization_alias="workflowId")
+    workflow_name: str = Field(serialization_alias="workflowName")
+    workflow_version_id: str = Field(serialization_alias="workflowVersionId")
+    workflow_version: str = Field(serialization_alias="workflowVersion")
+    cron_expression: str = Field(serialization_alias="cronExpression")
+    timezone: str
+    input_text: str = Field(serialization_alias="input")
+    status: str
+    next_run_at: datetime | None = Field(serialization_alias="nextRunAt")
+    last_scheduled_for: datetime | None = Field(serialization_alias="lastScheduledFor")
+    last_run_id: str | None = Field(serialization_alias="lastRunId")
+    last_run_status: str | None = Field(serialization_alias="lastRunStatus")
+    created_by: str = Field(serialization_alias="createdBy")
+    created_at: datetime = Field(serialization_alias="createdAt")
+    updated_at: datetime = Field(serialization_alias="updatedAt")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ScheduleDispatchRead(BaseModel):
+    id: str
+    schedule_id: str = Field(serialization_alias="scheduleId")
+    scheduled_for: datetime = Field(serialization_alias="scheduledFor")
+    status: str
+    run_id: str | None = Field(serialization_alias="runId")
+    run_status: str | None = Field(serialization_alias="runStatus")
+    reason: str
+    created_at: datetime = Field(serialization_alias="createdAt")
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ValidationResult(BaseModel):
