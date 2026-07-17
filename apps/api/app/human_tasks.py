@@ -585,7 +585,19 @@ class HumanTaskService:
             if task.escalated_at is None:
                 group = self.workspace_group(session, task.workspace_id, task.escalation_group_id)
                 if group is None:
-                    raise HumanTaskValidation("鍗囩骇瀹℃牳缁勪笉瀛樺湪")
+                    task.sla_status = "宸查€炬湡"
+                    if task.overdue_recorded_at is None:
+                        task.overdue_recorded_at = now
+                        self.audit(
+                            session,
+                            task=task,
+                            event_type="sla_overdue",
+                            actor_id="system",
+                            before_status=before,
+                            payload={"reason": "missing_escalation_group"},
+                        )
+                    task.updated_at = now
+                    return task
                 task.assignee_group_id = group.id
                 task.assignee_reviewer_id = None
                 task.participant_snapshot = self.group_reviewer_ids(
