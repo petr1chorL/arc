@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from api_test_support import create_authenticated_client, csrf_headers, workspace_url
-from app.models import ReviewerRecord, UserRecord, WorkspaceMembershipRecord
+from app.models import HumanTaskRecord, ReviewerRecord, UserRecord, WorkspaceMembershipRecord
 from app.security import SecurityService
 from test_human_workflow_execution import (
     FakeGateway,
@@ -460,6 +460,50 @@ def test_sla_refresh_reminds_overdues_and_escalates_once(tmp_path):
     assert event_types.count("sla_escalated") == 1
     assert notification_types.count("due_soon") == 1
     assert notification_types.count("escalated") == 1
+
+
+def test_sla_refresh_keeps_queue_available_when_escalation_group_is_missing(tmp_path):
+    clock = MutableClock(datetime(2026, 6, 25, 1, 0, tzinfo=timezone.utc))
+    gateway = FakeGateway([
+        FakeModelResult("SLA fallback draft is waiting for attention."),
+    ])
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'sla-missing-escalation-group.db'}",
+        model_gateway=gateway,
+        human_task_clock=clock,
+    )
+    workflow = create_human_workflow(
+        client,
+        workspace_id,
+        {
+            "dueMinutes": 60,
+            "escalationMinutes": 120,
+        },
+    )
+    client.post(
+        workspace_url(workspace_id, f"/workflows/{workflow['id']}/runs"),
+        json={"input": "Exercise missing escalation group fallback"},
+        headers=csrf_headers(client),
+    )
+    task = client.get(workspace_url(workspace_id, "/human-tasks")).json()[0]
+    with client.app.state.session_factory() as session:
+        task_record = session.get(HumanTaskRecord, task["id"])
+        assert task_record is not None
+        task_record.escalation_group_id = "missing-escalation-group"
+        session.commit()
+
+    clock.advance(minutes=121)
+    response = client.get(workspace_url(workspace_id, "/human-tasks"))
+
+    assert response.status_code == 200
+    fallback_task = response.json()[0]
+    assert fallback_task["slaStatus"] == "宸查€炬湡"
+    assert fallback_task["assigneeGroupId"] == task["assigneeGroupId"]
+    detail = client.get(
+        workspace_url(workspace_id, f"/human-tasks/{task['id']}"),
+    ).json()
+    assert [event["eventType"] for event in detail["auditEvents"]].count("sla_overdue") == 1
+    assert [item["eventType"] for item in detail["notifications"]].count("escalated") == 0
 
 
 def test_only_human_modification_creates_feedback_candidate(tmp_path):
