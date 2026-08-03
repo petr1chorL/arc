@@ -229,6 +229,8 @@ class ScheduleService:
         scheduled_for: datetime,
         execution_service: ExecutionService,
     ) -> ScheduleDispatchRecord | None:
+        workspace_id = schedule.workspace_id
+        schedule_id = schedule.id
         dispatch = ScheduleDispatchRecord(
             workspace_id=schedule.workspace_id,
             schedule_id=schedule.id,
@@ -242,6 +244,7 @@ class ScheduleService:
         except IntegrityError:
             session.expire_all()
             return None
+        dispatch_id = dispatch.id
 
         if schedule.last_run_id:
             previous_run = session.scalar(
@@ -266,16 +269,32 @@ class ScheduleService:
                 workflow_id=schedule.workflow_id,
                 workflow_version=schedule.workflow_version,
                 input_text=schedule.input_text,
-                created_by=f"schedule:{schedule.id}",
+                created_by=schedule_id,
             )
         except Exception as error:
-            dispatch.status = "failed"
-            dispatch.reason = str(error)[:1000]
-            schedule.last_scheduled_for = scheduled_for
-            schedule.updated_at = utc_now()
+            error_message = str(error)[:1000]
+            session.rollback()
+            failed_dispatch = session.get(ScheduleDispatchRecord, dispatch_id)
+            if failed_dispatch is None:
+                failed_dispatch = ScheduleDispatchRecord(
+                    id=dispatch_id,
+                    workspace_id=workspace_id,
+                    schedule_id=schedule_id,
+                    scheduled_for=scheduled_for,
+                    status="failed",
+                    reason=error_message,
+                )
+            else:
+                failed_dispatch.status = "failed"
+                failed_dispatch.reason = error_message
+            failed_schedule = session.get(WorkflowScheduleRecord, schedule_id)
+            if failed_schedule is not None:
+                failed_schedule.last_scheduled_for = scheduled_for
+                failed_schedule.updated_at = utc_now()
+            session.add(failed_dispatch)
             session.commit()
-            session.refresh(dispatch)
-            return dispatch
+            session.refresh(failed_dispatch)
+            return failed_dispatch
 
         dispatch.status = "enqueued"
         dispatch.run_id = run.id

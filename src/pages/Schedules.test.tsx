@@ -164,4 +164,52 @@ describe('Schedules page', () => {
     await user.click(screen.getByRole('button', { name: '立即执行 工作日报' }))
     expect(await screen.findByText('已创建运行 run-1')).toBeInTheDocument()
   })
+
+  it('replaces a stale success notice when a later trigger fails', async () => {
+    const user = userEvent.setup()
+    let scheduleCreated = false
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
+      if (url === '/api/workspaces/workspace-1/schedules' && !init?.method) {
+        return Promise.resolve(new Response(JSON.stringify(scheduleCreated ? [schedule] : []), { status: 200 }))
+      }
+      if (url === '/api/workspaces/workspace-1/workflows') {
+        return Promise.resolve(new Response(JSON.stringify([workflow]), { status: 200 }))
+      }
+      if (url === '/api/workspaces/workspace-1/workflows/workflow-1/versions') {
+        return Promise.resolve(new Response(JSON.stringify([{
+          id: 'workflow-version-1',
+          version: 'v1.0.0',
+          snapshot: workflow,
+          note: '',
+          createdAt: '2026-07-17T01:00:00Z',
+        }]), { status: 200 }))
+      }
+      if (url === '/api/workspaces/workspace-1/schedules' && init?.method === 'POST') {
+        scheduleCreated = true
+        return Promise.resolve(new Response(JSON.stringify(schedule), { status: 201 }))
+      }
+      if (url.endsWith('/trigger') && init?.method === 'POST') {
+        return Promise.resolve(new Response('<html>upstream failure</html>', {
+          status: 500,
+          headers: { 'Content-Type': 'text/html' },
+        }))
+      }
+      return Promise.resolve(new Response(JSON.stringify({ detail: 'not found' }), { status: 404 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: '\u65b0\u5efa\u8c03\u5ea6' }))
+    await user.type(screen.getByLabelText('\u8c03\u5ea6\u540d\u79f0'), '\u5de5\u4f5c\u65e5\u62a5')
+    await user.selectOptions(screen.getByLabelText('\u5de5\u4f5c\u6d41'), 'workflow-1')
+    await screen.findByRole('option', { name: 'v1.0.0' })
+    await user.click(screen.getByRole('button', { name: '\u4fdd\u5b58\u8c03\u5ea6' }))
+    expect(await screen.findByText('\u8c03\u5ea6\u8ba1\u5212\u5df2\u521b\u5efa')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '\u7acb\u5373\u6267\u884c \u5de5\u4f5c\u65e5\u62a5' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('\u670d\u52a1\u6682\u65f6\u4e0d\u53ef\u7528\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5')
+    expect(screen.queryByText('\u8c03\u5ea6\u8ba1\u5212\u5df2\u521b\u5efa')).not.toBeInTheDocument()
+  })
 })
