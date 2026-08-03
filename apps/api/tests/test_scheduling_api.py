@@ -165,10 +165,52 @@ def test_worker_dispatches_due_schedule_once_and_executes_queued_run(tmp_path):
         assert session.scalar(select(func.count()).select_from(WorkflowRunRecord)) == 1
         job = session.scalar(select(ExecutionJobRecord))
         assert job.status == "succeeded"
+        assert job.created_by == schedule["id"]
+        assert len(job.created_by) <= 36
         record = session.get(WorkflowScheduleRecord, schedule["id"])
         assert record.last_run_id == dispatch.run_id
         assert record.next_run_at > dispatch.scheduled_for
     assert len(gateway.calls) == 1
+
+
+def test_manual_trigger_recovers_from_failed_enqueue_transaction(tmp_path, monkeypatch):
+    client, workspace_id = create_authenticated_client(
+        f"sqlite:///{tmp_path / 'schedule-enqueue-failure.db'}",
+    )
+    agent, version = create_published_agent(client, workspace_id)
+    workflow = create_published_workflow(client, workspace_id, agent, version)
+    schedule = create_schedule(client, workspace_id, workflow)
+
+    def fail_enqueue(*, session, workspace_id, **_kwargs):
+        values = {
+            "id": "duplicate-job",
+            "workspace_id": workspace_id,
+            "run_id": "run-placeholder",
+            "created_by": "test",
+        }
+        session.add(ExecutionJobRecord(**values))
+        session.flush()
+        session.add(ExecutionJobRecord(**values))
+        session.flush()
+
+    monkeypatch.setattr(
+        client.app.state.execution_service,
+        "enqueue_workflow_version",
+        fail_enqueue,
+    )
+
+    response = client.post(
+        workspace_url(workspace_id, f"/schedules/{schedule['id']}/trigger"),
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 201
+    assert response.json()["status"] == "failed"
+    with client.app.state.session_factory() as session:
+        dispatch = session.scalar(select(ScheduleDispatchRecord))
+        assert dispatch is not None
+        assert dispatch.status == "failed"
+        assert dispatch.schedule_id == schedule["id"]
 
 
 def test_due_schedule_skips_when_previous_run_is_still_active(tmp_path):

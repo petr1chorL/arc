@@ -151,6 +151,7 @@ export function Schedules() {
 
   async function changeStatus(schedule: WorkflowSchedule) {
     setError('')
+    setNotice('')
     const nextStatus = schedule.status === 'active' ? 'paused' : 'active'
     try {
       const updated = await setScheduleStatus(workspace.id, schedule.id, nextStatus)
@@ -163,6 +164,7 @@ export function Schedules() {
 
   async function trigger(schedule: WorkflowSchedule) {
     setError('')
+    setNotice('')
     try {
       const dispatch = await triggerSchedule(workspace.id, schedule.id)
       setNotice(dispatch.runId ? `已创建运行 ${dispatch.runId}` : `本次触发${dispatch.status}`)
@@ -180,6 +182,8 @@ export function Schedules() {
     }
     setHistoryId(schedule.id)
     setHistory([])
+    setError('')
+    setNotice('')
     try {
       setHistory(await listScheduleDispatches(workspace.id, schedule.id))
     } catch (historyError) {
