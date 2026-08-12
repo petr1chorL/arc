@@ -1,0 +1,5 @@
+interface:
+  display_name: "Harness Core"
+  short_description: "Harness Engineering 核心骨架模板"
+policy:
+  allow_implicit_invocation: true

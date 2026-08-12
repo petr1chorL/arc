@@ -22,6 +22,7 @@ ARC.ONE 同时采用两套互补方法：
 | 已确认设计 | `docs/superpowers/specs/` |
 | 实施计划 | `docs/superpowers/plans/` |
 | 难以逆转的架构决策 | `docs/adr/` |
+| Harness 执行地图与回执模板 | `.harness/README.md` |
 
 发生冲突时按以下顺序处理：
 
@@ -35,6 +36,15 @@ ARC.ONE 同时采用两套互补方法：
 ```
 
 发现文档与真实行为不一致时，应在同一任务中修正文档。
+
+### Harness 执行层
+
+`.harness/` 用于把上述事实、规格和验证要求翻译为双栈 Owner、执行规则与回执模板。
+它不新增项目事实优先级，也不替代 `.scratch/` Issue、根 `CONTEXT.md`、`docs/adr/`、
+已确认设计或当前项目总览。
+
+ARC.ONE 是 React + FastAPI 双栈，Harness 按变更影响面选择前端、后端或端到端门禁。
+Skills 直接使用 `.agents/skills/` 中已安装版本，不在 `.harness/skills/` 重复复制或注册。
 
 ## 全局设计约束
 
