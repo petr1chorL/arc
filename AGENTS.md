@@ -46,6 +46,25 @@ Issue 或 PR 请求入口。详见 `docs/agents/issue-tracker.md`。
 当前为单上下文仓库：领域词汇位于根目录 `CONTEXT.md`，满足条件的 ADR
 按需创建在 `docs/adr/`。详见 `docs/agents/domain.md`。
 
+### 第三方 Harness Skills
+
+`.agents/skills/` 是由 `skills-lock.json` 记录来源的第三方供应商快照，不是项目事实源，
+也不因被安装而自动获得命令执行、联网、部署或仓库外写入权限。使用时必须遵守以下边界：
+
+- `AGENTS.md`、当前源码与验证、项目流程和 `.harness/rules/` 优先于 Skill 内置默认值。
+- `apply-harness`、`install-skill` 只能由用户明确点名调用；不得自动复制或覆盖
+  `.harness/`、`.agents/`、`.codex/`、`.claude/` 等目录。
+- 遇到 `{{...}}` 占位符、错误的框架假设或未确认命令时必须停止，不得把模板当成可执行配置。
+- 不得用 `OPENAI_API_KEY` 等凭证环境变量探测工具，也不得读取或输出任何凭证值。
+- 不得把 `npx ...@latest`、`git clone/pull`、包安装或其他网络命令作为自动回退；确需联网时，
+  先说明来源、目标和影响并取得用户授权。
+- 部署、生产健康检查、覆盖既有配置、仓库外注册和破坏性 Git/文件操作必须由用户单独明确授权。
+- 当前项目只启用 `harness-front`、`harness-python` 和适用的 `harness-core` 能力；
+  Java/Go 包仅作为上游快照保留，除非项目范围变化，否则不得套用。
+
+供应商快照的离线审查结论与升级要求见
+`docs/security/third-party-harness-skills-review.md`。
+
 ## 功能管理要求
 
 每项功能必须具备：
