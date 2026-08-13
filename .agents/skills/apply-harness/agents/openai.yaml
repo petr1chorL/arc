@@ -1,0 +1,5 @@
+interface:
+  display_name: "Apply Harness"
+  short_description: "自动检测项目语言并应用 Harness 开发规范体系"
+policy:
+  allow_implicit_invocation: false

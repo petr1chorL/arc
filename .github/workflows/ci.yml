@@ -32,7 +32,10 @@ jobs:
         run: python -m pip install -e "apps/api[test]"
 
       - name: Run frontend tests
-        run: npm test -- --run --maxWorkers=1 --no-file-parallelism
+        run: |
+          for shard in {1..8}; do
+            npm test -- --run --maxWorkers=1 --no-file-parallelism --shard="${shard}/8"
+          done
 
       - name: Run backend tests
         run: python -m pytest apps/api/tests -q

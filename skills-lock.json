@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "skills": {
+    "apply-harness": {
+      "source": "git@gitcode.com:huazaiteam/huazai-harness-skills.git",
+      "sourceUrl": "git@gitcode.com:huazaiteam/huazai-harness-skills.git",
+      "sourceType": "git",
+      "skillPath": "skills/apply-harness/SKILL.md",
+      "computedHash": "7d26ae95994d7b13f290a01eb90f99dc5327166d1549654813f2be29e266fa5d"
+    },
+    "harness-core": {
+      "source": "git@gitcode.com:huazaiteam/huazai-harness-skills.git",
+      "sourceUrl": "git@gitcode.com:huazaiteam/huazai-harness-skills.git",
+      "sourceType": "git",
+      "skillPath": "skills/harness-core/SKILL.md",
+      "computedHash": "287bc904deb0344db2b7eae4f73ea60bc0352cde8615c399cca89580c50f5bdf"
+    },
+    "harness-front": {
+      "source": "git@gitcode.com:huazaiteam/huazai-harness-skills.git",
+      "sourceUrl": "git@gitcode.com:huazaiteam/huazai-harness-skills.git",
+      "sourceType": "git",
+      "skillPath": "skills/harness-front/SKILL.md",
+      "computedHash": "b5d076203ab4c0b7ec1206df80a67ec6855392a5682e5a213a3bd1af67b55385"
+    },
+    "harness-golang": {
+      "source": "git@gitcode.com:huazaiteam/huazai-harness-skills.git",
+      "sourceUrl": "git@gitcode.com:huazaiteam/huazai-harness-skills.git",
+      "sourceType": "git",
+      "skillPath": "skills/harness-golang/SKILL.md",
+      "computedHash": "da4490b3c85fb03ae336bc1678a5f20f5fb2c898c5ff240882bde854f875b532"
+    },
+    "harness-java": {
+      "source": "git@gitcode.com:huazaiteam/huazai-harness-skills.git",
+      "sourceUrl": "git@gitcode.com:huazaiteam/huazai-harness-skills.git",
+      "sourceType": "git",
+      "skillPath": "skills/harness-java/SKILL.md",
+      "computedHash": "52b02d5ea31faeb02e5d3e562e42494f70d6c4616036f45a4d978e0a7a20f7e0"
+    },
+    "harness-python": {
+      "source": "git@gitcode.com:huazaiteam/huazai-harness-skills.git",
+      "sourceUrl": "git@gitcode.com:huazaiteam/huazai-harness-skills.git",
+      "sourceType": "git",
+      "skillPath": "skills/harness-python/SKILL.md",
+      "computedHash": "7ccf32ae2fe5f0b83308b2e0a718ea060995b698b4eda6713cd629b2c83ddadd"
+    },
+    "install-skill": {
+      "source": "git@gitcode.com:huazaiteam/huazai-harness-skills.git",
+      "sourceUrl": "git@gitcode.com:huazaiteam/huazai-harness-skills.git",
+      "sourceType": "git",
+      "skillPath": "skills/install-skill/SKILL.md",
+      "computedHash": "20875c6da337358326c489719729f6f78cf4d0978674ed64fa09463dbc544ece"
+    }
+  }
+}
