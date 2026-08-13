@@ -39,14 +39,14 @@ jobs:
 
     steps:
       - name: Check out current delivery controls
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 1
           path: .delivery
           ref: master
 
       - name: Check out the requested revision
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           path: source
