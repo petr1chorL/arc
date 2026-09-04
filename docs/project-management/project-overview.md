@@ -37,10 +37,12 @@ ARC.ONE 是面向企业的 Agentic Workflow 操作系统，用于管理 Agent �
 - 部署：GitHub Pull Request / CI -> `master` -> Zeabur 同源容器 -> Zeabur PostgreSQL。
 - 公网入口：`https://arc-v1-lite-lindabaoz.zeabur.app/`。
 
-2026-09-04 已建立 Netlify 原生迁移的平台门禁站点 `arc-one-agentic-os`：生产数据库分支已创建，
-首条非业务探针 migration、数据库健康 Function 与 Async Workload 已部署。当前 130 个业务 API、
-43 张业务表、Execution Worker、Notification Worker 和生产数据均尚未迁移；Netlify 的 `/api/*`
-仍代理 Zeabur，因此该门禁站点不是独立生产替代品，现阶段不得关闭 Zeabur。
+2026-09-04 已通过 Netlify 原生迁移的平台门禁：站点 `arc-one-agentic-os` 的生产数据库分支、
+非业务探针 migration、数据库健康 Function 与 Async Workload 已完成线上验证；临时 PR #36 进一步
+证明 Deploy Preview 数据库包含独立标记而 Production 不包含，删除 Preview 后 Netlify 与 Zeabur
+生产健康链路仍可用。当前 130 个业务 API、43 张业务表、Execution Worker、Notification Worker
+和生产数据均尚未迁移；Netlify 的 `/api/*` 仍代理 Zeabur，因此该门禁站点不是独立生产替代品，
+现阶段不得关闭 Zeabur。
 
 2026-07-15，`3bd30c9` 的静态页面与 `deployment.json` 曾出现，但 `/api/health`
 持续返回 502；生产随后通过受控 workflow 回滚到 `fc59082` 并恢复 API 200。生产启动修复

@@ -1,6 +1,6 @@
 ---
 id: H-20260904-01
-status: executing
+status: done
 feature: .scratch/netlify-native-migration/
 prd: .scratch/netlify-native-migration/PRD.md
 issue: .scratch/netlify-native-migration/issues/01-platform-gate.md
@@ -14,8 +14,8 @@ plan: docs/superpowers/plans/2026-09-04-netlify-native-migration.md
 
 ## 当前阶段
 
-- 阶段：verify
-- 下一门禁：补充 Preview 隔离/删除或失败不影响 Zeabur 的直接证据，并取得依赖审计结论。
+- 阶段：closed
+- 下一门禁：Triage `issues/02-schema-and-data-rehearsal.md`，明确非生产 schema baseline、导入与对账边界。
 
 ## 影响面
 
@@ -29,7 +29,8 @@ plan: docs/superpowers/plans/2026-09-04-netlify-native-migration.md
 
 - RED：平台触发器模块缺失、重复事件会重复完成、失败模拟不抛错的针对性测试曾失败。
 - GREEN：补充触发器、业务幂等 claim 和同事件重试后，针对性测试通过；全量 51 个测试文件、296 项测试通过。
-- 不适用说明：Preview 删除/失败隔离仍缺直接演练证据，因此本 Issue 保持 `in-progress`。
+- Preview RED：临时分支上的隔离测试先因 marker migration 不存在而以 `ENOENT` 失败。
+- Preview GREEN：加入仅插入唯一探针标记且无 `DELETE`/`DROP`/`TRUNCATE` 的 migration 后，聚焦测试 1 项、临时分支全量 52 个文件/297 项测试通过。
 
 ## 验证证据
 
@@ -42,10 +43,12 @@ plan: docs/superpowers/plans/2026-09-04-netlify-native-migration.md
 | 幂等探针 | 通过 | `platform-gate-idempotency-v1` 完成且 `attempt_count=1` |
 | 失败重试探针 | 通过 | `platform-gate-retry-v1` 第 2 次尝试完成 |
 | 一次性触发保护 | 通过 | 第二次 POST 返回 `already-triggered` |
+| Deploy Preview 数据隔离 | 通过 | PR #36 / Deploy `6a9a3fbe65b65a00081b37b0` 的 Preview 有唯一标记，Production 无该标记 |
+| Preview 生命周期清理 | 通过 | PR、临时分支和 Preview deploy 已删除；Preview URL 404，生产与 Zeabur 健康检查仍为 200 |
 | 本地质量门禁 | 通过 | 51 个测试文件、296 项测试、lint、Netlify typecheck、build 通过 |
-| `npm audit` | 无结论 | npm advisories 网络连续超时，需后续重试 |
+| `npm audit` | 无结论 | npm advisories 三次网络断开/超时；不把无结论写成通过 |
 
-## 遗留人工动作
+## 遗留边界
 
-- Preview 隔离/失败或删除演练涉及云端 Preview 生命周期操作，尚未执行。
+- 平台门禁已关闭；依赖审计仍需在 npm advisories 可用时重试。
 - 在业务数据和 API 切换完成前不得关闭 Zeabur。

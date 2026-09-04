@@ -2,7 +2,7 @@
 
 ## 规格匹配
 
-- [ ] 引用的 Issue AC 逐项满足：Preview 删除/失败隔离尚缺直接演练证据。
+- [x] 引用的 Issue AC 已逐项满足，并有 Preview 与 Production 对照及删除后的健康证据。
 - [x] 没有范围漂移或未授权重构。
 - [x] 产品能力声明与项目总览一致。
 
@@ -17,11 +17,10 @@
 
 | 严重度 | 文件/位置 | 问题 | 处置 |
 |---|---|---|---|
-| 中 | `.scratch/netlify-native-migration/issues/01-platform-gate.md` | Preview 删除或失败不影响 Zeabur 尚未做直接生命周期演练 | 保持 AC 未勾选，Issue 不关闭 |
 | 低 | `.harness/changes/netlify-native-migration/verify.md` | `npm audit` 因 advisories 网络超时无结论 | 保留为后续验证项，不把它写成通过 |
 | 低 | `src/pages/DataObjects.test.tsx` | 完整测试曾出现一次模拟列表为空，单文件与随后全量复跑通过 | 不扩项修改，记录为既有偶发项继续观察 |
 
 ## 结论
 
-- 阻断本 Issue 完成的问题：1（Preview 隔离直接证据）。
-- 是否可进入验证：是；生产平台门禁已验证，但当前不可关闭 Issue，也不可关闭 Zeabur。
+- 阻断本 Issue 完成的问题：0。
+- Issue 01 可以关闭；该结论仅表示 Netlify 原生运行时平台门禁通过，不表示业务迁移完成，仍不可关闭 Zeabur。
