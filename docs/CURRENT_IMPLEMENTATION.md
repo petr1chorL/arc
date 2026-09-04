@@ -12,6 +12,11 @@
 
 当前版本是 React 单页应用与 FastAPI 服务组成的可运行原型。
 
+2026-09-04 Netlify 原生迁移完成第二个受控切片：从当前 SQLAlchemy metadata 生成并在
+Production 应用 43 表 PostgreSQL schema baseline；隔离 Deploy Preview 使用全合成数据完成
+存在性、行数、主键摘要、逻辑引用、状态与汇总对账。该切片没有迁移生产数据、业务 API 或
+Worker，Preview seed 与状态 Function 未进入 Production，现有 `/api/*` 仍由 Zeabur 提供。
+
 Agent 资产页和工作流设计器已经接入 SQLAlchemy。Agent 支持草稿编辑、版本发布、停用和测试运行；工作流支持草稿持久化、DAG 校验、Agent 版本引用、不可变发布和按拓扑顺序运行。
 调度中心已提供第一版定时运行闭环：Workspace 管理员可为不可变的已发布 WorkflowVersion 创建五段 Cron 计划，配置 IANA 时区和固定 JSON 输入，并执行编辑、暂停、恢复与立即触发。常驻执行 Worker 会扫描到期计划、写入带唯一 `(schedule_id, scheduled_for)` 约束的派发记录，再复用异步执行队列创建 Run；漏过的周期不补跑，同一计划的上一条 Run 未结束时跳过本次派发。页面展示下一次执行、最近运行状态和最近 50 条派发记录。
 

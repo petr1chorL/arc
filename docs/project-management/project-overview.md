@@ -44,6 +44,14 @@ ARC.ONE 是面向企业的 Agentic Workflow 操作系统，用于管理 Agent �
 和生产数据均尚未迁移；Netlify 的 `/api/*` 仍代理 Zeabur，因此该门禁站点不是独立生产替代品，
 现阶段不得关闭 Zeabur。
 
+2026-09-04 随后的 schema 与非生产数据演练已完成：当前 SQLAlchemy metadata 被固化为
+`20260904060000_create-arc-one-baseline`，覆盖 43 表、524 列、112 索引、26 个唯一约束，
+并如实保留当前模型 0 个物理 ForeignKey 的事实。PR #37 的隔离 Preview 数据库以固定全合成
+快照完成表存在性、行数、主键摘要、逻辑引用、状态分布和数值汇总对账；Preview 专用 seed、
+状态 Function 与纠错 migration 未合入生产。Netlify Production Deploy
+`6a9a53c1b2196e00085ab758` 已应用永久 baseline，但仍没有生产业务数据或业务 API；
+`/api/*` 继续代理 Zeabur，下一步是身份与 Workspace 最小切片。
+
 2026-07-15，`3bd30c9` 的静态页面与 `deployment.json` 曾出现，但 `/api/health`
 持续返回 502；生产随后通过受控 workflow 回滚到 `fc59082` 并恢复 API 200。生产启动修复
 经 PR #19 合并并部署为 `0e4634f`；评估中心简化随后经 PR #20 合并，当前 `master` 与 Zeabur
