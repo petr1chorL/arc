@@ -41,7 +41,7 @@ INSERT INTO workflow_runs (
 )
 VALUES (
     '00000000-0000-4000-8000-000000000005', '00000000-0000-4000-8000-000000000003', 'workflow', 'Schema Rehearsal Run', NULL, NULL,
-    NULL, NULL, 'completed', 'synthetic-input', 'synthetic-output', 88,
+    NULL, NULL, '�����', 'synthetic-input', 'synthetic-output', 88,
     'synthetic-model', 10, 5, 15, 1.25, 250, 'end', '',
     'trace-schema-rehearsal', '2026-09-04 00:00:00+00', '2026-09-04 00:00:00+00'
 )
@@ -59,3 +59,4 @@ VALUES (
     NULL, '2026-09-04 00:00:00+00', '2026-09-04 00:00:00+00', NULL, NULL
 )
 ON CONFLICT (id) DO NOTHING;
+

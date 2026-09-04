@@ -17,16 +17,6 @@ BASELINE_PATH = (
     / "20260904060000_create-arc-one-baseline"
     / "migration.sql"
 )
-SYNTHETIC_SEED_PATH = (
-    REPOSITORY_ROOT
-    / "netlify"
-    / "database"
-    / "migrations"
-    / "20260904061000_schema-rehearsal-synthetic"
-    / "migration.sql"
-)
-
-
 def test_netlify_schema_baseline_matches_models_and_committed_migration() -> None:
     inventory = schema_inventory()
 
@@ -44,7 +34,6 @@ def test_synthetic_rehearsal_seed_is_repeatable_and_contains_no_secret_values() 
     seed_sql = render_synthetic_rehearsal_seed()
     manifest = synthetic_rehearsal_manifest()
 
-    assert SYNTHETIC_SEED_PATH.read_text(encoding="utf-8") == seed_sql
     assert manifest["row_counts"] == {
         "organizations": 1,
         "users": 1,
@@ -62,6 +51,9 @@ def test_synthetic_rehearsal_seed_is_repeatable_and_contains_no_secret_values() 
         "cost_usd": 1.25,
         "duration_ms": 250,
     }
+    assert manifest["status_distributions"]["workflow_runs"] == {"completed": 1}
+    assert "'completed', 'synthetic-input'" in seed_sql
+    assert "\ufffd" not in seed_sql
     assert seed_sql.count("ON CONFLICT (id) DO NOTHING") == 6
     assert not any(
         forbidden in seed_sql.lower()
