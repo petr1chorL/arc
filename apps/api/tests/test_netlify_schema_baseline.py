@@ -17,6 +17,14 @@ BASELINE_PATH = (
     / "20260904060000_create-arc-one-baseline"
     / "migration.sql"
 )
+SYNTHETIC_SEED_PATH = (
+    REPOSITORY_ROOT
+    / "netlify"
+    / "database"
+    / "migrations"
+    / "20260904061000_schema-rehearsal-synthetic"
+    / "migration.sql"
+)
 
 
 def test_netlify_schema_baseline_matches_models_and_committed_migration() -> None:
@@ -36,6 +44,7 @@ def test_synthetic_rehearsal_seed_is_repeatable_and_contains_no_secret_values() 
     seed_sql = render_synthetic_rehearsal_seed()
     manifest = synthetic_rehearsal_manifest()
 
+    assert SYNTHETIC_SEED_PATH.read_text(encoding="utf-8") == seed_sql
     assert manifest["row_counts"] == {
         "organizations": 1,
         "users": 1,
