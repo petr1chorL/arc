@@ -44,6 +44,11 @@ ARC.ONE 是面向企业的 Agentic Workflow 操作系统，用于管理 Agent �
 资产迁移按 `netlify-asset-migration-slices.md` 拆为 04A–04E。下面日期段落保留历史演练证据，
 其“下一步”仅代表当时顺序，不覆盖本节的当前优先级。
 
+加固代码 `ba35010` 已在独立分支 `codex/identity-release-hardening` 完成工程验证：
+前端 333、后端 410 项，以及真实 PostgreSQL 129 项检查通过；GitHub CI run 33928026353
+成功，最小新旧身份契约对比与并发管理员保护通过。仍未合入生产分支，也未在 Zeabur
+或新的 Netlify Preview 部署生效。回执见 `.harness/changes/identity-release-hardening/verify.md`。
+
 2026-09-04 已通过 Netlify 原生迁移的平台门禁：站点 `arc-one-agentic-os` 的生产数据库分支、
 非业务探针 migration、数据库健康 Function 与 Async Workload 已完成线上验证；临时 PR #36 进一步
 证明 Deploy Preview 数据库包含独立标记而 Production 不包含，删除 Preview 后 Netlify 与 Zeabur
@@ -168,7 +173,7 @@ P0 安全人工签收或 V1.0 Lite 业务签收已经完成。
 
 ## 当前优先级（2026-09-05）
 
-1. 完成身份/发布加固的本地与隔离 PG 回归，再核对精确 SHA 的 CI/发布门禁。
+1. 身份/发布加固工程验证已通过；下一步做独立 Preview 实际部署门禁验收和生产合入准备。
 2. 按 04A–04E 锁定与迁移资产契约，不扩大生产路由。
 3. 在运行迁移前独立验证队列原子领取、租约续期、重试与外部副作用。
 4. 最终切换仍要求生产数据对账、备份/恢复、回滚边界与业务签收；满足后才能下线 Zeabur。
