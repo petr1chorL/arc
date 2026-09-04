@@ -1,11 +1,12 @@
 import react from '@vitejs/plugin-react'
+import netlify from '@netlify/vite-plugin'
 import { defineConfig } from 'vitest/config'
 
 const apiProxyTarget = process.env.ARC_ONE_API_PROXY_TARGET ?? 'http://127.0.0.1:8000'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), netlify()],
   server: {
     proxy: {
       '/api': apiProxyTarget,

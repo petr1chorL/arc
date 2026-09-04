@@ -5,16 +5,19 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && npm run typecheck:netlify && vite build",
     "deploy:check": "node scripts/verify-deployment.mjs",
     "deploy:check:live": "node scripts/check-live-deployment.mjs",
     "lint": "oxlint",
     "test": "vitest",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "typecheck:netlify": "tsc --noEmit -p netlify/tsconfig.json",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@netlify/async-workloads": "^0.0.106",
+    "@netlify/database": "^2.0.1",
     "@xyflow/react": "^12.11.1",
     "lucide-react": "^1.21.0",
     "react": "^19.2.7",
@@ -22,6 +25,8 @@
     "react-router-dom": "^7.18.0"
   },
   "devDependencies": {
+    "@netlify/functions": "^6.0.0",
+    "@netlify/vite-plugin": "^3.0.1",
     "@playwright/test": "^1.61.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
