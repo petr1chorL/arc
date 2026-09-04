@@ -46,8 +46,12 @@ ARC.ONE 是面向企业的 Agentic Workflow 操作系统，用于管理 Agent �
 
 加固代码 `ba35010` 已在独立分支 `codex/identity-release-hardening` 完成工程验证：
 前端 333、后端 410 项，以及真实 PostgreSQL 129 项检查通过；GitHub CI run 33928026353
-成功，最小新旧身份契约对比与并发管理员保护通过。仍未合入生产分支，也未在 Zeabur
-或新的 Netlify Preview 部署生效。回执见 `.harness/changes/identity-release-hardening/verify.md`。
+成功，最小新旧身份契约对比与并发管理员保护通过。随后 cc98029 在 PR #39 的 Netlify
+Deploy Preview `6a9b54d034fa00000853068e` 完成验收：精确 SHA 的 push CI 33929272335
+与 PR CI 33929817681 均成功，云端门禁日志确认放行同一 SHA；登录页/资源、未认证 API
+边界和 Preview 数据库健康通过，身份 Function 继续休眠。未提交真实登录或业务写入。
+PR 保持未合并，Production 仍为 `6a9a97898a5f2300089163e3`，Zeabur 生产 API 未更新。
+回执见 `.harness/changes/identity-release-hardening/verify.md`。
 
 2026-09-04 已通过 Netlify 原生迁移的平台门禁：站点 `arc-one-agentic-os` 的生产数据库分支、
 非业务探针 migration、数据库健康 Function 与 Async Workload 已完成线上验证；临时 PR #36 进一步
@@ -173,7 +177,7 @@ P0 安全人工签收或 V1.0 Lite 业务签收已经完成。
 
 ## 当前优先级（2026-09-05）
 
-1. 身份/发布加固工程验证已通过；下一步做独立 Preview 实际部署门禁验收和生产合入准备。
+1. 身份/发布加固工程与独立 Preview 实际门禁验收已通过；准备生产合入，PR #39 尚未合并且不得据此切流。
 2. 按 04A–04E 锁定与迁移资产契约，不扩大生产路由。
 3. 在运行迁移前独立验证队列原子领取、租约续期、重试与外部副作用。
 4. 最终切换仍要求生产数据对账、备份/恢复、回滚边界与业务签收；满足后才能下线 Zeabur。

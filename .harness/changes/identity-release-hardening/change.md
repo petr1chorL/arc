@@ -10,7 +10,7 @@ plan: docs/superpowers/plans/2026-09-05-identity-release-hardening.md
 
 # 执行回执：身份约束与发布门禁
 
-阶段：ready-for-human（工程验证通过，生产发布未执行）。实现提交 `ba35010730b14760267800a00751c4df3bbe238d` 位于独立验证分支
+阶段：ready-for-human（工程与 Preview 验证通过，生产发布未执行）。实现提交 `ba35010730b14760267800a00751c4df3bbe238d` 位于独立验证分支
 `codex/identity-release-hardening`，未合入生产分支。
 
 ## 影响面
@@ -29,7 +29,10 @@ plan: docs/superpowers/plans/2026-09-05-identity-release-hardening.md
 - 新发布门禁先因模块缺失失败，随后 13 项失败关闭规则通过。
 - 全量回归发现旧 Netlify 测试仍断言只有 npm run build，更新为新的门禁命令后通过。
 
-详见 verify.md；未执行的部署验收不标为通过。
+详见 verify.md；后续 cc98029 已通过 PR #39 的独立 Preview 验收，生产验收不标为通过。
 
 工程验证已通过：前端 333、后端 410、真实 PostgreSQL 129 项检查；CI run 33928026353 success。
 生产合入/部署与 API 切流是后续步骤，不能据此关闭 Zeabur。
+
+Preview Deploy `6a9b54d034fa00000853068e` 对齐 cc98029；云端精确 SHA 门禁、页面、
+静态资源、未认证路由和数据库健康检查通过，身份 Function 仍休眠。PR #39 保持 OPEN。
