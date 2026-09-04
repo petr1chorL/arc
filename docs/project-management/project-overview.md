@@ -57,6 +57,9 @@ ARC.ONE 是面向企业的 Agentic Workflow 操作系统，用于管理 Agent �
 Workspace、Membership、RBAC、Reviewer 与 Audit；47 项真实 API 检查及浏览器登录进入
 `/w/arc-one-preview` 均通过。演练只使用 `.invalid` 合成身份和 Preview 数据库；生产候选已移除
 合成 seed、Preview 冒烟脚本与身份路由，只保留休眠 Function、持久限流表、测试和文档。
+Production Deploy `6a9a633965b65a0008212b8c` 已发布提交 `4f9544e`，应用
+`20260904133000_create-identity-rate-limits`；直连身份 Function 返回 404，Netlify 与 Zeabur 健康
+端点均返回 200。
 因此该结果是迁移实现与隔离证据，不是生产账号、生产数据或流量已迁移；Production 的
 `/api/*` 仍须代理 Zeabur，下一受控切片为 Agent/Workflow 资产与版本契约。
 

@@ -19,9 +19,9 @@ Worker，Preview seed 与状态 Function 未进入 Production，现有 `/api/*` 
 
 2026-09-04 身份与 Workspace 第三个受控切片已完成隔离 Preview 演练：Netlify TypeScript
 Function 实现 Auth、Session/CSRF、Invitation、Workspace、Membership、固定 RBAC、Reviewer 与
-Audit 契约，并通过 47 项真实 API 检查和登录进入 Workspace 的浏览器冒烟。Production 候选只含
-休眠 Function、持久限流表、自动化测试和文档，不含合成 seed 或身份路由；生产身份数据尚未
-迁移，`/api/*` 继续由 Zeabur 提供，不能据此关闭 Zeabur。
+Audit 契约，并通过 47 项真实 API 检查和登录进入 Workspace 的浏览器冒烟。Production deploy
+`6a9a633965b65a0008212b8c` 只含休眠 Function、持久限流表、自动化测试和文档，不含合成 seed
+或身份路由；生产身份数据尚未迁移，`/api/*` 继续由 Zeabur 提供，不能据此关闭 Zeabur。
 
 Agent 资产页和工作流设计器已经接入 SQLAlchemy。Agent 支持草稿编辑、版本发布、停用和测试运行；工作流支持草稿持久化、DAG 校验、Agent 版本引用、不可变发布和按拓扑顺序运行。
 调度中心已提供第一版定时运行闭环：Workspace 管理员可为不可变的已发布 WorkflowVersion 创建五段 Cron 计划，配置 IANA 时区和固定 JSON 输入，并执行编辑、暂停、恢复与立即触发。常驻执行 Worker 会扫描到期计划、写入带唯一 `(schedule_id, scheduled_for)` 约束的派发记录，再复用异步执行队列创建 Run；漏过的周期不补跑，同一计划的上一条 Run 未结束时跳过本次派发。页面展示下一次执行、最近运行状态和最近 50 条派发记录。

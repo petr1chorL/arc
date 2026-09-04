@@ -1,6 +1,6 @@
 ---
 id: H-20260904-03
-status: verifying
+status: done
 feature: .scratch/netlify-native-migration/
 prd: .scratch/netlify-native-migration/PRD.md
 issue: .scratch/netlify-native-migration/issues/03-identity-workspace-slice.md
@@ -12,8 +12,8 @@ plan: docs/superpowers/plans/2026-09-04-netlify-identity-workspace.md
 
 ## 当前阶段
 
-- 阶段：verifying
-- 当前门禁：隔离 Preview 已通过，正在验证不含 seed/路由的 Production 候选；未切换生产流量。
+- 阶段：done
+- 当前门禁：隔离 Preview 与 Production 安全候选均通过；生产流量未切换。
 
 ## 输入事实
 
@@ -47,4 +47,9 @@ plan: docs/superpowers/plans/2026-09-04-netlify-identity-workspace.md
 - 全量门禁：后端 407 项、前端 52 个文件 313 项、lint、Netlify typecheck、deploy:check 与 build 通过；
   build 仅保留既有 755.28 kB chunk warning。
 - `npm audit --omit=dev --audit-level=high` 因 npm advisories socket hang up 未得到结论，不能记为通过。
-- Production 候选已移除 Preview seed、身份路由与临时冒烟脚本；Production deploy 和路由隔离仍待验证。
+- Production Deploy `6a9a633965b65a0008212b8c` 对应提交
+  `4f9544e0b1dca641ba468750ecb4c362288586e5`，状态 ready，14 个 Function 部署到 Node.js 24。
+- Production 已应用 `20260904133000_create-identity-rate-limits`；deploy summary 明确为 1 个 migration。
+- 生产直连 `identity-workspace?route=/api/auth/session` 返回 404，`/api/auth/session` 返回 401；
+  Netlify `/api/health`、数据库健康 Function 与 Zeabur `/api/health` 均返回 200。
+- Production 最终树不含 Preview seed、身份路由与临时冒烟脚本；Zeabur 继续承载全部 `/api/*`。
