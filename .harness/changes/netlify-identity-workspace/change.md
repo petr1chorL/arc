@@ -53,3 +53,4 @@ plan: docs/superpowers/plans/2026-09-04-netlify-identity-workspace.md
 - 生产直连 `identity-workspace?route=/api/auth/session` 返回 404，`/api/auth/session` 返回 401；
   Netlify `/api/health`、数据库健康 Function 与 Zeabur `/api/health` 均返回 200。
 - Production 最终树不含 Preview seed、身份路由与临时冒烟脚本；Zeabur 继续承载全部 `/api/*`。
+- PR #38 已关闭，远端临时分支已删除；完整部署、浏览器、回滚与历史 Preview 保留边界见 `verify.md`。
