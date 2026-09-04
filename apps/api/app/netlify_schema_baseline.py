@@ -74,7 +74,7 @@ def synthetic_rehearsal_manifest() -> dict[str, object]:
             "users": {"active": 1},
             "workspaces": {"active": 1},
             "workspace_memberships": {"active": 1},
-            "workflow_runs": {"已完成": 1},
+            "workflow_runs": {"completed": 1},
             "execution_jobs": {"completed": 1},
         },
         "workflow_run_totals": {
@@ -140,7 +140,7 @@ INSERT INTO workflow_runs (
 )
 VALUES (
     '{run_id}', '{workspace_id}', 'workflow', 'Schema Rehearsal Run', NULL, NULL,
-    NULL, NULL, '已完成', 'synthetic-input', 'synthetic-output', 88,
+    NULL, NULL, 'completed', 'synthetic-input', 'synthetic-output', 88,
     'synthetic-model', 10, 5, 15, 1.25, 250, 'end', '',
     'trace-schema-rehearsal', '{timestamp}', '{timestamp}'
 )

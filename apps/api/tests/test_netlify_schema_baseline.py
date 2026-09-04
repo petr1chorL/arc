@@ -53,6 +53,9 @@ def test_synthetic_rehearsal_seed_is_repeatable_and_contains_no_secret_values() 
         "cost_usd": 1.25,
         "duration_ms": 250,
     }
+    assert manifest["status_distributions"]["workflow_runs"] == {"completed": 1}
+    assert "'completed', 'synthetic-input'" in seed_sql
+    assert "\ufffd" not in seed_sql
     assert seed_sql.count("ON CONFLICT (id) DO NOTHING") == 6
     assert not any(
         forbidden in seed_sql.lower()
