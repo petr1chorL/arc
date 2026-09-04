@@ -190,6 +190,16 @@ describe('Netlify identity/workspace HTTP contract', () => {
     expect(response.status).toBe(404)
     expect(await response.json()).toEqual({ detail: 'Not Found' })
   })
+
+  it('accepts the original API path retained by a Netlify rewrite', async () => {
+    const handler = createIdentityWorkspaceHandler(async ({ route }) => ({
+      body: { route: route.name },
+    }))
+    const response = await handler(new Request('https://preview.example/api/auth/session'))
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ route: 'auth.session' })
+  })
 })
 
 describe('Netlify identity/workspace transaction failure semantics', () => {
