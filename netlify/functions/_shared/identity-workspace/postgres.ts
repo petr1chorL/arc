@@ -10,7 +10,7 @@ import {
   type Capability,
   type WorkspaceRole,
 } from './domain.ts'
-import { digestToken, hashPassword, newToken, verifyPassword } from './security.ts'
+import { digestToken, hashPassword, newToken, tokenMatches, verifyPassword } from './security.ts'
 
 type QueryResult<Row> = { rows: Row[]; rowCount: number | null }
 type SqlClient = {
@@ -130,7 +130,7 @@ type WorkspaceContext = AuthContext & {
 
 const INVALID_LOGIN = '邮箱或密码错误'
 const DUMMY_PASSWORD_HASH =
-  '$argon2id$v=19$m=65536,t=3,p=4$aDyKH1F/wTEq5XGUlnqKUw$XuDAaTrn2LTNBU6GQ9FGKxkTRNTUpUeZZQWFMDQV/Ks'
+  '$argon2id$v=19$m=65536,t=3,p=4$sD8yO5nNpV5kB99Fx+0PXw$Zhp9/2C4RjmvqFfVtVdApR3SXofWsvRy1a9W/F0uoKs'
 const SESSION_IDLE_MS = 8 * 60 * 60 * 1000
 const SESSION_ABSOLUTE_MS = 7 * 24 * 60 * 60 * 1000
 const INVITATION_MS = 72 * 60 * 60 * 1000
@@ -357,7 +357,7 @@ async function authenticate(client: SqlClient, rawToken: string | null): Promise
 }
 
 async function requireCsrf(session: SessionRow, token: string | null): Promise<void> {
-  if (!token || (await digestToken(token)) !== session.csrf_digest) {
+  if (!token || !(await tokenMatches(token, session.csrf_digest))) {
     throw new ApiError(403, 'CSRF 校验失败')
   }
 }

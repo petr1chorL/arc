@@ -18,9 +18,9 @@
 - 再固定成员、邀请、角色、Membership/User 启停、Reviewer 资格、最后管理员保护和权限拒绝。
 - 最后固定审计写入、过滤与 camelCase 响应；每个 RED 场景只实现足够代码使其转绿。
 
-## 4. 精确路由与本地质量门禁
+## 4. Preview 精确路由与本地质量门禁
 
-- 为每个已实现端点在 `netlify.toml` 增加位于 Zeabur catch-all 之前的精确路由。
+- 在 Preview 分支为每个已实现端点增加位于 Zeabur catch-all 之前的精确路由。
 - 增加配置测试，证明未迁移的 Agent/Workflow API 不被 Function 捕获。
 - 运行 Netlify typecheck、前后端相关/全量测试、lint、build、deploy:check 和 diff check。
 
@@ -29,10 +29,10 @@
 - 创建 `codex/netlify-identity-workspace` 临时分支和 Preview-only 合成 seed migration。
 - 创建临时 PR，等待 Deploy Preview ready；用固定虚构账号完成 API 与浏览器冒烟。
 - 核验 Cookie/CSRF、Workspace 进入、成员邀请激活、权限拒绝、审计，以及未迁移 API 的 Zeabur 路由。
-- 关闭 PR，删除 Preview deploy/临时分支；确保 seed 未进入 Production。
+- 固定通过的 deploy ID 后，从生产候选提交移除 seed、冒烟脚本和精确路由。
 
 ## 6. 提升与收尾
 
-- 只提交永久 Function、精确路由、测试、设计、计划与验证证据到生产分支。
-- 等待 Production deploy；验证无数据登录为 401、本切片健康、剩余 API 仍代理 Zeabur。
+- 只提交休眠 Function、持久限流 migration、测试、设计、计划与验证证据到生产分支。
+- 等待 Production deploy；验证 Function 直连为 404、`/api/auth/session` 仍由 Zeabur 响应。
 - 更新 Issue、项目事实、Harness 回执和迁移状态；Zeabur 保持在线，下一项进入 Issue 04。

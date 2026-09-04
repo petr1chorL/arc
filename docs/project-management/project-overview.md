@@ -52,6 +52,14 @@ ARC.ONE 是面向企业的 Agentic Workflow 操作系统，用于管理 Agent �
 `6a9a53c1b2196e00085ab758` 已应用永久 baseline，但仍没有生产业务数据或业务 API；
 `/api/*` 继续代理 Zeabur，下一步是身份与 Workspace 最小切片。
 
+2026-09-04 身份与 Workspace 最小切片已在 PR #38 的隔离 Deploy Preview
+`6a9a5a769f551e000987bcf5` 完成验证：TypeScript Function 覆盖 Auth、Session/CSRF、Invitation、
+Workspace、Membership、RBAC、Reviewer 与 Audit；47 项真实 API 检查及浏览器登录进入
+`/w/arc-one-preview` 均通过。演练只使用 `.invalid` 合成身份和 Preview 数据库；生产候选已移除
+合成 seed、Preview 冒烟脚本与身份路由，只保留休眠 Function、持久限流表、测试和文档。
+因此该结果是迁移实现与隔离证据，不是生产账号、生产数据或流量已迁移；Production 的
+`/api/*` 仍须代理 Zeabur，下一受控切片为 Agent/Workflow 资产与版本契约。
+
 2026-07-15，`3bd30c9` 的静态页面与 `deployment.json` 曾出现，但 `/api/health`
 持续返回 502；生产随后通过受控 workflow 回滚到 `fc59082` 并恢复 API 200。生产启动修复
 经 PR #19 合并并部署为 `0e4634f`；评估中心简化随后经 PR #20 合并，当前 `master` 与 Zeabur

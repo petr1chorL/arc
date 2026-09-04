@@ -59,8 +59,7 @@ export function createIdentityWorkspaceHandler(
   return async (request: Request): Promise<Response> => {
     try {
       const url = new URL(request.url)
-      const requestedRoute = url.searchParams.get('route') ?? url.pathname
-      const route = resolveIdentityWorkspaceRoute(request.method, requestedRoute)
+      const route = resolveIdentityWorkspaceRoute(request.method, url.pathname)
       if (!route) throw new ApiError(404, 'Not Found')
 
       if (requiresSameOrigin(route.name)) {

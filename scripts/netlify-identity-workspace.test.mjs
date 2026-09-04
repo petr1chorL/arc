@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs'
-
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -10,6 +8,7 @@ import {
 import {
   digestToken,
   hashPassword,
+  tokenMatches,
   verifyPassword,
 } from '../netlify/functions/_shared/identity-workspace/security.ts'
 import {
@@ -29,9 +28,9 @@ describe('Netlify identity/workspace security primitives', () => {
 
   it('verifies a Python argon2-cffi compatible PHC string', async () => {
     const pythonArgon2Fixture =
-      '$argon2id$v=19$m=65536,t=3,p=4$aDyKH1F/wTEq5XGUlnqKUw$XuDAaTrn2LTNBU6GQ9FGKxkTRNTUpUeZZQWFMDQV/Ks'
+      '$argon2id$v=19$m=65536,t=3,p=4$sD8yO5nNpV5kB99Fx+0PXw$Zhp9/2C4RjmvqFfVtVdApR3SXofWsvRy1a9W/F0uoKs'
 
-    expect(await verifyPassword('Preview Admin Password 42!', pythonArgon2Fixture)).toBe(true)
+    expect(await verifyPassword('Cross Runtime Test Password 42!', pythonArgon2Fixture)).toBe(true)
     expect(await verifyPassword('wrong password', pythonArgon2Fixture)).toBe(false)
   })
 
@@ -47,6 +46,8 @@ describe('Netlify identity/workspace security primitives', () => {
     expect(await digestToken('arc-one-token')).toBe(
       '684a6134d27c9f2c42ee39f9f72b31b60ee5ca728f273abb60a89cfc4f9bf21a',
     )
+    expect(await tokenMatches('arc-one-token', await digestToken('arc-one-token'))).toBe(true)
+    expect(await tokenMatches('different-token', await digestToken('arc-one-token'))).toBe(false)
   })
 })
 
@@ -79,17 +80,9 @@ describe('Netlify identity/workspace route isolation', () => {
     expect(resolveIdentityWorkspaceRoute('POST', '/api/auth/session')).toBeNull()
   })
 
-  it('keeps every native redirect above the Zeabur fallback', () => {
-    const config = readFileSync('netlify.toml', 'utf8')
-    const fallbackIndex = config.indexOf('from = "/api/*"')
-
-    expect(fallbackIndex).toBeGreaterThan(-1)
-    for (const route of IDENTITY_WORKSPACE_ROUTES) {
-      const redirectIndex = config.indexOf(`from = "${route.redirectFrom}"`)
-      expect(redirectIndex, route.name).toBeGreaterThan(-1)
-      expect(redirectIndex, route.name).toBeLessThan(fallbackIndex)
-    }
-    expect(config).not.toContain('from = "/api/workspaces/*"')
+  it('defines a unique explicit redirect pattern for every migrated route', () => {
+    expect(new Set(IDENTITY_WORKSPACE_ROUTES.map((route) => route.redirectFrom)).size).toBe(21)
+    expect(IDENTITY_WORKSPACE_ROUTES.some((route) => route.redirectFrom === '/api/workspaces/*')).toBe(false)
   })
 })
 
@@ -113,7 +106,7 @@ describe('Netlify identity/workspace HTTP contract', () => {
       }
     })
     const request = new Request(
-      'https://preview.example/.netlify/functions/identity-workspace?route=/api/auth/login',
+      'https://preview.example/api/auth/login',
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Origin: 'https://preview.example' },
@@ -149,7 +142,7 @@ describe('Netlify identity/workspace HTTP contract', () => {
     })
     const response = await handler(
       new Request(
-        'https://preview.example/.netlify/functions/identity-workspace?route=/api/auth/login',
+        'https://preview.example/api/auth/login',
         {
           method: 'POST',
           headers: { Origin: 'https://evil.example', 'Content-Type': 'application/json' },
@@ -169,7 +162,7 @@ describe('Netlify identity/workspace HTTP contract', () => {
     })
     const response = await handler(
       new Request(
-        'https://preview.example/.netlify/functions/identity-workspace?route=/api/auth/session',
+        'https://preview.example/api/auth/session',
       ),
     )
 
@@ -189,6 +182,19 @@ describe('Netlify identity/workspace HTTP contract', () => {
 
     expect(response.status).toBe(404)
     expect(await response.json()).toEqual({ detail: 'Not Found' })
+  })
+
+  it('does not trust a caller-supplied route query on the direct function URL', async () => {
+    const handler = createIdentityWorkspaceHandler(async () => {
+      throw new Error('must not run')
+    })
+    const response = await handler(
+      new Request(
+        'https://preview.example/.netlify/functions/identity-workspace?route=/api/auth/session',
+      ),
+    )
+
+    expect(response.status).toBe(404)
   })
 
   it('accepts the original API path retained by a Netlify rewrite', async () => {
@@ -213,7 +219,7 @@ describe('Netlify identity/workspace transaction failure semantics', () => {
             rows: [{
               id: 'user-1', organization_id: 'org-1', email: 'admin@example.invalid',
               normalized_email: 'admin@example.invalid', display_name: 'Admin',
-              password_hash: '$argon2id$v=19$m=65536,t=3,p=4$aDyKH1F/wTEq5XGUlnqKUw$XuDAaTrn2LTNBU6GQ9FGKxkTRNTUpUeZZQWFMDQV/Ks',
+              password_hash: '$argon2id$v=19$m=65536,t=3,p=4$sD8yO5nNpV5kB99Fx+0PXw$Zhp9/2C4RjmvqFfVtVdApR3SXofWsvRy1a9W/F0uoKs',
               status: 'active', is_organization_admin: true, failed_login_count: 4,
               locked_until: null, password_changed_at: null, last_login_at: null,
             }],
@@ -261,5 +267,48 @@ describe('Netlify identity/workspace transaction failure semantics', () => {
     })).rejects.toMatchObject({ status: 422 })
 
     expect(queries).toEqual(['BEGIN', 'ROLLBACK'])
+  })
+
+  it.each([
+    ['idle expiry', new Date('2026-01-01T00:00:00Z'), new Date('2027-01-01T00:00:00Z'), 'idle_expired'],
+    ['absolute expiry', new Date('2027-01-01T00:00:00Z'), new Date('2026-01-01T00:00:00Z'), 'absolute_expired'],
+  ])('commits session revocation on %s', async (_label, idleExpiresAt, absoluteExpiresAt, reason) => {
+    const calls = []
+    const client = {
+      async query(text, values) {
+        calls.push({ text: text.trim(), values })
+        if (text.includes('FROM sessions s')) {
+          return {
+            rows: [{
+              id: 'user-1', organization_id: 'org-1', email: 'admin@example.invalid',
+              normalized_email: 'admin@example.invalid', display_name: 'Admin', password_hash: null,
+              status: 'active', is_organization_admin: true, failed_login_count: 0,
+              locked_until: null, password_changed_at: null, last_login_at: null,
+              session_id: 'session-1', session_user_id: 'user-1', csrf_digest: '0'.repeat(64),
+              session_created_at: new Date('2025-01-01T00:00:00Z'),
+              idle_expires_at: idleExpiresAt, absolute_expires_at: absoluteExpiresAt,
+              revoked_at: null, organization_status: 'active',
+            }],
+            rowCount: 1,
+          }
+        }
+        return { rows: [], rowCount: 1 }
+      },
+      release() {},
+    }
+    const backend = createPostgresIdentityWorkspaceBackend({ async connect() { return client } })
+
+    await expect(backend({
+      route: { name: 'auth.session', params: {} },
+      request: new Request('https://preview.example/api/auth/session'),
+      body: null,
+      sessionToken: 'expired-session-token',
+      csrfToken: null,
+      clientAddress: null,
+    })).rejects.toMatchObject({ status: 401, clearAuthCookies: true, commitOnError: true })
+
+    const revocation = calls.find(({ text }) => text.startsWith('UPDATE sessions SET revoked_at'))
+    expect(revocation.values[2]).toBe(reason)
+    expect(calls.at(-1).text).toBe('COMMIT')
   })
 })

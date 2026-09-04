@@ -1,3 +1,5 @@
+import { timingSafeEqual } from 'node:crypto'
+
 import { argon2id, argon2Verify } from 'hash-wasm'
 
 const encoder = new TextEncoder()
@@ -10,6 +12,12 @@ export async function digestToken(token: string): Promise<string> {
 export function newToken(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32))
   return Buffer.from(bytes).toString('base64url')
+}
+
+export async function tokenMatches(token: string, expectedDigest: string): Promise<boolean> {
+  const actual = Buffer.from(await digestToken(token), 'hex')
+  const expected = Buffer.from(expectedDigest, 'hex')
+  return actual.length === expected.length && timingSafeEqual(actual, expected)
 }
 
 export async function verifyPassword(password: string, encodedHash: string): Promise<boolean> {
