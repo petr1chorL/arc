@@ -2,13 +2,27 @@ name: CI
 
 on:
   push:
-    branches: [master, main]
+    branches: [master, main, "codex/**"]
   pull_request:
-    branches: [master, main]
+    branches: [master, main, codex/harness-governance]
+
+permissions:
+  contents: read
 
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      identity-postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: arc_identity_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d arc_identity_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
 
     steps:
       - name: Check out repository
@@ -39,6 +53,9 @@ jobs:
 
       - name: Run backend tests
         run: python -m pytest apps/api/tests -q
+
+      - name: Verify isolated PostgreSQL identity contracts
+        run: node --experimental-transform-types scripts/test-identity-postgres.mjs
 
       - name: Validate production entrypoint syntax
         run: sh -n scripts/start-production.sh

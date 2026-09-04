@@ -9,7 +9,7 @@ describe('Netlify deployment policy', () => {
     const apiProxy = config.indexOf('from = "/api/*"')
     const spaFallback = config.indexOf('from = "/*"')
 
-    expect(config).toContain('command = "npm run build"')
+    expect(config).toContain('command = "node scripts/verify-ci-release.mjs && npm run build"')
     expect(config).toContain('publish = "dist"')
     expect(apiProxy).toBeGreaterThan(-1)
     expect(config).toContain('to = "https://arc-v1-lite-lindabaoz.zeabur.app/api/:splat"')

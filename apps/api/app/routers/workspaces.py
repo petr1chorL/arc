@@ -2,7 +2,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.access import (
@@ -17,6 +17,7 @@ from app.config import Settings
 from app.models import (
     AuditEventRecord,
     InvitationRecord,
+    OrganizationRecord,
     ReviewerRecord,
     UserRecord,
     WorkspaceMembershipRecord,
@@ -89,7 +90,23 @@ def create_workspaces_router(
         request: Request,
         session: Session = Depends(get_session),
     ) -> tuple[RequestContext, Session]:
-        return context_service.write_workspace_context(workspace_id, request, session)
+        context, session = context_service.write_workspace_context(workspace_id, request, session)
+        # Serialize membership writes before reading target users or counting admins.
+        # SQLite ignores FOR UPDATE, so reserve its writer with a no-value-change update.
+        if session.get_bind().dialect.name == "sqlite":
+            session.execute(update(OrganizationRecord).where(
+                OrganizationRecord.id == context.organization.id,
+            ).values(id=OrganizationRecord.id))
+        else:
+            session.execute(select(OrganizationRecord.id).where(
+                OrganizationRecord.id == context.organization.id,
+            ).with_for_update())
+        session.expire_all()
+        if context.user.status != "active" or context.session.revoked_at is not None:
+            raise HTTPException(status_code=401, detail="未登录或会话已失效")
+        if context.membership is not None and context.membership.status != "active":
+            raise HTTPException(status_code=404, detail="Workspace 不存在")
+        return context, session
 
     def record_success(
         session: Session,
@@ -778,6 +795,8 @@ def create_workspaces_router(
             membership.role == "workspace_admin"
             and payload.role != "workspace_admin"
             and membership.status == "active"
+            and user.status == "active"
+            and not user.is_organization_admin
             and count_active_workspace_admins(session, workspace_id) <= 1
         ):
             raise HTTPException(status_code=409, detail="必须至少保留一名有效 Workspace 管理员")
@@ -829,6 +848,8 @@ def create_workspaces_router(
         if (
             membership.role == "workspace_admin"
             and membership.status == "active"
+            and user.status == "active"
+            and not user.is_organization_admin
             and count_active_workspace_admins(session, workspace_id) <= 1
         ):
             raise HTTPException(status_code=409, detail="必须至少保留一名有效 Workspace 管理员")
@@ -922,12 +943,15 @@ def create_workspaces_router(
         if context.user.id == user_id:
             raise HTTPException(status_code=409, detail="不能停用自己的 User")
         membership, user = find_membership(session, workspace_id, user_id)
-        if (
-            membership.role == "workspace_admin"
-            and membership.status == "active"
-            and count_active_workspace_admins(session, workspace_id) <= 1
-        ):
-            raise HTTPException(status_code=409, detail="必须至少保留一名有效 Workspace 管理员")
+        if user.status == "active" and not user.is_organization_admin:
+            managed_workspace_ids = session.scalars(select(WorkspaceMembershipRecord.workspace_id).where(
+                WorkspaceMembershipRecord.user_id == user_id,
+                WorkspaceMembershipRecord.role == "workspace_admin",
+                WorkspaceMembershipRecord.status == "active",
+            ).order_by(WorkspaceMembershipRecord.workspace_id))
+            for managed_workspace_id in managed_workspace_ids:
+                if count_active_workspace_admins(session, managed_workspace_id) <= 1:
+                    raise HTTPException(status_code=409, detail="必须至少保留一名有效 Workspace 管理员")
         user.status = "disabled"
         user.updated_at = current_time()
         authentication_service.revoke_user_sessions(session, user.id, "user_disabled")
