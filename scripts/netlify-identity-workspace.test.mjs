@@ -208,12 +208,106 @@ describe('Netlify identity/workspace HTTP contract', () => {
   })
 })
 
+describe('Netlify identity request boundaries', () => {
+  it.each([{}, { 'Content-Length': '2' }, { 'Content-Length': '1048577' }])(
+    'rejects oversized bytes before backend execution (%j)', async (headers) => {
+      let calls = 0
+      const handler = createIdentityWorkspaceHandler(async () => {
+        calls++
+        return { body: {} }
+      })
+      const response = await handler(new Request('https://preview.example/api/auth/login', {
+        method: 'POST', headers, body: JSON.stringify({ padding: '界'.repeat(350_000) }),
+      }))
+      expect(response.status).toBe(413)
+      expect(calls).toBe(0)
+    },
+  )
+
+  it('ignores malformed unrelated cookies and preserves a valid session', async () => {
+    const handler = createIdentityWorkspaceHandler(async ({ sessionToken }) => ({ body: { sessionToken } }))
+    const response = await handler(new Request('https://preview.example/api/auth/session', {
+      headers: { Cookie: 'unrelated=%; arc_one_session=synthetic-session' },
+    }))
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ sessionToken: 'synthetic-session' })
+  })
+
+  it('treats malformed session cookie as unauthenticated', async () => {
+    const handler = createIdentityWorkspaceHandler(async ({ sessionToken }) => {
+      expect(sessionToken).toBeNull()
+      throw new ApiError(401, '未登录或会话已失效', true)
+    })
+    const response = await handler(new Request('https://preview.example/api/auth/session', {
+      headers: { Cookie: 'arc_one_session=%' },
+    }))
+    expect(response.status).toBe(401)
+  })
+})
+
 describe('Netlify identity/workspace transaction failure semantics', () => {
+  it('blocks global disable when the target is a builder here but the last admin elsewhere', async () => {
+    const queries = []
+    const csrfDigest = await digestToken('synthetic-csrf')
+    const client = {
+      async query(text, values) {
+        queries.push({ text, values })
+        let rows = []
+        if (text.includes('identity_rate_limits')) rows = [{ count: 1 }]
+        else if (text.includes('FROM sessions s')) rows = [{
+          id: 'actor', organization_id: 'org', status: 'active', is_organization_admin: true,
+          session_id: 'session', session_user_id: 'actor', csrf_digest: csrfDigest,
+          session_created_at: new Date(), idle_expires_at: new Date(Date.now() + 3600_000),
+          absolute_expires_at: new Date(Date.now() + 86400_000), revoked_at: null,
+          organization_status: 'active', password_changed_at: null,
+        }]
+        else if (text.includes('FROM workspaces')) rows = [{ id: 'a', organization_id: 'org', status: 'active' }]
+        else if (text.includes('SELECT m.*,u.email')) rows = [{
+          id: 'ma', workspace_id: 'a', user_id: 'target', role: 'builder', status: 'active',
+          user_status: 'active', is_organization_admin: false, reviewer_role: null,
+        }]
+        else if (text.includes('SELECT workspace_id FROM workspace_memberships')) rows = [{ workspace_id: 'b' }]
+        else if (text.includes('SELECT m.id FROM workspace_memberships')) rows = [{ id: 'mb' }]
+        return { rows, rowCount: rows.length }
+      },
+      release() {},
+    }
+    const backend = createPostgresIdentityWorkspaceBackend({ async connect() { return client } })
+    await expect(backend({
+      route: { name: 'workspace.user.disable', params: { workspaceId: 'a', userId: 'target' } },
+      request: new Request('https://preview.example/api/workspaces/a/members/target/user/disable', { method: 'POST' }),
+      body: null, sessionToken: 'synthetic-session', csrfToken: 'synthetic-csrf', clientAddress: '192.0.2.1',
+    })).rejects.toMatchObject({ status: 409 })
+    expect(queries.at(-1).text).toBe('ROLLBACK')
+    expect(queries.some(({ text }) => text.startsWith('UPDATE users'))).toBe(false)
+    expect(queries.some(({ text }) => text.includes('INSERT INTO audit_events'))).toBe(false)
+  })
+
+  it('rejects a throttled client before password verification with Retry-After', async () => {
+    const queries = []
+    const client = {
+      async query(text) {
+        queries.push(text)
+        return { rows: text.includes('identity_rate_limits') ? [{ count: 121 }] : [], rowCount: 1 }
+      },
+      release() {},
+    }
+    const backend = createPostgresIdentityWorkspaceBackend({ async connect() { return client } })
+    const handler = createIdentityWorkspaceHandler(backend, { clientAddress: '192.0.2.1' })
+    const response = await handler(new Request('https://preview.example/api/auth/login', {
+      method: 'POST', body: JSON.stringify({ email: 'unknown@example.invalid', password: 'Synthetic Password 42!' }),
+    }))
+    expect(response.status).toBe(429)
+    expect(response.headers.get('Retry-After')).toBe('60')
+    expect(queries.some((text) => text.includes('SELECT u.* FROM users'))).toBe(false)
+  })
+
   it('commits the fifth failed-login counter before returning account locked', async () => {
     const queries = []
     const client = {
       async query(text) {
         queries.push(text.trim())
+        if (text.includes('identity_rate_limits')) return { rows: [{ count: 1 }], rowCount: 1 }
         if (text.includes('SELECT u.* FROM users')) {
           return {
             rows: [{
@@ -251,6 +345,7 @@ describe('Netlify identity/workspace transaction failure semantics', () => {
     const client = {
       async query(text) {
         queries.push(text.trim())
+        if (text.includes('identity_rate_limits')) return { rows: [{ count: 1 }], rowCount: 1 }
         return { rows: [], rowCount: 0 }
       },
       release() {},
@@ -266,7 +361,8 @@ describe('Netlify identity/workspace transaction failure semantics', () => {
       clientAddress: null,
     })).rejects.toMatchObject({ status: 422 })
 
-    expect(queries).toEqual(['BEGIN', 'ROLLBACK'])
+    expect(queries[0]).toContain('INSERT INTO identity_rate_limits')
+    expect(queries.slice(1)).toEqual(['BEGIN', 'ROLLBACK'])
   })
 
   it.each([
@@ -277,6 +373,7 @@ describe('Netlify identity/workspace transaction failure semantics', () => {
     const client = {
       async query(text, values) {
         calls.push({ text: text.trim(), values })
+        if (text.includes('identity_rate_limits')) return { rows: [{ count: 1 }], rowCount: 1 }
         if (text.includes('FROM sessions s')) {
           return {
             rows: [{

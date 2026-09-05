@@ -65,7 +65,8 @@ const checks = [
     file: '.github/workflows/ci.yml',
     patterns: [
       /name: CI/,
-      /branches: \[master, main\]/,
+      /branches: \[master, main, "codex\/\*\*"\]/,
+      /branches: \[master, main, codex\/harness-governance\]/,
       /npm test -- --run/,
       /python -m pytest apps\/api\/tests -q/,
       /sh -n scripts\/start-production\.sh/,

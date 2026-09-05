@@ -4,6 +4,7 @@ import { resolveIdentityWorkspaceRoute } from './routes.ts'
 const SESSION_COOKIE = 'arc_one_session'
 const CSRF_COOKIE = 'arc_one_csrf'
 const COOKIE_MAX_AGE = 7 * 24 * 60 * 60
+const MAX_BODY_BYTES = 1_048_576
 
 export type ResolvedRoute = NonNullable<ReturnType<typeof resolveIdentityWorkspaceRoute>>
 
@@ -32,6 +33,7 @@ export class ApiError extends Error {
     message: string,
     readonly clearAuthCookies = false,
     readonly commitOnError = false,
+    readonly retryAfter?: number,
   ) {
     super(message)
   }
@@ -39,6 +41,7 @@ export class ApiError extends Error {
 
 type HandlerOptions = {
   allowedOrigins?: readonly string[]
+  clientAddress?: string
 }
 
 const responseHeaders = {
@@ -74,7 +77,7 @@ export function createIdentityWorkspaceHandler(
         body,
         sessionToken: cookies.get(SESSION_COOKIE) ?? null,
         csrfToken: request.headers.get('X-CSRF-Token'),
-        clientAddress: request.headers.get('x-nf-client-connection-ip'),
+        clientAddress: options.clientAddress ?? null,
       })
       const headers = new Headers(responseHeaders)
       if (result.sessionToken && result.csrfToken) {
@@ -90,6 +93,7 @@ export function createIdentityWorkspaceHandler(
       if (error instanceof ApiError) {
         const headers = new Headers(responseHeaders)
         if (error.clearAuthCookies) clearAuthCookies(headers)
+        if (error.retryAfter !== undefined) headers.set('Retry-After', String(error.retryAfter))
         return Response.json(
           { detail: error.message },
           { status: error.status, headers },
@@ -118,7 +122,29 @@ function requireSameOrigin(request: Request, allowedOrigins: ReadonlySet<string>
 
 async function readBody(request: Request): Promise<unknown> {
   if (request.method === 'GET' || request.method === 'HEAD') return null
-  const text = await request.text()
+  if (Number(request.headers.get('content-length')) > MAX_BODY_BYTES) {
+    throw new ApiError(413, '请求正文过大')
+  }
+  const reader = request.body?.getReader()
+  if (!reader) return null
+  const decoder = new TextDecoder()
+  let bytes = 0
+  let text = ''
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      bytes += value.byteLength
+      if (bytes > MAX_BODY_BYTES) {
+        await reader.cancel()
+        throw new ApiError(413, '请求正文过大')
+      }
+      text += decoder.decode(value, { stream: true })
+    }
+    text += decoder.decode()
+  } finally {
+    reader.releaseLock()
+  }
   if (!text) return null
   try {
     return JSON.parse(text)
@@ -132,7 +158,13 @@ function parseCookies(header: string | null): Map<string, string> {
   for (const part of header?.split(';') ?? []) {
     const separator = part.indexOf('=')
     if (separator < 0) continue
-    values.set(part.slice(0, separator).trim(), decodeURIComponent(part.slice(separator + 1).trim()))
+    const name = part.slice(0, separator).trim()
+    if (name !== SESSION_COOKIE) continue
+    try {
+      values.set(name, decodeURIComponent(part.slice(separator + 1).trim()))
+    } catch {
+      values.delete(name)
+    }
   }
   return values
 }

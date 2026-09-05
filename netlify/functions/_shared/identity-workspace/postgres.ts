@@ -94,6 +94,7 @@ type InvitationBundle = InvitationRow & {
 }
 
 type MemberRow = MembershipRow & {
+  is_organization_admin: boolean
   email: string | null
   display_name: string
   user_status: string
@@ -139,17 +140,38 @@ export function createPostgresIdentityWorkspaceBackend(pool: SqlPool) {
   return async (input: BackendInput): Promise<BackendResult> => {
     const client = await pool.connect()
     try {
+      // Autocommit the budget before the business transaction: invalid requests count too.
+      await enforceRequestRateLimit(client, input)
       await client.query('BEGIN')
-      const result = await dispatch(client, input)
-      await client.query('COMMIT')
-      return result
-    } catch (error) {
-      await client.query(error instanceof ApiError && error.commitOnError ? 'COMMIT' : 'ROLLBACK')
-      throw error
+      try {
+        const result = await dispatch(client, input)
+        await client.query('COMMIT')
+        return result
+      } catch (error) {
+        await client.query(error instanceof ApiError && error.commitOnError ? 'COMMIT' : 'ROLLBACK')
+        throw error
+      }
     } finally {
       client.release()
     }
   }
+}
+
+async function enforceRequestRateLimit(client: SqlClient, input: BackendInput): Promise<void> {
+  const key = `request:client:${await digestToken(input.clientAddress ?? 'unknown')}`
+  const result = await client.query<{ count: number }>(
+    `INSERT INTO identity_rate_limits (bucket_key,window_started_at,count)
+     VALUES ($1,clock_timestamp(),1)
+     ON CONFLICT (bucket_key) DO UPDATE SET
+       window_started_at = CASE WHEN identity_rate_limits.window_started_at <= clock_timestamp() - INTERVAL '60 seconds'
+         THEN clock_timestamp() ELSE identity_rate_limits.window_started_at END,
+       count = CASE WHEN identity_rate_limits.window_started_at <= clock_timestamp() - INTERVAL '60 seconds'
+         THEN 1 ELSE identity_rate_limits.count + 1 END
+     RETURNING count`,
+    [key],
+  )
+  if (!result.rows[0]) throw new ApiError(503, '服务暂时不可用')
+  if (result.rows[0].count > 120) throw new ApiError(429, '请求过于频繁，请稍后再试', false, false, 60)
 }
 
 async function dispatch(client: SqlClient, input: BackendInput): Promise<BackendResult> {
@@ -760,6 +782,15 @@ async function memberOperations(
   operation: string,
 ): Promise<BackendResult> {
   const write = operation !== 'list'
+  if (write && input.sessionToken) {
+    // Lock only the organization first; all membership writes share this order.
+    await client.query(
+      `SELECT o.id FROM organizations o JOIN users u ON u.organization_id=o.id
+       JOIN sessions s ON s.user_id=u.id WHERE s.token_digest=$1
+       AND s.revoked_at IS NULL AND u.status='active' FOR UPDATE OF o`,
+      [await digestToken(input.sessionToken)],
+    )
+  }
   const context = await workspaceContext(client, input, write)
   const capability: Capability = operation.startsWith('save-reviewer') || operation.startsWith('revoke-reviewer')
     ? 'reviewer.manage'
@@ -829,7 +860,7 @@ async function enforceInvitationRateLimit(
 
 async function queryMembers(client: SqlClient, workspaceId: string): Promise<MemberRow[]> {
   const result = await client.query<MemberRow>(
-    `SELECT m.*,u.email,u.display_name,u.status AS user_status,u.last_login_at,
+    `SELECT m.*,u.email,u.display_name,u.status AS user_status,u.last_login_at,u.is_organization_admin,
             r.role AS reviewer_role,r.is_expert AS reviewer_is_expert,r.is_active AS reviewer_is_active,
             i.id AS invitation_id,i.revoked_at AS invitation_revoked_at,i.used_at AS invitation_used_at
      FROM workspace_memberships m
@@ -848,7 +879,7 @@ async function queryMembers(client: SqlClient, workspaceId: string): Promise<Mem
 
 async function findMember(client: SqlClient, workspaceId: string, userId: string): Promise<MemberRow> {
   const result = await client.query<MemberRow>(
-    `SELECT m.*,u.email,u.display_name,u.status AS user_status,u.last_login_at,
+    `SELECT m.*,u.email,u.display_name,u.status AS user_status,u.last_login_at,u.is_organization_admin,
             r.role AS reviewer_role,r.is_expert AS reviewer_is_expert,r.is_active AS reviewer_is_active,
             i.id AS invitation_id,i.revoked_at AS invitation_revoked_at,i.used_at AS invitation_used_at
      FROM workspace_memberships m
@@ -1086,7 +1117,7 @@ async function changeMemberRole(
 ): Promise<BackendResult> {
   const body = objectBody(input.body)
   if (!isWorkspaceRole(body.role)) throw new ApiError(422, 'role 字段无效')
-  if (member.role === 'workspace_admin' && body.role !== 'workspace_admin' && member.status === 'active') {
+  if (isEffectiveAdmin(member) && body.role !== 'workspace_admin') {
     await protectLastAdmin(client, context.workspace.id)
   }
   await client.query(`UPDATE workspace_memberships SET role=$2,updated_at=$3 WHERE id=$1`, [member.id, body.role, new Date()])
@@ -1101,7 +1132,7 @@ async function changeMembershipStatus(
   client: SqlClient, context: WorkspaceContext, input: BackendInput, member: MemberRow, enable: boolean,
 ): Promise<BackendResult> {
   if (!enable && context.user.id === member.user_id) throw new ApiError(409, '不能停用自己的成员关系')
-  if (!enable && member.role === 'workspace_admin' && member.status === 'active') {
+  if (!enable && isEffectiveAdmin(member)) {
     await protectLastAdmin(client, context.workspace.id)
   }
   if (enable && member.user_status !== 'active') throw new ApiError(409, '用户尚未激活')
@@ -1122,8 +1153,13 @@ async function changeUserStatus(
     workspaceId: context.workspace.id,
   })
   if (!enable && context.user.id === member.user_id) throw new ApiError(409, '不能停用自己的 User')
-  if (!enable && member.role === 'workspace_admin' && member.status === 'active') {
-    await protectLastAdmin(client, context.workspace.id)
+  if (!enable && member.user_status === 'active' && !member.is_organization_admin) {
+    const memberships = await client.query<{ workspace_id: string }>(
+      `SELECT workspace_id FROM workspace_memberships
+       WHERE user_id=$1 AND role='workspace_admin' AND status='active' ORDER BY workspace_id`,
+      [member.user_id],
+    )
+    for (const membership of memberships.rows) await protectLastAdmin(client, membership.workspace_id)
   }
   const status = enable ? 'active' : 'disabled'
   await client.query(
@@ -1146,12 +1182,17 @@ async function changeUserStatus(
   return { body: serializeMember({ ...member, user_status: status }) }
 }
 
+function isEffectiveAdmin(member: MemberRow): boolean {
+  return member.role === 'workspace_admin' && member.status === 'active'
+    && member.user_status === 'active' && !member.is_organization_admin
+}
+
 async function protectLastAdmin(client: SqlClient, workspaceId: string): Promise<void> {
   const admins = await client.query<{ id: string }>(
     `SELECT m.id FROM workspace_memberships m JOIN users u ON u.id=m.user_id
      WHERE m.workspace_id=$1 AND m.role='workspace_admin' AND m.status='active'
        AND u.status='active' AND u.is_organization_admin=false
-     ORDER BY m.id FOR UPDATE OF m,u`,
+     ORDER BY m.id`,
     [workspaceId],
   )
   if (admins.rows.length <= 1) {

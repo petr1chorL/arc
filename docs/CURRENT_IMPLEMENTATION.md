@@ -2,7 +2,7 @@
 
 > 当前版本：V1 Lite 调度中心、工作流评估节点与生产启动可用性恢复
 > 上一阶段：工作流评估模板节点
-> 更新时间：2026-07-18
+> 更新时间：2026-09-05（下方保留历史版本记录）
 
 > 阅读边界：本文保存详细实现说明和连续版本记录，因此包含历史验证数量与旧阶段描述。
 > 项目级当前状态、能力边界、最新验证和优先级以
@@ -11,6 +11,12 @@
 ## 1. 当前版本是什么
 
 当前版本是 React 单页应用与 FastAPI 服务组成的可运行原型。
+
+2026-09-05 在独立验证分支实现身份/发布收口：Python 与 Netlify TypeScript 全局 User 停用
+检查全部 Workspace 管理员关系；成员写操作按组织事务串行；TS 增加实际字节正文上限、
+异常 Cookie 容错和受信 IP 持久限流。CI 覆盖迁移分支，Netlify 构建增加精确 SHA 的 CI 检查。
+该批尚未合入生产分支；测试/上线状态见 `.harness/changes/identity-release-hardening/verify.md`。
+不据此宣称生产 API 已修复或完整迁移。
 
 2026-09-04 Netlify 原生迁移完成第二个受控切片：从当前 SQLAlchemy metadata 生成并在
 Production 应用 43 表 PostgreSQL schema baseline；隔离 Deploy Preview 使用全合成数据完成

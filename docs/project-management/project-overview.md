@@ -1,12 +1,13 @@
 # ARC.ONE 当前项目状态
 
-> 事实快照：2026-07-18
+> 事实快照：2026-09-05（本地复核；线上基线见下文，未切流）
 > 当前产品迭代：V1.0 Lite（`in-progress`）
 > 当前安全切片：P0 运行时安全收口（`ready-for-human`）
 > 当前可靠性切片：生产启动可用性恢复（`ready-for-human`）
 > 当前集成切片：远程 Agent API（`ready-for-human`）
-> 当前功能切片：V1 Lite 调度中心（工程实现与相关回归已完成，待生产部署验收）
-> 当前部署基线：GitHub `master=df1a0cd`；Zeabur `df1a0cd`
+> 当前功能切片：Netlify 迁移前的身份约束、请求保护与 CI 发布门禁加固
+> 迁移生产分支：`codex/harness-governance`；本轮开始基线 `98fe888`
+> 线上边界：Netlify 前端 + Zeabur API/Worker/业务数据；不得关闭 Zeabur
 
 本文是项目级唯一当前事实入口，用于回答“项目是什么、已经做到哪、明确没做到什么、
 现在应该做什么”。发生冲突时，按以下优先级判断：
@@ -34,8 +35,23 @@ ARC.ONE 是面向企业的 Agentic Workflow 操作系统，用于管理 Agent �
 - 后端：FastAPI、Pydantic、SQLAlchemy。
 - 数据：本地默认 SQLite，部署可使用 PostgreSQL。
 - AI：OpenAI-compatible ModelGateway；自动化测试使用 FakeGateway。
-- 部署：GitHub Pull Request / CI -> `master` -> Zeabur 同源容器 -> Zeabur PostgreSQL。
-- 公网入口：`https://arc-v1-lite-lindabaoz.zeabur.app/`。
+- 当前入口：`https://arc-one-agentic-os.netlify.app/`，`/api/*` 代理 Zeabur。
+- 旧完整服务：`https://arc-v1-lite-lindabaoz.zeabur.app/`，仍承载生产 API、Worker 与业务数据。
+- Netlify 已有空业务 schema 和休眠身份 Function；不代表生产身份或业务数据已经迁移。
+
+2026-09-05 整体复核见 `2026-09-05-overall-review.md`：确认跨 Workspace User 停用的
+最后管理员保护缺陷、迁移分支 CI 缺口与请求防护/可重复契约验证缺口，优先修复后再继续资产迁移。
+资产迁移按 `netlify-asset-migration-slices.md` 拆为 04A–04E。下面日期段落保留历史演练证据，
+其“下一步”仅代表当时顺序，不覆盖本节的当前优先级。
+
+加固代码 `ba35010` 已在独立分支 `codex/identity-release-hardening` 完成工程验证：
+前端 333、后端 410 项，以及真实 PostgreSQL 129 项检查通过；GitHub CI run 33928026353
+成功，最小新旧身份契约对比与并发管理员保护通过。随后 cc98029 在 PR #39 的 Netlify
+Deploy Preview `6a9b54d034fa00000853068e` 完成验收：精确 SHA 的 push CI 33929272335
+与 PR CI 33929817681 均成功，云端门禁日志确认放行同一 SHA；登录页/资源、未认证 API
+边界和 Preview 数据库健康通过，身份 Function 继续休眠。未提交真实登录或业务写入。
+PR 保持未合并，Production 仍为 `6a9a97898a5f2300089163e3`，Zeabur 生产 API 未更新。
+回执见 `.harness/changes/identity-release-hardening/verify.md`。
 
 2026-09-04 已通过 Netlify 原生迁移的平台门禁：站点 `arc-one-agentic-os` 的生产数据库分支、
 非业务探针 migration、数据库健康 Function 与 Async Workload 已完成线上验证；临时 PR #36 进一步
@@ -159,7 +175,14 @@ P0 安全人工签收或 V1.0 Lite 业务签收已经完成。
 
 
 
-## 当前优先级
+## 当前优先级（2026-09-05）
+
+1. 身份/发布加固工程与独立 Preview 实际门禁验收已通过；准备生产合入，PR #39 尚未合并且不得据此切流。
+2. 按 04A–04E 锁定与迁移资产契约，不扩大生产路由。
+3. 在运行迁移前独立验证队列原子领取、租约续期、重试与外部副作用。
+4. 最终切换仍要求生产数据对账、备份/恢复、回滚边界与业务签收；满足后才能下线 Zeabur。
+
+## 历史试点与签收优先级（仍未被技术测试替代）
 
 1. **P0：完成生产启动恢复人工签收。** 精确 SHA、`/api/health` 和 `/healthz` 已确认；
    继续补齐真实登录与 Seed completed/skipped 状态证据，再关闭生产恢复 Issue。

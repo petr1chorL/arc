@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
@@ -153,6 +154,49 @@ def invite_member(client: TestClient, workspace_id: str, email: str, role: str =
 
 def extract_token(activation_url: str) -> str:
     return urlparse(activation_url).path.rsplit("/", 1)[-1]
+
+
+@pytest.mark.parametrize("backup_status, expected_status", [(None, 409), ("disabled", 409), ("active", 200)])
+def test_disable_user_checks_admin_memberships_outside_requested_workspace(tmp_path, backup_status, expected_status):
+    context = create_membership_context(tmp_path)
+    client = context["client"]
+    member_id = context["member_id"]
+    with context["session_factory"]() as session:
+        user = session.get(UserRecord, member_id)
+        other = WorkspaceRecord(
+            organization_id=user.organization_id, name="Other", slug="other",
+        )
+        session.add(other)
+        session.flush()
+        session.add(WorkspaceMembershipRecord(
+            workspace_id=other.id, user_id=member_id,
+            role="workspace_admin", status="active",
+        ))
+        if backup_status is not None:
+            backup = session.get(UserRecord, context["workspace_admin_id"])
+            backup.status = backup_status
+            session.add(WorkspaceMembershipRecord(
+                workspace_id=other.id, user_id=backup.id, role="workspace_admin", status="active",
+            ))
+        session.commit()
+
+    login(client, MEMBER_EMAIL)
+    login(client, "admin@example.com")
+    response = client.post(
+        f"/api/workspaces/{context['workspace_id']}/members/{member_id}/user/disable",
+        headers=csrf_headers(client),
+    )
+    assert response.status_code == expected_status
+    if expected_status == 409:
+        assert response.json()["detail"] == "必须至少保留一名有效 Workspace 管理员"
+    with context["session_factory"]() as session:
+        assert session.get(UserRecord, member_id).status == ("active" if expected_status == 409 else "disabled")
+        sessions = list(session.scalars(select(SessionRecord).where(SessionRecord.user_id == member_id)))
+        assert sessions and all((record.revoked_at is None) == (expected_status == 409) for record in sessions)
+        audit = session.scalar(select(AuditEventRecord).where(
+            AuditEventRecord.action == "user.disable", AuditEventRecord.target_id == member_id,
+        ))
+        assert (audit is None) == (expected_status == 409)
 
 
 def test_invitation_create_list_preview_and_activate_flow(tmp_path):

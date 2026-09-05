@@ -1,4 +1,5 @@
 import { getDatabase } from '@netlify/database'
+import type { Context } from '@netlify/functions'
 
 import { createIdentityWorkspaceHandler } from './_shared/identity-workspace/handler.ts'
 import { createPostgresIdentityWorkspaceBackend, type SqlPool } from './_shared/identity-workspace/postgres.ts'
@@ -10,12 +11,14 @@ function allowedOrigins(): string[] {
     .filter(Boolean)
 }
 
-export default async (request: Request): Promise<Response> => {
+export default async (request: Request, context: Context): Promise<Response> => {
   const backend = createPostgresIdentityWorkspaceBackend({
     async connect() {
       const database = getDatabase()
       return database.pool.connect() as unknown as Awaited<ReturnType<SqlPool['connect']>>
     },
   })
-  return createIdentityWorkspaceHandler(backend, { allowedOrigins: allowedOrigins() })(request)
+  return createIdentityWorkspaceHandler(backend, {
+    allowedOrigins: allowedOrigins(), clientAddress: context.ip,
+  })(request)
 }
