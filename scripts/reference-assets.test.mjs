@@ -21,7 +21,11 @@ describe('reference asset route contract', () => {
   })
   it.each(['test', 'migrate-drafts', 'test-invocations'])('does not enable %s', action => {
     expect(resolveReferenceAssetRoute('POST', `/api/workspaces/workspace/asset-library/item/${action}`)).toBeNull()
-    expect(resolveReferenceAssetRoute('POST', `/api/workspaces/workspace/model-providers/item/${action}`)).toBeNull()
+    if (action === 'test-invocations') expect(resolveReferenceAssetRoute('POST', `/api/workspaces/workspace/model-providers/item/${action}`)).toBeNull()
+  })
+  it.each(['test', 'migrate-drafts'])('resolves Provider compatibility %s', operation => {
+    expect(resolveReferenceAssetRoute('POST', `/api/workspaces/workspace/model-providers/item/${operation}`))
+      .toEqual({ kind: 'provider', operation, params: { workspaceId: 'workspace', assetId: 'item' } })
   })
   it('rejects encoded path separators and malformed encodings', () => {
     for (const workspace of ['%2F', '%5C', '%00', '%ZZ']) {
@@ -64,7 +68,7 @@ describe('reference asset request boundary', () => {
   it('does not enable an execution endpoint', async () => {
     let called = false
     const response = await createReferenceAssetsHandler(async () => { called = true; return {} })(
-      new Request(`${path}/item/test`, { method: 'POST' }),
+      new Request(`${path}/item/test-invocations`, { method: 'POST' }),
     )
     expect(response.status).toBe(404)
     expect(called).toBe(false)

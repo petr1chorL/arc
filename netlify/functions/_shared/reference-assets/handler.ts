@@ -12,5 +12,5 @@ export type ReferenceAssetsBackend = (input: ReferenceAssetsInput) => Promise<Ba
 /** Reuse identity request parsing, cookies, size limits and fixed error responses. */
 export function createReferenceAssetsHandler(backend: ReferenceAssetsBackend, options: HandlerOptions = {}) {
   return createApiHandler(backend, resolveReferenceAssetRoute,
-    route => ['create', 'update', 'deactivate'].includes(route.operation), options)
+    route => ['create', 'update', 'deactivate', 'test', 'migrate-drafts'].includes(route.operation), options)
 }

@@ -1,5 +1,16 @@
 # ARC.ONE 当前版本实现说明
 
+## 2026-09-06 生产迁移准备与 CI 修复
+
+Workflow 过期 effect 的版本请求扇出已修复；提交 `b626602` 的 GitHub CI `34020649346`
+全部通过，Netlify 部署 `6a9d1d993c53f700086e848e` 已发布相同 SHA。
+此发布仍是 Netlify 前端 + Zeabur API/Worker/数据，原生公开入口保持关闭。
+后续本地代码已增加全域路由/关闭门禁、模型配置依赖工厂、Provider 两个兼容接口、旧 Worker
+领取 410 与运行删除 409 过渡契约，以及只读源库盘点 SQL。独立审查未发现剩余阻断；
+准备代码的精确验证及后续提交/CI 状态见 `.harness/changes/netlify-production-cutover/verify.md`。
+运行成功删除与 HTTP Tool 独立异步测试未补齐；未取得生产备份、恢复、最终对账、切流或观察证据。
+下方“未提交/推送/部署”均为历史快照，不覆盖本段；也不能把当前前端发布当成后端迁移完成。
+
 ## 2026-09-06 原生执行系统与运行闭环（05/06）
 
 已按确认设计实现 `runtime/`、`runtime-delivery/`、`runtime-closure/` 三个原生模块，

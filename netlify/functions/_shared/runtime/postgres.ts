@@ -7,6 +7,7 @@ import { enqueueOperation, projectOperation } from './ledger.ts'
 import { submitWorkflow, submitAgent, readRun } from './workflow.ts'
 import type { Operation } from './types.ts'
 import type { RuntimeInput } from './handler.ts'
+import { runDeletionConflict } from './run-delete.ts'
 
 /** HTTP never calls external gateways or runs the worker synchronously. */
 export function createPostgresRuntimeBackend(pool: SqlPool) {
@@ -14,8 +15,21 @@ export function createPostgresRuntimeBackend(pool: SqlPool) {
     const { operation, params } = input.route
     const write = input.request.method !== 'GET'
     const context = await workspaceContext(client, input, write, write), ws = context.workspace.id
-    const audit = { action: `runtime.${operation}`, targetType: 'runtime_operation', targetId: params.id ?? ws }
+    const audit = operation === 'jobs.next'
+      ? { action: 'execution_job.process_next', targetType: 'workspace', targetId: ws }
+      : operation === 'runs.delete'
+        ? { action: 'run.delete', targetType: 'run', targetId: params.id ?? ws }
+        : { action: `runtime.${operation}`, targetType: 'runtime_operation', targetId: params.id ?? ws }
     await requireCapability(client, context, input, params.action === 'reconcile' ? 'workspace.manage' : write ? 'run.execute' : 'run.read', audit)
+    if (operation === 'jobs.next') {
+      await recordAudit(client, context, input, { ...audit, workspaceId: ws, outcome: 'denied', metadata: { reason: 'manual_worker_claim_retired' } })
+      throw new ApiError(410, '手动领取入口已退役，任务由原生异步执行器消费；本次未领取或执行任务', false, true)
+    }
+    if (operation === 'runs.delete') {
+      const conflict = await runDeletionConflict(client, ws, params.id!)
+      await recordAudit(client, context, input, { ...audit, workspaceId: ws, outcome: 'denied', metadata: { reason: 'run_delete_not_migrated', status: conflict.status } })
+      throw new ApiError(409, conflict.detail, false, true)
+    }
     const body = input.body == null ? {} : input.body
     if (!object(body)) throw new ApiError(422, '运行请求无效')
     const key = input.request.headers.get('Idempotency-Key') ?? body.idempotencyKey ?? randomUUID()

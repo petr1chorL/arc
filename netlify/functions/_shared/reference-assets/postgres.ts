@@ -9,6 +9,7 @@ import { isSafeRegistrationUrl } from './policy.ts'
 import { dispatchToolSkill } from './tool-skill-postgres.ts'
 import { readAssetImpact } from './impact-postgres.ts'
 import { readAssetHistory } from './history-postgres.ts'
+import { checkProviderConfiguration, migrateProviderDrafts, type ProviderCompatibilityOptions } from './provider-compat-postgres.ts'
 
 type ProviderFields = {
   name: string; provider_type: string; base_url: string; default_model: string; secret_ref: string
@@ -23,17 +24,19 @@ const fields = [
   ['default_model', 'defaultModel', 120], ['secret_ref', 'secretRef', 160],
 ] as const
 
-export function createPostgresReferenceAssetsBackend(pool: SqlPool) {
-  return createTransactionBackend<ReferenceAssetsInput>(pool, dispatch)
+export function createPostgresReferenceAssetsBackend(pool: SqlPool, options: ProviderCompatibilityOptions = {}) {
+  return createTransactionBackend<ReferenceAssetsInput>(pool, (client, input) => dispatch(client, input, options))
 }
 
-async function dispatch(client: SqlClient, input: ReferenceAssetsInput): Promise<BackendResult> {
+async function dispatch(client: SqlClient, input: ReferenceAssetsInput, options: ProviderCompatibilityOptions): Promise<BackendResult> {
   const { operation, kind, params } = input.route
-  const write = ['create', 'update', 'deactivate'].includes(operation)
+  const write = ['create', 'update', 'deactivate', 'test', 'migrate-drafts'].includes(operation)
   const context = await workspaceContext(client, input, write)
   if (operation === 'impact') return readAssetImpact(client, context, input)
   if (operation === 'audit' || operation === 'invocations') return readAssetHistory(client, context, input)
   if (kind === 'asset') return dispatchToolSkill(client, context, input)
+  if (operation === 'test') return checkProviderConfiguration(client, context, input, options)
+  if (operation === 'migrate-drafts') return migrateProviderDrafts(client, context, input)
   // This module remains internal until all approved routes have implementation and evidence.
   if (!['list', 'create', 'update', 'deactivate'].includes(operation)) {
     throw new ApiError(501, '该资产接口尚未完成迁移')

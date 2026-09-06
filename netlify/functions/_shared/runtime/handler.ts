@@ -10,10 +10,12 @@ export function resolveRuntimeRoute(method: string, path: string): RuntimeRoute 
     ['POST', /^workflows\/([^/]+)\/runs$/, 'workflow.submit', ['workflowId']],
     ['POST', /^agents\/([^/]+)\/test-runs$/, 'agent.submit', ['agentId']],
     ['GET', /^runs$/, 'runs.list', []], ['GET', /^runs\/([^/]+)$/, 'runs.get', ['id']],
+    ['DELETE', /^runs\/([^/]+)$/, 'runs.delete', ['id']],
     ['GET', /^runs\/([^/]+)\/operation-history$/, 'runs.history', ['id']],
     ['POST', /^runs\/([^/]+)\/(rerun|resume-from-failed-node)$/, 'runs.control', ['id','action']],
     ['POST', /^runs\/(batch-rerun|batch-resume-from-failed-node)$/, 'runs.batch', ['action']],
     ['GET', /^execution-jobs$/, 'jobs.list', []], ['GET', /^execution-jobs\/([^/]+)$/, 'jobs.get', ['id']],
+    ['POST', /^execution-jobs\/next$/, 'jobs.next', []],
     ['POST', /^execution-jobs\/([^/]+)\/(cancel|requeue|heartbeat)$/, 'jobs.control', ['id','action']],
   ]
   for (const [verb, pattern, operation, fields] of routes) {

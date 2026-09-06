@@ -1,6 +1,6 @@
 export type ReferenceAssetRoute = {
   kind: 'provider' | 'asset'
-  operation: 'list' | 'create' | 'update' | 'deactivate' | 'impact' | 'audit' | 'invocations'
+  operation: 'list' | 'create' | 'update' | 'deactivate' | 'impact' | 'audit' | 'invocations' | 'test' | 'migrate-drafts'
   params: { workspaceId: string; assetId?: string }
 }
 
@@ -13,6 +13,9 @@ export function resolveReferenceAssetRoute(method: string, pathname: string): Re
   if (!workspaceId || (match[3] && !assetId)) return null
   const kind = match[2] === 'model-providers' ? 'provider' : 'asset'
   const verb = method.toUpperCase()
+  if (kind === 'provider' && assetId && verb === 'POST' && (match[4] === 'test' || match[4] === 'migrate-drafts')) {
+    return { kind, operation: match[4], params: { workspaceId, assetId } }
+  }
   if (!assetId) {
     if (verb !== 'GET' && verb !== 'POST') return null
     return { kind, operation: verb === 'GET' ? 'list' : 'create', params: { workspaceId } }
