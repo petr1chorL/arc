@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, History, PencilLine, Plus, RefreshCw, Save, Send, ShieldOff, X } from 'lucide-react'
 import {
   createRubric,
@@ -10,6 +10,7 @@ import {
   type RubricInput,
 } from '../api/evaluations'
 import { listModelProviders } from '../api/modelProviders'
+import { isRubricSampleMigration, isRuntimeMigration } from '../api/migrationCapabilities'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useWorkspace } from '../auth/workspaceContextState'
 import type { ModelProvider, Rubric, RubricVersion } from '../types'
@@ -101,6 +102,12 @@ function statusLabel(status?: string) {
 }
 
 export function Evaluations() {
+  const { workspace } = useWorkspace()
+  const { rubricId } = useParams()
+  return <EvaluationPanel key={`${workspace.id}:${rubricId ?? 'list'}`} />
+}
+
+function EvaluationPanel() {
   const { workspace, workspacePath } = useWorkspace()
   const navigate = useNavigate()
   const { rubricId: routeRubricId } = useParams()
@@ -119,10 +126,19 @@ export function Evaluations() {
   const [isBusy, setIsBusy] = useState(false)
   const [formError, setFormError] = useState('')
   const [feedback, setFeedback] = useState('')
+  const [publicationRefreshError, setPublicationRefreshError] = useState('')
+  const historyRequest = useRef(0)
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false }
+  }, [])
 
   const availableProviders = useMemo(() => providers.filter(usableProvider), [providers])
   const totalWeight = form.dimensions.reduce((sum, dimension) => sum + dimension.weight, 0)
-  const disabled = editingRubric?.status === 'disabled'
+  const migration = isRubricSampleMigration()
+  const dependencyBlocked = migration && (isLoading || Boolean(loadError))
+  const disabled = editingRubric?.status === 'disabled' || dependencyBlocked
 
   const loadAssets = useCallback(async () => {
     setIsLoading(true)
@@ -132,6 +148,7 @@ export function Evaluations() {
         getRubrics(workspace.id),
         listModelProviders(workspace.id),
       ])
+      if (!mounted.current) return
       setRubrics(nextRubrics)
       setProviders(nextProviders)
     } catch (error) {
@@ -147,10 +164,12 @@ export function Evaluations() {
 
   useEffect(() => {
     if (!routeRubricId || isLoading || activeEditorId === routeRubricId) return
+    const request = ++historyRequest.current
     setVersions([])
     setFormError('')
     setFeedback('')
     setActiveEditorId(routeRubricId)
+    setPublicationRefreshError('')
     if (routeRubricId === 'new') {
       setEditingRubric(null)
       setForm(emptyForm())
@@ -166,16 +185,18 @@ export function Evaluations() {
     setEditingRubric(rubric)
     setForm(formFromRubric(rubric))
     void listRubricVersions(workspace.id, rubric.id)
-      .then(setVersions)
-      .catch((error) => setFormError(error instanceof Error ? error.message : '模板版本加载失败'))
+      .then(rows => { if (request === historyRequest.current) setVersions(rows) })
+      .catch((error) => { if (request === historyRequest.current) setFormError(error instanceof Error ? error.message : '模板版本加载失败') })
   }, [activeEditorId, isLoading, routeRubricId, rubrics, workspace.id])
 
   function openEditor(rubricId: string) {
+    historyRequest.current++
     setActiveEditorId(null)
     navigate(workspacePath(`evaluations/${rubricId}`))
   }
 
   function returnToList() {
+    historyRequest.current++
     setActiveEditorId(null)
     setEditingRubric(null)
     setVersions([])
@@ -186,20 +207,23 @@ export function Evaluations() {
   }
 
   async function openVersionDialog(rubric: Rubric) {
+    const request = ++historyRequest.current
     setVersionDialogRubric(rubric)
     setVersions([])
     setVersionLoadError('')
     setIsLoadingVersions(true)
     try {
-      setVersions(await listRubricVersions(workspace.id, rubric.id))
+      const rows = await listRubricVersions(workspace.id, rubric.id)
+      if (request === historyRequest.current) setVersions(rows)
     } catch (error) {
-      setVersionLoadError(error instanceof Error ? error.message : '模板版本加载失败')
+      if (request === historyRequest.current) setVersionLoadError(error instanceof Error ? error.message : '模板版本加载失败')
     } finally {
-      setIsLoadingVersions(false)
+      if (request === historyRequest.current) setIsLoadingVersions(false)
     }
   }
 
   function closeVersionDialog() {
+    historyRequest.current++
     setVersionDialogRubric(null)
     setVersions([])
     setVersionLoadError('')
@@ -215,6 +239,7 @@ export function Evaluations() {
   }
 
   async function saveTemplate() {
+    if (dependencyBlocked || isBusy || disabled) return
     const validationError = validate(form, availableProviders)
     if (validationError) {
       setFormError(validationError)
@@ -242,6 +267,7 @@ export function Evaluations() {
       const saved = editingRubric
         ? await updateRubric(workspace.id, editingRubric.id, input)
         : await createRubric(workspace.id, input)
+      if (!mounted.current) return
       setRubrics((current) => editingRubric
         ? current.map((rubric) => rubric.id === saved.id ? saved : rubric)
         : [...current, saved])
@@ -260,17 +286,19 @@ export function Evaluations() {
   }
 
   async function publishCurrent() {
-    if (!editingRubric) return
+    if (!editingRubric || dependencyBlocked || isBusy || disabled || publicationRefreshError) return
     setIsBusy(true)
     setFormError('')
     setFeedback('')
     try {
       const published = await publishRubric(workspace.id, editingRubric.id)
+      if (!mounted.current) return
       const updated = { ...editingRubric, version: published.version, status: 'active' }
       setEditingRubric(updated)
       setRubrics((current) => current.map((rubric) => rubric.id === updated.id ? updated : rubric))
-      setVersions(await listRubricVersions(workspace.id, editingRubric.id))
       setFeedback(`已发布不可变版本 ${published.version}`)
+      try { setVersions(await listRubricVersions(workspace.id, editingRubric.id)) }
+      catch (error) { setPublicationRefreshError(`发布已成功，但历史刷新失败：${error instanceof Error ? error.message : '请重试读取'}`) }
     } catch (error) {
       setFormError(error instanceof Error ? error.message : '评估模板发布失败')
     } finally {
@@ -278,13 +306,25 @@ export function Evaluations() {
     }
   }
 
+  async function retryPublishedHistory() {
+    if (!editingRubric || isBusy) return
+    setIsBusy(true)
+    try {
+      setVersions(await listRubricVersions(workspace.id, editingRubric.id))
+      setPublicationRefreshError('')
+    } catch (error) {
+      setPublicationRefreshError(`发布已成功，但历史刷新失败：${error instanceof Error ? error.message : '请重试读取'}`)
+    } finally { setIsBusy(false) }
+  }
+
   async function deactivateCurrent() {
-    if (!editingRubric) return
+    if (!editingRubric || dependencyBlocked || isBusy || disabled) return
     setIsBusy(true)
     setFormError('')
     setFeedback('')
     try {
       const updated = await deactivateRubric(workspace.id, editingRubric.id)
+      if (!mounted.current) return
       setEditingRubric(updated)
       setRubrics((current) => current.map((rubric) => rubric.id === updated.id ? updated : rubric))
       setFeedback('评估模板已停用')
@@ -297,6 +337,10 @@ export function Evaluations() {
 
   return (
     <div className="page-stack">
+      {migration && <p className="inline-feedback">{isRuntimeMigration() ? '原生运行隔离验证：在质量运营中提交异步评分、回归与复测。' : '量规迁移验证模式：仅草稿、版本与停用治理，评分执行和回归运行尚未迁移。'}</p>}
+      {migration && isEditorRoute && loadError && <section className="panel inline-feedback error" role="alert">
+        {loadError}<button type="button" disabled={isLoading} onClick={() => void loadAssets()}>重试加载依赖</button>
+      </section>}
       {!isEditorRoute && (
         <>
           <section className="page-toolbar">
@@ -309,7 +353,7 @@ export function Evaluations() {
               <button className="button secondary" type="button" onClick={() => void loadAssets()} disabled={isLoading}>
                 <RefreshCw size={16} />刷新
               </button>
-              <button className="button primary" type="button" onClick={() => openEditor('new')}>
+              <button className="button primary" type="button" disabled={dependencyBlocked} onClick={() => openEditor('new')}>
                 <Plus size={16} />新建评估模板
               </button>
             </div>
@@ -455,7 +499,7 @@ export function Evaluations() {
                 <button className="button secondary" type="button" onClick={returnToList}>返回列表</button>
                 {editingRubric && (
                   <>
-                    <button className="button secondary" type="button" disabled={isBusy || disabled} onClick={() => void publishCurrent()}><Send size={15} />发布版本</button>
+                    <button className="button secondary" type="button" disabled={isBusy || disabled || Boolean(publicationRefreshError)} onClick={() => void publishCurrent()}><Send size={15} />发布版本</button>
                     <button className="button secondary danger-button" type="button" aria-label="停用模板" disabled={isBusy || disabled} onClick={() => void deactivateCurrent()}><ShieldOff size={15} />停用模板</button>
                   </>
                 )}
@@ -465,7 +509,10 @@ export function Evaluations() {
             {editingRubric && (
               <div className="rubric-version-list">
                 <h3>版本记录</h3>
-                {versions.length === 0 && <p>暂无已发布版本</p>}
+                {publicationRefreshError && <div role="alert">{publicationRefreshError}
+                  <button type="button" className="button secondary" disabled={isBusy} onClick={() => void retryPublishedHistory()}>重试读取发布历史</button>
+                </div>}
+                {versions.length === 0 && !publicationRefreshError && <p>暂无已发布版本</p>}
                 {versions.map((version) => <p key={version.id}><strong>版本 {version.version}</strong> · {new Date(version.createdAt).toLocaleString('zh-CN')}</p>)}
               </div>
             )}

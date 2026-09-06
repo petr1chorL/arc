@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from api_test_support import create_authenticated_client, csrf_headers, workspace_url
 from app.config import Settings
-from app.models import AgentVersionRecord
+from app.models import AgentVersionRecord, ToolSkillAssetRecord
 from app.tool_runtime import HttpxToolGateway, ToolRuntimeGatewayError, ToolRuntimeGatewayResult
 
 
@@ -83,15 +83,18 @@ def create_mcp_tool(client, workspace_id: str, *, name: str = "飞书文档读�
                 "required": ["docToken"],
             },
             "adapterType": "mcp",
-            "adapterConfig": {
-                "server": "lark-doc",
-                "tool": "get_doc",
-            },
+            "adapterConfig": {},
         },
         headers=csrf_headers(client),
     )
     assert response.status_code == 201
-    return response.json()
+    asset = response.json()
+    # Keep the legacy execution contract under test without reopening free-form registration.
+    with client.app.state.session_factory() as session:
+        record = session.get(ToolSkillAssetRecord, asset["id"])
+        record.adapter_config = {"server": "lark-doc", "tool": "get_doc"}
+        session.commit()
+    return asset
 
 
 def create_agent_bound_to_tool(
@@ -150,7 +153,7 @@ def test_http_tool_test_invocation_writes_success_log(tmp_path):
     assert response.json()["status"] == "succeeded"
     assert response.json()["outputSummary"] == "price=199"
     assert logs[0]["id"] == response.json()["id"]
-    assert logs[0]["inputSummary"] == '{"sku": "A001"}'
+    assert logs[0]["inputSummary"] == "内容已隐藏（迁移安全策略）"
     assert gateway.calls == [{
         "config": {"method": "POST", "url": "https://internal.example.test/price"},
         "parameters": {"sku": "A001"},
@@ -264,11 +267,11 @@ def test_agent_test_run_writes_http_tool_invocation_with_run_context(tmp_path):
     assert response.status_code == 201
     assert logs[0]["status"] == "succeeded"
     assert logs[0]["agentId"] == agent["id"]
-    assert logs[0]["agentVersion"] == version["version"]
+    assert logs[0]["agentVersion"] == "内容已隐藏（迁移安全策略）"
     assert logs[0]["runId"] == response.json()["id"]
     assert logs[0]["nodeRunId"] == response.json()["nodes"][0]["id"]
-    assert logs[0]["inputSummary"] == '{"input": "Lookup SKU A001"}'
-    assert logs[0]["outputSummary"] == "price=199"
+    assert logs[0]["inputSummary"] == "内容已隐藏（迁移安全策略）"
+    assert logs[0]["outputSummary"] == "内容已隐藏（迁移安全策略）"
     assert tool_gateway.calls == [{
         "config": {"method": "POST", "url": "https://internal.example.test/price"},
         "parameters": {"input": "Lookup SKU A001"},
@@ -317,8 +320,8 @@ def test_agent_test_run_invokes_http_tool_by_published_asset_ref_after_rename(tm
     assert "工具调用结果" in model_gateway.calls[0]["user_input"]
     assert "price=199" in model_gateway.calls[0]["user_input"]
     assert logs[0]["assetId"] == tool["id"]
-    assert logs[0]["assetName"] == "价格查询 V2"
-    assert logs[0]["agentVersion"] == version["version"]
+    assert logs[0]["assetName"] == "内容已隐藏（迁移安全策略）"
+    assert logs[0]["agentVersion"] == "内容已隐藏（迁移安全策略）"
     assert "apiKey" not in response.text
 
 

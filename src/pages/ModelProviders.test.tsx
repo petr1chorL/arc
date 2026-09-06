@@ -35,6 +35,34 @@ function renderPage() {
 describe('ModelProviders page', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
+  })
+
+  it('disables connectivity calls in reference asset migration mode', async () => {
+    vi.stubEnv('VITE_ARC_ONE_MIGRATION_MODE', 'reference-assets')
+    const fetchMock = vi.fn((input: RequestInfo | URL) => Promise.resolve(String(input).endsWith('/model-providers')
+      ? new Response(JSON.stringify([provider]), { status: 200 })
+      : new Response(JSON.stringify({ detail: 'unavailable' }), { status: 503 })))
+    vi.stubGlobal('fetch', fetchMock)
+    renderPage()
+    const button = await screen.findByRole('button', { name: `测试连接 ${provider.name}` })
+    expect(button).toBeDisabled()
+    await userEvent.click(button)
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/test'))).toBe(false)
+    expect(screen.getByText('资产迁移验证模式：仅登记与读取，测试调用尚未迁移。')).toBeInTheDocument()
+  })
+
+  it('does not present failed impact requests as zero dependencies', async () => {
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      return Promise.resolve(url.endsWith('/model-providers')
+        ? new Response(JSON.stringify([provider]), { status: 200 })
+        : new Response(JSON.stringify({ detail: 'unavailable' }), { status: 503 }))
+    }))
+    renderPage()
+    expect(await screen.findByText('影响面不可用，不能确认引用数量')).toBeInTheDocument()
+    expect(screen.queryByText('Agent 草稿 0')).not.toBeInTheDocument()
+    expect(screen.queryByText('发布版本 0')).not.toBeInTheDocument()
   })
 
   it('creates a Provider with a secret reference and tests connectivity', async () => {

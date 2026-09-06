@@ -1,0 +1,32 @@
+{
+  "base": { "name": "Synthetic Agent", "role": "Synthetic role", "owner": "Synthetic owner", "model": "synthetic-model" },
+  "cases": [
+    { "name": "defaults", "patch": {}, "followUps": [
+      { "method": "GET", "suffix": "/versions" },
+      { "method": "PATCH", "suffix": "", "body": { "name": "First draft", "systemPrompt": "Synthetic prompt" } },
+      { "method": "POST", "suffix": "/publish", "body": { "note": " First version " } },
+      { "method": "PATCH", "suffix": "", "body": { "name": "Second draft" } },
+      { "method": "GET", "suffix": "/versions" },
+      { "method": "POST", "suffix": "/publish" },
+      { "method": "GET", "suffix": "/versions" },
+      { "method": "POST", "suffix": "/deactivate" },
+      { "method": "GET", "suffix": "" },
+      { "method": "POST", "suffix": "/activate" },
+      { "method": "GET", "suffix": "" }
+    ] },
+    { "name": "trim-and-extra", "patch": { "name": " Trimmed ", "status": "online", "tools": ["ignored"], "systemPrompt": "ignored" } },
+    { "name": "aliases", "patch": { "model_provider": "custom", "model_base_url": "https://models.example.invalid", "max_output_tokens": 123 } },
+    { "name": "alias-priority", "patch": { "model_provider": "ignored", "modelProvider": "chosen" } },
+    { "name": "numeric-strings", "patch": { "temperature": "0.5", "maxOutputTokens": "120" } },
+    { "name": "integer-exponent-string", "patch": { "maxOutputTokens": "1e2" } },
+    { "name": "float-underscore-string", "patch": { "temperature": "0.1_5" } },
+    { "name": "provider-null", "patch": { "modelProviderId": null } },
+    { "name": "provider-empty", "patch": { "modelProviderId": "" } },
+    { "name": "provider-blank", "patch": { "modelProviderId": "   " } },
+    { "name": "null-name", "patch": { "name": null } },
+    { "name": "blank-name", "patch": { "name": " " } },
+    { "name": "unsafe-url", "patch": { "modelBaseUrl": "https://user:synthetic-private@models.example.invalid" } },
+    { "name": "invalid-manifest", "patch": { "runtimeManifest": { "token": "synthetic-private" } } },
+    { "name": "valid-remote", "patch": { "runtimeManifest": { "runtime": "remote_http", "sourceType": "remote_api", "protocolVersion": "arc-agent-v1", "endpointUrl": "https://agents.example.invalid/invoke", "secretRef": "SYNTHETIC_KEY", "timeoutSeconds": 30 } } }
+  ]
+}

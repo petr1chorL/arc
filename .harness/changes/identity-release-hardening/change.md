@@ -10,8 +10,10 @@ plan: docs/superpowers/plans/2026-09-05-identity-release-hardening.md
 
 # 执行回执：身份约束与发布门禁
 
-阶段：ready-for-human（工程与 Preview 验证通过，生产发布未执行）。实现提交 `ba35010730b14760267800a00751c4df3bbe238d` 位于独立验证分支
-`codex/identity-release-hardening`，未合入生产分支。
+阶段：ready-for-human（工程、Preview 和生产发布验证通过；业务未切流）。实现提交 `ba35010730b14760267800a00751c4df3bbe238d`
+已通过 PR #39 合入 `codex/harness-governance`，生产合并提交为 `b56b991ba98068b0a7af4f16eeee3fd6674d0ebb`。
+Netlify Deploy `6a9b5d59a62aa90007f4be38` 已发布，精确 SHA CI 与无凭证生产冒烟通过；
+身份 Function 仍休眠，Zeabur 仍承载业务。下面保留 Preview 阶段记录，当前证据见 verify.md 顶部。
 
 ## 影响面
 
@@ -32,7 +34,7 @@ plan: docs/superpowers/plans/2026-09-05-identity-release-hardening.md
 详见 verify.md；后续 cc98029 已通过 PR #39 的独立 Preview 验收，生产验收不标为通过。
 
 工程验证已通过：前端 333、后端 410、真实 PostgreSQL 129 项检查；CI run 33928026353 success。
-生产合入/部署与 API 切流是后续步骤，不能据此关闭 Zeabur。
+生产合入/部署随后已完成，API 切流仍是后续步骤，不能据此关闭 Zeabur。
 
 Preview Deploy `6a9b54d034fa00000853068e` 对齐 cc98029；云端精确 SHA 门禁、页面、
-静态资源、未认证路由和数据库健康检查通过，身份 Function 仍休眠。PR #39 保持 OPEN。
+静态资源、未认证路由和数据库健康检查通过，身份 Function 仍休眠。PR #39 随后经用户授权合并。

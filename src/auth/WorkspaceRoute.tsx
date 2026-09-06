@@ -28,7 +28,7 @@ export function WorkspaceRoute() {
   }
 
   return (
-    <WorkspaceContext.Provider value={value}>
+    <WorkspaceContext.Provider key={workspace.id} value={value}>
       <Outlet />
     </WorkspaceContext.Provider>
   )

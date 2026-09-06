@@ -4,14 +4,17 @@ import {
   createModelProvider,
   deactivateModelProvider,
   getModelProviderImpact,
+  getModelProviderAuditEvents,
   listModelProviders,
   testModelProviderConnection,
   updateModelProvider,
   type CreateModelProviderInput,
 } from '../api/modelProviders'
 import { useWorkspace } from '../auth/workspaceContextState'
+import { isReferenceAssetMigration, referenceAssetMigrationNotice } from '../api/migrationCapabilities'
 import type {
   ModelProvider,
+  ModelProviderAuditEvent,
   ModelProviderConnectivity,
   ModelProviderImpact,
   ModelProviderType,
@@ -32,6 +35,7 @@ function isValidModelSecretRef(secretRef: string): boolean {
 }
 
 export function ModelProviders() {
+  const migrationOnly = isReferenceAssetMigration()
   const { workspace } = useWorkspace()
   const [providers, setProviders] = useState<ModelProvider[]>([])
   const [form, setForm] = useState<CreateModelProviderInput>(initialForm)
@@ -39,15 +43,21 @@ export function ModelProviders() {
   const [error, setError] = useState('')
   const [connectivityByProviderId, setConnectivityByProviderId] = useState<Record<string, ModelProviderConnectivity>>({})
   const [impactByProviderId, setImpactByProviderId] = useState<Record<string, ModelProviderImpact>>({})
+  const [impactErrors, setImpactErrors] = useState<string[]>([])
+  const [auditByProviderId, setAuditByProviderId] = useState<Partial<Record<string, ModelProviderAuditEvent[] | null>>>({})
   const [editingProviderId, setEditingProviderId] = useState('')
   const [editForm, setEditForm] = useState<CreateModelProviderInput>(initialForm)
   const [isBusy, setIsBusy] = useState(false)
 
   const loadProviderImpacts = useCallback(async (loadedProviders: ModelProvider[]) => {
+    setImpactByProviderId({})
+    setImpactErrors([])
+    const failed: string[] = []
     const impacts = await Promise.all(loadedProviders.map(async (provider) => {
       try {
         return await getModelProviderImpact(workspace.id, provider.id)
       } catch {
+        failed.push(provider.id)
         return undefined
       }
     }))
@@ -56,16 +66,26 @@ export function ModelProviders() {
         .filter((impact): impact is ModelProviderImpact => Boolean(impact))
         .map((impact) => [impact.providerId, impact]),
     ))
+    setImpactErrors(failed)
+  }, [workspace.id])
+
+  const loadProviderAudits = useCallback(async (targets: ModelProvider[]) => {
+    setAuditByProviderId(current => ({ ...current, ...Object.fromEntries(targets.map(provider => [provider.id, undefined])) }))
+    const entries = await Promise.all(targets.map(async provider => {
+      try { return [provider.id, await getModelProviderAuditEvents(workspace.id, provider.id)] as const }
+      catch { return [provider.id, null] as const }
+    }))
+    setAuditByProviderId(current => ({ ...current, ...Object.fromEntries(entries) }))
   }, [workspace.id])
 
   useEffect(() => {
     void listModelProviders(workspace.id)
       .then((loadedProviders) => {
         setProviders(loadedProviders)
-        return loadProviderImpacts(loadedProviders)
+        return Promise.all([loadProviderImpacts(loadedProviders), loadProviderAudits(loadedProviders)])
       })
       .catch((loadError) => setError(loadError instanceof Error ? loadError.message : '模型资产加载失败'))
-  }, [loadProviderImpacts, workspace.id])
+  }, [loadProviderImpacts, loadProviderAudits, workspace.id])
 
   function updateField<TField extends keyof CreateModelProviderInput>(
     field: TField,
@@ -93,6 +113,7 @@ export function ModelProviders() {
         secretRef,
       })
       setProviders((current) => [created, ...current])
+      await Promise.all([loadProviderImpacts([created, ...providers]), loadProviderAudits([created])])
       setForm(initialForm)
       setFeedback('模型资产已创建')
     } catch (createError) {
@@ -103,6 +124,7 @@ export function ModelProviders() {
   }
 
   async function testConnection(provider: ModelProvider) {
+    if (migrationOnly) return
     setIsBusy(true)
     setError('')
     try {
@@ -155,6 +177,7 @@ export function ModelProviders() {
         secretRef,
       })
       setProviders((current) => current.map((item) => item.id === updated.id ? updated : item))
+      await Promise.all([loadProviderImpacts(providers.map(item => item.id === updated.id ? updated : item)), loadProviderAudits([updated])])
       setEditingProviderId('')
       setFeedback('模型资产已更新')
     } catch (updateError) {
@@ -170,6 +193,7 @@ export function ModelProviders() {
     try {
       const disabled = await deactivateModelProvider(workspace.id, provider.id)
       setProviders((current) => current.map((item) => item.id === disabled.id ? disabled : item))
+      await loadProviderAudits([disabled])
       setFeedback('模型资产已停用')
     } catch (deactivateError) {
       setError(deactivateError instanceof Error ? deactivateError.message : '模型资产停用失败')
@@ -180,6 +204,7 @@ export function ModelProviders() {
 
   return (
     <div className="page-stack model-providers-page">
+      {migrationOnly && <p role="status">{referenceAssetMigrationNotice}</p>}
       <section className="panel model-provider-intro">
         <div>
           <p className="section-kicker">MODEL PROVIDERS</p>
@@ -259,11 +284,22 @@ export function ModelProviders() {
                       <div><dt>状态</dt><dd>{provider.status}</dd></div>
                     </dl>
                     <div className="provider-dependency-summary">
-                      <span>Agent 草稿 {impact?.totals.draftAgents ?? 0}</span>
-                      <span>发布版本 {impact?.totals.publishedVersions ?? 0}</span>
+                      {impact ? <>
+                        <span>Agent 草稿 {impact.totals.draftAgents}</span>
+                        <span>发布版本 {impact.totals.publishedVersions}</span>
+                      </> : <span>{impactErrors.includes(provider.id)
+                        ? '影响面不可用，不能确认引用数量' : '影响面尚未确认'}</span>}
                     </div>
                   </>
                 )}
+                {auditByProviderId[provider.id] === null && <p role="status">审计记录不可用或无读取权限</p>}
+                {auditByProviderId[provider.id] && <div className="provider-audit">
+                  <strong>最近审计</strong>
+                  {auditByProviderId[provider.id]?.length === 0 && <p>暂无审计记录</p>}
+                  <ul>{auditByProviderId[provider.id]?.map(event => <li key={event.id}>
+                    <span>{event.eventType}</span><small>{event.outcome} · {event.reason || '已记录'}</small>
+                  </li>)}</ul>
+                </div>}
                 {connectivity && <p className="provider-connectivity">{connectivity.message}</p>}
                 <div className="provider-card-actions">
                   {isEditing ? (
@@ -280,7 +316,7 @@ export function ModelProviders() {
                       <button className="button secondary compact" disabled={isBusy} onClick={() => startEditing(provider)} aria-label={`编辑 ${provider.name}`}>
                         编辑
                       </button>
-                      <button className="button secondary compact" disabled={isBusy} onClick={() => void testConnection(provider)} aria-label={`测试连接 ${provider.name}`}>
+                      <button className="button secondary compact" disabled={isBusy || migrationOnly} onClick={() => void testConnection(provider)} aria-label={`测试连接 ${provider.name}`}>
                         <PlugZap size={15} />测试连接
                       </button>
                       <button className="button danger compact" disabled={isBusy || provider.status === 'disabled'} onClick={() => void deactivateProvider(provider)} aria-label={`停用 ${provider.name}`}>

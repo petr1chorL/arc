@@ -7,6 +7,8 @@ import {
   updateDataObjectDefinition,
 } from '../api/dataObjects'
 import { useWorkspace } from '../auth/workspaceContextState'
+import { isDataObjectMigration } from '../api/migrationCapabilities'
+import { DataObjectHistory } from '../components/DataObjectHistory'
 import type { DataObjectDefinition } from '../types'
 
 const defaultSchemaJson = '{\n  "type": "object",\n  "properties": {}\n}'
@@ -56,6 +58,8 @@ export function DataObjects() {
   const [feedback, setFeedback] = useState('')
   const [error, setError] = useState('')
   const [isBusy, setIsBusy] = useState(false)
+  const [historyId, setHistoryId] = useState('')
+  const migration = isDataObjectMigration()
 
   useEffect(() => {
     void listDataObjectDefinitions(workspace.id)
@@ -137,6 +141,14 @@ export function DataObjects() {
           : item
       )))
       setFeedback(`已发布 ${version.version}`)
+      if (migration) {
+        setHistoryId(definition.id)
+        try {
+          setDefinitions(await listDataObjectDefinitions(workspace.id))
+        } catch {
+          setError('版本已发布，但定义列表刷新失败，请刷新页面重试')
+        }
+      }
     } catch (publishError) {
       setError(publishError instanceof Error ? publishError.message : 'Data Object 发布失败')
     } finally {
@@ -151,6 +163,7 @@ export function DataObjects() {
           <p className="section-kicker">DATA CONTRACTS</p>
           <h2>Data Object</h2>
           <p>管理节点之间复用的结构化数据对象定义。这里维护的是定义与版本快照，运行时绑定和产出物实例会在后续版本接入。</p>
+          {migration && <p role="note">Data Object 迁移验证模式：仅定义与版本治理，未切换生产运行。</p>}
         </div>
         <div className="provider-secret-note">
           <Database size={18} />
@@ -212,6 +225,11 @@ export function DataObjects() {
                     <span>{definition.status} · {definition.version}</span>
                   </div>
                   <div className="asset-card-actions">
+                    {migration && <button type="button" className="button secondary compact"
+                      aria-label={`历史版本 ${definition.name}`}
+                      onClick={() => setHistoryId(current => current === definition.id ? '' : definition.id)}>
+                      历史版本
+                    </button>}
                     <button
                       aria-label={`编辑 ${definition.name}`}
                       className="icon-button"
@@ -236,6 +254,10 @@ export function DataObjects() {
                   <span>{schemaSummary(definition.schema)}</span>
                   <span>{definition.updatedAt.slice(0, 10)}</span>
                 </div>
+
+                {migration && historyId === definition.id && <DataObjectHistory
+                  key={`${workspace.id}:${definition.id}:${definition.version}`}
+                  workspaceId={workspace.id} definitionId={definition.id} />}
 
                 {isEditing && (
                   <div className="asset-edit-form">

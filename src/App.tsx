@@ -11,6 +11,10 @@ import { ActivateInvitation } from './pages/ActivateInvitation'
 import { AssetLibrary } from './pages/AssetLibrary'
 import { Artifacts } from './pages/Artifacts'
 import { Dashboard } from './pages/Dashboard'
+import { DataObjects } from './pages/DataObjects'
+import { isDataObjectMigration, isRuntimeMigration } from './api/migrationCapabilities'
+import { Notifications } from './pages/Notifications'
+import { NotificationChannels } from './pages/NotificationChannels'
 import { Evaluations } from './pages/Evaluations'
 import { Login } from './pages/Login'
 import { Members } from './pages/Members'
@@ -99,11 +103,14 @@ function App() {
                 <Route path="evaluations" element={<EvaluationRoute />} />
                 <Route path="evaluations/:rubricId" element={<EvaluationRoute />} />
                 <Route path="quality-operations" element={<QualityOperations />} />
+                {isRuntimeMigration() && <Route path="notifications" element={<Notifications />} />}
+                {isRuntimeMigration() && <Route path="settings/notification-channels" element={<NotificationChannels />} />}
                 <Route path="runs" element={<Runs />} />
                 <Route path="artifacts" element={<Artifacts />} />
                 <Route path="observability" element={<Observability />} />
                 <Route path="reviews" element={<Reviews />} />
                 <Route path="settings/asset-library" element={<AssetLibrary />} />
+                {isDataObjectMigration() && <Route path="settings/data-objects" element={<DataObjects />} />}
                 <Route path="settings/members" element={<Members />} />
                 <Route path="settings/model-providers" element={<ModelProviders />} />
               </Route>

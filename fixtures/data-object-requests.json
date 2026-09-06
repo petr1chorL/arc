@@ -1,0 +1,28 @@
+{
+  "cases": [
+    {"name":"lifecycle","body":{"name":"Lifecycle","schema":{"properties":{"id":{"type":"string"}}}},"followUps":[
+      {"method":"GET","suffix":"/versions"},
+      {"method":"POST","suffix":"/publish"},
+      {"method":"PATCH","suffix":"","body":{"name":null,"description":null,"schema":null}},
+      {"method":"PATCH","suffix":"","body":{"description":" keep spaces ","object_schema":{"required":["score"],"properties":{"score":{"type":"number"}}}}},
+      {"method":"GET","suffix":"/versions"},
+      {"method":"POST","suffix":"/publish"},
+      {"method":"GET","suffix":"/versions"},
+      {"method":"GET","suffix":"","root":true},
+      {"method":"PATCH","suffix":"","body":{}},
+      {"method":"PATCH","suffix":"","body":{"schema":[],"extra":"synthetic-private"}},
+      {"method":"PATCH","suffix":"","body":{"schema":null,"object_schema":{}}}
+    ]},
+    {"name":"snake alias","body":{"name":" Alias ","description":" keep ","object_schema":{}}},
+    {"name":"both aliases","body":{"name":"Both","schema":{},"object_schema":{}}},
+    {"name":"extra forbidden","body":{"name":"Extra","schema":{},"extra":true}},
+    {"name":"missing schema","body":{"name":"Missing"}},
+    {"name":"null schema","body":{"name":"Null","schema":null}},
+    {"name":"array schema","body":{"name":"Array","schema":[]}},
+    {"name":"blank name","body":{"name":"  ","schema":{}}},
+    {"name":"null description","body":{"name":"Description","schema":{},"description":null}},
+    {"name":"nonstring name","body":{"name":42,"schema":{}}},
+    {"name":"unicode name","body":{"name":"数据定义 😀","schema":{"createdAt":"literal","id":"literal"}}},
+    {"name":"duplicate name","body":{"name":"Lifecycle","schema":{}}}
+  ]
+}

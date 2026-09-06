@@ -15,10 +15,11 @@ export function getPreferredWorkspace(
 export function resolveAuthRedirectPath(
   preferredWorkspace: WorkspaceSummary | null,
   fromPathname: string | undefined,
+  fromSearch = '',
 ): string | null {
   if (!preferredWorkspace) return null
-  if (fromPathname && fromPathname !== '/login') {
-    return fromPathname
+  if (fromPathname?.startsWith('/') && !fromPathname.startsWith('//') && !fromPathname.includes('\\') && fromPathname !== '/login') {
+    return `${fromPathname}${fromSearch.startsWith('?') ? fromSearch : ''}`
   }
   return `/w/${preferredWorkspace.slug}`
 }

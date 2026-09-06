@@ -448,7 +448,7 @@ def test_model_provider_audit_events_show_lifecycle_and_migration_metadata(tmp_p
     assert migration_event["outcome"] == "success"
     assert migration_event["targetType"] == "model_provider"
     assert migration_event["targetId"] == source_provider["id"]
-    assert migration_event["reason"] == "Prepare Provider rollback evidence."
+    assert migration_event["reason"] == "内容已隐藏（迁移安全策略）"
     assert migration_event["metadata"]["sourceProviderId"] == source_provider["id"]
     assert migration_event["metadata"]["targetProviderId"] == target_provider["id"]
     assert migration_event["metadata"]["migratedAgentIds"] == [draft_agent["id"]]

@@ -2,6 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { displayStatus, isWaitingForHumanReview } from './statusText'
 
 describe('statusText', () => {
+  it('distinguishes uncertain delivery, dispatch progress and durable runtime termination', () => {
+    expect(displayStatus('needs_reconciliation')).toBe('结果待核对')
+    expect(displayStatus('dispatching')).toBe('派发中')
+    expect(displayStatus('succeeded')).toBe('已完成')
+    expect(displayStatus('canceled')).toBe('已取消')
+    expect(displayStatus('dead_letter')).toBe('死信')
+  })
   it('normalizes legacy mojibake statuses for display', () => {
     expect(displayStatus('宸插畬鎴?')).toBe('已完成')
     expect(displayStatus('宸插彂甯?')).toBe('已发布')

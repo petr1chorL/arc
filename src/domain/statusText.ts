@@ -22,6 +22,11 @@ const mojibakeStatus: Record<string, string> = {
 }
 
 const englishStatus: Record<string, string> = {
+  needs_reconciliation: '结果待核对',
+  dispatching: '派发中',
+  succeeded: '已完成',
+  canceled: '已取消',
+  dead_letter: '死信',
   active: '已启用',
   cancelled: '已取消',
   completed: '已完成',

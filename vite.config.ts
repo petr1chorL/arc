@@ -1,6 +1,6 @@
 import react from '@vitejs/plugin-react'
 import netlify from '@netlify/vite-plugin'
-import { defineConfig } from 'vitest/config'
+import { defineConfig, configDefaults } from 'vitest/config'
 
 const apiProxyTarget = process.env.ARC_ONE_API_PROXY_TARGET ?? 'http://127.0.0.1:8000'
 
@@ -15,6 +15,8 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     include: ['src/**/*.test.{ts,tsx}', 'scripts/**/*.test.mjs'],
+    // Native runtime checks use node:test and real isolated PG, registered separately in CI.
+    exclude: [...configDefaults.exclude, 'scripts/runtime-*.test.mjs'],
     setupFiles: './src/test/setup.ts',
   },
 })

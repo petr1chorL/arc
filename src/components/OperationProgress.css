@@ -1,0 +1,14 @@
+.operation-center { margin-bottom: 18px; }
+.operation-progress, .native-review-controls { padding: 16px 20px; font-size: 13px; line-height: 1.6; }
+.operation-progress .panel-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.operation-progress code { font-size: 11px; overflow-wrap: anywhere; }
+.operation-progress p, .native-review-controls p { margin: 8px 0; }
+.operation-progress label, .native-review-controls label { display: block; margin: 8px 0; }
+.operation-progress input:not([type="checkbox"]), .native-review-controls input,
+.native-review-controls textarea, .native-review-controls select { box-sizing: border-box; width: 100%; padding: 9px 12px; border: 1px solid #cad5e5; border-radius: 8px; background: #f7faff; color: inherit; font: inherit; }
+.native-review-controls textarea { min-height: 130px; resize: vertical; }
+.operation-progress .button, .native-review-controls .button { margin: 5px 8px 5px 0; }
+.operation-progress a { display: inline-block; margin-right: 18px; text-decoration: underline; }
+.operation-progress details { margin: 10px 0; }
+.operation-progress pre { max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: #f7faff; border-radius: 8px; font-size: 11px; }
+.operation-progress summary { cursor: pointer; }

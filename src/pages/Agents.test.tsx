@@ -37,6 +37,18 @@ const createdAgent = {
 describe('Agents page', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
+  })
+
+  it('counts historical online statuses consistently with badges in migration mode', async () => {
+    vi.stubEnv('VITE_ARC_ONE_MIGRATION_MODE', 'agents')
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify([
+      { ...existingAgent, status: '鍦ㄧ嚎' },
+    ]))))
+    render(<WorkspaceProvider workspace={workspace}><MemoryRouter><Agents /></MemoryRouter></WorkspaceProvider>)
+    await screen.findByText('已有 Agent')
+    expect(screen.getByText('生产中').querySelector('strong')).toHaveTextContent('1')
+    expect(screen.getByText('Agent 迁移验证模式：仅资产治理，测试运行尚未迁移。')).toBeInTheDocument()
   })
 
   it('loads Agents from the API and inserts a newly created Agent', async () => {

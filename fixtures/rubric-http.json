@@ -1,0 +1,266 @@
+[
+  {
+    "name": "Lifecycle and provider unbinding",
+    "body": {
+      "name": "Shared lifecycle",
+      "artifact": "Report",
+      "gate": "Required",
+      "passScore": 80,
+      "dimensions": [
+        {
+          "id": "quality",
+          "name": "Quality",
+          "weight": 100,
+          "criteria": "Grounded"
+        }
+      ]
+    },
+    "status": 201,
+    "steps": [
+      {
+        "method": "PATCH",
+        "suffix": "",
+        "body": {
+          "name": "Partial"
+        },
+        "status": 422
+      },
+      {
+        "method": "GET",
+        "suffix": "/versions",
+        "status": 200
+      },
+      {
+        "method": "PATCH",
+        "suffix": "",
+        "body": {
+          "name": "Shared lifecycle",
+          "artifact": "Report",
+          "gate": "Required",
+          "passScore": 80,
+          "dimensions": [
+            {
+              "id": "quality",
+              "name": "Quality",
+              "weight": 100,
+              "criteria": "Grounded"
+            }
+          ],
+          "judgeType": "llm",
+          "judgeModel": " synthetic ",
+          "modelProviderId": "@provider"
+        },
+        "status": 200
+      },
+      {
+        "method": "POST",
+        "suffix": "/publish",
+        "status": 201
+      },
+      {
+        "method": "GET",
+        "suffix": "/versions",
+        "status": 200
+      },
+      {
+        "method": "PATCH",
+        "suffix": "",
+        "body": {
+          "name": "Shared lifecycle",
+          "artifact": "Report",
+          "gate": "Required",
+          "passScore": 95,
+          "dimensions": [
+            {
+              "id": "quality",
+              "name": "Quality",
+              "weight": 100,
+              "criteria": "Grounded"
+            }
+          ]
+        },
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "suffix": "/versions",
+        "status": 200
+      },
+      {
+        "method": "POST",
+        "suffix": "/publish",
+        "status": 201
+      },
+      {
+        "method": "POST",
+        "suffix": "/deactivate",
+        "status": 200
+      },
+      {
+        "method": "PATCH",
+        "suffix": "",
+        "body": {
+          "name": "Shared lifecycle",
+          "artifact": "Report",
+          "gate": "Required",
+          "passScore": 80,
+          "dimensions": [
+            {
+              "id": "quality",
+              "name": "Quality",
+              "weight": 100,
+              "criteria": "Grounded"
+            }
+          ]
+        },
+        "status": 409
+      },
+      {
+        "method": "POST",
+        "suffix": "/publish",
+        "status": 409
+      },
+      {
+        "method": "GET",
+        "suffix": "/versions",
+        "status": 200
+      }
+    ]
+  },
+  {
+    "name": "LLM missing model",
+    "body": {
+      "name": "Shared missing model",
+      "artifact": "Report",
+      "gate": "Required",
+      "passScore": 80,
+      "dimensions": [
+        {
+          "id": "quality",
+          "name": "Quality",
+          "weight": 100,
+          "criteria": "Grounded"
+        }
+      ],
+      "judgeType": "llm"
+    },
+    "status": 201,
+    "steps": [
+      {
+        "method": "POST",
+        "suffix": "/publish",
+        "status": 422
+      }
+    ]
+  },
+  {
+    "name": "LLM missing provider",
+    "body": {
+      "name": "Shared missing provider",
+      "artifact": "Report",
+      "gate": "Required",
+      "passScore": 80,
+      "dimensions": [
+        {
+          "id": "quality",
+          "name": "Quality",
+          "weight": 100,
+          "criteria": "Grounded"
+        }
+      ],
+      "judgeType": "llm",
+      "judgeModel": "synthetic"
+    },
+    "status": 201,
+    "steps": [
+      {
+        "method": "POST",
+        "suffix": "/publish",
+        "status": 422
+      }
+    ]
+  },
+  {
+    "name": "LLM missing criteria",
+    "body": {
+      "name": "Shared missing criteria",
+      "artifact": "Report",
+      "gate": "Required",
+      "passScore": 80,
+      "dimensions": [
+        {
+          "id": "quality",
+          "name": "Quality",
+          "weight": 100
+        }
+      ],
+      "judgeType": "llm",
+      "judgeModel": " synthetic ",
+      "modelProviderId": "@provider"
+    },
+    "status": 201,
+    "steps": [
+      {
+        "method": "POST",
+        "suffix": "/publish",
+        "status": 422
+      }
+    ]
+  },
+  {
+    "name": "Foreign provider",
+    "body": {
+      "name": "Shared foreign",
+      "artifact": "Report",
+      "gate": "Required",
+      "passScore": 80,
+      "dimensions": [
+        {
+          "id": "quality",
+          "name": "Quality",
+          "weight": 100,
+          "criteria": "Grounded"
+        }
+      ],
+      "modelProviderId": "missing"
+    },
+    "status": 422
+  },
+  {
+    "name": "Invalid dimensions",
+    "body": {
+      "name": "Shared invalid",
+      "artifact": "Report",
+      "gate": "Required",
+      "passScore": 80,
+      "dimensions": []
+    },
+    "status": 422
+  },
+  {
+    "name": "Numeric aliases",
+    "body": {
+      "name": "Shared aliases",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "pass_score": "8_0.0",
+      "judge_type": "deterministic",
+      "dimensions": [
+        {
+          "id": "quality",
+          "name": "Quality",
+          "weight": "100"
+        }
+      ]
+    },
+    "status": 201,
+    "steps": [
+      {
+        "method": "POST",
+        "suffix": "/publish",
+        "status": 201
+      }
+    ]
+  }
+  ,{"name":"LLM preserves Python BOM text contract","body":{"name":"Shared BOM","artifact":"Report","gate":"Required","passScore":80,"judgeType":"llm","judgeModel":"\ufeff","modelProviderId":"@provider","dimensions":[{"id":"quality","name":"Quality","weight":100,"criteria":"\ufeff"}]},"status":201,"steps":[{"method":"POST","suffix":"/publish","status":201}]}
+]

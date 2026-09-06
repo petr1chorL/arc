@@ -8,6 +8,7 @@ import type {
   ReviewGroup,
 } from '../types'
 import { apiFetch, readJson } from './http'
+import { announceOperation, isAcceptedOperation, operationRequestHeaders, readOperationResponse, type AcceptedOperation, type OperationResult } from './operations'
 
 const jsonRequest = {
   method: 'POST',
@@ -70,20 +71,27 @@ export async function decideHumanTask(
     tags?: string[]
   },
 ): Promise<HumanTaskDetail> {
-  return readJson<HumanTaskDetail>(await apiFetch(workspacePath(workspaceId, `/human-tasks/${taskId}/decisions`), {
+  const detail = await readJson<HumanTaskDetail & { resumeOperation?: AcceptedOperation }>(await apiFetch(workspacePath(workspaceId, `/human-tasks/${taskId}/decisions`), {
     ...jsonRequest,
     body: JSON.stringify(input),
   }))
+  if (isAcceptedOperation(detail.resumeOperation)) announceOperation(workspaceId, detail.resumeOperation)
+  return detail
 }
 
-export async function retryHumanTaskResume(workspaceId: string, taskId: string): Promise<HumanTaskDetail> {
-  return readJson<HumanTaskDetail>(await apiFetch(workspacePath(workspaceId, `/human-tasks/${taskId}/retry-resume`), {
+export async function retryHumanTaskResume(workspaceId: string, taskId: string): Promise<OperationResult<HumanTaskDetail>> {
+  return readOperationResponse<HumanTaskDetail>(await apiFetch(workspacePath(workspaceId, `/human-tasks/${taskId}/retry-resume`), {
     ...jsonRequest,
-  }))
+    headers: operationRequestHeaders(),
+  }), workspaceId)
 }
 
 export async function listFeedbackCandidates(workspaceId: string): Promise<FeedbackCandidate[]> {
   return readJson<FeedbackCandidate[]>(await apiFetch(workspacePath(workspaceId, '/feedback-candidates')))
+}
+
+export async function getFeedbackCandidate(workspaceId: string, candidateId: string): Promise<FeedbackCandidate> {
+  return readJson<FeedbackCandidate>(await apiFetch(workspacePath(workspaceId, `/feedback-candidates/${encodeURIComponent(candidateId)}`)))
 }
 
 export async function confirmFeedbackCandidate(

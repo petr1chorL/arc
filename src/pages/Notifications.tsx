@@ -2,6 +2,10 @@ import { AlertTriangle, Bell, CheckCircle2, Clock3, Filter, RefreshCw, RotateCcw
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { dispatchNotifications, listNotifications, requeueNotification } from '../api/notifications'
+import { isAcceptedOperation } from '../api/operations'
+import { isRuntimeMigration } from '../api/migrationCapabilities'
+import { useOperationUpdates } from '../domain/useOperationUpdates'
+import { useOperationNotice } from '../domain/useOperationNotice'
 import { useWorkspace } from '../auth/workspaceContextState'
 import { StatusBadge } from '../components/StatusBadge'
 import type { NotificationDispatchSummary, NotificationOutboxItem } from '../types'
@@ -99,6 +103,7 @@ export function Notifications() {
   const [error, setError] = useState('')
   const [dispatchSummary, setDispatchSummary] = useState<NotificationDispatchSummary | null>(null)
   const [dispatchError, setDispatchError] = useState('')
+  const operationNotice = useOperationNotice(workspace.id)
   const [isDispatching, setIsDispatching] = useState(false)
   const [activeRequeueId, setActiveRequeueId] = useState('')
   const [requeueReason, setRequeueReason] = useState('')
@@ -123,6 +128,7 @@ export function Notifications() {
       setIsLoading(false)
     }
   }, [channel, errorCode, status, workspace.id])
+  useOperationUpdates(workspace.id, loadNotifications)
 
   useEffect(() => {
     void loadNotifications()
@@ -168,14 +174,16 @@ export function Notifications() {
     setDispatchError('')
     setDispatchSummary(null)
     try {
-      setDispatchSummary(await dispatchNotifications(workspace.id))
+      const result = await dispatchNotifications(workspace.id)
+      if (isAcceptedOperation(result)) operationNotice.accepted(result, '派发任务', '派发任务已接收，尚未确认发送；请查看异步任务进度。')
+      else setDispatchSummary(result)
       await loadNotifications()
     } catch (dispatchSubmitError) {
       setDispatchError(dispatchSubmitError instanceof Error ? dispatchSubmitError.message : '发送器触发失败')
     } finally {
       setIsDispatching(false)
     }
-  }, [loadNotifications, workspace.id])
+  }, [loadNotifications, workspace.id, operationNotice])
 
   const summary = useMemo(() => ({
     total: items.length,
@@ -186,6 +194,7 @@ export function Notifications() {
 
   return (
     <div className="notifications page-stack">
+      {operationNotice.notice && <p role="status">{operationNotice.notice}</p>}
       <section className="notifications-hero">
         <div>
           <span className="section-kicker">NOTIFICATION OUTBOX</span>
@@ -282,7 +291,7 @@ export function Notifications() {
           <label>
             <span>状态</span>
             <select aria-label="状态筛选" value={status} onChange={(event) => setStatus(event.target.value)}>
-              {statusOptions.map((option) => <option key={option.value || 'all'} value={option.value}>{option.label}</option>)}
+              {[...statusOptions, ...(isRuntimeMigration() ? [{ label:'结果待核对',value:'needs_reconciliation' },{label:'派发中',value:'dispatching'},{label:'已取消',value:'canceled'}] : [])].map((option) => <option key={option.value || 'all'} value={option.value}>{option.label}</option>)}
             </select>
           </label>
           <label>
@@ -319,6 +328,8 @@ export function Notifications() {
                   </div>
                   <div className="notification-row-actions">
                     <StatusBadge status={item.status} />
+                    {isRuntimeMigration() && item.status === 'needs_reconciliation' && typeof dispatchPayload(item).operationId === 'string'
+                      && <a href={workspacePath(`notifications?operationId=${encodeURIComponent(String(dispatchPayload(item).operationId))}`)}>核对发送结果</a>}
                     {item.status === 'failed' && (
                       <button
                         aria-label={`重新入队 ${item.id}`}

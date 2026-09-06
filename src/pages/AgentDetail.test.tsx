@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { Link, MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WorkspaceProvider } from '../auth/WorkspaceContext'
 import { AgentDetail } from './AgentDetail'
@@ -44,8 +44,80 @@ const remoteApiManifest = {
 }
 
 describe('AgentDetail', () => {
+  it('does not save a late previous Agent response into the current route', async () => {
+    const user = userEvent.setup()
+    let release!: (value: Response) => void
+    const pending = new Promise<Response>(resolve => { release = resolve })
+    const second = { ...agent, id: 'agent-2', name: 'Second Agent' }
+    const writes: { url: string; body: string }[] = []
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+      if (init?.method === 'PATCH') {
+        writes.push({ url, body: String(init.body) })
+        return Promise.resolve(new Response(JSON.stringify(second)))
+      }
+      if (url.endsWith('/versions') || url.endsWith('/model-providers') || url.endsWith('/asset-library')) return Promise.resolve(new Response('[]'))
+      return url.endsWith('/agent-1') ? pending : Promise.resolve(new Response(JSON.stringify(second)))
+    }))
+    render(<WorkspaceProvider workspace={workspace}><MemoryRouter initialEntries={['/agents/agent-1']}>
+      <Link to="/agents/agent-2">Switch Agent</Link>
+      <Routes><Route path="/agents/:agentId" element={<AgentDetail />} /></Routes>
+    </MemoryRouter></WorkspaceProvider>)
+    await user.click(screen.getByRole('link', { name: 'Switch Agent' }))
+    expect(await screen.findByDisplayValue('Second Agent')).toBeInTheDocument()
+    await act(async () => { release(new Response(JSON.stringify(agent))); await pending })
+    expect(screen.getByDisplayValue('Second Agent')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '保存草稿' }))
+    expect(writes).toHaveLength(1)
+    expect(writes[0].url).toContain('/agents/agent-2')
+    expect(JSON.parse(writes[0].body).name).toBe('Second Agent')
+  })
+
   afterEach(() => {
     vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
+  })
+
+  it.each(['model-providers', 'asset-library'])('shows dependency failure instead of empty assets in migration mode: %s', async resource => {
+    vi.stubEnv('VITE_ARC_ONE_MIGRATION_MODE', 'agents')
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.endsWith(`/${resource}`)) return Promise.resolve(new Response(JSON.stringify({ detail: 'Synthetic outage' }), { status: 503 }))
+      if (url.endsWith('/versions') || url.endsWith('/model-providers') || url.endsWith('/asset-library')) return Promise.resolve(new Response('[]'))
+      return Promise.resolve(new Response(JSON.stringify(agent)))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<WorkspaceProvider workspace={workspace}><MemoryRouter initialEntries={['/agents/agent-1']}>
+      <Routes><Route path="/agents/:agentId" element={<AgentDetail />} /></Routes>
+    </MemoryRouter></WorkspaceProvider>)
+    expect(await screen.findByRole('alert')).toHaveTextContent('资产加载失败')
+    expect(screen.queryByText('暂无 Tool 资产。')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '保存草稿' })).not.toBeInTheDocument()
+  })
+
+  it.each([true, false])('blocks migrated execution at button and event boundary: initially migrated %s', async initiallyMigrated => {
+    vi.stubEnv('VITE_ARC_ONE_MIGRATION_MODE', initiallyMigrated ? 'agents' : '')
+    const user = userEvent.setup()
+    const published = { ...agent, status: '在线', version: 'v1.0.0' }
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.endsWith('/versions')) return Promise.resolve(new Response(JSON.stringify([
+        { id: 'version-1', version: 'v1.0.0', snapshot: published, note: '', createdAt: agent.createdAt },
+      ])))
+      if (url.endsWith('/model-providers') || url.endsWith('/asset-library')) return Promise.resolve(new Response('[]'))
+      return Promise.resolve(new Response(JSON.stringify(published)))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<WorkspaceProvider workspace={workspace}><MemoryRouter initialEntries={['/agents/agent-1']}>
+      <Routes><Route path="/agents/:agentId" element={<AgentDetail />} /></Routes>
+    </MemoryRouter></WorkspaceProvider>)
+    const button = await screen.findByRole('button', { name: '运行 Agent' })
+    await user.type(screen.getByLabelText('测试输入'), 'Synthetic task')
+    if (initiallyMigrated) expect(button).toBeDisabled()
+    else {
+      expect(button).toBeEnabled()
+      // Leave the rendered button enabled to test the event guard independently.
+      vi.stubEnv('VITE_ARC_ONE_MIGRATION_MODE', 'agents')
+    }
+    await user.click(button)
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('test-runs'))).toBe(false)
   })
 
   it('rejects an IP literal Agent API address', async () => {

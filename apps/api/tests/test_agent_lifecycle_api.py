@@ -1,7 +1,8 @@
 from fastapi.testclient import TestClient
+import pytest
 
 from api_test_support import create_authenticated_client, csrf_headers, workspace_url
-from app.models import ToolSkillAssetRecord
+from app.models import AgentRecord, AgentVersionRecord, ToolSkillAssetRecord
 
 
 def create_agent(client: TestClient, workspace_id: str) -> dict:
@@ -47,6 +48,7 @@ def test_agent_draft_can_be_edited_and_published_as_immutable_versions(tmp_path)
         headers=csrf_headers(client),
     )
     assert first_version.status_code == 201
+    assert client.get(workspace_url(workspace_id, f"/agents/{agent['id']}")).json()["status"] == "在线"
     assert first_version.json()["version"] == "v1.0.0"
     assert first_version.json()["note"] == "首版发布，绑定检索工具和竞品分析 Skill"
     assert first_version.json()["snapshot"]["name"] == "楂樼骇鐮旂┒ Agent"
@@ -84,7 +86,7 @@ def test_deactivated_agent_cannot_be_edited_or_published(tmp_path):
     )
 
     assert response.status_code == 200
-    assert response.json()["status"] == "宸插仠鐢?"
+    assert response.json()["status"] == "已停用"
     assert client.patch(
         workspace_url(workspace_id, f"/agents/{agent['id']}"),
         json={"name": "涓嶈兘淇敼"},
@@ -128,6 +130,23 @@ def test_deactivated_agent_can_be_activated_again(tmp_path):
     assert published_deactivate.status_code == 200
     assert published_activate.status_code == 200
     assert published_activate.json()["status"] == "在线"
+
+
+@pytest.mark.parametrize("stored_status", ["宸插仠鐢?", "已停用"])
+def test_both_deactivated_states_are_protected_without_rewriting_history(tmp_path, stored_status):
+    client, workspace_id = create_authenticated_client(f"sqlite:///{tmp_path / 'status-compatibility.db'}")
+    agent = create_agent(client, workspace_id)
+    path = workspace_url(workspace_id, f"/agents/{agent['id']}")
+    published = client.post(f"{path}/publish", headers=csrf_headers(client)).json()
+    with client.app.state.session_factory() as session:
+        session.get(AgentRecord, agent["id"]).status = stored_status
+        session.commit()
+    assert client.get(path).json()["status"] == stored_status
+    assert client.patch(path, headers=csrf_headers(client), json={"name": "blocked"}).status_code == 409
+    assert client.post(f"{path}/publish", headers=csrf_headers(client)).status_code == 409
+    with client.app.state.session_factory() as session:
+        assert session.get(AgentRecord, agent["id"]).status == stored_status
+        assert session.get(AgentVersionRecord, published["id"]).snapshot == published["snapshot"]
 
 
 def create_tool_skill_asset(

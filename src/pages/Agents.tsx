@@ -6,6 +6,8 @@ import { createAgent, listAgents, type CreateAgentInput } from '../api/agents'
 import { AgentCreateDialog } from '../components/AgentCreateDialog'
 import { StatusBadge } from '../components/StatusBadge'
 import type { Agent } from '../types'
+import { displayStatus } from '../domain/statusText'
+import { isAgentMigration, agentMigrationNotice } from '../api/migrationCapabilities'
 
 function formatUpdatedAt(value: string) {
   const date = new Date(value)
@@ -42,8 +44,8 @@ export function Agents() {
     () => agents.filter((agent) => `${agent.name}${agent.role}${agent.owner}`.toLowerCase().includes(query.toLowerCase())),
     [agents, query],
   )
-  const onlineCount = agents.filter((agent) => agent.status === '在线').length
-  const debuggingCount = agents.filter((agent) => agent.status === '调试中').length
+  const onlineCount = agents.filter((agent) => displayStatus(agent.status) === '在线').length
+  const debuggingCount = agents.filter((agent) => displayStatus(agent.status) === '调试中').length
   const averagePassRate = agents.length
     ? agents.reduce((total, agent) => total + agent.passRate, 0) / agents.length
     : 0
@@ -55,6 +57,7 @@ export function Agents() {
 
   return (
     <div className="page-stack">
+      {isAgentMigration() && <div className="inline-feedback" role="status">{agentMigrationNotice}</div>}
       <section className="page-toolbar">
         <div>
           <p>集中管理 Agent 的能力、工具、版本、质量表现和发布状态。</p>

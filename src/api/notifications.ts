@@ -1,5 +1,6 @@
 import type { NotificationDispatchSummary, NotificationOutboxItem } from '../types'
 import { apiFetch, readJson } from './http'
+import { operationRequestHeaders, readOperationResponse, type OperationResult } from './operations'
 
 const jsonRequest = {
   method: 'POST',
@@ -44,8 +45,8 @@ export async function requeueNotification(
   )
 }
 
-export async function dispatchNotifications(workspaceId: string): Promise<NotificationDispatchSummary> {
-  return readJson<NotificationDispatchSummary>(
-    await apiFetch(workspacePath(workspaceId, '/outbox/dispatch'), jsonRequest),
+export async function dispatchNotifications(workspaceId: string): Promise<OperationResult<NotificationDispatchSummary>> {
+  return readOperationResponse<NotificationDispatchSummary>(
+    await apiFetch(workspacePath(workspaceId, '/outbox/dispatch'), { ...jsonRequest, headers: operationRequestHeaders() }), workspaceId,
   )
 }

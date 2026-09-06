@@ -10,6 +10,7 @@ import type {
   RubricVersion,
 } from '../types'
 import { apiFetch, readJson } from './http'
+import { operationRequestHeaders, readOperationResponse, type OperationResult } from './operations'
 
 export interface RubricDimensionInput {
   id: string
@@ -138,13 +139,14 @@ export async function getRegressionRun(
 export async function createRegressionRun(
   workspaceId: string,
   input: RegressionRunInput,
-): Promise<RegressionRun> {
-  return readJson<RegressionRun>(
+): Promise<OperationResult<RegressionRun>> {
+  return readOperationResponse<RegressionRun>(
     await apiFetch(workspacePath(workspaceId, '/regression-runs'), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: operationRequestHeaders(),
       body: JSON.stringify(input),
     }),
+    workspaceId,
   )
 }
 
@@ -231,11 +233,13 @@ export async function createRemediationTaskActivity(
 export async function retestRemediationTask(
   workspaceId: string,
   taskId: string,
-): Promise<RemediationTask> {
-  return readJson<RemediationTask>(
+): Promise<OperationResult<RemediationTask>> {
+  return readOperationResponse<RemediationTask>(
     await apiFetch(workspacePath(workspaceId, `/remediation-tasks/${taskId}/retest`), {
       method: 'POST',
+      headers: operationRequestHeaders(),
     }),
+    workspaceId,
   )
 }
 
@@ -285,13 +289,14 @@ export async function evaluateRubric(
   workspaceId: string,
   rubricId: string,
   input: RubricEvaluationInput,
-): Promise<EvaluationRecord> {
-  return readJson<EvaluationRecord>(
+): Promise<OperationResult<EvaluationRecord>> {
+  return readOperationResponse<EvaluationRecord>(
     await apiFetch(workspacePath(workspaceId, `/rubrics/${rubricId}/evaluate`), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: operationRequestHeaders(),
       body: JSON.stringify(input),
     }),
+    workspaceId,
   )
 }
 

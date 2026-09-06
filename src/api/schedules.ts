@@ -1,4 +1,5 @@
 import { apiFetch, readJson } from './http'
+import { operationRequestHeaders, readOperationResponse, type OperationResult } from './operations'
 
 export interface WorkflowSchedule {
   id: string
@@ -86,10 +87,11 @@ export async function setScheduleStatus(
 export async function triggerSchedule(
   workspaceId: string,
   scheduleId: string,
-): Promise<ScheduleDispatch> {
-  return readJson<ScheduleDispatch>(await apiFetch(schedulePath(workspaceId, `/${scheduleId}/trigger`), {
+): Promise<OperationResult<ScheduleDispatch>> {
+  return readOperationResponse<ScheduleDispatch>(await apiFetch(schedulePath(workspaceId, `/${scheduleId}/trigger`), {
     method: 'POST',
-  }))
+    headers: operationRequestHeaders(),
+  }), workspaceId)
 }
 
 export async function listScheduleDispatches(

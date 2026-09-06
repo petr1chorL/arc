@@ -2,9 +2,10 @@ import json
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, ValidationInfo, field_validator, model_validator
 
 from app.agent_manifest import normalize_agent_runtime_manifest
+from app.agent_registration_policy import normalize_agent_model_url
 
 
 class LoginCreate(BaseModel):
@@ -211,6 +212,13 @@ class AgentCreate(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
+    @field_validator("model_provider_id")
+    @classmethod
+    def reject_blank_provider_id(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("Provider 引用不能为空")
+        return value
+
     @field_validator("name", "role", "owner", "model", "model_provider")
     @classmethod
     def reject_blank_values(cls, value: str) -> str:
@@ -222,7 +230,7 @@ class AgentCreate(BaseModel):
     @field_validator("model_base_url")
     @classmethod
     def strip_optional_model_base_url(cls, value: str) -> str:
-        return value.strip()
+        return normalize_agent_model_url(value)
 
 
     @field_validator("runtime_manifest")
@@ -253,6 +261,13 @@ class AgentUpdate(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
+    @field_validator("*", mode="before")
+    @classmethod
+    def reject_nonnullable_fields(cls, value: object, info: ValidationInfo) -> object:
+        if value is None and info.field_name != "model_provider_id":
+            raise ValueError("Agent 字段不能为 null")
+        return value
+
     @field_validator("name", "role", "owner", "model", "model_provider", "model_provider_id")
     @classmethod
     def reject_blank_values(cls, value: str | None) -> str | None:
@@ -268,7 +283,7 @@ class AgentUpdate(BaseModel):
     def strip_optional_model_base_url(cls, value: str | None) -> str | None:
         if value is None:
             return value
-        return value.strip()
+        return normalize_agent_model_url(value)
 
 
     @field_validator("runtime_manifest")
@@ -709,7 +724,7 @@ class VersionRead(BaseModel):
 class WorkflowNode(BaseModel):
     id: str
     type: str
-    position: dict[str, float]
+    position: dict[str, FiniteFloat]
     data: dict
 
 

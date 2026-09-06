@@ -509,6 +509,6 @@ def test_tool_skill_asset_audit_events_include_lifecycle_and_runtime_invocations
     assert invocation_event["outcome"] == "succeeded"
     assert invocation_event["metadata"]["assetId"] == tool["id"]
     assert invocation_event["metadata"]["agentId"] == agent["id"]
-    assert invocation_event["metadata"]["agentVersion"] == version["version"]
+    assert invocation_event["metadata"]["agentVersion"] == "内容已隐藏（迁移安全策略）"
     assert invocation_event["metadata"]["runId"] == run["id"]
     assert "apiKey" not in response.text

@@ -6,6 +6,8 @@ from hashlib import sha256
 from time import monotonic
 
 from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Query, Request, Response, status
+from fastapi.exceptions import RequestValidationError
+from app.workflow_http import workflow_validation_error_handler, require_workflow_read, require_workflow_version, HISTORY_ERROR as WORKFLOW_HISTORY_ERROR
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import delete, func, or_, select
@@ -22,13 +24,21 @@ from app.auth import AuthenticationService
 from app.config import Settings
 from app.database import create_database, session_scope
 from app.domain import next_version, validate_workflow
+from app.agent_registration_policy import require_agent_configuration, require_agent_snapshot_configuration
+from app.agent_registration_policy import require_agent_record_references, require_agent_references
 from app.evaluation_service import EvaluationError, EvaluationPlan, EvaluationService
 from app.execution import ExecutionService, WorkflowResumeService
-from app.human_tasks import HumanTaskConflict, HumanTaskPermission, HumanTaskService, HumanTaskValidation
+from app.human_tasks import HumanTaskConflict, HumanTaskPermission, HumanTaskService, HumanTaskSourceConflict, HumanTaskValidation
 from app.judge_gateway import JudgeGateway, ModelJudgeGateway
 from app.migrations import ensure_current_schema
 from app.model_gateway import ModelGateway, OpenAICompatibleGateway, resolve_model_api_key
 from app.runtime_security import is_valid_model_secret_ref, purge_invalid_model_secret_refs
+from app.rubric_http import require_rubric_read, require_rubric_version_read
+from app.reference_asset_http import (
+    hide_history_text, project_asset_audit, project_invocation,
+    require_adapter_config, require_historical_provider, require_historical_secret_ref, require_provider_url,
+    require_historical_version_agent, historical_object,
+)
 from app.models import (
     AgentRecord,
     AgentVersionRecord,
@@ -361,6 +371,7 @@ def create_app(
         return {"status": "ok"}
 
     app.state.session_factory = session_factory
+    app.add_exception_handler(RequestValidationError, workflow_validation_error_handler)
     app.state.authentication_service = authentication_service
     app.state.evaluation_service = evaluation_service
     app.state.execution_service = execution_service
@@ -426,13 +437,14 @@ def create_app(
             metadata=metadata,
         )
 
-    def find_agent(workspace_id: str, agent_id: str, session: Session) -> AgentRecord:
-        agent = session.scalar(
-            select(AgentRecord).where(
-                AgentRecord.id == agent_id,
-                AgentRecord.workspace_id == workspace_id,
-            ),
+    def find_agent(workspace_id: str, agent_id: str, session: Session, *, for_update: bool = False) -> AgentRecord:
+        query = select(AgentRecord).where(
+            AgentRecord.id == agent_id,
+            AgentRecord.workspace_id == workspace_id,
         )
+        if for_update:
+            query = query.with_for_update().execution_options(populate_existing=True)
+        agent = session.scalar(query)
         if agent is None:
             raise HTTPException(status_code=404, detail="Agent 不存在")
         return agent
@@ -448,16 +460,20 @@ def create_app(
             ("tool", tools, "Tool"),
             ("skill", skills, "Skill"),
         ):
+            if not names:
+                continue
+            available = session.scalars(
+                select(ToolSkillAssetRecord).where(
+                    ToolSkillAssetRecord.workspace_id == workspace_id,
+                    ToolSkillAssetRecord.asset_type == asset_type,
+                    ToolSkillAssetRecord.name.in_(names),
+                    ToolSkillAssetRecord.status == "active",
+                ).order_by(ToolSkillAssetRecord.id).with_for_update(read=True)
+                .execution_options(populate_existing=True),
+            ).all()
+            available_names = {asset.name for asset in available}
             for name in names:
-                asset = session.scalar(
-                    select(ToolSkillAssetRecord).where(
-                        ToolSkillAssetRecord.workspace_id == workspace_id,
-                        ToolSkillAssetRecord.asset_type == asset_type,
-                        ToolSkillAssetRecord.name == name,
-                        ToolSkillAssetRecord.status == "active",
-                    ),
-                )
-                if asset is None:
+                if name not in available_names:
                     raise HTTPException(
                         status_code=422,
                         detail=f"未授权或不可用的 {label}：{name}",
@@ -502,13 +518,15 @@ def create_app(
         *,
         workspace_id: str,
         provider_id: str,
+        for_share: bool = False,
     ) -> ModelProviderRecord:
-        provider = session.scalar(
-            select(ModelProviderRecord).where(
-                ModelProviderRecord.id == provider_id,
-                ModelProviderRecord.workspace_id == workspace_id,
-            ),
+        query = select(ModelProviderRecord).where(
+            ModelProviderRecord.id == provider_id,
+            ModelProviderRecord.workspace_id == workspace_id,
         )
+        if for_share:
+            query = query.with_for_update(read=True).execution_options(populate_existing=True)
+        provider = session.scalar(query)
         if provider is None:
             raise HTTPException(status_code=404, detail="模型 Provider 不存在")
         if provider.status == "disabled":
@@ -561,19 +579,37 @@ def create_app(
         *,
         workspace_id: str,
         definition_id: str,
+        for_update: bool = False,
     ) -> DataObjectDefinitionRecord:
-        definition = session.scalar(
-            select(DataObjectDefinitionRecord).where(
-                DataObjectDefinitionRecord.id == definition_id,
-                DataObjectDefinitionRecord.workspace_id == workspace_id,
-            ),
+        statement = select(DataObjectDefinitionRecord).where(
+            DataObjectDefinitionRecord.id == definition_id,
+            DataObjectDefinitionRecord.workspace_id == workspace_id,
         )
+        definition = session.scalar(statement.with_for_update() if for_update else statement)
         if definition is None:
             raise HTTPException(status_code=404, detail="Data Object definition does not exist")
         return definition
 
     def data_object_definition_snapshot(record: DataObjectDefinitionRecord) -> dict:
+        require_data_object_schema(record)
         return DataObjectDefinitionRead.model_validate(record).model_dump(by_alias=True, mode="json")
+
+    def require_data_object_schema(record: DataObjectDefinitionRecord) -> None:
+        if not isinstance(record.object_schema, dict):
+            raise HTTPException(status_code=409, detail="历史 Data Object 版本结构不符合要求，需先完成治理")
+
+    def flush_data_object_definition(session: Session) -> None:
+        try:
+            session.flush()
+        except IntegrityError as error:
+            constraint = getattr(getattr(error.orig, "diag", None), "constraint_name", None)
+            sqlite_name_conflict = str(error.orig) == (
+                "UNIQUE constraint failed: data_object_definitions.workspace_id, data_object_definitions.name"
+            )
+            session.rollback()
+            if constraint == "uq_data_object_definition_workspace_name" or sqlite_name_conflict:
+                raise HTTPException(status_code=409, detail="Data Object definition name already exists") from None
+            raise
 
     def agent_snapshot(record: AgentRecord) -> dict:
         return AgentRead.model_validate(record).model_dump(by_alias=True, mode="json")
@@ -605,13 +641,14 @@ def create_app(
         snapshot["modelSecretRef"] = model_secret_ref_snapshot_value(provider)
         return snapshot
 
-    def find_rubric(workspace_id: str, rubric_id: str, session: Session) -> RubricRecord:
-        rubric = session.scalar(
-            select(RubricRecord).where(
+    def find_rubric(workspace_id: str, rubric_id: str, session: Session, *, for_update: bool = False) -> RubricRecord:
+        query = select(RubricRecord).where(
                 RubricRecord.id == rubric_id,
                 RubricRecord.workspace_id == workspace_id,
-            ),
-        )
+            )
+        if for_update:
+            query = query.with_for_update().execution_options(populate_existing=True)
+        rubric = session.scalar(query)
         if rubric is None:
             raise HTTPException(status_code=404, detail="评分量规不存在")
         return rubric
@@ -631,7 +668,10 @@ def create_app(
         provider_id: str,
     ) -> ModelProviderRecord:
         provider = session.scalar(
-            select(ModelProviderRecord).where(ModelProviderRecord.id == provider_id),
+            select(ModelProviderRecord).where(
+                ModelProviderRecord.id == provider_id,
+                ModelProviderRecord.workspace_id == workspace_id,
+            ).with_for_update(read=True).execution_options(populate_existing=True),
         )
         if provider is None or provider.workspace_id != workspace_id:
             raise HTTPException(
@@ -704,7 +744,7 @@ def create_app(
             raise HTTPException(status_code=422, detail="维度名称必须唯一")
 
     def rubric_snapshot(record: RubricRecord) -> dict:
-        return RubricRead.model_validate(record).model_dump(exclude_none=True, mode="json")
+        return require_rubric_read(record).model_dump(exclude_none=True, mode="json")
 
     def next_rubric_version(session: Session, workspace_id: str, rubric_id: str) -> str:
         count = session.scalar(
@@ -713,7 +753,14 @@ def create_app(
                 RubricVersionRecord.rubric_id == rubric_id,
             ),
         ) or 0
-        return next_version(count)
+        version = next_version(count)
+        if session.scalar(select(RubricVersionRecord.id).where(
+            RubricVersionRecord.workspace_id == workspace_id,
+            RubricVersionRecord.rubric_id == rubric_id,
+            RubricVersionRecord.version == version,
+        )) is not None:
+            raise HTTPException(status_code=409, detail="评分量规版本号冲突，需先完成治理")
+        return version
 
     def evaluation_http_exception(error: EvaluationError) -> HTTPException:
         status_code = {
@@ -722,15 +769,20 @@ def create_app(
         }.get(error.kind, status.HTTP_422_UNPROCESSABLE_CONTENT)
         return HTTPException(status_code=status_code, detail=str(error))
 
-    def find_workflow(workspace_id: str, workflow_id: str, session: Session) -> WorkflowRecord:
-        workflow = session.scalar(
-            select(WorkflowRecord).where(
+    def find_workflow(workspace_id: str, workflow_id: str, session: Session, *, governance: bool = False, for_update: bool = False) -> WorkflowRecord:
+        query = select(WorkflowRecord).where(
                 WorkflowRecord.id == workflow_id,
                 WorkflowRecord.workspace_id == workspace_id,
-            ),
-        )
+            )
+        if governance:
+            query = query.where(WorkflowRecord.status != '已删除')
+        if for_update:
+            query = query.with_for_update().execution_options(populate_existing=True)
+        workflow = session.scalar(query)
         if workflow is None:
             raise HTTPException(status_code=404, detail="工作流不存在")
+        if governance:
+            require_workflow_read(workflow)
         return workflow
 
     def workflow_snapshot(
@@ -763,6 +815,10 @@ def create_app(
                 )
                 if data_object_version is None:
                     continue
+                embedded = data_object_version.snapshot
+                if (not isinstance(embedded, dict) or embedded.get('id') != definition_id
+                        or not isinstance(embedded.get('schema'), dict)):
+                    raise HTTPException(status_code=409, detail=WORKFLOW_HISTORY_ERROR)
                 data[field] = {
                     **ref,
                     "versionId": data_object_version.id,
@@ -1414,7 +1470,11 @@ def create_app(
             .where(AgentRecord.workspace_id == context.workspace.id)
             .order_by(AgentRecord.created_at.desc())
         )
-        return list(session.scalars(statement))
+        records = list(session.scalars(statement))
+        for record in records:
+            require_agent_configuration(record)
+            require_agent_record_references(session, record)
+        return records
 
     @router.post("/agents", response_model=AgentRead, status_code=status.HTTP_201_CREATED)
     def create_agent(
@@ -1442,6 +1502,7 @@ def create_app(
                     session,
                     workspace_id=context.workspace.id,
                     provider_id=provider_id,
+                    for_share=True,
                 ),
             )
         record = AgentRecord(
@@ -1450,6 +1511,7 @@ def create_app(
             created_at=now,
             updated_at=now,
         )
+        require_agent_configuration(record)
         session.add(record)
         session.flush()
         record_success(
@@ -1480,7 +1542,10 @@ def create_app(
             target_id=agent_id,
             request=request,
         )
-        return find_agent(context.workspace.id, agent_id, session)
+        record = find_agent(context.workspace.id, agent_id, session)
+        require_agent_configuration(record)
+        require_agent_record_references(session, record)
+        return record
 
     @router.patch("/agents/{agent_id}", response_model=AgentRead)
     def update_agent(
@@ -1499,9 +1564,9 @@ def create_app(
             target_id=agent_id,
             request=request,
         )
-        record = find_agent(context.workspace.id, agent_id, session)
-        if record.status == "宸插仠鐢?":
-            raise HTTPException(status_code=409, detail="宸插仠鐢?Agent 不允许编辑")
+        record = find_agent(context.workspace.id, agent_id, session, for_update=True)
+        if record.status in {"宸插仠鐢?", "已停用"}:
+            raise HTTPException(status_code=409, detail="已停用 Agent 不允许编辑")
         updates = payload.model_dump(exclude_unset=True)
         provider_id = updates.get("model_provider_id")
         if provider_id:
@@ -1511,6 +1576,7 @@ def create_app(
                     session,
                     workspace_id=context.workspace.id,
                     provider_id=provider_id,
+                    for_share=True,
                 ),
             )
         effective_tools = updates.get("tools", record.tools)
@@ -1531,6 +1597,8 @@ def create_app(
         updates["skill_asset_refs"] = skill_asset_refs
         for field, value in updates.items():
             setattr(record, field, value)
+        require_agent_configuration(record)
+        require_agent_record_references(session, record)
         record.updated_at = utc_now()
         record_success(
             session,
@@ -1569,7 +1637,11 @@ def create_app(
             )
             .order_by(AgentVersionRecord.created_at.desc())
         )
-        return list(session.scalars(statement))
+        versions = list(session.scalars(statement))
+        for version in versions:
+            require_agent_snapshot_configuration(version.snapshot)
+            require_agent_references(session, context.workspace.id, version.snapshot)
+        return versions
 
     @router.post(
         "/agents/{agent_id}/publish",
@@ -1592,15 +1664,24 @@ def create_app(
             target_id=agent_id,
             request=request,
         )
-        record = find_agent(context.workspace.id, agent_id, session)
-        if record.status == "宸插仠鐢?":
-            raise HTTPException(status_code=409, detail="宸插仠鐢?Agent 不允许发布")
+        record = find_agent(context.workspace.id, agent_id, session, for_update=True)
+        if record.status in {"宸插仠鐢?", "已停用"}:
+            raise HTTPException(status_code=409, detail="已停用 Agent 不允许发布")
+        require_agent_configuration(record)
+        require_agent_record_references(session, record)
         try:
             record.runtime_manifest = normalize_agent_runtime_manifest(
                 record.runtime_manifest,
             )
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from None
+        if record.model_provider_id:
+            resolve_model_provider(
+                session,
+                workspace_id=context.workspace.id,
+                provider_id=record.model_provider_id,
+                for_share=True,
+            )
         ensure_agent_assets_available(
             session,
             workspace_id=context.workspace.id,
@@ -1622,6 +1703,15 @@ def create_app(
             ),
         ) or 0
         version = next_version(count)
+        existing_version = session.scalar(
+            select(AgentVersionRecord.id).where(
+                AgentVersionRecord.workspace_id == context.workspace.id,
+                AgentVersionRecord.agent_id == agent_id,
+                AgentVersionRecord.version == version,
+            ),
+        )
+        if existing_version is not None:
+            raise HTTPException(status_code=409, detail="Agent 版本号冲突，需先完成治理")
         published = AgentVersionRecord(
             workspace_id=context.workspace.id,
             agent_id=agent_id,
@@ -1633,8 +1723,10 @@ def create_app(
             ),
             note=(payload.note if payload else "").strip(),
         )
+        require_agent_snapshot_configuration(published.snapshot)
+        require_agent_references(session, context.workspace.id, published.snapshot)
         record.version = version
-        record.status = "鍦ㄧ嚎"
+        record.status = "在线"
         record.updated_at = utc_now()
         session.add(published)
         session.flush()
@@ -1666,8 +1758,10 @@ def create_app(
             target_id=agent_id,
             request=request,
         )
-        record = find_agent(context.workspace.id, agent_id, session)
-        record.status = "宸插仠鐢?"
+        record = find_agent(context.workspace.id, agent_id, session, for_update=True)
+        require_agent_configuration(record)
+        require_agent_record_references(session, record)
+        record.status = "已停用"
         record.updated_at = utc_now()
         record_success(
             session,
@@ -1697,7 +1791,7 @@ def create_app(
             target_id=agent_id,
             request=request,
         )
-        record = find_agent(context.workspace.id, agent_id, session)
+        record = find_agent(context.workspace.id, agent_id, session, for_update=True)
         published_count = session.scalar(
             select(func.count()).select_from(AgentVersionRecord).where(
                 AgentVersionRecord.agent_id == agent_id,
@@ -1705,6 +1799,8 @@ def create_app(
             ),
         ) or 0
         record.status = "在线" if published_count > 0 else "调试中"
+        require_agent_configuration(record)
+        require_agent_record_references(session, record)
         record.updated_at = utc_now()
         record_success(
             session,
@@ -1778,11 +1874,14 @@ def create_app(
             target_id=context.workspace.id,
             request=request,
         )
-        return list(session.scalars(
+        definitions = list(session.scalars(
             select(DataObjectDefinitionRecord)
             .where(DataObjectDefinitionRecord.workspace_id == context.workspace.id)
             .order_by(DataObjectDefinitionRecord.created_at.desc()),
         ))
+        for definition in definitions:
+            require_data_object_schema(definition)
+        return definitions
 
     @router.post(
         "/data-objects",
@@ -1823,7 +1922,7 @@ def create_app(
             updated_at=now,
         )
         session.add(record)
-        session.flush()
+        flush_data_object_definition(session)
         record_success(
             session,
             context,
@@ -1857,6 +1956,7 @@ def create_app(
             session,
             workspace_id=context.workspace.id,
             definition_id=definition_id,
+            for_update=True,
         )
         if payload.name is not None and payload.name != definition.name:
             existing = session.scalar(
@@ -1873,9 +1973,10 @@ def create_app(
             definition.description = payload.description
         if payload.object_schema is not None:
             definition.object_schema = payload.object_schema
+        require_data_object_schema(definition)
         definition.updated_at = utc_now()
         session.add(definition)
-        session.flush()
+        flush_data_object_definition(session)
         record_success(
             session,
             context,
@@ -1887,6 +1988,34 @@ def create_app(
         session.commit()
         session.refresh(definition)
         return definition
+
+    @router.get("/data-objects/{definition_id}/versions", response_model=list[DataObjectVersionRead])
+    def list_data_object_versions(
+        definition_id: str,
+        request: Request,
+        context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
+    ) -> list[DataObjectVersionRecord]:
+        context, session = context_bundle
+        authorization_service.require_capability(
+            session,
+            context,
+            "asset.read",
+            action="data_object_definition.versions.list",
+            target_type="data_object_definition",
+            target_id=definition_id,
+            request=request,
+        )
+        find_data_object_definition(session, workspace_id=context.workspace.id, definition_id=definition_id)
+        versions = list(session.scalars(
+            select(DataObjectVersionRecord).where(
+                DataObjectVersionRecord.workspace_id == context.workspace.id,
+                DataObjectVersionRecord.definition_id == definition_id,
+            ).order_by(DataObjectVersionRecord.created_at.desc()),
+        ))
+        for version in versions:
+            if not isinstance(version.snapshot, dict) or not isinstance(version.snapshot.get("schema"), dict):
+                raise HTTPException(status_code=409, detail="历史 Data Object 版本结构不符合要求，需先完成治理")
+        return versions
 
     @router.post(
         "/data-objects/{definition_id}/publish",
@@ -1912,6 +2041,7 @@ def create_app(
             session,
             workspace_id=context.workspace.id,
             definition_id=definition_id,
+            for_update=True,
         )
         count = session.scalar(
             select(func.count()).select_from(DataObjectVersionRecord).where(
@@ -1920,6 +2050,13 @@ def create_app(
             ),
         ) or 0
         version = next_version(count)
+        existing_version = session.scalar(select(DataObjectVersionRecord.id).where(
+            DataObjectVersionRecord.workspace_id == context.workspace.id,
+            DataObjectVersionRecord.definition_id == definition_id,
+            DataObjectVersionRecord.version == version,
+        ))
+        if existing_version is not None:
+            raise HTTPException(status_code=409, detail="Data Object version already exists")
         published = DataObjectVersionRecord(
             workspace_id=context.workspace.id,
             definition_id=definition_id,
@@ -1963,7 +2100,10 @@ def create_app(
             .where(ToolSkillAssetRecord.workspace_id == context.workspace.id)
             .order_by(ToolSkillAssetRecord.created_at.desc())
         )
-        return list(session.scalars(statement))
+        assets = list(session.scalars(statement))
+        for asset in assets:
+            require_adapter_config(asset.adapter_type, asset.adapter_config, historical=True)
+        return assets
 
     @router.get(
         "/asset-library/invocations",
@@ -1996,7 +2136,7 @@ def create_app(
         if invocation_status:
             statement = statement.where(ToolSkillAssetInvocationRecord.status == invocation_status)
         statement = statement.order_by(ToolSkillAssetInvocationRecord.created_at.desc())
-        return list(session.scalars(statement))
+        return [project_invocation(record, session, context.workspace.id) for record in session.scalars(statement)]
 
     @router.post(
         "/asset-library",
@@ -2018,6 +2158,7 @@ def create_app(
             target_id=None,
             request=request,
         )
+        require_adapter_config(payload.adapter_type, payload.adapter_config)
         existing = session.scalar(
             select(ToolSkillAssetRecord).where(
                 ToolSkillAssetRecord.workspace_id == context.workspace.id,
@@ -2076,6 +2217,10 @@ def create_app(
             workspace_id=context.workspace.id,
             asset_id=asset_id,
         )
+        require_adapter_config(
+            payload.adapter_type if payload.adapter_type is not None else asset.adapter_type,
+            payload.adapter_config if payload.adapter_config is not None else asset.adapter_config,
+        )
         if payload.name is not None and payload.name != asset.name:
             existing = session.scalar(
                 select(ToolSkillAssetRecord).where(
@@ -2130,6 +2275,7 @@ def create_app(
             workspace_id=context.workspace.id,
             asset_id=asset_id,
         )
+        require_adapter_config(asset.adapter_type, asset.adapter_config, historical=True)
         asset.status = "disabled"
         asset.updated_at = utc_now()
         record_success(
@@ -2186,9 +2332,11 @@ def create_app(
         published_versions = [
             version
             for version in version_records
-            if asset_ref_matches(version.snapshot.get(snapshot_ref_field_name) or [], asset)
+            if asset_ref_matches(historical_object(version.snapshot).get(snapshot_ref_field_name) or [], asset)
             or asset.name in (version.snapshot.get(field_name) or [])
         ]
+        for version in published_versions:
+            require_historical_version_agent(version, session, context.workspace.id)
         return ToolSkillAssetImpactRead(
             asset_id=asset.id,
             asset_type=asset.asset_type,
@@ -2260,15 +2408,7 @@ def create_app(
         ))
         events = [
             ToolSkillAssetAuditEventRead(
-                id=event.id,
-                event_type=event.action or event.event_type or "",
-                target_type=event.target_type or "",
-                target_id=event.target_id or "",
-                outcome=event.outcome or "",
-                reason=event.reason or str((event.event_metadata or {}).get("reason", "")),
-                actor_id=event.actor_user_id or event.actor_id,
-                created_at=event.created_at,
-                metadata=event.event_metadata or {},
+                **project_asset_audit(event, session, context.workspace),
             )
             for event in audit_records
         ]
@@ -2279,23 +2419,23 @@ def create_app(
                 target_type="tool_skill_asset_invocation",
                 target_id=invocation.id,
                 outcome=invocation.status,
-                reason=invocation.error,
+                reason=hide_history_text(invocation.error),
                 actor_id=None,
                 created_at=invocation.created_at,
                 metadata={
                     "assetId": invocation.asset_id,
                     "assetType": invocation.asset_type,
-                    "assetName": invocation.asset_name,
+                    "assetName": hide_history_text(invocation.asset_name),
                     "agentId": invocation.agent_id,
-                    "agentVersion": invocation.agent_version,
+                    "agentVersion": hide_history_text(invocation.agent_version),
                     "runId": invocation.run_id,
                     "nodeRunId": invocation.node_run_id,
-                    "inputSummary": invocation.input_summary,
-                    "outputSummary": invocation.output_summary,
+                    "inputSummary": hide_history_text(invocation.input_summary),
+                    "outputSummary": hide_history_text(invocation.output_summary),
                     "durationMs": invocation.duration_ms,
                 },
             )
-            for invocation in invocation_records
+            for invocation in (project_invocation(record, session, context.workspace.id) for record in invocation_records)
         )
         return sorted(
             events,
@@ -2318,11 +2458,14 @@ def create_app(
             target_id=context.workspace.id,
             request=request,
         )
-        return list(session.scalars(
+        providers = list(session.scalars(
             select(ModelProviderRecord)
             .where(ModelProviderRecord.workspace_id == context.workspace.id)
             .order_by(ModelProviderRecord.created_at.desc()),
         ))
+        for provider in providers:
+            require_historical_provider(provider)
+        return providers
 
     @router.post(
         "/model-providers",
@@ -2349,6 +2492,7 @@ def create_app(
                 status_code=422,
                 detail="Secret Ref 只能填写后端环境变量名",
             )
+        require_provider_url(payload.base_url)
         existing = session.scalar(
             select(ModelProviderRecord).where(
                 ModelProviderRecord.workspace_id == context.workspace.id,
@@ -2406,6 +2550,9 @@ def create_app(
             provider_id=provider_id,
         )
         updates = payload.model_dump(exclude_unset=True)
+        if any(value is None for value in updates.values()):
+            raise HTTPException(status_code=422, detail="Provider 字段不能为 null")
+        require_provider_url(updates.get("base_url", provider.base_url))
         if "secret_ref" in updates and not is_valid_model_secret_ref(updates["secret_ref"]):
             raise HTTPException(
                 status_code=422,
@@ -2423,6 +2570,7 @@ def create_app(
                 raise HTTPException(status_code=409, detail="模型 Provider 名称已存在")
         for field, value in updates.items():
             setattr(provider, field, value)
+        require_historical_provider(provider)
         provider.updated_at = utc_now()
         record_success(
             session,
@@ -2457,6 +2605,7 @@ def create_app(
             workspace_id=context.workspace.id,
             provider_id=provider_id,
         )
+        require_historical_provider(provider)
         provider.status = "disabled"
         provider.updated_at = utc_now()
         record_success(
@@ -2508,8 +2657,11 @@ def create_app(
         published_versions = [
             version
             for version in version_records
-            if version.snapshot.get("modelProviderId") == provider.id
+            if historical_object(version.snapshot).get("modelProviderId") == provider.id
         ]
+        for version in published_versions:
+            require_historical_version_agent(version, session, context.workspace.id)
+            require_historical_secret_ref(version.snapshot.get("modelSecretRef", ""))
         return ModelProviderImpactRead(
             provider_id=provider.id,
             totals=ModelProviderImpactTotalsRead(
@@ -2640,7 +2792,7 @@ def create_app(
         ))
         related_records: list[AuditEventRecord] = []
         for event in audit_records:
-            metadata = event.event_metadata or {}
+            metadata = historical_object({} if event.event_metadata is None else event.event_metadata)
             is_related = (
                 event.target_type == "model_provider"
                 and event.target_id == provider.id
@@ -2651,15 +2803,7 @@ def create_app(
                 break
         return [
             ModelProviderAuditEventRead(
-                id=event.id,
-                event_type=event.action or event.event_type or "",
-                target_type=event.target_type or "",
-                target_id=event.target_id or "",
-                outcome=event.outcome or "",
-                reason=event.reason or str((event.event_metadata or {}).get("reason", "")),
-                actor_id=event.actor_user_id or event.actor_id,
-                created_at=event.created_at,
-                metadata=event.event_metadata or {},
+                **project_asset_audit(event, session, context.workspace),
             )
             for event in related_records
         ]
@@ -2798,7 +2942,10 @@ def create_app(
             )
             .order_by(WorkflowRecord.updated_at.desc())
         )
-        return list(session.scalars(statement))
+        records = list(session.scalars(statement))
+        for record in records:
+            require_workflow_read(record)
+        return records
 
     @router.post("/workflows", response_model=WorkflowRead, status_code=status.HTTP_201_CREATED)
     def create_workflow(
@@ -2819,6 +2966,7 @@ def create_app(
         now = utc_now()
         record = WorkflowRecord(
             workspace_id=context.workspace.id,
+            status='草稿',
             name=payload.name.strip(),
             nodes=[node.model_dump() for node in payload.nodes],
             edges=[edge.model_dump(exclude_none=True) for edge in payload.edges],
@@ -2857,7 +3005,7 @@ def create_app(
             target_id=workflow_id,
             request=request,
         )
-        return find_workflow(context.workspace.id, workflow_id, session)
+        return find_workflow(context.workspace.id, workflow_id, session, governance=True)
 
     @router.patch("/workflows/{workflow_id}", response_model=WorkflowRead)
     def update_workflow(
@@ -2876,13 +3024,13 @@ def create_app(
             target_id=workflow_id,
             request=request,
         )
-        record = find_workflow(context.workspace.id, workflow_id, session)
+        record = find_workflow(context.workspace.id, workflow_id, session, governance=True, for_update=True)
         record.name = payload.name.strip()
         record.nodes = [node.model_dump() for node in payload.nodes]
         record.edges = [edge.model_dump(exclude_none=True) for edge in payload.edges]
         record.input_schema = payload.input_schema
         record.output_schema = payload.output_schema
-        record.status = "鑽夌"
+        record.status = "草稿"
         record.updated_at = utc_now()
         record_success(
             session,
@@ -2912,7 +3060,7 @@ def create_app(
             target_id=workflow_id,
             request=request,
         )
-        record = find_workflow(context.workspace.id, workflow_id, session)
+        record = find_workflow(context.workspace.id, workflow_id, session, governance=True, for_update=True)
         record.status = "已删除"
         record.updated_at = utc_now()
         record_success(
@@ -2942,7 +3090,7 @@ def create_app(
             target_id=workflow_id,
             request=request,
         )
-        record = find_workflow(context.workspace.id, workflow_id, session)
+        record = find_workflow(context.workspace.id, workflow_id, session, governance=True)
         errors = validate_workflow(record.nodes, record.edges, session, context.workspace.id)
         return ValidationResult(valid=not errors, errors=errors)
 
@@ -2962,6 +3110,7 @@ def create_app(
             target_id=workflow_id,
             request=request,
         )
+        # Soft deletion hides the draft, not its immutable published history.
         find_workflow(context.workspace.id, workflow_id, session)
         statement = (
             select(WorkflowVersionRecord)
@@ -2971,7 +3120,10 @@ def create_app(
             )
             .order_by(WorkflowVersionRecord.created_at.desc())
         )
-        return list(session.scalars(statement))
+        records = list(session.scalars(statement))
+        for record in records:
+            require_workflow_version(record, session, context.workspace.id)
+        return records
 
     @router.post(
         "/workflows/{workflow_id}/publish",
@@ -2994,8 +3146,8 @@ def create_app(
             target_id=workflow_id,
             request=request,
         )
-        record = find_workflow(context.workspace.id, workflow_id, session)
-        errors = validate_workflow(record.nodes, record.edges, session, context.workspace.id)
+        record = find_workflow(context.workspace.id, workflow_id, session, governance=True, for_update=True)
+        errors = validate_workflow(record.nodes, record.edges, session, context.workspace.id, lock_dependencies=True)
         if errors:
             raise HTTPException(status_code=422, detail=errors)
         count = session.scalar(
@@ -3005,6 +3157,12 @@ def create_app(
             ),
         ) or 0
         version = next_version(count)
+        if session.scalar(select(WorkflowVersionRecord.id).where(
+            WorkflowVersionRecord.workspace_id == context.workspace.id,
+            WorkflowVersionRecord.workflow_id == workflow_id,
+            WorkflowVersionRecord.version == version,
+        )) is not None:
+            raise HTTPException(status_code=409, detail='Workflow version already exists')
         published = WorkflowVersionRecord(
             workspace_id=context.workspace.id,
             workflow_id=workflow_id,
@@ -3013,7 +3171,7 @@ def create_app(
             note=(payload.note if payload else "").strip(),
         )
         record.version = version
-        record.status = "宸插彂甯?"
+        record.status = "已发布"
         record.updated_at = utc_now()
         session.add(published)
         session.flush()
@@ -5074,7 +5232,10 @@ def create_app(
             target_id=context.workspace.id,
             request=request,
         )
-        return human_task_service.list_feedback_candidates(session, context.workspace.id)
+        try:
+            return human_task_service.list_feedback_candidates(session, context.workspace.id)
+        except HumanTaskSourceConflict:
+            raise HTTPException(status_code=409, detail="反馈候选来源不完整，需先完成治理") from None
 
     @router.get("/evaluations/overview", response_model=EvaluationOverviewRead)
     def get_evaluations_overview(
@@ -6214,6 +6375,9 @@ def create_app(
         ) or 0
         if existing_count > 0:
             return
+        session.scalar(select(WorkspaceRecord.id).where(WorkspaceRecord.id == workspace_id).with_for_update())
+        if session.scalar(select(RubricRecord.id).where(RubricRecord.workspace_id == workspace_id).limit(1)) is not None:
+            return
         now = utc_now()
         for sort_order, rubric in enumerate(DEFAULT_RUBRICS, start=1):
             session.add(
@@ -6232,7 +6396,7 @@ def create_app(
     def list_evaluation_rubrics(
         request: Request,
         context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
-    ) -> list[RubricRecord]:
+    ) -> list[RubricRead]:
         context, session = context_bundle
         authorization_service.require_capability(
             session,
@@ -6244,11 +6408,11 @@ def create_app(
             request=request,
         )
         ensure_default_rubrics(session, context.workspace.id)
-        return list(session.scalars(
+        return [require_rubric_read(record) for record in session.scalars(
             select(RubricRecord)
             .where(RubricRecord.workspace_id == context.workspace.id)
             .order_by(RubricRecord.sort_order.asc(), RubricRecord.created_at.asc()),
-        ))
+        )]
 
     @router.post(
         "/evaluations/rubrics",
@@ -6270,6 +6434,8 @@ def create_app(
             target_id=None,
             request=request,
         )
+        # Serialize creation with default initialization before taking Provider dependency locks.
+        session.scalar(select(WorkspaceRecord.id).where(WorkspaceRecord.id == context.workspace.id).with_for_update())
         if payload.model_provider_id is not None:
             resolve_rubric_model_provider(
                 session,
@@ -6328,7 +6494,7 @@ def create_app(
             target_id=rubric_id,
             request=request,
         )
-        record = find_rubric(context.workspace.id, rubric_id, session)
+        record = find_rubric(context.workspace.id, rubric_id, session, for_update=True)
         if payload.model_provider_id is not None:
             resolve_rubric_model_provider(
                 session,
@@ -6366,7 +6532,7 @@ def create_app(
         rubric_id: str,
         request: Request,
         context_bundle: tuple[RequestContext, Session] = Depends(workspace_context),
-    ) -> list[RubricVersionRecord]:
+    ) -> list[RubricVersionRead]:
         context, session = context_bundle
         authorization_service.require_capability(
             session,
@@ -6378,14 +6544,14 @@ def create_app(
             request=request,
         )
         find_rubric(context.workspace.id, rubric_id, session)
-        return list(session.scalars(
+        return [require_rubric_version_read(record) for record in session.scalars(
             select(RubricVersionRecord)
             .where(
                 RubricVersionRecord.workspace_id == context.workspace.id,
                 RubricVersionRecord.rubric_id == rubric_id,
             )
             .order_by(RubricVersionRecord.created_at.desc()),
-        ))
+        )]
 
     @router.post(
         "/evaluations/rubrics/{rubric_id}/publish",
@@ -6407,7 +6573,7 @@ def create_app(
             target_id=rubric_id,
             request=request,
         )
-        record = find_rubric(context.workspace.id, rubric_id, session)
+        record = find_rubric(context.workspace.id, rubric_id, session, for_update=True)
         if record.status == "disabled":
             raise HTTPException(status_code=409, detail="已停用评分量规不允许发布")
         validate_llm_rubric_for_publish(
@@ -6455,7 +6621,8 @@ def create_app(
             target_id=rubric_id,
             request=request,
         )
-        record = find_rubric(context.workspace.id, rubric_id, session)
+        record = find_rubric(context.workspace.id, rubric_id, session, for_update=True)
+        require_rubric_read(record)
         record.status = "disabled"
         record.updated_at = utc_now()
         record_success(
@@ -6563,11 +6730,14 @@ def create_app(
             target_id=candidate_id,
             request=request,
         )
-        candidate = human_task_service.get_feedback_candidate(
-            session,
-            context.workspace.id,
-            candidate_id,
-        )
+        try:
+            candidate = human_task_service.get_feedback_candidate(
+                session,
+                context.workspace.id,
+                candidate_id,
+            )
+        except HumanTaskSourceConflict:
+            raise HTTPException(status_code=409, detail="反馈候选来源不完整，需先完成治理") from None
         if candidate is None:
             raise HTTPException(status_code=404, detail="反馈候选不存在")
         return candidate
@@ -6589,6 +6759,7 @@ def create_app(
                 session,
                 context.workspace.id,
                 context.user.id,
+                for_share=True,
             )
             return human_task_service.confirm_feedback_candidate(
                 session,

@@ -199,7 +199,7 @@ def test_agent_publish_rejects_legacy_python_package_draft(tmp_path):
         workspace_url(workspace_id, "/agents"),
         json={
             "name": "Legacy Package Draft",
-            "role": "Remain visible but fail closed at publish.",
+            "role": "Reject unsafe historical configuration without rewriting it.",
             "owner": "Platform Team",
             "model": "remote-managed",
         },
@@ -222,7 +222,13 @@ def test_agent_publish_rejects_legacy_python_package_draft(tmp_path):
         headers=csrf_headers(client),
     )
 
-    assert response.status_code == 422
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "存在不符合当前安全规则的历史 Agent 或版本，需先完成治理"
+    }
+    with client.app.state.session_factory() as session:
+        stored_agent = session.get(AgentRecord, created["id"])
+        assert stored_agent.runtime_manifest["packageName"] == "legacy-package"
 
 
 INVALID_REMOTE_MANIFESTS = [

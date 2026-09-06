@@ -17,10 +17,12 @@ import {
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { listHumanTasks } from '../api/humanTasks'
+import { isDataObjectMigration, isReferenceAssetMigration, isRuntimeMigration } from '../api/migrationCapabilities'
 import { useAuth } from '../auth/authContext'
 import { CapabilityGuard } from '../auth/CapabilityGuard'
 import { workspaceHasCapability } from '../auth/workspaceCapabilities'
 import { useWorkspace } from '../auth/workspaceContextState'
+import { OperationCenter } from './OperationCenter'
 
 const navigation = [
   { path: '', label: '运营总览', icon: Gauge },
@@ -44,6 +46,7 @@ const titles: Record<string, { title: string; eyebrow: string }> = {
   '/observability': { title: '运行观测', eyebrow: 'OBSERVABILITY' },
   '/reviews': { title: '人工审核', eyebrow: 'HUMAN IN THE LOOP' },
   '/settings/asset-library': { title: 'Tool / Skill 资产库', eyebrow: 'TOOL REGISTRY' },
+  '/settings/data-objects': { title: 'Data Object', eyebrow: 'DATA CONTRACTS' },
   '/settings/members': { title: '成员与权限', eyebrow: 'ACCESS CONTROL' },
   '/settings/model-providers': { title: '模型资产', eyebrow: 'MODEL ACCESS' },
 }
@@ -65,6 +68,7 @@ export function Layout() {
   const page = titles[pageKey] ?? titles['']
 
   useEffect(() => {
+    if (isReferenceAssetMigration() && !isRuntimeMigration()) return
     function refreshPendingReviewCount() {
       void listHumanTasks(workspace.id)
         .then((tasks) => setPendingReviewCount(
@@ -112,6 +116,19 @@ export function Layout() {
               </NavLink>
             )
           })}
+          {isDataObjectMigration() && <CapabilityGuard capability="asset.read">
+            <NavLink to={workspacePath('settings/data-objects')} aria-label="Data Object"
+              className={({ isActive }) => (isActive ? 'nav-item active' : 'nav-item')}>
+              <Blocks size={18} strokeWidth={1.8} /><span>Data Object</span>
+            </NavLink>
+          </CapabilityGuard>}
+          {isRuntimeMigration() && <>
+            <NavLink className="nav-item" to={workspacePath('quality-operations')}>质量运营</NavLink>
+            <CapabilityGuard capability="workspace.manage">
+              <NavLink className="nav-item" to={workspacePath('notifications')}>通知 Outbox</NavLink>
+              <NavLink className="nav-item" to={workspacePath('settings/notification-channels')}>通知渠道</NavLink>
+            </CapabilityGuard>
+          </>}
           <CapabilityGuard capability="member.manage">
             <NavLink
               to={workspacePath('settings/model-providers')}
@@ -207,10 +224,11 @@ export function Layout() {
               </small>
               <button className="button ghost compact" onClick={() => void auth.logout()}>退出</button>
             </div>
-            <div className="environment"><span />生产环境</div>
+            <div className="environment"><span />{isReferenceAssetMigration() ? '隔离迁移验证' : '生产环境'}</div>
           </div>
         </header>
         <div className="page-content">
+          <OperationCenter />
           <Outlet />
         </div>
       </main>

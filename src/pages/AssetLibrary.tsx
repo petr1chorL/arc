@@ -11,6 +11,8 @@ import {
   updateToolSkillAsset,
 } from '../api/assetLibrary'
 import { useWorkspace } from '../auth/workspaceContextState'
+import { isReferenceAssetMigration, referenceAssetMigrationNotice } from '../api/migrationCapabilities'
+import { AssetRegistrationConfig } from '../components/AssetRegistrationConfig'
 import type {
   ToolSkillAdapterType,
   ToolSkillAsset,
@@ -63,11 +65,12 @@ function auditEventDetail(event: ToolSkillAssetAuditEvent) {
 }
 
 export function AssetLibrary() {
+  const migrationOnly = isReferenceAssetMigration()
   const { workspace } = useWorkspace()
   const [assets, setAssets] = useState<ToolSkillAsset[]>([])
   const [invocations, setInvocations] = useState<ToolSkillInvocation[]>([])
-  const [impactByAssetId, setImpactByAssetId] = useState<Record<string, ToolSkillAssetImpact>>({})
-  const [auditEventsByAssetId, setAuditEventsByAssetId] = useState<Record<string, ToolSkillAssetAuditEvent[]>>({})
+  const [impactByAssetId, setImpactByAssetId] = useState<Partial<Record<string, ToolSkillAssetImpact | null>>>({})
+  const [auditEventsByAssetId, setAuditEventsByAssetId] = useState<Partial<Record<string, ToolSkillAssetAuditEvent[] | null>>>({})
   const [testResults, setTestResults] = useState<Record<string, ToolSkillInvocation>>({})
   const [testParameterJsonByAssetId, setTestParameterJsonByAssetId] = useState<Record<string, string>>({})
   const [editingAssetId, setEditingAssetId] = useState('')
@@ -78,32 +81,34 @@ export function AssetLibrary() {
   const [isBusy, setIsBusy] = useState(false)
 
   const loadAssetImpacts = useCallback(async (targetAssets: ToolSkillAsset[]) => {
+    setImpactByAssetId(current => ({ ...current, ...Object.fromEntries(targetAssets.map(asset => [asset.id, undefined])) }))
     const entries = await Promise.all(targetAssets.map(async (asset) => {
       try {
         const impact = await getToolSkillAssetImpact(workspace.id, asset.id)
         return [asset.id, impact] as [string, ToolSkillAssetImpact]
       } catch {
-        return null
+        return [asset.id, null] as const
       }
     }))
     setImpactByAssetId((current) => ({
       ...current,
-      ...Object.fromEntries(entries.filter((entry): entry is [string, ToolSkillAssetImpact] => entry !== null)),
+      ...Object.fromEntries(entries),
     }))
   }, [workspace.id])
 
   const loadAssetAuditEvents = useCallback(async (targetAssets: ToolSkillAsset[]) => {
+    setAuditEventsByAssetId(current => ({ ...current, ...Object.fromEntries(targetAssets.map(asset => [asset.id, undefined])) }))
     const entries = await Promise.all(targetAssets.map(async (asset) => {
       try {
         const events = await getToolSkillAssetAuditEvents(workspace.id, asset.id)
         return [asset.id, events] as [string, ToolSkillAssetAuditEvent[]]
       } catch {
-        return null
+        return [asset.id, null] as const
       }
     }))
     setAuditEventsByAssetId((current) => ({
       ...current,
-      ...Object.fromEntries(entries.filter((entry): entry is [string, ToolSkillAssetAuditEvent[]] => entry !== null)),
+      ...Object.fromEntries(entries),
     }))
   }, [workspace.id])
 
@@ -124,7 +129,8 @@ export function AssetLibrary() {
   }, [loadAssetAuditEvents, loadAssetImpacts, workspace.id])
 
   function updateForm<TField extends keyof typeof initialForm>(field: TField, value: (typeof initialForm)[TField]) {
-    setForm((current) => ({ ...current, [field]: value }))
+    setForm((current) => ({ ...current, [field]: value,
+      ...(migrationOnly && field === 'adapterType' ? { adapterConfigJson: '{}' } : {}) }))
     setFeedback('')
     setError('')
   }
@@ -143,18 +149,7 @@ export function AssetLibrary() {
       }
       const created = await createToolSkillAsset(workspace.id, input)
       setAssets((current) => [created, ...current])
-      setImpactByAssetId((current) => ({
-        ...current,
-        [created.id]: {
-          assetId: created.id,
-          assetType: created.assetType,
-          assetName: created.name,
-          totals: { draftAgents: 0, publishedVersions: 0 },
-          draftAgents: [],
-          publishedVersions: [],
-        },
-      }))
-      await loadAssetAuditEvents([created])
+      await Promise.all([loadAssetImpacts([created]), loadAssetAuditEvents([created])])
       setForm(initialForm)
       setFeedback('资产已创建')
     } catch (createError) {
@@ -171,6 +166,7 @@ export function AssetLibrary() {
   }
 
   async function runTestInvocation(asset: ToolSkillAsset) {
+    if (migrationOnly) return
     setIsBusy(true)
     setError('')
     try {
@@ -204,7 +200,8 @@ export function AssetLibrary() {
   }
 
   function updateEditForm<TField extends keyof EditFormState>(field: TField, value: EditFormState[TField]) {
-    setEditForm((current) => current ? { ...current, [field]: value } : current)
+    setEditForm((current) => current ? { ...current, [field]: value,
+      ...(migrationOnly && field === 'adapterType' ? { adapterConfigJson: '{}' } : {}) } : current)
     setFeedback('')
     setError('')
   }
@@ -223,14 +220,7 @@ export function AssetLibrary() {
       }
       const updated = await updateToolSkillAsset(workspace.id, asset.id, input)
       setAssets((current) => current.map((item) => item.id === updated.id ? updated : item))
-      setImpactByAssetId((current) => {
-        const previousImpact = current[updated.id]
-        return previousImpact ? {
-          ...current,
-          [updated.id]: { ...previousImpact, assetName: updated.name, assetType: updated.assetType },
-        } : current
-      })
-      await loadAssetAuditEvents([updated])
+      await Promise.all([loadAssetImpacts([updated]), loadAssetAuditEvents([updated])])
       setEditingAssetId('')
       setEditForm(null)
       setFeedback('资产已更新')
@@ -258,6 +248,7 @@ export function AssetLibrary() {
 
   return (
     <div className="page-stack asset-library-page">
+      {migrationOnly && <p role="status">{referenceAssetMigrationNotice}</p>}
       <section className="panel asset-library-intro">
         <div>
           <p className="section-kicker">TOOL & SKILL REGISTRY</p>
@@ -266,7 +257,7 @@ export function AssetLibrary() {
         </div>
         <div className="provider-secret-note">
           <Wrench size={18} />
-          <span>HTTP / MCP Tool 可在这里做一次受控测试调用</span>
+          <span>{migrationOnly ? '当前仅验证资产登记，不执行 HTTP / MCP 调用' : 'HTTP / MCP Tool 可在这里做一次受控测试调用'}</span>
         </div>
       </section>
 
@@ -323,7 +314,8 @@ export function AssetLibrary() {
               rows={4}
             />
           </label>
-          <label className="form-field full">
+          {migrationOnly ? <AssetRegistrationConfig adapterType={form.adapterType} value={form.adapterConfigJson}
+            onChange={value => updateForm('adapterConfigJson', value)} /> : <label className="form-field full">
             <span>适配配置 JSON</span>
             <textarea
               aria-label="适配配置 JSON"
@@ -331,7 +323,7 @@ export function AssetLibrary() {
               onChange={(event) => updateForm('adapterConfigJson', event.target.value)}
               rows={4}
             />
-          </label>
+          </label>}
         </div>
         <button className="button primary" disabled={isBusy} onClick={() => void createAsset()}>
           <Plus size={15} />创建资产
@@ -420,7 +412,8 @@ export function AssetLibrary() {
                           rows={4}
                         />
                       </label>
-                      <label className="form-field full">
+                      {migrationOnly ? <AssetRegistrationConfig prefix="编辑" adapterType={editForm.adapterType} value={editForm.adapterConfigJson}
+                        onChange={value => updateEditForm('adapterConfigJson', value)} /> : <label className="form-field full">
                         <span>编辑适配配置 JSON</span>
                         <textarea
                           aria-label="编辑适配配置 JSON"
@@ -428,7 +421,7 @@ export function AssetLibrary() {
                           onChange={(event) => updateEditForm('adapterConfigJson', event.target.value)}
                           rows={4}
                         />
-                      </label>
+                      </label>}
                       <div className="asset-edit-actions">
                         <button
                           className="button secondary compact"
@@ -452,6 +445,8 @@ export function AssetLibrary() {
                       </div>
                     </div>
                   )}
+                  {impact === null && <p role="status">影响面不可用，不能确认引用数量</p>}
+                  {auditEventsByAssetId[asset.id] === null && <p role="status">审计记录不可用或无读取权限</p>}
                   {impact && (
                     <div className="asset-impact">
                       <div className="asset-impact-metrics">
@@ -496,7 +491,7 @@ export function AssetLibrary() {
                       </label>
                       <button
                         className="button secondary compact"
-                        disabled={isBusy}
+                        disabled={isBusy || migrationOnly}
                         onClick={() => void runTestInvocation(asset)}
                         aria-label={`测试调用 ${asset.name}`}
                       >

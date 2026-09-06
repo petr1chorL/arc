@@ -1,6 +1,7 @@
 from collections import deque
+import math
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -10,6 +11,7 @@ from app.models import (
     ModelProviderRecord,
     ReviewGroupMemberRecord,
     ReviewGroupRecord,
+    ReviewerRecord,
     RubricRecord,
     RubricVersionRecord,
 )
@@ -47,8 +49,15 @@ def validate_workflow(
     edges: list[dict],
     session: Session,
     workspace_id: str | None = None,
+    *,
+    lock_dependencies: bool = False,
 ) -> list[str]:
     errors: list[str] = []
+
+    def read_dependency(query):
+        if lock_dependencies:
+            query = query.with_for_update(read=True).execution_options(populate_existing=True)
+        return session.scalar(query)
     node_ids = [node["id"] for node in nodes]
     node_id_set = set(node_ids)
 
@@ -64,6 +73,21 @@ def validate_workflow(
     for edge in edges:
         source = edge["source"]
         target = edge["target"]
+        mappings = (edge.get('data') or {}).get('mappings', [])
+        if not isinstance(mappings, list):
+            errors.append(f"连线 {edge['id']} 的映射必须是数组")
+        else:
+            for mapping in mappings:
+                if not isinstance(mapping, dict):
+                    errors.append(f"连线 {edge['id']} 的映射项格式无效")
+                    continue
+                for field in ('sourcePath', 'targetPath'):
+                    path = mapping.get(field)
+                    # Same syntax as execution._parse_object_path: root or nonempty dotted parts.
+                    normalized = path.strip() if isinstance(path, str) else ''
+                    if not (normalized == '$' or (normalized.startswith('$.') and
+                            any(normalized[2:].split('.')))):
+                        errors.append(f"连线 {edge['id']} 的映射 {field} 路径无效")
         if source not in node_id_set or target not in node_id_set:
             errors.append(f"连线 {edge['id']} 引用了不存在的节点")
             continue
@@ -96,10 +120,10 @@ def validate_workflow(
             errors.append(f"节点 {node['id']} 的{label} Data Object 引用格式无效")
             return
         definition_id = ref.get("definitionId")
-        if not definition_id:
+        if not isinstance(definition_id, str) or not definition_id:
             errors.append(f"节点 {node['id']} 的{label} Data Object 必须包含 Definition ID")
             return
-        definition = session.scalar(
+        definition = read_dependency(
             select(DataObjectDefinitionRecord).where(
                 DataObjectDefinitionRecord.id == definition_id,
                 DataObjectDefinitionRecord.workspace_id == workspace_id,
@@ -112,10 +136,10 @@ def validate_workflow(
             errors.append(f"节点 {node['id']} 的{label} Data Object {definition.name} 尚未发布")
             return
         version = ref.get("version")
-        if not version or version == "unpublished":
+        if not isinstance(version, str) or not version or version == "unpublished":
             errors.append(f"节点 {node['id']} 的{label} Data Object 必须绑定已发布版本")
             return
-        version_record = session.scalar(
+        version_record = read_dependency(
             select(DataObjectVersionRecord).where(
                 DataObjectVersionRecord.workspace_id == workspace_id,
                 DataObjectVersionRecord.definition_id == definition_id,
@@ -147,7 +171,7 @@ def validate_workflow(
             rubric_id = rubric_ref["rubricId"].strip()
             version_id = rubric_ref["versionId"].strip()
             version = rubric_ref["version"].strip()
-            rubric = session.scalar(
+            rubric = read_dependency(
                 select(RubricRecord).where(
                     RubricRecord.id == rubric_id,
                     RubricRecord.workspace_id == workspace_id,
@@ -160,7 +184,7 @@ def validate_workflow(
                 errors.append(f"评估节点 {node_id} 的评分模板不可用")
                 continue
 
-            rubric_version = session.scalar(
+            rubric_version = read_dependency(
                 select(RubricVersionRecord).where(
                     RubricVersionRecord.id == version_id,
                     RubricVersionRecord.workspace_id == workspace_id,
@@ -231,7 +255,7 @@ def validate_workflow(
                 )
                 continue
 
-            provider = session.scalar(
+            provider = read_dependency(
                 select(ModelProviderRecord).where(
                     ModelProviderRecord.id == provider_id.strip(),
                     ModelProviderRecord.workspace_id == workspace_id,
@@ -262,7 +286,7 @@ def validate_workflow(
                 errors.append(f"Agent 节点 {node['id']} 的重试次数必须是 1–3 的整数")
             agent_id = node["data"].get("agentId")
             agent_version = node["data"].get("agentVersion")
-            if not agent_id or not agent_version:
+            if not isinstance(agent_id, str) or not agent_id or not isinstance(agent_version, str) or not agent_version:
                 errors.append(f"Agent 节点 {node['id']} 必须选择已发布版本")
                 continue
             statement = select(AgentVersionRecord).where(
@@ -270,7 +294,7 @@ def validate_workflow(
                 AgentVersionRecord.agent_id == agent_id,
                 AgentVersionRecord.version == agent_version,
             )
-            if session.scalar(statement) is None:
+            if read_dependency(statement) is None:
                 errors.append(f"Agent 版本 {agent_id}@{agent_version} 不存在")
             continue
 
@@ -280,14 +304,23 @@ def validate_workflow(
         assignment_type = data.get("assignmentType", "group_claim")
         reviewer_ids = data.get("reviewerIds", [])
         group_id = data.get("groupId")
+        if not isinstance(reviewer_ids, list) or any(not isinstance(value, str) or not value for value in reviewer_ids):
+            errors.append(f"Human 节点 {node['id']} 的审核人列表格式无效")
+            reviewer_ids = []
+        if group_id is not None and (not isinstance(group_id, str) or not group_id):
+            errors.append(f"Human 节点 {node['id']} 的审核组引用格式无效")
+            group_id = None
         if not reviewer_ids and not group_id:
-            default_group = session.scalar(
+            default_group = read_dependency(
                 select(ReviewGroupRecord)
-                .where(ReviewGroupRecord.is_escalation_group.is_(False))
+                .where(ReviewGroupRecord.is_escalation_group.is_(False),
+                       ReviewGroupRecord.workspace_id == workspace_id)
                 .order_by(ReviewGroupRecord.created_at.asc()),
             )
             group_id = default_group.id if default_group else None
         direct_assignment_types = {"direct", "direct_reviewer"}
+        if not isinstance(assignment_type, str):
+            assignment_type = ''
         if assignment_type not in {*direct_assignment_types, "group_claim", "round_robin"}:
             errors.append(f"Human 节点 {node['id']} 的分配方式无效")
         if assignment_type in direct_assignment_types and not reviewer_ids:
@@ -296,14 +329,48 @@ def validate_workflow(
             errors.append(f"Human 节点 {node['id']} 轮询分配必须选择审核组")
 
         review_policy = data.get("reviewPolicy", "any_one")
-        required_approvals = int(data.get("requiredApprovals", 1))
-        participant_count = len(reviewer_ids)
+        def human_integer(field: str, default: int, label: str) -> int:
+            value = data.get(field, default)
+            try:
+                if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+                    raise ValueError
+                if isinstance(value, float) and (not math.isfinite(value) or not value.is_integer()):
+                    raise ValueError
+                return int(value)
+            except (ValueError, TypeError, OverflowError):
+                errors.append(f"Human 节点 {node['id']} 的{label}必须是整数")
+                return default
+
+        required_approvals = human_integer("requiredApprovals", 1, "通过人数")
+        reviewers_query = select(ReviewerRecord.id).where(
+            ReviewerRecord.workspace_id == workspace_id,
+            ReviewerRecord.id.in_(reviewer_ids), ReviewerRecord.is_active.is_(True)).order_by(ReviewerRecord.id)
+        if lock_dependencies:
+            reviewers_query = reviewers_query.with_for_update(read=True)
+        available_reviewers = list(session.scalars(reviewers_query))
+        if set(reviewer_ids) - set(available_reviewers):
+            errors.append(f"Human 节点 {node['id']} 的审核人不存在或不可用")
+        participant_count = len(available_reviewers)
+        group = read_dependency(select(ReviewGroupRecord).where(
+            ReviewGroupRecord.id == group_id, ReviewGroupRecord.workspace_id == workspace_id)) if group_id else None
+        if group_id and group is None:
+            errors.append(f"Human 节点 {node['id']} 的审核组不存在")
         if assignment_type not in direct_assignment_types and group_id:
-            participant_count = session.scalar(
-                select(func.count())
+            members_query = (
+                select(ReviewGroupMemberRecord.reviewer_id)
                 .select_from(ReviewGroupMemberRecord)
-                .where(ReviewGroupMemberRecord.group_id == group_id),
-            ) or 0
+                .join(ReviewerRecord, ReviewerRecord.id == ReviewGroupMemberRecord.reviewer_id)
+                .where(ReviewGroupMemberRecord.group_id == group_id,
+                       ReviewGroupMemberRecord.workspace_id == workspace_id,
+                       ReviewerRecord.workspace_id == workspace_id,
+                       ReviewerRecord.is_active.is_(True))
+                .order_by(ReviewGroupMemberRecord.id)
+            )
+            if lock_dependencies:
+                members_query = members_query.with_for_update(read=True)
+            participant_count = len(set(session.scalars(members_query)))
+            if group is None:
+                participant_count = 0
         if review_policy == "threshold":
             if required_approvals <= 0:
                 errors.append(f"Human 节点 {node['id']} 的通过人数必须大于 0")
@@ -312,8 +379,8 @@ def validate_workflow(
                     f"Human 节点 {node['id']} 的通过人数不能超过参与审核人数"
                 )
 
-        due_minutes = int(data.get("dueMinutes", 240))
-        escalation_minutes = int(data.get("escalationMinutes", 480))
+        due_minutes = human_integer("dueMinutes", 240, "截止时间")
+        escalation_minutes = human_integer("escalationMinutes", 480, "升级时间")
         if due_minutes <= 0:
             errors.append(f"Human 节点 {node['id']} 的截止时间必须大于 0")
         if escalation_minutes <= due_minutes:

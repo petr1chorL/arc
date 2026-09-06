@@ -1,4 +1,20 @@
-# 验证回执（工程与 Preview 验证通过，生产未发布）
+# 验证回执（工程、Preview 与生产发布验证通过，业务未切流）
+
+## 当前结论：2026-09-05 生产发布
+
+以下工程与 Preview 段落保留阶段性记录；当前发布状态以本节为准。
+
+- 用户单独授权 PR #39 在新 CI 成功后合入 `codex/harness-governance`，触发 Netlify 发布与验证；不迁移数据、不停 Zeabur。
+- 文档候选 `ebe2553d99f84e8e7b4da4846ef1cf9683b48144` 的 push CI `33930952332`、PR CI `33930954868` 均 success 后才合并。
+- [PR #39](https://github.com/petr1chorL/arc/pull/39) 于 `2026-09-05T00:07:50Z` 合并；生产提交为 `b56b991ba98068b0a7af4f16eeee3fd6674d0ebb`。
+- [生产提交 CI 33931945737](https://github.com/petr1chorL/arc/actions/runs/33931945737) success：前端八分片合计 333 项，后端测试步骤通过，真实 PostgreSQL 129 项检查输出 `legacyContract=matched`、`concurrentAdminRemoval=protected`，lint、deploy:check 与 build 通过。
+- [Production Deploy 6a9b5d59a62aa90007f4be38](https://app.netlify.com/projects/arc-one-agentic-os/deploys/6a9b5d59a62aa90007f4be38) 为 `ready` / `production`，commit_ref 与生产完整 SHA 一致，published_at 为 `2026-09-05T00:16:38.085Z`；站点 reader 确认它是 current deploy。
+- 云端日志：`Release gate passed: CI run 33931945737, commit b56b991ba98068b0a7af4f16eeee3fd6674d0ebb`，随后构建成功并记录 `No new database migrations applied`。等待期间实际观察到门禁尚未放行、部署阶段未开始。
+- 对生产域名执行无凭证 GET：`/login` 200；JS/CSS 资源 200，大小 755288 / 180959 字节；`/api/health` 200 / status=ok；`/api/auth/session` 401；直连 `identity-workspace?route=/api/auth/session` 为 JSON 404；`platform-health` 200 / database=ready。
+- 浏览器实际加载生产 `/login`，DOM 包含正常邮箱、密码和登录按钮；未提交登录表单。后续截图/控制台采集超时，未取得本次生产控制台无错误的证据，不冒称完整视觉或登录闭环签收。
+- 旧部署 `6a9a97898a5f2300089163e3` 的不可变 `/login` 返回 200。本轮没有执行回滚演练；出现新部署关键静态/健康故障时，应停止推进切流，按既有平台流程评估恢复旧构建，不能执行含占位符的回滚命令。
+- `/api/*` 仍代理 Zeabur；新身份 Function 仍休眠。未触发 Zeabur 发布、探针事件、业务写入或真实数据迁移。因此不能声称 Zeabur 的身份缺陷已修复或全量 Netlify 迁移完成。
+- 后续：进入 04A 引用资产契约细化。该发布回执是本地文档更新，不冒称回执自身已发布。
 
 ## 本地
 

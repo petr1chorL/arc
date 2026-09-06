@@ -8,14 +8,16 @@ const MAX_BODY_BYTES = 1_048_576
 
 export type ResolvedRoute = NonNullable<ReturnType<typeof resolveIdentityWorkspaceRoute>>
 
-export type BackendInput = {
-  route: ResolvedRoute
+export type RequestBackendInput<Route> = {
+  route: Route
   request: Request
   body: unknown
   sessionToken: string | null
   csrfToken: string | null
   clientAddress: string | null
 }
+
+export type BackendInput = RequestBackendInput<ResolvedRoute>
 
 export type BackendResult = {
   status?: number
@@ -39,7 +41,7 @@ export class ApiError extends Error {
   }
 }
 
-type HandlerOptions = {
+export type HandlerOptions = {
   allowedOrigins?: readonly string[]
   clientAddress?: string
 }
@@ -55,6 +57,16 @@ export function createIdentityWorkspaceHandler(
   backend: IdentityWorkspaceBackend,
   options: HandlerOptions = {},
 ) {
+  return createApiHandler(backend, resolveIdentityWorkspaceRoute, route => requiresSameOrigin(route.name), options)
+}
+
+/** Shared HTTP boundary; domain backends remain responsible for authentication and authorization. */
+export function createApiHandler<Route>(
+  backend: (input: RequestBackendInput<Route>) => Promise<BackendResult>,
+  resolveRoute: (method: string, pathname: string) => Route | null,
+  shouldCheckOrigin: (route: Route) => boolean,
+  options: HandlerOptions = {},
+) {
   const allowedOrigins = new Set(
     (options.allowedOrigins ?? []).map((origin) => origin.replace(/\/$/, '')),
   )
@@ -62,10 +74,10 @@ export function createIdentityWorkspaceHandler(
   return async (request: Request): Promise<Response> => {
     try {
       const url = new URL(request.url)
-      const route = resolveIdentityWorkspaceRoute(request.method, url.pathname)
+      const route = resolveRoute(request.method, url.pathname)
       if (!route) throw new ApiError(404, 'Not Found')
 
-      if (requiresSameOrigin(route.name)) {
+      if (shouldCheckOrigin(route)) {
         requireSameOrigin(request, allowedOrigins)
       }
 

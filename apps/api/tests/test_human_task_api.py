@@ -147,14 +147,16 @@ def create_task(
     *,
     policy: str = "any_one",
     required: int = 1,
+    database_url: str | None = None,
+    model_gateway: FakeGateway | None = None,
 ) -> tuple[TestClient, str, dict, list[dict]]:
     gateway = FakeGateway([
         FakeModelResult("This generated draft is ready for human task queue testing."),
         FakeModelResult("This rerun draft is ready for the next review cycle."),
     ])
     client, workspace_id = create_authenticated_client(
-        f"sqlite:///{tmp_path / f'{policy}-{required}.db'}",
-        model_gateway=gateway,
+        database_url or f"sqlite:///{tmp_path / f'{policy}-{required}.db'}",
+        model_gateway=model_gateway if model_gateway is not None else gateway,
     )
     reviewers = client.get(workspace_url(workspace_id, "/reviewers")).json()
     human_data = {
@@ -162,6 +164,12 @@ def create_task(
         "requiredApprovals": required,
     }
     if policy == "threshold":
+        # Threshold fixtures publish explicit assignments before later User binding.
+        # Activate those synthetic qualifications before publishing the definition.
+        with client.app.state.session_factory() as session:
+            for reviewer in reviewers[:2]:
+                session.get(ReviewerRecord, reviewer['id']).is_active = True
+            session.commit()
         human_data |= {
             "assignmentType": "direct",
             "reviewerIds": [reviewers[0]["id"], reviewers[1]["id"]],

@@ -12,6 +12,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../auth/authContext'
 import { useWorkspace } from '../auth/workspaceContextState'
+import { isRubricSampleMigration, isRuntimeMigration } from '../api/migrationCapabilities'
+import { isAcceptedOperation } from '../api/operations'
+import { workspaceHasCapability } from '../auth/workspaceCapabilities'
+import { useOperationUpdates } from '../domain/useOperationUpdates'
+import { NativeReviewControls } from '../components/NativeReviewControls'
+import { FeedbackCandidates } from './FeedbackCandidates'
 import {
   confirmFeedbackCandidate,
   decideHumanTask,
@@ -20,6 +26,7 @@ import {
   listHumanTasks,
   listReviewers,
   listReviewGroups,
+  retryHumanTaskResume,
 } from '../api/humanTasks'
 import { listRuns } from '../api/execution'
 import { StatusBadge } from '../components/StatusBadge'
@@ -93,6 +100,10 @@ function formatTime(value: string) {
 }
 
 export function Reviews() {
+  return isRubricSampleMigration() && !isRuntimeMigration() ? <FeedbackCandidates /> : <LegacyReviews />
+}
+
+function LegacyReviews() {
   const { user } = useAuth()
   const { workspace, workspacePath } = useWorkspace()
   const location = useLocation()
@@ -149,6 +160,8 @@ export function Reviews() {
       setIsLoadingWorkspace(false)
     }
   }, [requestedTaskId, workspace.id])
+
+  useOperationUpdates(workspace.id, loadWorkspace)
 
   useEffect(() => {
     void loadWorkspace()
@@ -223,7 +236,7 @@ export function Reviews() {
   const latestRunStatus = latestRun ? displayStatus(latestRun.status) : '暂无运行'
   const selectedCandidate = candidates.find((candidate) => candidate.humanTaskId === selectedId)
   const artifactFields = detail ? parseArtifactFields(detail.artifact.content) : null
-  const isTerminal = detail ? terminalStatuses.has(detail.status) : true
+  const isTerminal = detail ? terminalStatuses.has(detail.status) || (isRuntimeMigration() && detail.status === '恢复失败') : true
   const canHandleCurrentTask = detail ? canCurrentReviewerHandleTask() : false
   const actionDisabled = isBusy || !canHandleCurrentTask
   const currentTaskPermission = detail ? getCurrentTaskPermission() : null
@@ -274,7 +287,8 @@ export function Reviews() {
       detail
       && currentReviewer
       && !isTerminal
-      && detail.participantSnapshot.includes(currentReviewer.id),
+      && detail.participantSnapshot.includes(currentReviewer.id)
+      && (!isRuntimeMigration() || detail.reviewPolicy !== 'any_one' || detail.assigneeReviewerId === currentReviewer.id),
     )
   }
 
@@ -314,6 +328,9 @@ export function Reviews() {
         reason: '当前 Reviewer 不在该任务指定审核用户内，不能提交决定。',
         nextStep: '把当前账号加入该 Human 节点的审核人或审核组后，再回到这里处理。',
       }
+    }
+    if (isRuntimeMigration() && !canHandleCurrentTask) {
+      return { tone: 'blocked', status: '不能提交决定', reason: '该任务需要先认领，或已由其他审核员认领。', nextStep: '在固定参与范围内认领或转交任务；审批策略与接收方资格由服务端复核。' }
     }
     return {
       tone: 'ready',
@@ -359,6 +376,18 @@ export function Reviews() {
     } finally {
       setIsBusy(false)
     }
+  }
+
+  async function retryResume() {
+    if (!detail) return
+    setIsBusy(true)
+    setError('')
+    try {
+      const result = await retryHumanTaskResume(workspace.id, detail.id)
+      if (isAcceptedOperation(result)) setMessage('恢复请求已接收，尚未完成；请查看异步任务进度。')
+      else { setDetail(result); updateTask(result) }
+    } catch (actionError) { setError(actionError instanceof Error ? actionError.message : '恢复请求失败') }
+    finally { setIsBusy(false) }
   }
 
   async function confirmGolden() {
@@ -614,6 +643,9 @@ export function Reviews() {
             </header>
 
             {error && <div className="inline-feedback error" role="alert">{error}</div>}
+            {isRuntimeMigration() && ['恢复失败', 'resume_failed'].includes(detail.status)
+              && workspaceHasCapability(workspace, user?.isOrganizationAdmin, 'run.execute')
+              && <button type="button" className="button secondary" disabled={isBusy} onClick={() => void retryResume()}>重试审核后恢复</button>}
 
             <div className="review-operator-bar">
               <div className="reviewer-identity">
@@ -666,6 +698,10 @@ export function Reviews() {
                 placeholder="记录判断依据、风险或修改原因"
               />
             </label>
+
+            {isRuntimeMigration() && <NativeReviewControls key={`${workspace.id}:${detail.id}:${detail.artifact.id}`} workspaceId={workspace.id}
+              detail={detail} reviewers={reviewers} groups={groups} reviewer={currentReviewer} canDecide={canHandleCurrentTask}
+              onChanged={(updated) => { setDetail(updated); updateTask(updated) }} />}
 
             <footer className="review-command-bar">
               <button className="button danger" disabled={actionDisabled} onClick={() => void decide('reject')}>

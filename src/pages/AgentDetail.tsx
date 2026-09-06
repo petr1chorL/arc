@@ -23,6 +23,9 @@ import {
   type UpdateAgentInput,
 } from '../api/agents'
 import { runAgent } from '../api/execution'
+import { isAgentMigration, isRuntimeMigration, agentMigrationNotice } from '../api/migrationCapabilities'
+import { isAcceptedOperation } from '../api/operations'
+import { useOperationNotice } from '../domain/useOperationNotice'
 import { listToolSkillAssets } from '../api/assetLibrary'
 import { listModelProviders } from '../api/modelProviders'
 import { StatusBadge } from '../components/StatusBadge'
@@ -131,7 +134,15 @@ function remoteManifestFromDraft(draft: RemoteAgentDraft): AgentRuntimeManifest 
   }
 }
 export function AgentDetail() {
+  const { workspace } = useWorkspace()
+  const { agentId = '' } = useParams()
+  return <AgentDetailPanel key={`${workspace.id}:${agentId}`} />
+}
+
+function AgentDetailPanel() {
+  const migration = isAgentMigration()
   const { workspace, workspacePath } = useWorkspace()
+  const operationNotice = useOperationNotice(workspace.id)
   const { agentId = '' } = useParams()
   const [agent, setAgent] = useState<Agent | null>(null)
   const [versions, setVersions] = useState<AgentVersion[]>([])
@@ -155,13 +166,23 @@ export function AgentDetail() {
   const [publishNoteError, setPublishNoteError] = useState('')
 
   const load = useCallback(async () => {
+    setError('')
     try {
       const [nextAgent, nextVersions, providerAssets, workspaceAssets] = await Promise.all([
         getAgent(workspace.id, agentId),
         listAgentVersions(workspace.id, agentId),
-        listModelProviders(workspace.id).catch(() => []),
-        listToolSkillAssets(workspace.id).catch(() => []),
+        listModelProviders(workspace.id).catch(() => {
+          if (migration) throw new Error('Provider 资产加载失败，请重试')
+          return []
+        }),
+        listToolSkillAssets(workspace.id).catch(() => {
+          if (migration) throw new Error('Tool / Skill 资产加载失败，请重试')
+          return []
+        }),
       ])
+      if (migration && (!Array.isArray(providerAssets) || !Array.isArray(workspaceAssets))) {
+        throw new Error('依赖资产加载失败：响应格式不正确，请重试')
+      }
       setAgent(nextAgent)
       setVersions(nextVersions)
       setModelProviders(Array.isArray(providerAssets) ? providerAssets : [])
@@ -194,9 +215,13 @@ export function AgentDetail() {
       setRemoteDraft(remoteDraftFromManifest(runtimeManifest))
       setRuntimeError('')
     } catch (loadError) {
+      if (migration) {
+        setAgent(null)
+        setForm(null)
+      }
       setError(loadError instanceof Error ? loadError.message : 'Agent 加载失败')
     }
-  }, [agentId, workspace.id])
+  }, [agentId, workspace.id, migration])
 
   useEffect(() => {
     void load()
@@ -376,6 +401,10 @@ export function AgentDetail() {
   }
 
   async function testRun() {
+    if (isAgentMigration() && !isRuntimeMigration()) {
+      setError(agentMigrationNotice)
+      return
+    }
     const input = runInput.trim()
     if (!input) {
       setError('请输入测试任务')
@@ -394,6 +423,10 @@ export function AgentDetail() {
         input,
         version: agent?.version,
       })
+      if (isAcceptedOperation(result)) {
+        operationNotice.accepted(result, '测试运行', '测试运行已接收，尚未完成；请查看异步任务进度。')
+        return
+      }
       setRunResult(result)
       setFeedback('测试运行已完成')
     } catch (runError) {
@@ -404,7 +437,9 @@ export function AgentDetail() {
   }
 
   if (error && !agent) {
-    return <div className="panel table-state error" role="alert">{error}</div>
+    return <div className="panel table-state error" role="alert">{error}
+      {migration && <button className="button secondary" onClick={() => void load()}>重试加载</button>}
+    </div>
   }
   if (!agent || !form) {
     return <div className="panel table-state">正在加载 Agent 详情…</div>
@@ -423,6 +458,7 @@ export function AgentDetail() {
 
   return (
     <div className="page-stack asset-detail-page">
+      {migration && <div className="inline-feedback" role="status">{isRuntimeMigration() ? '原生运行隔离验证：测试任务异步提交，生产未切换。' : agentMigrationNotice}</div>}
       <section className="asset-detail-toolbar">
         <div>
           <Link className="back-link" to={workspacePath('agents')}><ArrowLeft size={15} />返回 Agent 资产</Link>
@@ -653,6 +689,7 @@ export function AgentDetail() {
       </div>
 
       <section className="panel agent-test-panel">
+        {operationNotice.notice && <p role="status">{operationNotice.notice}</p>}
         <header className="panel-header">
           <div><span className="section-kicker">已发布版本</span><h3>测试运行</h3></div>
           <span className="draft-indicator"><i />{agent.version}</span>
@@ -669,7 +706,7 @@ export function AgentDetail() {
         <div className="agent-test-actions">
           <button
             className="button primary"
-            disabled={disabled || isBusy || versions.length === 0 || legacyPackageExecutionBlocked}
+            disabled={(migration && !isRuntimeMigration()) || disabled || isBusy || versions.length === 0 || legacyPackageExecutionBlocked}
             onClick={() => void testRun()}
           >
             <Play size={15} />运行 Agent

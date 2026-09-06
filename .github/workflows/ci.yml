@@ -43,7 +43,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install backend dependencies
-        run: python -m pip install -e "apps/api[test]"
+        run: python -m pip install -e "apps/api[test,postgres]"
 
       - name: Run frontend tests
         run: |
@@ -56,6 +56,64 @@ jobs:
 
       - name: Verify isolated PostgreSQL identity contracts
         run: node --experimental-transform-types scripts/test-identity-postgres.mjs
+
+      - name: Verify isolated PostgreSQL reference assets
+        run: node --experimental-transform-types scripts/test-reference-assets-postgres.mjs
+
+      - name: Verify isolated PostgreSQL Agent governance
+        run: node --experimental-transform-types scripts/test-agents-postgres.mjs
+
+      - name: Install locked Playwright Chromium on ephemeral runner
+        run: node node_modules/@playwright/test/cli.js install --with-deps chromium
+
+      - name: Verify isolated PostgreSQL Data Object governance
+        run: node --experimental-transform-types scripts/test-data-objects-postgres.mjs
+
+      - name: Verify Python Data Object publication locks
+        run: python scripts/test-data-objects-python-postgres.py
+
+      - name: Verify Python Agent publication locks
+        run: python scripts/test-agents-python-postgres.py
+
+      - name: Verify Python feedback confirmation locks
+        run: python scripts/test-feedback-python-postgres.py
+
+      - name: Verify Python rubric governance locks
+        run: python scripts/test-rubrics-python-postgres.py
+
+      - name: Verify rubric field and Unicode contracts
+        run: node --experimental-transform-types scripts/test-rubric-policy-contract.mjs
+
+      - name: Verify isolated PostgreSQL rubric governance
+        run: node --experimental-transform-types scripts/test-rubrics-postgres.mjs
+
+      - name: Verify isolated PostgreSQL feedback candidate reads
+        run: node --experimental-transform-types scripts/test-feedback-postgres.mjs
+
+      - name: Verify feedback confirmation and identity management races
+        run: node --experimental-transform-types scripts/test-feedback-identity-race.mjs
+
+      - name: Verify Workflow lifecycle and shared Python HTTP contracts
+        run: node --experimental-transform-types scripts/test-workflows-postgres.mjs
+
+      - name: Verify Workflow publication and dependency races
+        run: node --experimental-transform-types scripts/test-workflows-races-postgres.mjs
+
+      - name: Verify Python Workflow publication locks
+        run: python scripts/test-workflows-python-postgres.py
+
+      - name: Verify isolated asset and Workflow browser governance
+        run: node node_modules/@playwright/test/cli.js test --config=playwright.reference-assets.config.ts
+
+      - name: Verify native runtime contracts and PostgreSQL failure recovery
+        env:
+          ARC_RUNTIME_TEST_PORT: "5432"
+        run: node scripts/verify-runtime-local.mjs
+
+      - name: Verify isolated native runtime browser closure
+        env:
+          ARC_RUNTIME_TEST_PORT: "5432"
+        run: node node_modules/@playwright/test/cli.js test --config=playwright.runtime.config.ts
 
       - name: Validate production entrypoint syntax
         run: sh -n scripts/start-production.sh

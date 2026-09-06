@@ -1,7 +1,8 @@
 from api_test_support import create_authenticated_client, csrf_headers, workspace_url
 from app.evaluation_service import EvaluationService
 from app.judge_gateway import JudgeGatewayResult
-from app.models import EvaluationRecord
+from app.models import EvaluationRecord, RubricRecord
+from sqlalchemy import select
 
 
 class FakeJudgeGateway:
@@ -1280,9 +1281,14 @@ def test_rubric_validation_rejects_duplicate_dimension_ids_and_names(tmp_path):
     )
 
     assert duplicate_id.status_code == 422
-    assert "维度 ID 必须唯一" in duplicate_id.text
+    assert duplicate_id.json() == {"detail": "量规或样本请求字段不符合要求"}
     assert duplicate_name.status_code == 422
-    assert "维度名称必须唯一" in duplicate_name.text
+    assert duplicate_name.json() == {"detail": "量规或样本请求字段不符合要求"}
+    with client.app.state.session_factory() as session:
+        assert list(session.scalars(select(RubricRecord.id).where(
+            RubricRecord.workspace_id == workspace_id,
+            RubricRecord.name.in_(["Duplicate Dimension ID Rubric", "Duplicate Dimension Name Rubric"]),
+        ))) == []
 
 
 def test_llm_rubric_publish_requires_usable_same_workspace_model_provider(tmp_path):

@@ -1,5 +1,6 @@
 import type { ExecutionJob, ExecutionJobDetail, ExecutionRun, HumanReview, RunOperationHistoryEvent } from '../types'
 import { apiFetch, readJson } from './http'
+import { operationRequestHeaders, readOperationResponse, type OperationResult } from './operations'
 
 export interface RunInput {
   input: string
@@ -33,18 +34,20 @@ function workspacePath(workspaceId: string, path: string) {
   return `/api/workspaces/${workspaceId}${path}`
 }
 
-export async function runAgent(workspaceId: string, agentId: string, input: RunInput): Promise<ExecutionRun> {
-  return readJson<ExecutionRun>(await apiFetch(workspacePath(workspaceId, `/agents/${agentId}/test-runs`), {
+export async function runAgent(workspaceId: string, agentId: string, input: RunInput): Promise<OperationResult<ExecutionRun>> {
+  return readOperationResponse<ExecutionRun>(await apiFetch(workspacePath(workspaceId, `/agents/${agentId}/test-runs`), {
     ...jsonRequest,
+    headers: operationRequestHeaders(),
     body: JSON.stringify(input),
-  }))
+  }), workspaceId)
 }
 
-export async function runWorkflow(workspaceId: string, workflowId: string, input: RunInput): Promise<ExecutionRun> {
-  return readJson<ExecutionRun>(await apiFetch(workspacePath(workspaceId, `/workflows/${workflowId}/runs`), {
+export async function runWorkflow(workspaceId: string, workflowId: string, input: RunInput): Promise<OperationResult<ExecutionRun>> {
+  return readOperationResponse<ExecutionRun>(await apiFetch(workspacePath(workspaceId, `/workflows/${workflowId}/runs`), {
     ...jsonRequest,
+    headers: operationRequestHeaders(),
     body: JSON.stringify(input),
-  }))
+  }), workspaceId)
 }
 
 export async function listRuns(workspaceId: string): Promise<ExecutionRun[]> {
@@ -59,33 +62,38 @@ export async function rerunWorkflowRun(
   workspaceId: string,
   runId: string,
   input?: Pick<RunInput, 'input'>,
-): Promise<ExecutionRun> {
-  return readJson<ExecutionRun>(await apiFetch(workspacePath(workspaceId, `/runs/${runId}/rerun`), {
+): Promise<OperationResult<ExecutionRun>> {
+  return readOperationResponse<ExecutionRun>(await apiFetch(workspacePath(workspaceId, `/runs/${runId}/rerun`), {
     ...jsonRequest,
+    headers: operationRequestHeaders(),
     ...(input ? { body: JSON.stringify(input) } : {}),
-  }))
+  }), workspaceId)
 }
 
-export async function batchRerunWorkflowRuns(workspaceId: string, runIds: string[]): Promise<BatchRerunResult> {
-  return readJson<BatchRerunResult>(await apiFetch(workspacePath(workspaceId, '/runs/batch-rerun'), {
+export async function batchRerunWorkflowRuns(workspaceId: string, runIds: string[]): Promise<OperationResult<BatchRerunResult>> {
+  return readOperationResponse<BatchRerunResult>(await apiFetch(workspacePath(workspaceId, '/runs/batch-rerun'), {
     ...jsonRequest,
+    headers: operationRequestHeaders(),
     body: JSON.stringify({ runIds }),
-  }))
+  }), workspaceId)
 }
 
-export async function batchResumeRunsFromFailedNode(workspaceId: string, runIds: string[]): Promise<BatchResumeResult> {
-  return readJson<BatchResumeResult>(
+export async function batchResumeRunsFromFailedNode(workspaceId: string, runIds: string[]): Promise<OperationResult<BatchResumeResult>> {
+  return readOperationResponse<BatchResumeResult>(
     await apiFetch(workspacePath(workspaceId, '/runs/batch-resume-from-failed-node'), {
       ...jsonRequest,
+      headers: operationRequestHeaders(),
       body: JSON.stringify({ runIds }),
     }),
+    workspaceId,
   )
 }
 
-export async function resumeRunFromFailedNode(workspaceId: string, runId: string): Promise<ExecutionRun> {
-  return readJson<ExecutionRun>(await apiFetch(workspacePath(workspaceId, `/runs/${runId}/resume-from-failed-node`), {
+export async function resumeRunFromFailedNode(workspaceId: string, runId: string): Promise<OperationResult<ExecutionRun>> {
+  return readOperationResponse<ExecutionRun>(await apiFetch(workspacePath(workspaceId, `/runs/${runId}/resume-from-failed-node`), {
     ...jsonRequest,
-  }))
+    headers: operationRequestHeaders(),
+  }), workspaceId)
 }
 
 export async function listRunOperationHistory(

@@ -407,7 +407,7 @@ describe('Reviews', () => {
     expect(copiedUrl.searchParams.get('source')).toBe('sla')
     expect(copiedUrl.searchParams.get('taskStatus')).toBe('待审核')
     expect(copiedUrl.searchParams.get('slaStatus')).toBeNull()
-    expect(within(context).getByText('已复制当前审核链接')).toBeInTheDocument()
+    expect(await within(context).findByText('已复制当前审核链接')).toBeInTheDocument()
   })
 
   it('shows an error when copying the review context link fails', async () => {

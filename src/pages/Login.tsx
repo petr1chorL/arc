@@ -12,13 +12,14 @@ export function Login() {
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const fromPathname = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname
+  const fromSearch = (location.state as { from?: { search?: string } } | null)?.from?.search
 
   const preferredWorkspace = getPreferredWorkspace(auth.user, auth.workspaces)
 
   if (auth.status === 'authenticated' && preferredWorkspace) {
     return (
       <Navigate
-        to={resolveAuthRedirectPath(preferredWorkspace, fromPathname) ?? `/w/${preferredWorkspace.slug}`}
+        to={resolveAuthRedirectPath(preferredWorkspace, fromPathname, fromSearch) ?? `/w/${preferredWorkspace.slug}`}
         replace
       />
     )
@@ -30,7 +31,7 @@ export function Login() {
     setError('')
     try {
       const { preferredWorkspace: nextWorkspace } = await auth.login(email.trim(), password)
-      const redirectPath = resolveAuthRedirectPath(nextWorkspace, fromPathname)
+      const redirectPath = resolveAuthRedirectPath(nextWorkspace, fromPathname, fromSearch)
       if (redirectPath) {
         navigate(redirectPath, { replace: true })
       }

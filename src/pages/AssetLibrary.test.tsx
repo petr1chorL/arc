@@ -63,8 +63,73 @@ function renderPage() {
 }
 
 describe('AssetLibrary page', () => {
+  it('uses bounded HTTP registration fields in migration mode', async () => {
+    vi.stubEnv('VITE_ARC_ONE_MIGRATION_MODE', 'reference-assets')
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => Promise.resolve(String(input).endsWith('/impact')
+      ? new Response('{}', { status: 503 }) : new Response(
+      JSON.stringify(['POST','PATCH'].includes(init?.method ?? '') ? { ...asset, id: 'new', name: 'Bounded' } : []),
+      { status: init?.method === 'POST' ? 201 : 200 })))
+    vi.stubGlobal('fetch', fetchMock)
+    renderPage()
+    await screen.findByText('暂无 Tool / Skill 资产。')
+    expect(screen.queryByLabelText('适配配置 JSON')).not.toBeInTheDocument()
+    await userEvent.selectOptions(screen.getByLabelText('适配类型'), 'http')
+    await userEvent.type(screen.getByLabelText('资产名称'), 'Bounded')
+    await userEvent.type(screen.getByLabelText('HTTP 地址'), 'https://tools.example.invalid/run')
+    await userEvent.selectOptions(screen.getByLabelText('HTTP 方法'), 'GET')
+    await userEvent.click(screen.getByRole('button', { name: '创建资产' }))
+    const posted = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST')
+    expect(JSON.parse(String(posted?.[1]?.body)).adapterConfig).toEqual({ url: 'https://tools.example.invalid/run', method: 'GET' })
+    await userEvent.click(await screen.findByRole('button', { name: '编辑 Bounded' }))
+    await userEvent.selectOptions(screen.getByLabelText('编辑适配类型'), 'mcp')
+    await userEvent.click(screen.getByRole('button', { name: '保存 Bounded' }))
+    const patched = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH')
+    expect(JSON.parse(String(patched?.[1]?.body)).adapterConfig).toEqual({})
+  })
+  it('clears stale impact and audit records when post-edit refresh fails', async () => {
+    let changed = false
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (init?.method === 'PATCH') {
+        changed = true
+        return Promise.resolve(new Response(JSON.stringify(asset), { status: 200 }))
+      }
+      if (url.endsWith('/impact')) return Promise.resolve(changed
+        ? new Response('{}', { status: 503 })
+        : new Response(JSON.stringify({ assetId: asset.id, assetType: 'tool', assetName: asset.name,
+          totals: { draftAgents: 7, publishedVersions: 0 }, draftAgents: [], publishedVersions: [] }), { status: 200 }))
+      if (url.endsWith('/audit-events')) return Promise.resolve(changed
+        ? new Response('{}', { status: 403 }) : new Response(JSON.stringify([auditEvent]), { status: 200 }))
+      return Promise.resolve(new Response(JSON.stringify(url.endsWith('/asset-library') ? [asset] : []), { status: 200 }))
+    }))
+    renderPage()
+    expect(await screen.findByText('草稿 Agent 7')).toBeInTheDocument()
+    expect(await screen.findByText(/更新价格查询契约/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: `编辑 ${asset.name}` }))
+    await userEvent.click(screen.getByRole('button', { name: `保存 ${asset.name}` }))
+    expect(await screen.findByText('影响面不可用，不能确认引用数量')).toBeInTheDocument()
+    expect(await screen.findByText('审计记录不可用或无读取权限')).toBeInTheDocument()
+    expect(screen.queryByText('草稿 Agent 7')).not.toBeInTheDocument()
+    expect(screen.queryByText(/更新价格查询契约/)).not.toBeInTheDocument()
+    expect(screen.getByText(asset.name)).toBeInTheDocument()
+  })
   afterEach(() => {
     vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
+  })
+
+  it('blocks tool calls in reference asset migration mode', async () => {
+    vi.stubEnv('VITE_ARC_ONE_MIGRATION_MODE', 'reference-assets')
+    const fetchMock = vi.fn((input: RequestInfo | URL) => Promise.resolve(String(input).endsWith('/impact')
+      ? new Response(JSON.stringify({ detail: 'unavailable' }), { status: 503 })
+      : new Response(JSON.stringify(String(input).endsWith('/asset-library') ? [asset] : []), { status: 200 })))
+    vi.stubGlobal('fetch', fetchMock)
+    renderPage()
+    const button = await screen.findByRole('button', { name: `测试调用 ${asset.name}` })
+    expect(button).toBeDisabled()
+    await userEvent.click(button)
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/test-invocations'))).toBe(false)
+    expect(screen.getByText('资产迁移验证模式：仅登记与读取，测试调用尚未迁移。')).toBeInTheDocument()
   })
 
   it('loads Tool Skill assets and recent invocation logs', async () => {

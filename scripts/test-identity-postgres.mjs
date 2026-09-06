@@ -10,7 +10,12 @@ import { digestToken, hashPassword } from '../netlify/functions/_shared/identity
 
 // Reuse the driver declared by the installed Database SDK, not an undeclared hoisted package.
 const { Pool } = createRequire(import.meta.resolve('@netlify/database'))('pg')
-const database = 'postgresql://postgres@127.0.0.1:5432/arc_identity_test'
+// Keep host/database fixed to the disposable local fixture; only the host port may vary.
+const port = process.argv[3] ?? '5432'
+if (!/^[0-9]{1,5}$/.test(port) || Number(port) < 1 || Number(port) > 65535) {
+  throw new Error('Local PostgreSQL test port must be an integer between 1 and 65535')
+}
+const database = `postgresql://postgres@127.0.0.1:${port}/arc_identity_test`
 const schema = `identity_test_${randomUUID().replaceAll('-', '')}`
 const adminPool = new Pool({ connectionString: database, connectionTimeoutMillis: 5000 })
 const pool = new Pool({ connectionString: database, options: `-c search_path=${schema}`,

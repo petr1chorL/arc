@@ -1,5 +1,48 @@
 # ARC.ONE 当前版本实现说明
 
+## 2026-09-06 原生执行系统与运行闭环（05/06）
+
+已按确认设计实现 `runtime/`、`runtime-delivery/`、`runtime-closure/` 三个原生模块，
+新增 Operation / effect / wakeup outbox / node checkpoint 等 PG 迁移。
+长操作返回 202，页面按用户与 Workspace 保存任务 ID、刷新恢复查询；不把接收请求当作完成。
+固定发布版本执行、实际适配器响应和费用落库、人工修改产出物后恢复同一 Run、评估/回归/复测、
+通知与计划派发、产出物和追踪均已有本地 HTTP/PG 与浏览器证据。
+未知外部结果进入 needs_reconciliation，重试要求明确风险确认；租约失效/取消禁止旧执行者推进。
+
+本地 12 个运行程序、5 条浏览器闭环、前端 68 文件 677 项、lint/build/deploy:check 通过，
+两轴严重问题 0，本地 ready-for-human。间歇测试进程异常仍无已证实根因；完整回执与两轴报告以
+`.harness/changes/netlify-runtime-closure/` 为准。生产新入口仍硬休眠，未验证 AWL 云端投递、
+真实模型质量或真实通知送达；生产仍由 Zeabur 提供 API/Worker/业务数据。
+下方 Python/旧 Worker 历史实现不能当作原生代码已上线的证据。
+
+## 2026-09-06 Workflow 治理本地工程收口
+
+用户要求的“1 当前阶段收尾、2 04E工作流迁移”已完成本地工程验收，04A–04E均为ready-for-human。
+04E包含八条治理路由及两个审核只读目录，覆盖草稿/图/映射、三类固定资产版本、发布/不可变历史、软删除，
+以及页面初始化/异步切换/保存和发布失败后刷新、历史只读重试、运行阻断。未迁移任务执行或通知。
+最终前端656、浏览器9条、Workflow PG202/56组共享HTTP、6组锁竞争/44检查、Python PG通过；
+Python全量基线629+最后嵌入历史保护定向7项通过。身份与04A–D PG重新通过，lint/build/typecheck/deploy:check通过。
+双轴审查及准确测试覆盖边界见 `.harness/changes/netlify-workflow-lifecycle/{review,verify}.md`。
+没有提交/推送/部署或真实数据切流；生产仍是Netlify前端+Zeabur API/Worker，Zeabur不能关闭。
+以下均为历史过程记录，不能覆盖该最新结果或项目总览。
+
+## 2026-09-05 Agent、量规与样本治理本地收口
+
+04B/04D已完成两轴终审，Issue进入ready-for-human；修复异步串线/回跳、候选旧列表覆盖、
+资格确认与管理的锁序死锁。八种他人/本人资格管理HTTP竞争通过，候选休眠Function已补齐。
+最新前端605项、浏览器8条、身份/04A–D PG及lint/build/deploy:check通过；Python当前591项
+证据来自本轮此前已结束测试，此后未改Python源码。范围与限制见两片review.md/verify.md。
+04E于2026-09-06获范围确认，两个只读目录已首轮实现；Python已修复组成员关联返回外空间审核人问题。
+目录PG17、相关Python17+24项通过；工作流生命周期尚未迁移。之前591项是此次Python修改前的全量基线。
+上述本地改动未推送/部署，生产仍依赖Zeabur。
+
+## 2026-09-05 Data Object 迁移本地工程收口
+
+04C新增Python历史版本读取并完成五接口TypeScript/PG治理实现，显式迁移模式接入页面导航与只读Schema历史。
+默认生产仍未启用该迁移入口。版本冲突、历史异常、名称约束、权限与事务保护已验证，发布不执行模型。
+后端559/前端476全量、PG与同库浏览器通过，独立双轴审查未发现已证实严重问题，Issue为ready-for-human。
+详见`.harness/changes/netlify-data-object-lifecycle/review.md`；该本地收口不代表全量生产迁移或Zeabur可关闭。
+
 > 当前版本：V1 Lite 调度中心、工作流评估节点与生产启动可用性恢复
 > 上一阶段：工作流评估模板节点
 > 更新时间：2026-09-05（下方保留历史版本记录）
@@ -12,11 +55,23 @@
 
 当前版本是 React 单页应用与 FastAPI 服务组成的可运行原型。
 
+2026-09-05 本地 04A 迁移开发接入 Python 资产配置允许结构、Provider 地址/null 校验、
+历史不合规配置读取阻断、调用摘要隐藏、审计 metadata 投影及关联作用域校验。
+原始历史记录不在读取时修改；字段错误不回显资产请求原文。Netlify 侧 13 条资产路由已有内部
+PostgreSQL 实现，复用身份、权限和审计事务；资产 Function 保持休眠，无生产公共路径。
+迁移模式两页及同库浏览器路径已实现，禁用未迁移执行操作；历史审计与版本异常返回固定错误。
+本机隔离资产 PG 198 项（含 26 个跨语言共享请求）、身份 PG 129 项、前端/脚本 400 项及
+3 个浏览器用例通过。独立连接验证本次浏览器 schema 清理；最新完整后端 481 项通过。
+04A 本地工程进入 ready-for-human，后续 Agent 生命周期仍处契约盘点阶段。
+上述改动未部署，不代表线上修复或全量迁移完成。
+完整 9 项迁移范围见 `docs/project-management/netlify-migration-execution.md`。
+
 2026-09-05 在独立验证分支实现身份/发布收口：Python 与 Netlify TypeScript 全局 User 停用
 检查全部 Workspace 管理员关系；成员写操作按组织事务串行；TS 增加实际字节正文上限、
 异常 Cookie 容错和受信 IP 持久限流。CI 覆盖迁移分支，Netlify 构建增加精确 SHA 的 CI 检查。
-该批尚未合入生产分支；测试/上线状态见 `.harness/changes/identity-release-hardening/verify.md`。
-不据此宣称生产 API 已修复或完整迁移。
+该批已通过 PR #39 合入迁移生产分支，并以 b56b991 发布到 Netlify；身份 Function 仍休眠，
+Zeabur API 未发布该修复。测试/上线状态见 `.harness/changes/identity-release-hardening/verify.md`。
+不据此宣称旧生产 API 已修复或完整迁移。
 
 2026-09-04 Netlify 原生迁移完成第二个受控切片：从当前 SQLAlchemy metadata 生成并在
 Production 应用 43 表 PostgreSQL schema baseline；隔离 Deploy Preview 使用全合成数据完成

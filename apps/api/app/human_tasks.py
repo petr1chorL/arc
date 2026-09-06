@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from difflib import unified_diff
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -28,6 +29,10 @@ from app.models import (
 
 class HumanTaskConflict(RuntimeError):
     pass
+
+
+class HumanTaskSourceConflict(HumanTaskConflict):
+    """A persisted feedback candidate has unavailable source records."""
 
 
 class HumanTaskValidation(RuntimeError):
@@ -167,7 +172,10 @@ class HumanTaskService:
             reviewer_ids = self.group_reviewer_ids(session, group.id, workspace_id)
             members = list(session.scalars(
                 select(ReviewerRecord)
-                .where(ReviewerRecord.id.in_(reviewer_ids))
+                .where(
+                    ReviewerRecord.id.in_(reviewer_ids),
+                    ReviewerRecord.workspace_id == workspace_id,
+                )
                 .order_by(ReviewerRecord.created_at.asc()),
             )) if reviewer_ids else []
             result.append({
@@ -194,6 +202,7 @@ class HumanTaskService:
             .where(
                 ReviewGroupMemberRecord.group_id == group_id,
                 ReviewGroupMemberRecord.workspace_id == workspace_id,
+                ReviewerRecord.workspace_id == workspace_id,
             )
             .order_by(ReviewerRecord.created_at.asc()),
         ))
@@ -233,16 +242,23 @@ class HumanTaskService:
         session: Session,
         workspace_id: str,
         user_id: str,
+        *,
+        for_share: bool = False,
     ) -> ReviewerRecord:
-        user = session.get(UserRecord, user_id)
-        membership = session.scalar(
+        def read_qualification(query):
+            if for_share:
+                query = query.with_for_update(read=True).execution_options(populate_existing=True)
+            return session.scalar(query)
+
+        user = read_qualification(select(UserRecord).where(UserRecord.id == user_id))
+        membership = read_qualification(
             select(WorkspaceMembershipRecord).where(
                 WorkspaceMembershipRecord.workspace_id == workspace_id,
                 WorkspaceMembershipRecord.user_id == user_id,
                 WorkspaceMembershipRecord.status == "active",
             ),
         )
-        reviewer = session.scalar(
+        reviewer = read_qualification(
             select(ReviewerRecord).where(
                 ReviewerRecord.workspace_id == workspace_id,
                 ReviewerRecord.user_id == user_id,
@@ -986,7 +1002,7 @@ class HumanTaskService:
             ),
         )
         if original is None or modified is None or diff is None:
-            raise RuntimeError("鍙嶉鍊欓€夊叧鑱旂増鏈笉瀹屾暣")
+            raise HumanTaskSourceConflict("反馈候选来源不完整，需先完成治理")
         return {
             "id": candidate.id,
             "human_task_id": candidate.human_task_id,
@@ -1051,10 +1067,10 @@ class HumanTaskService:
             select(FeedbackCandidateRecord).where(
                 FeedbackCandidateRecord.id == candidate_id,
                 FeedbackCandidateRecord.workspace_id == workspace_id,
-            ),
+            ).with_for_update().execution_options(populate_existing=True),
         )
         if candidate is None:
-            raise HumanTaskValidation("鍙嶉鍊欓€変笉瀛樺湪")
+            raise HumanTaskValidation("反馈候选不存在")
         if not reviewer.is_expert:
             raise HumanTaskPermission("只有专家审核人可以确认黄金样本")
         idempotent = session.scalar(
@@ -1064,10 +1080,11 @@ class HumanTaskService:
         )
         if idempotent is not None:
             if (
-                idempotent.candidate_id != candidate.id
+                idempotent.workspace_id != workspace_id
+                or idempotent.candidate_id != candidate.id
                 or idempotent.reviewer_id != reviewer_id
             ):
-                raise HumanTaskConflict("骞傜瓑閿凡鐢ㄤ簬鍏朵粬榛勯噾鏍锋湰")
+                raise HumanTaskConflict("幂等键已用于其他黄金样本")
             return idempotent
         existing = session.scalar(
             select(GoldenSampleRecord).where(
@@ -1075,27 +1092,27 @@ class HumanTaskService:
             ),
         )
         if existing is not None:
-            raise HumanTaskConflict("鍙嶉鍊欓€夊凡纭榛勯噾鏍锋湰")
+            raise HumanTaskConflict("反馈候选已确认黄金样本")
         modified = session.scalar(
             select(ArtifactVersionRecord).where(
                 ArtifactVersionRecord.id == candidate.modified_version_id,
                 ArtifactVersionRecord.workspace_id == workspace_id,
-            ),
+            ).with_for_update(read=True).execution_options(populate_existing=True),
         )
         run = session.scalar(
             select(WorkflowRunRecord).where(
                 WorkflowRunRecord.id == candidate.workflow_run_id,
                 WorkflowRunRecord.workspace_id == workspace_id,
-            ),
+            ).with_for_update(read=True).execution_options(populate_existing=True),
         )
         task = session.scalar(
             select(HumanTaskRecord).where(
                 HumanTaskRecord.id == candidate.human_task_id,
                 HumanTaskRecord.workspace_id == workspace_id,
-            ),
+            ).with_for_update(read=True).execution_options(populate_existing=True),
         )
         if modified is None or run is None or task is None:
-            raise HumanTaskValidation("榛勯噾鏍锋湰鏉ユ簮鏁版嵁涓嶅畬鏁?")
+            raise HumanTaskValidation("黄金样本来源不完整，需先完成治理")
         golden = GoldenSampleRecord(
             workspace_id=task.workspace_id,
             candidate_id=candidate.id,
@@ -1107,7 +1124,16 @@ class HumanTaskService:
             created_at=self.now(),
         )
         session.add(golden)
-        session.flush()
+        try:
+            session.flush()
+        except IntegrityError as error:
+            constraint = getattr(getattr(error.orig, "diag", None), "constraint_name", None)
+            if getattr(error.orig, "sqlstate", None) != "23505" or constraint not in {
+                "uq_golden_sample_candidate", "uq_golden_sample_idempotency",
+            }:
+                raise
+            session.rollback()
+            raise HumanTaskConflict("黄金样本确认冲突，请刷新后重试") from None
         candidate.status = "已确认"
         candidate.confirmed_at = self.now()
         self.audit(

@@ -1,10 +1,11 @@
-import { cleanup, createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { DragEventHandler, ReactNode } from 'react'
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
+import { Link, MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkspaceProvider } from '../auth/WorkspaceContext'
 import { Workflows } from './Workflows'
+import { isAgentMigration, isDataObjectMigration, isReferenceAssetMigration, isRubricSampleMigration } from '../api/migrationCapabilities'
 
 const workspace = {
   id: 'workspace-1',
@@ -309,7 +310,211 @@ describe('Workflows', () => {
     cleanup()
     flowMock.screenToFlowPosition.mockReset()
     vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
     window.history.pushState({}, '', '/')
+  })
+
+  it.each(['reviewers', 'review-groups'])('migration rejects failed %s directory and retries dependencies', async resource => {
+    vi.stubEnv('VITE_ARC_ONE_MIGRATION_MODE', 'workflows')
+    const base = evaluationWorkflowFetch()
+    let failed = true
+    vi.stubGlobal('fetch', vi.fn((url: RequestInfo | URL, init?: RequestInit) => String(url).endsWith(`/${resource}`) && failed
+      ? Promise.resolve(new Response(JSON.stringify({ detail: 'Directory offline' }), { status: 503 })) : base(url, init)))
+    renderWorkflows()
+    expect(await screen.findByRole('alert')).toHaveTextContent('Directory offline')
+    expect(screen.getByRole('button', { name: '保存草稿' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '发布版本' })).toBeDisabled()
+    failed = false
+    fireEvent.click(screen.getByRole('button', { name: '重试加载依赖' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: '保存草稿' })).toBeEnabled())
+    expect(screen.getByRole('button', { name: '运行工作流' })).toBeDisabled()
+  })
+
+  it('workflow migration inherits earlier governance restrictions', () => {
+    vi.stubEnv('VITE_ARC_ONE_MIGRATION_MODE', 'workflows')
+    expect([isReferenceAssetMigration(), isAgentMigration(), isDataObjectMigration(), isRubricSampleMigration()]).toEqual([true, true, true, true])
+  })
+
+  it('migration replaces the new route after saving a draft and reloads the saved target', async () => {
+    vi.stubEnv('VITE_ARC_ONE_MIGRATION_MODE', 'workflows')
+    const base = evaluationWorkflowFetch()
+    let created = 0
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/workflows') && init?.method === 'POST') {
+        created++
+        return Promise.resolve(new Response(JSON.stringify(workflow), { status: 201 }))
+      }
+      return base(input, init)
+    }))
+    renderWorkflows('/w/ai-capability-center/workflows/new')
+    await waitFor(() => expect(screen.getByRole('button', { name: '保存草稿' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }))
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/workflows/workflow-1'))
+    await waitFor(() => expect(screen.getByLabelText('切换工作流')).toHaveValue(workflow.id))
+    cleanup()
+    renderWorkflows('/w/ai-capability-center/workflows/workflow-1')
+    await waitFor(() => expect(screen.getByLabelText('工作流名称')).toHaveTextContent(workflow.name))
+    expect(created).toBe(1)
+  })
+
+  it.each([false, true])('migration completes new-draft publication before routing to its saved ID (history failure: %s)', async historyFails => {
+    vi.stubEnv('VITE_ARC_ONE_MIGRATION_MODE', 'workflows')
+    const base = evaluationWorkflowFetch(), user = userEvent.setup()
+    let release!: (response: Response) => void
+    const pending = new Promise<Response>(resolve => { release = resolve })
+    let posts = 0, publishes = 0, reads = 0
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/workflows') && init?.method === 'POST') {
+        posts++
+        return Promise.resolve(new Response(JSON.stringify(workflow), { status: 201 }))
+      }
+      if (url.endsWith('/validate')) return Promise.resolve(new Response(JSON.stringify({ valid: true, errors: [] })))
+      if (url.endsWith('/publish')) { publishes++; return pending }
+      if (url.endsWith('/workflows/workflow-1/versions')) {
+        reads++
+        return Promise.resolve(new Response(JSON.stringify(historyFails ? { detail: 'History offline' } : [workflowVersion]), { status: historyFails ? 503 : 200 }))
+      }
+      return base(input, init)
+    }))
+    renderWorkflows('/w/ai-capability-center/workflows/new')
+    await waitFor(() => expect(screen.getByRole('button', { name: '发布版本' })).toBeEnabled())
+    await user.click(screen.getByRole('button', { name: '发布版本' }))
+    await user.type(screen.getByLabelText('发布备注'), 'New workflow')
+    await user.click(screen.getByRole('button', { name: '确认发布版本' }))
+    await waitFor(() => expect(publishes).toBe(1))
+    expect(screen.getByTestId('location')).toHaveTextContent('/workflows/new')
+    await act(async () => { release(new Response(JSON.stringify(workflowVersion), { status: 201 })); await pending })
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/workflows/workflow-1'))
+    await waitFor(() => expect(screen.getByLabelText('切换工作流')).toHaveValue(workflow.id))
+    if (historyFails) {
+      expect(await screen.findByText(/发布已成功，但历史刷新失败/)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: '发布版本' })).toBeDisabled()
+      const previousReads = reads
+      await user.click(screen.getByRole('button', { name: '重试读取发布历史' }))
+      await waitFor(() => expect(reads).toBe(previousReads + 1))
+    }
+    expect(posts).toBe(1)
+    expect(publishes).toBe(1)
+  })
+
+  it.each(['invalid', 'validate-http', 'publish-http'])('migration keeps the saved target and actionable error after new publication failure: %s', async failure => {
+    vi.stubEnv('VITE_ARC_ONE_MIGRATION_MODE', 'workflows')
+    const base = evaluationWorkflowFetch(), user = userEvent.setup()
+    const message = `Synthetic ${failure} failure`
+    let posts = 0, publishes = 0
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/workflows') && init?.method === 'POST') {
+        posts++
+        return Promise.resolve(new Response(JSON.stringify(workflow), { status: 201 }))
+      }
+      if (url.endsWith('/validate')) return Promise.resolve(new Response(JSON.stringify(failure === 'validate-http'
+        ? { detail: message } : { valid: failure !== 'invalid', errors: failure === 'invalid' ? [message] : [] }), { status: failure === 'validate-http' ? 503 : 200 }))
+      if (url.endsWith('/publish')) { publishes++; return Promise.resolve(new Response(JSON.stringify({ detail: message }), { status: 503 })) }
+      return base(input, init)
+    }))
+    renderWorkflows('/w/ai-capability-center/workflows/new')
+    await waitFor(() => expect(screen.getByRole('button', { name: '发布版本' })).toBeEnabled())
+    await user.click(screen.getByRole('button', { name: '发布版本' }))
+    await user.type(screen.getByLabelText('发布备注'), 'Try publish')
+    await user.click(screen.getByRole('button', { name: '确认发布版本' }))
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/workflows/workflow-1'))
+    await waitFor(() => expect(screen.getByLabelText('切换工作流')).toHaveValue(workflow.id))
+    expect(await screen.findByText(message)).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('button', { name: '发布版本' })).toBeEnabled())
+    expect(screen.queryByText(/已发布$/)).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '保存草稿' }))
+    await screen.findByText('工作流草稿已保存')
+    expect(posts).toBe(1)
+    expect(publishes).toBe(failure === 'publish-http' ? 1 : 0)
+  })
+
+  it('migration never treats a missing routed workflow as a new editable draft', async () => {
+    vi.stubEnv('VITE_ARC_ONE_MIGRATION_MODE', 'workflows')
+    vi.stubGlobal('fetch', evaluationWorkflowFetch())
+    renderWorkflows('/w/ai-capability-center/workflows/missing')
+    expect(await screen.findByRole('alert')).toHaveTextContent('工作流不存在或已被移除')
+    expect(screen.getByRole('button', { name: '保存草稿' })).toBeDisabled()
+  })
+
+  it('migration hides editable fields until initial dependencies finish', async () => {
+    vi.stubEnv('VITE_ARC_ONE_MIGRATION_MODE', 'workflows')
+    const base = evaluationWorkflowFetch()
+    let release!: (response: Response) => void
+    const pending = new Promise<Response>(resolve => { release = resolve })
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => String(input).endsWith('/reviewers') ? pending : base(input, init)))
+    renderWorkflows('/w/ai-capability-center/workflows/new')
+    expect(screen.getByText('正在加载工作流依赖…')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '更改名称' })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('flow-drop-zone')).not.toBeInTheDocument()
+    await act(async () => { release(new Response('[]')); await pending })
+    fireEvent.click(await screen.findByRole('button', { name: '更改名称' }))
+    expect(screen.getByRole('textbox', { name: '工作流名称' })).toBeInTheDocument()
+  })
+
+  it('migration ignores a late draft save after selecting another workflow', async () => {
+    vi.stubEnv('VITE_ARC_ONE_MIGRATION_MODE', 'workflows')
+    let release!: (response: Response) => void
+    const pending = new Promise<Response>(resolve => { release = resolve })
+    const base = evaluationWorkflowFetch(), second = { ...workflow, id: 'workflow-2', name: 'Second workflow' }
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'PATCH') return pending
+      if (String(input).endsWith('/workflows')) return Promise.resolve(new Response(JSON.stringify([workflow, second])))
+      return base(input, init)
+    }))
+    render(<MemoryRouter initialEntries={['/w/a/workflows/workflow-1']}><WorkspaceProvider workspace={workspace}>
+      <Link to="/w/a/workflows/workflow-2">Switch workflow</Link>
+      <Routes><Route path="/w/:workspaceSlug/workflows/:workflowId" element={<Workflows />} /></Routes>
+    </WorkspaceProvider></MemoryRouter>)
+    await waitFor(() => expect(screen.getByRole('button', { name: '保存草稿' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }))
+    fireEvent.click(screen.getByRole('link', { name: 'Switch workflow' }))
+    await waitFor(() => expect(screen.getByLabelText('工作流名称')).toHaveTextContent(second.name))
+    await act(async () => { release(new Response(JSON.stringify(workflow))); await pending })
+    expect(screen.getByLabelText('工作流名称')).toHaveTextContent(second.name)
+    expect(screen.getByLabelText('切换工作流')).toHaveValue(second.id)
+    expect(screen.queryByText('工作流草稿已保存')).not.toBeInTheDocument()
+  })
+
+  it('migration blocks execute handler even when a run dialog was opened in default mode', async () => {
+    const base = evaluationWorkflowFetch()
+    vi.stubGlobal('fetch', base)
+    renderWorkflows()
+    await waitFor(() => expect(screen.getByRole('button', { name: '运行工作流' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: '运行工作流' }))
+    const dialog = screen.getByRole('dialog')
+    vi.stubEnv('VITE_ARC_ONE_MIGRATION_MODE', 'workflows')
+    fireEvent.click(within(dialog).getByRole('button', { name: /运行/ }))
+    expect(base.mock.calls.some(([url]) => String(url).includes('/runs'))).toBe(false)
+    expect(await screen.findAllByText(/运行尚未迁移/)).not.toHaveLength(0)
+  })
+
+  it('migration retries only history after publication commits but its refresh fails', async () => {
+    vi.stubEnv('VITE_ARC_ONE_MIGRATION_MODE', 'workflows')
+    const user = userEvent.setup(), base = evaluationWorkflowFetch()
+    let published = 0, reads = 0
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/publish')) { published++; return Promise.resolve(new Response(JSON.stringify(workflowVersion), { status: 201 })) }
+      if (url.endsWith('/validate')) return Promise.resolve(new Response(JSON.stringify({ valid: true, errors: [] })))
+      if (url.endsWith('/workflows/workflow-1/versions')) {
+        reads++
+        return Promise.resolve(new Response(JSON.stringify(reads === 2 ? { detail: 'History unavailable' } : [workflowVersion]), { status: reads === 2 ? 503 : 200 }))
+      }
+      return base(input, init)
+    }))
+    renderWorkflows()
+    await waitFor(() => expect(screen.getByRole('button', { name: '发布版本' })).toBeEnabled())
+    await user.click(screen.getByRole('button', { name: '发布版本' }))
+    await user.type(screen.getByLabelText('发布备注'), 'Synthetic publish')
+    await user.click(screen.getByRole('button', { name: '确认发布版本' }))
+    expect(await screen.findByText(/发布已成功，但历史刷新失败/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '发布版本' })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: '重试读取发布历史' }))
+    await waitFor(() => expect(screen.queryByText(/发布已成功，但历史刷新失败/)).not.toBeInTheDocument())
+    expect(published).toBe(1)
+    expect(reads).toBe(3)
   })
 
   it('opens workflow editing on a dedicated route from the workflow list', async () => {
@@ -648,6 +853,24 @@ describe('Workflows', () => {
     expect(fetchMock).toHaveBeenCalledWith(`/api/workspaces/${workspace.id}/workflows/workflow-1/runs`, expect.objectContaining({
       method: 'POST',
     }))
+  })
+
+  it('navigates accepted workflow submissions to durable progress without a fake completed run', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
+    vi.stubGlobal('fetch', vi.fn((url: string) => {
+      if (url.endsWith('/workflows')) return Promise.resolve(new Response(JSON.stringify([workflow])))
+      if (url.endsWith('/agents') || url.endsWith('/versions')) return Promise.resolve(new Response('[]'))
+      if (url.endsWith('/runs')) return Promise.resolve(new Response(JSON.stringify({ operationId: 'op-accepted', status: 'queued', statusUrl: '/api/workspaces/workspace-1/operations/op-accepted' }), { status: 202 }))
+      return Promise.resolve(new Response('{}', { status: 404 }))
+    }))
+    renderWorkflows()
+    await user.click(await screen.findByRole('button', { name: '运行工作流' }))
+    await user.type(screen.getByLabelText('运行输入'), '分析新品机会')
+    await user.click(screen.getByRole('button', { name: '开始运行' }))
+    await screen.findByText('运行中心')
+    expect(screen.getByTestId('location')).toHaveTextContent('/runs?operationId=op-accepted')
+    expect(screen.getByTestId('location')).not.toHaveTextContent('runId=undefined')
   })
 
   it('runs a workflow with schema run input fields serialized as JSON', async () => {

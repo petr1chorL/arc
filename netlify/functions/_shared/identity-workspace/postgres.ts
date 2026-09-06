@@ -13,7 +13,7 @@ import {
 import { digestToken, hashPassword, newToken, tokenMatches, verifyPassword } from './security.ts'
 
 type QueryResult<Row> = { rows: Row[]; rowCount: number | null }
-type SqlClient = {
+export type SqlClient = {
   query<Row extends Record<string, unknown> = Record<string, unknown>>(
     text: string,
     values?: unknown[],
@@ -21,6 +21,9 @@ type SqlClient = {
   release(): void
 }
 export type SqlPool = { connect(): Promise<SqlClient> }
+export type WorkspaceRequest = Omit<BackendInput, 'route'> & {
+  route: { params: Record<string, string | undefined> }
+}
 
 type UserRow = {
   id: string
@@ -124,7 +127,7 @@ type AuthQueryRow = UserRow & {
   organization_status: string
 }
 
-type WorkspaceContext = AuthContext & {
+export type WorkspaceContext = AuthContext & {
   workspace: WorkspaceRow
   membership: MembershipRow | null
 }
@@ -137,14 +140,21 @@ const SESSION_ABSOLUTE_MS = 7 * 24 * 60 * 60 * 1000
 const INVITATION_MS = 72 * 60 * 60 * 1000
 
 export function createPostgresIdentityWorkspaceBackend(pool: SqlPool) {
-  return async (input: BackendInput): Promise<BackendResult> => {
+  return createTransactionBackend<BackendInput>(pool, dispatch)
+}
+
+export function createTransactionBackend<Input extends Pick<BackendInput, 'clientAddress'>>(
+  pool: SqlPool,
+  dispatchRequest: (client: SqlClient, input: Input) => Promise<BackendResult>,
+) {
+  return async (input: Input): Promise<BackendResult> => {
     const client = await pool.connect()
     try {
       // Autocommit the budget before the business transaction: invalid requests count too.
       await enforceRequestRateLimit(client, input)
       await client.query('BEGIN')
       try {
-        const result = await dispatch(client, input)
+        const result = await dispatchRequest(client, input)
         await client.query('COMMIT')
         return result
       } catch (error) {
@@ -157,7 +167,7 @@ export function createPostgresIdentityWorkspaceBackend(pool: SqlPool) {
   }
 }
 
-async function enforceRequestRateLimit(client: SqlClient, input: BackendInput): Promise<void> {
+async function enforceRequestRateLimit(client: SqlClient, input: Pick<BackendInput, 'clientAddress'>): Promise<void> {
   const key = `request:client:${await digestToken(input.clientAddress ?? 'unknown')}`
   const result = await client.query<{ count: number }>(
     `INSERT INTO identity_rate_limits (bucket_key,window_started_at,count)
@@ -395,11 +405,18 @@ function authSession(user: UserRow) {
   }
 }
 
-async function workspaceContext(
+export async function workspaceContext(
   client: SqlClient,
-  input: BackendInput,
+  input: WorkspaceRequest,
   write = false,
+  lockUserBeforeSession = false,
 ): Promise<WorkspaceContext> {
+  if (lockUserBeforeSession && input.sessionToken) {
+    // Qualification transactions later retain User/Membership/Reviewer locks.
+    // Take User before Session to match user disable, which revokes Sessions.
+    await client.query(`SELECT u.id FROM users u JOIN sessions s ON s.user_id=u.id
+      WHERE s.token_digest=$1 FOR SHARE OF u`, [await digestToken(input.sessionToken)])
+  }
   const auth = await authenticate(client, input.sessionToken)
   if (write) await requireCsrf(auth.session, input.csrfToken)
   const workspaceId = input.route.params.workspaceId
@@ -432,10 +449,10 @@ async function workspaceContext(
   return { ...auth, workspace, membership }
 }
 
-async function requireCapability(
+export async function requireCapability(
   client: SqlClient,
   context: WorkspaceContext,
-  input: BackendInput,
+  input: WorkspaceRequest,
   capability: Capability,
   audit: { action: string; targetType: string; targetId: string | null },
 ): Promise<void> {
@@ -585,10 +602,10 @@ function serializeWorkspace(workspace: WorkspaceRow) {
   }
 }
 
-async function recordAudit(
+export async function recordAudit(
   client: SqlClient,
   context: AuthContext,
-  input: BackendInput,
+  input: Pick<BackendInput, 'request' | 'clientAddress'>,
   event: {
     workspaceId: string | null
     action: string
@@ -790,6 +807,14 @@ async function memberOperations(
        AND s.revoked_at IS NULL AND u.status='active' FOR UPDATE OF o`,
       [await digestToken(input.sessionToken)],
     )
+    if (input.route.params.userId) {
+      // Lock the target before the actor Session, including self-qualification edits.
+      // Organization serialization precedes this lock; authentication still runs below.
+      await client.query(`SELECT target.id FROM users target JOIN users actor ON actor.organization_id=target.organization_id
+        JOIN sessions s ON s.user_id=actor.id WHERE s.token_digest=$1 AND s.revoked_at IS NULL
+        AND actor.status='active' AND target.id=$2 FOR UPDATE OF target`,
+      [await digestToken(input.sessionToken), input.route.params.userId])
+    }
   }
   const context = await workspaceContext(client, input, write)
   const capability: Capability = operation.startsWith('save-reviewer') || operation.startsWith('revoke-reviewer')
@@ -878,6 +903,8 @@ async function queryMembers(client: SqlClient, workspaceId: string): Promise<Mem
 }
 
 async function findMember(client: SqlClient, workspaceId: string, userId: string): Promise<MemberRow> {
+  // Do not rely on JOIN row-mark order: candidate confirmation locks User first.
+  await client.query('SELECT id FROM users WHERE id=$1 FOR UPDATE', [userId])
   const result = await client.query<MemberRow>(
     `SELECT m.*,u.email,u.display_name,u.status AS user_status,u.last_login_at,u.is_organization_admin,
             r.role AS reviewer_role,r.is_expert AS reviewer_is_expert,r.is_active AS reviewer_is_active,

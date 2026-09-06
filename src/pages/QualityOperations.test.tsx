@@ -908,6 +908,21 @@ describe('QualityOperations page', () => {
     )
   })
 
+  it('shows a 202 evaluation as accepted without fabricating score or completed record', async () => {
+    const user = userEvent.setup()
+    const fallback = rubricFormFetch()
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/evaluate')) return response({ operationId: 'op-evaluation', status: 'queued', statusUrl: '/operations/op-evaluation' }, 202)
+      return fallback(input, init)
+    }))
+    renderPage()
+    await user.click(await screen.findByTitle('配置量规'))
+    await user.type(screen.getByLabelText('待评估产出物'), '需要真实判断的产出物')
+    await user.click(screen.getByRole('button', { name: '运行评估' }))
+    expect(await screen.findByText('评估已接收，尚未完成；请查看异步任务进度。')).toBeInTheDocument()
+    expect(document.querySelector('.rubric-evaluation-result')).toBeNull()
+  })
+
   it('shows evaluation records and filters them by status and rubric', async () => {
     const user = userEvent.setup()
     const records = [

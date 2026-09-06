@@ -14,7 +14,7 @@ import {
   type ReactFlowInstance,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   Beaker,
   Bot,
@@ -56,6 +56,8 @@ import {
   validateWorkflow,
 } from '../api/workflows'
 import { runWorkflow } from '../api/execution'
+import { isAcceptedOperation } from '../api/operations'
+import { isRuntimeMigration, isWorkflowMigration, workflowMigrationNotice } from '../api/migrationCapabilities'
 import { listReviewers, listReviewGroups } from '../api/humanTasks'
 import { WorkflowNode, type WorkflowNodeData } from '../components/WorkflowNode'
 import { fromContractGraph, toContractGraph } from '../domain/workflows'
@@ -599,8 +601,33 @@ function createDraftSignature(
 }
 
 export function Workflows() {
+  const { workspace } = useWorkspace()
+  const { workflowId } = useParams()
+  return <WorkflowPanel key={isWorkflowMigration() ? `${workspace.id}:${workflowId ?? 'list'}` : 'default'} />
+}
+
+function WorkflowPanel() {
   const { workspace, workspacePath } = useWorkspace()
+  const location = useLocation()
+  const migration = isWorkflowMigration()
+  const runtimeBlocked = migration && !isRuntimeMigration()
+  const initialPublicationErrors = useRef<string[] | null>(migration && Array.isArray(location.state?.publicationErrors)
+    ? location.state.publicationErrors.filter((value: unknown): value is string => typeof value === 'string') : null)
+  const [dependencyLoading, setDependencyLoading] = useState(true)
+  const [dependencyError, setDependencyError] = useState('')
+  const [dependencyReload, setDependencyReload] = useState(0)
+  const mounted = useRef(true)
+  const historyRequest = useRef(0)
+  const [publicationRefreshError, setPublicationRefreshError] = useState(() => {
+    const state = location.state as { publicationRefreshError?: unknown } | null
+    return migration && typeof state?.publicationRefreshError === 'string' ? state.publicationRefreshError : ''
+  })
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   const navigate = useNavigate()
+  useEffect(() => {
+    // Consume the cross-route publication notice once; later reloads read the saved target.
+    if (migration && (location.state?.publicationRefreshError || location.state?.publicationErrors)) navigate(location.pathname, { replace: true, state: null })
+  }, [location.pathname, location.state, migration, navigate])
   const { workflowId: routeWorkflowId } = useParams()
   const reactFlowRef = useRef<ReactFlowInstance | null>(null)
   const [nodes, setNodes, onNodesChange] = useNodesState(createDefaultNodes())
@@ -649,6 +676,7 @@ export function Workflows() {
   )
   const hasUnsavedChanges = savedDraftSignature !== '' && draftSignature !== savedDraftSignature
   const isEditorRoute = Boolean(routeWorkflowId)
+  const dependencyBlocked = migration && (dependencyLoading || Boolean(dependencyError) || evaluationTemplateLoadState !== 'ready')
 
   const resetCanvasHistory = useCallback(() => {
     setUndoStack([])
@@ -734,6 +762,7 @@ export function Workflows() {
   )
 
   const activateWorkflow = useCallback((workflow: WorkflowDraft) => {
+    const request = ++historyRequest.current
     const graph = fromContractGraph(workflow.nodes, workflow.edges)
     setCurrentId(workflow.id)
     setName(workflow.name)
@@ -759,13 +788,16 @@ export function Workflows() {
     setRunResult(null)
     resetCanvasHistory()
     setFeedback('')
-    setErrors([])
+    setErrors(initialPublicationErrors.current ?? [])
+    initialPublicationErrors.current = null
     void listWorkflowVersions(workspace.id, workflow.id)
-      .then(setVersions)
-      .catch(() => setVersions([]))
-  }, [resetCanvasHistory, setEdges, setNodes, workspace.id])
+      .then(rows => { if (mounted.current && request === historyRequest.current) setVersions(rows) })
+      .catch(() => { if (mounted.current && request === historyRequest.current) { setVersions([]); if (migration) setVersionLoadError('版本记录加载失败') } })
+  }, [resetCanvasHistory, setEdges, setNodes, workspace.id, migration])
 
   const resetToNewWorkflow = useCallback(() => {
+    historyRequest.current++
+    setPublicationRefreshError('')
     const defaultNodes = createDefaultNodes()
     const defaultEdges = createDefaultEdges()
     const defaultInputSchemaText = schemaToText(defaultWorkflowSchema())
@@ -799,6 +831,7 @@ export function Workflows() {
   }, [resetCanvasHistory, setEdges, setNodes])
 
   const openWorkflowVersionsFor = useCallback(async (workflow: WorkflowDraft) => {
+    const request = ++historyRequest.current
     setVersionDialogWorkflowName(workflow.name)
     setVersions([])
     setVersionLoadError('')
@@ -807,36 +840,44 @@ export function Workflows() {
     setErrors([])
     try {
       const nextVersions = await listWorkflowVersions(workspace.id, workflow.id)
+      if (!mounted.current || request !== historyRequest.current) return
       setVersions(nextVersions)
     } catch {
+      if (!mounted.current || request !== historyRequest.current) return
       setVersions([])
       setVersionLoadError('版本记录加载失败')
     } finally {
-      setIsLoadingVersions(false)
+      if (mounted.current && request === historyRequest.current) setIsLoadingVersions(false)
     }
   }, [workspace.id])
 
   const openPublishNoteDialog = useCallback(() => {
+    if (dependencyBlocked || publicationRefreshError) return
     setPublishNote('')
     setPublishNoteError('')
     setShowPublishNote(true)
     setErrors([])
-  }, [])
+  }, [dependencyBlocked, publicationRefreshError])
 
   useEffect(() => {
+    let active = true
+    setDependencyLoading(true)
+    setDependencyError('')
     async function load() {
       const [savedWorkflows, agents, directoryReviewers, directoryGroups] = await Promise.all([
         listWorkflows(workspace.id),
         listAgents(workspace.id),
-        listReviewers(workspace.id).catch(() => []),
-        listReviewGroups(workspace.id).catch(() => []),
+        listReviewers(workspace.id).catch(error => { if (migration) throw error; return [] }),
+        listReviewGroups(workspace.id).catch(error => { if (migration) throw error; return [] }),
       ])
+      if (!active) return
       setReviewers(directoryReviewers)
       setReviewGroups(directoryGroups)
       setWorkflows(savedWorkflows)
       const routedWorkflow = routeWorkflowId && routeWorkflowId !== 'new'
         ? savedWorkflows.find((workflow) => workflow.id === routeWorkflowId)
         : null
+      if (migration && routeWorkflowId && routeWorkflowId !== 'new' && !routedWorkflow) throw new Error('工作流不存在或已被移除')
       if (routeWorkflowId === 'new') {
         resetToNewWorkflow()
       } else if (routedWorkflow) {
@@ -852,6 +893,7 @@ export function Workflows() {
             versions: await listAgentVersions(workspace.id, agent.id),
           })),
       )
+      if (!active) return
       setAgentOptions(versionGroups.flatMap(({ agent, versions: published }) => (
         published.map((version) => ({
           agentId: agent.id,
@@ -860,8 +902,10 @@ export function Workflows() {
         }))
       )))
     }
-    void load()
-  }, [activateWorkflow, resetToNewWorkflow, routeWorkflowId, workspace.id])
+    void load().catch(error => { if (active) setDependencyError(error instanceof Error ? error.message : '工作流依赖加载失败') })
+      .finally(() => { if (active) setDependencyLoading(false) })
+    return () => { active = false }
+  }, [activateWorkflow, resetToNewWorkflow, routeWorkflowId, workspace.id, migration, dependencyReload])
 
   const currentWorkflow = workflows.find((workflow) => workflow.id === currentId)
 
@@ -909,7 +953,7 @@ export function Workflows() {
     return () => {
       isActive = false
     }
-  }, [workspace.id])
+  }, [workspace.id, dependencyReload])
   const requestWorkflowDelete = useCallback(() => {
     if (!currentWorkflow) return
     setWorkflowDeleteCandidate(currentWorkflow)
@@ -932,7 +976,8 @@ export function Workflows() {
     [edges, keyboardDeleteNode],
   )
 
-  const saveDraft = useCallback(async () => {
+  const saveDraft = useCallback(async (deferNavigation = false) => {
+    if (dependencyBlocked) return null
     setIsBusy(true)
     setErrors([])
     try {
@@ -955,6 +1000,7 @@ export function Workflows() {
       const saved = currentId
         ? await updateWorkflow(workspace.id, currentId, input)
         : await createWorkflow(workspace.id, input)
+      if (!mounted.current) return null
       setCurrentId(saved.id)
       setWorkflows((current) => {
         const exists = current.some((workflow) => workflow.id === saved.id)
@@ -976,6 +1022,7 @@ export function Workflows() {
       ))
       resetCanvasHistory()
       setFeedback('工作流草稿已保存')
+      if (migration && routeWorkflowId === 'new' && !deferNavigation) navigate(workspacePath(`workflows/${saved.id}`), { replace: true })
       return saved
     } catch (saveError) {
       setErrors([saveError instanceof Error ? saveError.message : '工作流保存失败'])
@@ -983,20 +1030,26 @@ export function Workflows() {
     } finally {
       setIsBusy(false)
     }
-  }, [currentId, edges, inputSchemaText, name, outputSchemaText, resetCanvasHistory, sanitizedNodes, workspace.id])
+  }, [currentId, edges, inputSchemaText, name, outputSchemaText, resetCanvasHistory, sanitizedNodes, workspace.id, dependencyBlocked, migration, navigate, routeWorkflowId, workspacePath])
 
   async function publish(note: string) {
+    if (dependencyBlocked || publicationRefreshError || isBusy) return
     const trimmedNote = note.trim()
-    const saved = await saveDraft()
+    const saved = await saveDraft(true)
     if (!saved) return
+    let refreshError = ''
+    let publicationErrors: string[] = []
     setIsBusy(true)
     try {
       const validation = await validateWorkflow(workspace.id, saved.id)
+      if (!mounted.current) return
       if (!validation.valid) {
+        publicationErrors = validation.errors
         setErrors(validation.errors)
         return
       }
       const version = await publishWorkflow(workspace.id, saved.id, { note: trimmedNote })
+      if (!mounted.current) return
       setVersions((current) => [version, ...current])
       setWorkflows((current) => current.map((workflow) => (
         workflow.id === saved.id
@@ -1008,14 +1061,43 @@ export function Workflows() {
       setPublishNote('')
       setPublishNoteError('')
       setErrors([])
+      if (migration) {
+        const request = ++historyRequest.current
+        try {
+          const rows = await listWorkflowVersions(workspace.id, saved.id)
+          if (mounted.current && request === historyRequest.current) setVersions(rows)
+        } catch (error) {
+          refreshError = `发布已成功，但历史刷新失败：${error instanceof Error ? error.message : '请重试读取'}`
+          if (mounted.current) setPublicationRefreshError(refreshError)
+        }
+      }
     } catch (publishError) {
-      setErrors([publishError instanceof Error ? publishError.message : '工作流发布失败'])
+      publicationErrors = [publishError instanceof Error ? publishError.message : '工作流发布失败']
+      if (mounted.current) setErrors(publicationErrors)
     } finally {
       setIsBusy(false)
+      if (migration && mounted.current && routeWorkflowId === 'new') navigate(workspacePath(`workflows/${saved.id}`), {
+        replace: true, state: { publicationRefreshError: refreshError, publicationErrors },
+      })
     }
   }
 
+  async function retryPublishedHistory() {
+    if (!currentId || isBusy) return
+    const request = ++historyRequest.current
+    setIsBusy(true)
+    try {
+      const rows = await listWorkflowVersions(workspace.id, currentId)
+      if (!mounted.current || request !== historyRequest.current) return
+      setVersions(rows)
+      setPublicationRefreshError('')
+    } catch (error) {
+      if (mounted.current && request === historyRequest.current) setPublicationRefreshError(`发布已成功，但历史刷新失败：${error instanceof Error ? error.message : '请重试读取'}`)
+    } finally { if (mounted.current) setIsBusy(false) }
+  }
+
   async function executeWorkflow() {
+    if (runtimeBlocked) { setErrors([workflowMigrationNotice]); return }
     const schemaRunInput = showAdvancedRunInput && hasRunSchemaForm
       ? buildSchemaRunInput(runSchemaFields, runFormValues)
       : null
@@ -1045,6 +1127,12 @@ export function Workflows() {
         input: nextRunInput,
         version: currentWorkflow?.version,
       })
+      if (isAcceptedOperation(result)) {
+        setRunResult(null)
+        setFeedback('运行请求已接收，尚未完成；请查看异步任务进度。')
+        navigate(workspacePath(`runs?operationId=${encodeURIComponent(result.operationId)}${result.runId ? `&runId=${encodeURIComponent(result.runId)}` : ''}`))
+        return
+      }
       setRunResult(result)
       setFeedback(getRunStatusLabel(result))
       navigate(workspacePath(`runs?runId=${encodeURIComponent(result.id)}`))
@@ -1083,7 +1171,10 @@ export function Workflows() {
       return
     }
     const workflow = workflows.find((item) => item.id === workflowId)
-    if (workflow) activateWorkflow(workflow)
+    if (workflow) {
+      if (migration) navigate(workspacePath(`workflows/${workflowId}`))
+      else activateWorkflow(workflow)
+    }
   }
 
   function openWorkflowEditor(workflowId: string) {
@@ -1095,11 +1186,12 @@ export function Workflows() {
   }
 
   async function confirmWorkflowDelete() {
-    if (!workflowDeleteCandidate) return
+    if (!workflowDeleteCandidate || dependencyBlocked) return
     setIsBusy(true)
     setErrors([])
     try {
       await deleteWorkflow(workspace.id, workflowDeleteCandidate.id)
+      if (!mounted.current) return
       setWorkflows((current) => current.filter((workflow) => workflow.id !== workflowDeleteCandidate.id))
       setWorkflowDeleteCandidate(null)
       resetToNewWorkflow()
@@ -1113,6 +1205,7 @@ export function Workflows() {
   }
 
   function openWorkflowRunDialogFor(workflow: WorkflowDraft) {
+    if (runtimeBlocked) { setErrors([workflowMigrationNotice]); return }
     if (workflow.id !== currentId) {
       if (hasUnsavedChanges) {
         setPendingNavigation({ kind: 'activate', workflowId: workflow.id })
@@ -1136,7 +1229,10 @@ export function Workflows() {
       return
     }
     const workflow = workflows.find((item) => item.id === pendingNavigation.workflowId)
-    if (workflow) activateWorkflow(workflow)
+    if (workflow) {
+      if (migration) navigate(workspacePath(`workflows/${workflow.id}`))
+      else activateWorkflow(workflow)
+    }
   }
 
   function addNode(kind: WorkflowNodeData['kind'], label: string, position?: { x: number; y: number }) {
@@ -1307,8 +1403,22 @@ export function Workflows() {
     setIsRenamingWorkflow(false)
   }
 
+  if (migration && dependencyLoading) return (
+    <div className="workflow-studio">
+      <p className="inline-feedback">{workflowMigrationNotice}</p>
+      <p role="status">正在加载工作流依赖…</p>
+    </div>
+  )
+
   return (
     <div className="workflow-studio">
+      {migration && <p className="inline-feedback">{runtimeBlocked ? workflowMigrationNotice : '运行闭环隔离验证模式：异步任务只在本地合成环境执行，生产未切换。'}</p>}
+      {publicationRefreshError && <div className="inline-feedback error" role="alert">{publicationRefreshError}
+        <button className="button secondary" type="button" disabled={isBusy} onClick={() => void retryPublishedHistory()}>重试读取发布历史</button>
+      </div>}
+      {migration && (dependencyError || evaluationTemplateLoadState === 'error') && <div role="alert" className="inline-feedback error">
+        {dependencyError || '评估模板依赖加载失败'}<button className="button secondary" type="button" onClick={() => setDependencyReload(value => value + 1)}>重试加载依赖</button>
+      </div>}
       {feedback && <div className="toast"><Check size={16} />{feedback}</div>}
       {!isEditorRoute && (
       <section className="workflow-directory-panel" aria-label="工作流列表">
@@ -1323,7 +1433,7 @@ export function Workflows() {
           </button>
         </div>
         <div className="workflow-directory-list">
-          {workflows.length === 0 ? (
+          {workflows.length === 0 && (!migration || (!dependencyLoading && !dependencyError)) ? (
             <div className="workflow-directory-empty">
               <strong>还没有工作流</strong>
               <span>新建后会在这里形成可进入编排的工作流资产。</span>
@@ -1372,7 +1482,7 @@ export function Workflows() {
                   <button
                     aria-label={`运行 ${workflow.name}`}
                     className="button secondary compact"
-                    disabled={workflow.version === '未发布' || isBusy}
+            disabled={runtimeBlocked || workflow.version === '未发布' || isBusy}
                     type="button"
                     onClick={() => openWorkflowRunDialogFor(workflow)}
                   >
@@ -1463,18 +1573,19 @@ export function Workflows() {
           <button
             className="button ghost"
             title="删除当前工作流"
-            disabled={!currentWorkflow || isBusy}
+            disabled={dependencyBlocked || !currentWorkflow || isBusy}
             onClick={requestWorkflowDelete}
           >
             <Trash2 size={15} />删除工作流
           </button>
-          <button className="button ghost" title="保存工作流草稿" disabled={isBusy} onClick={() => void saveDraft()}><Save size={15} />保存草稿</button>
-          <button className="button ghost" title="发布工作流版本" disabled={isBusy} onClick={openPublishNoteDialog}><Send size={15} />发布版本</button>
+          <button className="button ghost" title="保存工作流草稿" disabled={dependencyBlocked || isBusy} onClick={() => void saveDraft()}><Save size={15} />保存草稿</button>
+          <button className="button ghost" title="发布工作流版本" disabled={dependencyBlocked || Boolean(publicationRefreshError) || isBusy} onClick={openPublishNoteDialog}><Send size={15} />发布版本</button>
           <button
             className="button ghost"
             title="运行已发布工作流"
-            disabled={!currentWorkflow || currentWorkflow.version === '未发布' || isBusy}
+            disabled={runtimeBlocked || !currentWorkflow || currentWorkflow.version === '未发布' || isBusy}
             onClick={() => {
+              if (runtimeBlocked) { setErrors([workflowMigrationNotice]); return }
               setRunResult(null)
               setRunInput('')
               setRunFormValues({})
@@ -1759,7 +1870,7 @@ export function Workflows() {
                 <h2 id="workflow-version-title">工作流版本记录</h2>
                 {versionDialogWorkflowName && <span className="dialog-subtitle">{versionDialogWorkflowName}</span>}
               </div>
-              <button className="icon-button quiet" title="关闭" onClick={() => setShowVersions(false)}><X size={18} /></button>
+              <button className="icon-button quiet" title="关闭" onClick={() => { historyRequest.current++; setShowVersions(false) }}><X size={18} /></button>
             </header>
             <div className="version-list">
               {isLoadingVersions && <div className="version-empty">正在加载版本记录</div>}
@@ -1861,7 +1972,7 @@ export function Workflows() {
             )}
             <div className="dialog-actions">
               <button className="button secondary" onClick={() => setShowRun(false)}>取消</button>
-              <button className="button primary" disabled={isBusy} onClick={() => void executeWorkflow()}>
+              <button className="button primary" disabled={runtimeBlocked || isBusy} onClick={() => void executeWorkflow()}>
                 <Play size={15} />开始运行
               </button>
             </div>

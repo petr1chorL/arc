@@ -41,6 +41,35 @@ function renderPage() {
 describe('DataObjects page', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
+  })
+
+  it('reads frozen Schema history and retries failed history requests in migration mode', async () => {
+    vi.stubEnv('VITE_ARC_ONE_MIGRATION_MODE', 'data-objects')
+    const user = userEvent.setup()
+    let historyCalls = 0
+    const frozen = { id: 'version-1', definitionId: definition.id, version: 'v1.0.0',
+      createdAt: definition.createdAt, snapshot: { ...definition, schema: { required: ['frozen-field'] } } }
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/versions')) {
+        historyCalls++
+        return Promise.resolve(new Response(JSON.stringify(historyCalls === 1 ? { detail: '历史读取暂时失败' } : [frozen]),
+          { status: historyCalls === 1 ? 503 : 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify([definition]), { status: 200 }))
+    }))
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: '历史版本 Product Brief' }))
+    expect(await screen.findByText('历史读取暂时失败')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '重试历史版本' }))
+    const schema = await screen.findByLabelText('Schema v1.0.0')
+    expect(schema).toHaveValue(JSON.stringify(frozen.snapshot.schema, null, 2))
+    expect(schema).toHaveAttribute('readonly')
+    expect(historyCalls).toBe(2)
+    await user.click(screen.getByRole('button', { name: '编辑 Product Brief' }))
+    fireEvent.change(screen.getByLabelText('编辑 Schema JSON'), { target: { value: '{}' } })
+    expect(schema).toHaveValue(JSON.stringify(frozen.snapshot.schema, null, 2))
   })
 
   it('loads data object definitions', async () => {
@@ -58,6 +87,27 @@ describe('DataObjects page', () => {
     expect(screen.getByText('Product Brief')).toBeInTheDocument()
     expect(screen.getByText('draft · unpublished')).toBeInTheDocument()
     expect(screen.getByText('required: asin')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '历史版本 Product Brief' })).not.toBeInTheDocument()
+  })
+
+  it('does not report a committed publication as failed when the list refresh fails', async () => {
+    vi.stubEnv('VITE_ARC_ONE_MIGRATION_MODE', 'data-objects')
+    const user = userEvent.setup()
+    let listCalls = 0
+    const version = { id: 'version-1', definitionId: definition.id, version: 'v1.0.0',
+      snapshot: definition, createdAt: definition.createdAt }
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/publish')) return Promise.resolve(new Response(JSON.stringify(version), { status: 201 }))
+      if (url.endsWith('/versions')) return Promise.resolve(new Response(JSON.stringify([version]), { status: 200 }))
+      listCalls++
+      return Promise.resolve(new Response(JSON.stringify(listCalls === 1 ? [definition] : { detail: '刷新连接失败' }),
+        { status: listCalls === 1 ? 200 : 503 }))
+    }))
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: '发布 Product Brief' }))
+    expect(await screen.findByText('版本已发布，但定义列表刷新失败，请刷新页面重试')).toBeInTheDocument()
+    expect(screen.getByText('published · v1.0.0')).toBeInTheDocument()
   })
 
   it('validates schema JSON before creating', async () => {

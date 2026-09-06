@@ -127,7 +127,10 @@ def test_request_body_limit_allows_small_payload(tmp_path):
     assert response.status_code == 404
 
 
-def test_rate_limit_rejects_excessive_requests_from_same_client(tmp_path):
+def test_rate_limit_rejects_excessive_requests_from_same_client(tmp_path, monkeypatch):
+    # This assertion describes three requests in the same instant, not wall-clock speed.
+    # A real half-second delay legitimately rounds the remaining window down to 59.
+    monkeypatch.setattr('app.main.monotonic', lambda: 1000.0)
     settings = Settings(
         allowed_hosts=["testserver"],
         rate_limit_requests=2,

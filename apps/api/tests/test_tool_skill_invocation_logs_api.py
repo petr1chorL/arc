@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 from api_test_support import create_authenticated_client, csrf_headers, workspace_url
 from app.models import (
+    AgentRecord,
     ToolSkillAssetInvocationRecord,
     ToolSkillAssetRecord,
     WorkspaceRecord,
@@ -34,6 +35,9 @@ def seed_invocation(
     created_at: datetime | None = None,
 ) -> str:
     with client.app.state.session_factory() as session:
+        if session.get(AgentRecord, agent_id) is None:
+            session.add(AgentRecord(id=agent_id, workspace_id=workspace_id, name=agent_id,
+                                    role="Synthetic", owner="Synthetic", model="synthetic"))
         record = ToolSkillAssetInvocationRecord(
             workspace_id=workspace_id,
             asset_id=asset_id,
@@ -41,8 +45,8 @@ def seed_invocation(
             asset_name=asset_name,
             agent_id=agent_id,
             agent_version="v1.0.0",
-            run_id="run-1",
-            node_run_id="node-run-1",
+            run_id=None,
+            node_run_id=None,
             status=status,
             input_summary="query=price",
             output_summary="3 docs matched",
@@ -92,10 +96,10 @@ def test_list_tool_skill_invocation_logs_with_filters(tmp_path):
     assert filtered.status_code == 200
     assert len(filtered.json()) == 1
     assert filtered.json()[0]["assetId"] == asset["id"]
-    assert filtered.json()[0]["assetName"] == "飞书搜索"
+    assert filtered.json()[0]["assetName"] == "内容已隐藏（迁移安全策略）"
     assert filtered.json()[0]["agentId"] == "agent-1"
-    assert filtered.json()[0]["inputSummary"] == "query=price"
-    assert filtered.json()[0]["outputSummary"] == "3 docs matched"
+    assert filtered.json()[0]["inputSummary"] == "内容已隐藏（迁移安全策略）"
+    assert filtered.json()[0]["outputSummary"] == "内容已隐藏（迁移安全策略）"
 
 
 def test_tool_skill_invocation_logs_are_workspace_scoped(tmp_path):

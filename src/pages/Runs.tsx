@@ -4,6 +4,9 @@ import { useWorkspace } from '../auth/workspaceContextState'
 import { listArtifacts } from '../api/artifacts'
 import { deleteRun, listRuns } from '../api/execution'
 import { listWorkflowVersions } from '../api/workflows'
+import { isRuntimeMigration } from '../api/migrationCapabilities'
+import { NativeRunActions } from '../components/NativeRunActions'
+import { useOperationUpdates } from '../domain/useOperationUpdates'
 import { StatusBadge } from '../components/StatusBadge'
 import { displayStatus, isWaitingForHumanReview } from '../domain/statusText'
 import type {
@@ -288,6 +291,8 @@ export function Runs() {
     }
   }, [workspace.id])
 
+  useOperationUpdates(workspace.id, load)
+
   useEffect(() => {
     void load()
   }, [load])
@@ -509,7 +514,7 @@ export function Runs() {
               <StatusBadge status={run.status} />
               <div className="run-progress"><i style={{ width: '100%' }} /></div>
             </button>
-              <button
+              {!isRuntimeMigration() && <button
                 type="button"
                 className="icon-button quiet run-delete-button"
                 aria-label="Delete run record"
@@ -520,7 +525,7 @@ export function Runs() {
               }}
             >
               <Trash2 size={14} />
-            </button>
+            </button>}
           </div>
         ))}
         {filteredRuns.length === 0 && <div className="table-state compact">当前筛选没有运行记录</div>}
@@ -535,6 +540,7 @@ export function Runs() {
             <p><b>启动</b>{formatTime(selected.startedAt)}<b>耗时</b>{formatDuration(selected.durationMs)}<b>{selected.kind === 'agent' ? '类型' : '版本'}</b>{selected.kind === 'agent' ? 'Agent 测试运行' : selected.workflowVersion}</p>
           </div>
           <div className="run-actions">
+            {isRuntimeMigration() && <NativeRunActions key={selected.id} run={selected} onChanged={load} />}
             <StatusBadge status={selected.status} />
           </div>
         </header>

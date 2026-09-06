@@ -15,6 +15,8 @@ import {
 } from '../api/schedules'
 import { listWorkflows, listWorkflowVersions } from '../api/workflows'
 import { useWorkspace } from '../auth/workspaceContextState'
+import { isAcceptedOperation } from '../api/operations'
+import { useOperationNotice } from '../domain/useOperationNotice'
 import type { WorkflowDraft, WorkflowVersion } from '../types'
 
 const initialForm: WorkflowScheduleInput = {
@@ -42,6 +44,7 @@ function errorMessage(error: unknown) {
 
 export function Schedules() {
   const { workspace } = useWorkspace()
+  const operationNotice = useOperationNotice(workspace.id)
   const [schedules, setSchedules] = useState<WorkflowSchedule[]>([])
   const [workflows, setWorkflows] = useState<WorkflowDraft[]>([])
   const [versions, setVersions] = useState<WorkflowVersion[]>([])
@@ -167,6 +170,10 @@ export function Schedules() {
     setNotice('')
     try {
       const dispatch = await triggerSchedule(workspace.id, schedule.id)
+      if (isAcceptedOperation(dispatch)) {
+        operationNotice.accepted(dispatch, '调度触发', '触发请求已接收，尚未完成；请查看异步任务进度。')
+        return
+      }
       setNotice(dispatch.runId ? `已创建运行 ${dispatch.runId}` : `本次触发${dispatch.status}`)
       const refreshed = await listSchedules(workspace.id)
       setSchedules(refreshed)
@@ -204,6 +211,7 @@ export function Schedules() {
 
       {error && <div className="panel table-state error" role="alert">{error}</div>}
       {notice && <div className="schedule-notice" role="status">{notice}</div>}
+      {operationNotice.notice && <div className="schedule-notice" role="status">{operationNotice.notice}</div>}
 
       <section className="schedule-list panel" aria-label="调度计划列表">
         <header className="schedule-list-header">

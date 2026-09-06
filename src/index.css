@@ -5342,6 +5342,13 @@ kbd {
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
 }
 
+.data-object-history {
+  display: grid;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+}
+
 .data-object-card {
   min-height: 188px;
 }
@@ -9391,4 +9398,74 @@ kbd {
 
 .evaluation-result-error span {
   font-size: 9px;
+}
+
+.feedback-candidate-governance > .button {
+  justify-self: start;
+}
+
+.feedback-candidate-governance .candidate-list,
+.feedback-candidate-governance .candidate-detail {
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.feedback-candidate-governance .candidate-list {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+}
+
+.feedback-candidate-governance .candidate-detail pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow-inset);
+}
+
+.feedback-candidate-governance .candidate-detail :is(h2, h3, p, pre),
+.feedback-candidate-governance .page-toolbar :is(h1, p) {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.feedback-candidate-governance .candidate-detail label {
+  display: grid;
+  gap: 8px;
+}
+
+.feedback-candidate-governance .candidate-detail textarea {
+  min-height: 100px;
+  width: 100%;
+  resize: vertical;
+}
+
+/* Workflow governance actions must remain readable when the asset picker is present. */
+.workflow-studio .studio-toolbar {
+  height: auto;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.workflow-studio .studio-toolbar .workflow-title {
+  flex: 1 1 560px;
+  flex-wrap: wrap;
+}
+
+.workflow-studio .studio-actions {
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+}
+
+.workflow-studio .studio-actions .button,
+.workflow-studio .workflow-name-field .button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.workflow-studio .workflow-name-field {
+  min-width: min(330px, 100%);
 }

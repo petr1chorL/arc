@@ -14,6 +14,10 @@ export async function listDataObjectDefinitions(workspaceId: string): Promise<Da
   return readJson<DataObjectDefinition[]>(await apiFetch(workspacePath(workspaceId)))
 }
 
+export async function listDataObjectVersions(workspaceId: string, definitionId: string): Promise<DataObjectVersion[]> {
+  return readJson<DataObjectVersion[]>(await apiFetch(workspacePath(workspaceId, `/${definitionId}/versions`)))
+}
+
 export async function createDataObjectDefinition(
   workspaceId: string,
   input: DataObjectDefinitionCreateInput,

@@ -1,0 +1,988 @@
+[
+  {
+    "name": "full defaults",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": 80,
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ]
+    },
+    "status": 200
+  },
+  {
+    "name": "passScore 0",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": 0,
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ]
+    },
+    "status": 200
+  },
+  {
+    "name": "passScore 100",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": 100,
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ]
+    },
+    "status": 200
+  },
+  {
+    "name": "passScore 30",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": 30,
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ]
+    },
+    "status": 200
+  },
+  {
+    "name": "passScore true",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": true,
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ]
+    },
+    "status": 200
+  },
+  {
+    "name": "passScore false",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": false,
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ]
+    },
+    "status": 200
+  },
+  {
+    "name": "passScore \"30\"",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": "30",
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ]
+    },
+    "status": 200
+  },
+  {
+    "name": "passScore \"30.0\"",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": "30.0",
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ]
+    },
+    "status": 200
+  },
+  {
+    "name": "passScore \" 30 \"",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": " 30 ",
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ]
+    },
+    "status": 200
+  },
+  {
+    "name": "passScore \"+30\"",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": "+30",
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ]
+    },
+    "status": 200
+  },
+  {
+    "name": "passScore \"3e1\"",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": "3e1",
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ]
+    },
+    "status": 422
+  },
+  {
+    "name": "passScore \"0x1e\"",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": "0x1e",
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ]
+    },
+    "status": 422
+  },
+  {
+    "name": "passScore \"3_0\"",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": "3_0",
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ]
+    },
+    "status": 200
+  },
+  {
+    "name": "passScore null",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": null,
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ]
+    },
+    "status": 422
+  },
+  {
+    "name": "passScore 30.5",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": 30.5,
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ]
+    },
+    "status": 422
+  },
+  {
+    "name": "passScore -1",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": -1,
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ]
+    },
+    "status": 422
+  },
+  {
+    "name": "passScore 101",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": 101,
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ]
+    },
+    "status": 422
+  },
+  {
+    "name": "passScore {}",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": {},
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ]
+    },
+    "status": 422
+  },
+  {
+    "name": "passScore []",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": [],
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ]
+    },
+    "status": 422
+  },
+  {
+    "name": "full snake aliases",
+    "body": {
+      "name": "R",
+      "artifact": "A",
+      "gate": "G",
+      "pass_score": 80,
+      "judge_type": "llm",
+      "judge_model": " model ",
+      "model_provider_id": " p ",
+      "dimensions": [
+        {
+          "id": " q ",
+          "name": "Q",
+          "weight": 100,
+          "criteria": " c ",
+          "ignored": "baseline nested extras ignored"
+        }
+      ]
+    },
+    "status": 200
+  },
+  {
+    "name": "field name \" \"",
+    "body": {
+      "name": " ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": 80,
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ]
+    },
+    "status": 422
+  },
+  {
+    "name": "field name null",
+    "body": {
+      "name": null,
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": 80,
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ]
+    },
+    "status": 422
+  },
+  {
+    "name": "field name \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"",
+    "body": {
+      "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": 80,
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ]
+    },
+    "status": 422
+  },
+  {
+    "name": "field name \"😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\"",
+    "body": {
+      "name": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": 80,
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ]
+    },
+    "status": 200
+  },
+  {
+    "name": "field judgeType null",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": 80,
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ],
+      "judgeType": null
+    },
+    "status": 422
+  },
+  {
+    "name": "field judgeType \"LLM\"",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": 80,
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ],
+      "judgeType": "LLM"
+    },
+    "status": 422
+  },
+  {
+    "name": "field judgeModel null",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": 80,
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ],
+      "judgeModel": null
+    },
+    "status": 422
+  },
+  {
+    "name": "field modelProviderId \" \"",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": 80,
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ],
+      "modelProviderId": " "
+    },
+    "status": 200
+  },
+  {
+    "name": "field modelProviderId null",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": 80,
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ],
+      "modelProviderId": null
+    },
+    "status": 200
+  },
+  {
+    "name": "field modelProviderId 5",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": 80,
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ],
+      "modelProviderId": 5
+    },
+    "status": 422
+  },
+  {
+    "name": "field modelProviderId \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": 80,
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ],
+      "modelProviderId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "status": 422
+  },
+  {
+    "name": "field unexpected \"private-marker\"",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": 80,
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ],
+      "unexpected": "private-marker"
+    },
+    "status": 422
+  },
+  {
+    "name": "empty",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": 80,
+      "dimensions": []
+    },
+    "status": 422
+  },
+  {
+    "name": "weight sum",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": 80,
+      "dimensions": [
+        {
+          "name": "Q",
+          "weight": 99
+        }
+      ]
+    },
+    "status": 422
+  },
+  {
+    "name": "weight fraction",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": 80,
+      "dimensions": [
+        {
+          "name": "Q",
+          "weight": 99.5
+        }
+      ]
+    },
+    "status": 422
+  },
+  {
+    "name": "nested extras",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": 80,
+      "dimensions": [
+        {
+          "name": "Q",
+          "weight": "100.0",
+          "extra": "ignored"
+        }
+      ]
+    },
+    "status": 200
+  },
+  {
+    "name": "duplicate IDs",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": 80,
+      "dimensions": [
+        {
+          "id": " Q ",
+          "name": "A",
+          "weight": 50
+        },
+        {
+          "id": "q",
+          "name": "B",
+          "weight": 50
+        }
+      ]
+    },
+    "status": 422
+  },
+  {
+    "name": "casefold sharp s",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": 80,
+      "dimensions": [
+        {
+          "name": "Straße",
+          "weight": 50
+        },
+        {
+          "name": "STRASSE",
+          "weight": 50
+        }
+      ]
+    },
+    "status": 422
+  },
+  {
+    "name": "casefold sigma",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": 80,
+      "dimensions": [
+        {
+          "name": "ος",
+          "weight": 50
+        },
+        {
+          "name": "οσ",
+          "weight": 50
+        }
+      ]
+    },
+    "status": 422
+  },
+  {
+    "name": "dotless i distinct",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": 80,
+      "dimensions": [
+        {
+          "name": "ı",
+          "weight": 50
+        },
+        {
+          "name": "I",
+          "weight": 50
+        }
+      ]
+    },
+    "status": 200
+  },
+  {
+    "name": "blank id",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": 80,
+      "dimensions": [
+        {
+          "id": " ",
+          "name": "Q",
+          "weight": 100
+        }
+      ]
+    },
+    "status": 422
+  },
+  {
+    "name": "null criteria",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": 80,
+      "dimensions": [
+        {
+          "id": null,
+          "name": "Q",
+          "weight": 100,
+          "criteria": null
+        }
+      ]
+    },
+    "status": 200
+  },
+  {
+    "name": "both aliases forbidden",
+    "body": {
+      "name": " Rubric ",
+      "artifact": " Report ",
+      "gate": " Required ",
+      "passScore": 80,
+      "dimensions": [
+        {
+          "name": " Quality ",
+          "weight": 100
+        }
+      ],
+      "pass_score": 80
+    },
+    "status": 422
+  },
+  {
+    "name": "partial PATCH forbidden",
+    "body": {
+      "name": "Partial"
+    },
+    "status": 422
+  },
+  {
+    "name": "numeric observed \"3_0\"",
+    "body": {
+      "name": "R",
+      "artifact": "A",
+      "gate": "G",
+      "dimensions": [
+        {
+          "name": "Q",
+          "weight": 100
+        }
+      ],
+      "passScore": "3_0"
+    },
+    "status": 200
+  },
+  {
+    "name": "numeric observed \"3__0\"",
+    "body": {
+      "name": "R",
+      "artifact": "A",
+      "gate": "G",
+      "dimensions": [
+        {
+          "name": "Q",
+          "weight": 100
+        }
+      ],
+      "passScore": "3__0"
+    },
+    "status": 422
+  },
+  {
+    "name": "numeric observed \"_30\"",
+    "body": {
+      "name": "R",
+      "artifact": "A",
+      "gate": "G",
+      "dimensions": [
+        {
+          "name": "Q",
+          "weight": 100
+        }
+      ],
+      "passScore": "_30"
+    },
+    "status": 422
+  },
+  {
+    "name": "numeric observed \"30_\"",
+    "body": {
+      "name": "R",
+      "artifact": "A",
+      "gate": "G",
+      "dimensions": [
+        {
+          "name": "Q",
+          "weight": 100
+        }
+      ],
+      "passScore": "30_"
+    },
+    "status": 422
+  },
+  {
+    "name": "numeric observed \"30.0_0\"",
+    "body": {
+      "name": "R",
+      "artifact": "A",
+      "gate": "G",
+      "dimensions": [
+        {
+          "name": "Q",
+          "weight": 100
+        }
+      ],
+      "passScore": "30.0_0"
+    },
+    "status": 422
+  },
+  {
+    "name": "numeric observed \"3_0.0\"",
+    "body": {
+      "name": "R",
+      "artifact": "A",
+      "gate": "G",
+      "dimensions": [
+        {
+          "name": "Q",
+          "weight": 100
+        }
+      ],
+      "passScore": "3_0.0"
+    },
+    "status": 200
+  },
+  {
+    "name": "numeric observed \"30.\"",
+    "body": {
+      "name": "R",
+      "artifact": "A",
+      "gate": "G",
+      "dimensions": [
+        {
+          "name": "Q",
+          "weight": 100
+        }
+      ],
+      "passScore": "30."
+    },
+    "status": 422
+  },
+  {
+    "name": "numeric observed \"30.00\"",
+    "body": {
+      "name": "R",
+      "artifact": "A",
+      "gate": "G",
+      "dimensions": [
+        {
+          "name": "Q",
+          "weight": 100
+        }
+      ],
+      "passScore": "30.00"
+    },
+    "status": 200
+  },
+  {
+    "name": "numeric observed \"+_30\"",
+    "body": {
+      "name": "R",
+      "artifact": "A",
+      "gate": "G",
+      "dimensions": [
+        {
+          "name": "Q",
+          "weight": 100
+        }
+      ],
+      "passScore": "+_30"
+    },
+    "status": 422
+  },
+  {
+    "name": "numeric observed \"﻿30\"",
+    "body": {
+      "name": "R",
+      "artifact": "A",
+      "gate": "G",
+      "dimensions": [
+        {
+          "name": "Q",
+          "weight": 100
+        }
+      ],
+      "passScore": "﻿30"
+    },
+    "status": 422
+  },
+  {
+    "name": "numeric observed \"٣٠\"",
+    "body": {
+      "name": "R",
+      "artifact": "A",
+      "gate": "G",
+      "dimensions": [
+        {
+          "name": "Q",
+          "weight": 100
+        }
+      ],
+      "passScore": "٣٠"
+    },
+    "status": 422
+  },
+  {
+    "name": "numeric observed \"３０\"",
+    "body": {
+      "name": "R",
+      "artifact": "A",
+      "gate": "G",
+      "dimensions": [
+        {
+          "name": "Q",
+          "weight": 100
+        }
+      ],
+      "passScore": "３０"
+    },
+    "status": 422
+  },
+  {
+    "name": "numeric observed \"30\"",
+    "body": {
+      "name": "R",
+      "artifact": "A",
+      "gate": "G",
+      "dimensions": [
+        {
+          "name": "Q",
+          "weight": 100
+        }
+      ],
+      "passScore": "30"
+    },
+    "status": 200
+  },
+  {
+    "name": "numeric observed \" 30\\n\"",
+    "body": {
+      "name": "R",
+      "artifact": "A",
+      "gate": "G",
+      "dimensions": [
+        {
+          "name": "Q",
+          "weight": 100
+        }
+      ],
+      "passScore": " 30\n"
+    },
+    "status": 200
+  },
+  {
+    "name": "numeric observed \"-0\"",
+    "body": {
+      "name": "R",
+      "artifact": "A",
+      "gate": "G",
+      "dimensions": [
+        {
+          "name": "Q",
+          "weight": 100
+        }
+      ],
+      "passScore": "-0"
+    },
+    "status": 200
+  },
+  {
+    "name": "numeric observed \"1e0\"",
+    "body": {
+      "name": "R",
+      "artifact": "A",
+      "gate": "G",
+      "dimensions": [
+        {
+          "name": "Q",
+          "weight": 100
+        }
+      ],
+      "passScore": "1e0"
+    },
+    "status": 422
+  }
+  ,{"name":"integer control separator rejected","body":{"name":"R","artifact":"A","gate":"G","passScore":"\u001c30","dimensions":[{"name":"Q","weight":100}]},"status":422}
+  ,{"name":"text control separators stripped","body":{"name":"\u001cR\u001c","artifact":"A","gate":"G","passScore":30,"dimensions":[{"name":"Q","weight":100}]},"status":200}
+  ,{"name":"text BOM preserved","body":{"name":"\ufeffR\ufeff","artifact":"A","gate":"G","passScore":30,"dimensions":[{"name":"Q","weight":100}]},"status":200}
+]

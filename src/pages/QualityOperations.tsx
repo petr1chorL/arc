@@ -45,6 +45,9 @@ import {
 } from '../api/evaluations'
 import { listModelProviders } from '../api/modelProviders'
 import { useWorkspace } from '../auth/workspaceContextState'
+import { isAcceptedOperation } from '../api/operations'
+import { useOperationUpdates } from '../domain/useOperationUpdates'
+import { useOperationNotice } from '../domain/useOperationNotice'
 import type {
   EvaluationRecord,
   EvaluationOverview,
@@ -692,6 +695,7 @@ export function QualityOperations() {
   const [evaluationText, setEvaluationText] = useState('')
   const [evaluationResult, setEvaluationResult] = useState<EvaluationRecord | null>(null)
   const [evaluationError, setEvaluationError] = useState('')
+  const operationNotice = useOperationNotice(workspace.id)
   const [isEvaluating, setIsEvaluating] = useState(false)
   const [evaluationRecords, setEvaluationRecords] = useState<EvaluationRecord[]>([])
   const [recordStatusFilter, setRecordStatusFilter] = useState('all')
@@ -795,6 +799,8 @@ export function QualityOperations() {
       setIsLoading(false)
     }
   }, [replaceRemediationTasks, workspace.id])
+
+  useOperationUpdates(workspace.id, loadAssets)
 
   useEffect(() => {
     void loadAssets()
@@ -1173,6 +1179,11 @@ export function QualityOperations() {
         subjectType: 'manual_artifact',
         subjectId: null,
       })
+      if (isAcceptedOperation(result)) {
+        setEvaluationResult(null)
+        operationNotice.accepted(result, '评估', '评估已接收，尚未完成；请查看异步任务进度。')
+        return
+      }
       setEvaluationResult(result)
       setEvaluationRecords((current) => [
         result,
@@ -1289,6 +1300,11 @@ export function QualityOperations() {
             sampleId: sample.id,
           })),
         })
+      if (isAcceptedOperation(run)) {
+        setBatchResults([])
+        operationNotice.accepted(run, '回归任务', '回归任务已接收，尚未完成；请查看异步任务进度。')
+        return
+      }
       const nextResults = run.records
       setBatchResults(nextResults)
       setRegressionRuns((current) => [
@@ -1436,7 +1452,12 @@ export function QualityOperations() {
     setRemediationTaskBusyId(task.id)
     setRemediationTaskError('')
     try {
-      upsertRemediationTask(await retestRemediationTask(workspace.id, task.id))
+      const result = await retestRemediationTask(workspace.id, task.id)
+      if (isAcceptedOperation(result)) {
+        operationNotice.accepted(result, '复测任务', '复测任务已接收，尚未完成；请查看异步任务进度。')
+        return
+      }
+      upsertRemediationTask(result)
     } catch (taskError) {
       setRemediationTaskError(taskError instanceof Error ? taskError.message : '修复任务复测失败')
     } finally {
@@ -1940,6 +1961,7 @@ export function QualityOperations() {
 
   return (
     <div className="page-stack">
+      {operationNotice.notice && <p role="status">{operationNotice.notice}</p>}
       <section className="page-toolbar">
         <div><p>把质量标准变成可执行的门禁、评分量规和回归测试。</p></div>
         <div className="toolbar-actions">

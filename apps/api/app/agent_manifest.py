@@ -1,6 +1,6 @@
-from ipaddress import ip_address
 import re
-from urllib.parse import urlsplit
+
+from app.reference_asset_policy import is_safe_registration_url
 
 
 REMOTE_AGENT_RUNTIME = "remote_http"
@@ -44,7 +44,8 @@ def normalize_agent_runtime_manifest(value: object) -> dict:
     timeout_seconds = value.get("timeoutSeconds")
     if (
         isinstance(timeout_seconds, bool)
-        or not isinstance(timeout_seconds, int)
+        or not isinstance(timeout_seconds, (int, float))
+        or (isinstance(timeout_seconds, float) and not timeout_seconds.is_integer())
         or not REMOTE_AGENT_TIMEOUT_MIN_SECONDS
         <= timeout_seconds
         <= REMOTE_AGENT_TIMEOUT_MAX_SECONDS
@@ -57,7 +58,7 @@ def normalize_agent_runtime_manifest(value: object) -> dict:
         "protocolVersion": REMOTE_AGENT_PROTOCOL_VERSION,
         "endpointUrl": endpoint_url,
         "secretRef": secret_ref,
-        "timeoutSeconds": timeout_seconds,
+        "timeoutSeconds": int(timeout_seconds),
     }
 
 
@@ -80,26 +81,4 @@ def is_legacy_python_package_manifest(value: object) -> bool:
 
 
 def is_structurally_valid_agent_api_url(value: str) -> bool:
-    if not value or any(character.isspace() for character in value):
-        return False
-    try:
-        parsed = urlsplit(value)
-        hostname = parsed.hostname
-        port = parsed.port
-    except ValueError:
-        return False
-    if (
-        parsed.scheme.lower() != "https"
-        or not hostname
-        or parsed.username is not None
-        or parsed.password is not None
-        or bool(parsed.query)
-        or bool(parsed.fragment)
-        or port not in {None, 443}
-    ):
-        return False
-    try:
-        ip_address(hostname)
-    except ValueError:
-        return True
-    return False
+    return is_safe_registration_url(value)
