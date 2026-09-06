@@ -2,6 +2,11 @@
 
 ## 2026-09-06 生产迁移准备与 CI 修复
 
+最终代码验证：68f9f6b / CI34027123972已全步骤成功，含全部前后端/PG/浏览器/构建；
+两项独立Spec/Standards各0阻断。Netlify同提交仍因credit超限跳过，正式发布仍b626602。
+目标production数据库7条结构迁移已应用、Tool快照迁移待应用，仅查询状态，未改变数据库。
+后续仅审查和状态文档同步不改变上述代码验证对象；以下失败/待核验描述为历史过程。
+
 最新：观测页 URL 镜像状态振荡与旧详情晚到覆盖均已确定RED→GREEN，独立14例及复审通过；
 主线程71文件696项完整8分片、7浏览器场景、lint/build通过。精确证据见
 `.harness/changes/netlify-production-cutover/observability-navigation-verify.md`。

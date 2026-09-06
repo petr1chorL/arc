@@ -4,6 +4,24 @@
 
 ## 最新增量状态
 
+### 续行最终代码验证：68f9f6b
+
+代码提交 `68f9f6bcc22ba9d719b9988485ee92c9dce615da` 已推送，
+[CI34027123972](https://github.com/petr1chorL/arc/actions/runs/34027123972) 全步骤成功，watch退出码0。
+包括完整前端/Python、全部PG合同与锁竞争、资产/Workflow浏览器、22原生程序、原生运行浏览器、lint/build/deploycheck。
+观测页与资产fixture两项Spec/Standards独立轴各0阻断，见两份Spec报告及continuation-standards-review.md。
+下方52e36f8/0a35的失败和“后续CI待核验”是此前快照，不覆盖本段已验证代码结果。
+
+Netlify对同一68f9f6b的部署 `6a9d3e51d5c02b00086acbdc` 为error/skipped，
+错误 `Skipped due to account credit usage exceeded`，published_at=null。当前正式发布仍b626602。
+CLI只读database status --branch production确认enabled=true，已应用7条结构迁移；
+仅20260906200000_runtime-tool-test-snapshots待应用，missingOnDisk/outOfOrder均为空。
+没有读取/输出连接信息或执行迁移；这不是源数据对账，也没有核实服务端PG版本。
+
+用户尚未回答Netlify与Zeabur费用上限/续费选择，未购买/充值。源库访问与备份恢复、
+旧任务对账、公开运行宿主/AWL/通知接线、真实业务验收、切流回滚、稳定观察及Zeabur退役仍未完成。
+此后的仅审查/状态文档同步不改变上述代码验证对象，不将其他提交预报为CI成功。
+
 2026-09-06 再次收口：52e36f8 / CI34025942754 已通过前端/Python/身份PG，但资产PG历史返回503失败。
 本地原样复现并确认测试库缺runtime_operations；已将资产PG及浏览器fixture同步到既有完整结构加载器。
 原合同198检查/52角色路由/26共享请求、22原生程序、9浏览器场景及lint/build/deploy:check通过。
