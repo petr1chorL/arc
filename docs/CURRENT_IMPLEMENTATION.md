@@ -2,6 +2,12 @@
 
 ## 2026-09-06 生产迁移准备与 CI 修复
 
+最新：观测页 URL 镜像状态振荡与旧详情晚到覆盖均已确定RED→GREEN，独立14例及复审通过；
+主线程71文件696项完整8分片、7浏览器场景、lint/build通过。精确证据见
+`.harness/changes/netlify-production-cutover/observability-navigation-verify.md`。
+Netlify CLI/API已确认Git关联正常，后续四次push构建因账户credit usage exceeded跳过；
+最后发布仍b626602。未购买额度、未切流，不将本地修复称作生产迁移完成。
+
 Workflow 过期 effect 的版本请求扇出已修复；提交 `b626602` 的 GitHub CI `34020649346`
 全部通过，Netlify 部署 `6a9d1d993c53f700086e848e` 已发布相同 SHA。
 此发布仍是 Netlify 前端 + Zeabur API/Worker/数据，原生公开入口保持关闭。

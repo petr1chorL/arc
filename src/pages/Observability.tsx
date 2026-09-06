@@ -210,7 +210,6 @@ export function Observability() {
   const searchParamsRef = useRef(new URLSearchParams(searchParams))
   searchParamsRef.current = new URLSearchParams(searchParams)
   const [overview, setOverview] = useState<ObservabilityOverview | null>(null)
-  const [selectedRunId, setSelectedRunId] = useState('')
   const [detail, setDetail] = useState<ObservabilityRunDetail | null>(null)
   const [humanSla, setHumanSla] = useState<HumanSlaOverview | null>(null)
   const [costUsage, setCostUsage] = useState<CostUsageOverview | null>(null)
@@ -291,6 +290,12 @@ export function Observability() {
       && (riskFilter === 'all' || risk.severity === riskFilter)
     ))
   }, [filteredRuns, overview, riskFilter])
+
+  const selectedRunId = useMemo(() => {
+    if (filteredRuns.some((run) => run.id === requestedRunId)) return requestedRunId
+    const firstRiskRun = filteredRuns.find((run) => filteredRisks.some((risk) => risk.runId === run.id))
+    return firstRiskRun?.id ?? filteredRuns[0]?.id ?? ''
+  }, [filteredRisks, filteredRuns, requestedRunId])
 
   const filteredAlerts = useMemo(() => {
     if (!overview) return []
@@ -442,38 +447,34 @@ export function Observability() {
   }, [loadExecutionJobs])
 
   useEffect(() => {
-    if (!overview) return
-    setSelectedRunId((current) => {
-      const visibleRunIds = new Set(filteredRuns.map((run) => run.id))
-      if (requestedRunId && visibleRunIds.has(requestedRunId)) return requestedRunId
-      if (current && visibleRunIds.has(current)) return current
-      const firstRiskRun = filteredRuns.find((run) => filteredRisks.some((risk) => risk.runId === run.id))
-      return firstRiskRun?.id ?? filteredRuns[0]?.id ?? ''
-    })
-  }, [filteredRisks, filteredRuns, overview, requestedRunId])
-
-  useEffect(() => {
     if (!selectedRunId) return
     if (searchParams.get('runId') === selectedRunId) return
     writeSearchParams({ runId: selectedRunId })
   }, [searchParams, selectedRunId, writeSearchParams])
 
   useEffect(() => {
+    let current = true
+    setDetail(null)
+    setDetailError('')
     if (!selectedRunId) {
-      setDetail(null)
-      setDetailError('')
+      setIsDetailLoading(false)
       return
     }
 
     setIsDetailLoading(true)
-    setDetailError('')
     void getObservabilityRunDetail(workspace.id, selectedRunId)
-      .then(setDetail)
+      .then((nextDetail) => {
+        if (current) setDetail(nextDetail)
+      })
       .catch((loadError) => {
+        if (!current) return
         setDetail(null)
         setDetailError(loadError instanceof Error ? loadError.message : '运行详情加载失败')
       })
-      .finally(() => setIsDetailLoading(false))
+      .finally(() => {
+        if (current) setIsDetailLoading(false)
+      })
+    return () => { current = false }
   }, [selectedRunId, workspace.id])
 
   if (isLoading) {
@@ -666,7 +667,6 @@ export function Observability() {
                   key={risk.runId}
                   className={`observability-run-card ${selectedRunId === risk.runId ? 'selected' : ''}`}
                   onClick={() => {
-                    setSelectedRunId(risk.runId)
                     writeSearchParams({ runId: risk.runId, nodeRunId: '' })
                   }}
                 >
@@ -692,7 +692,6 @@ export function Observability() {
                 key={run.id}
                 className={`observability-run-row ${selectedRunId === run.id ? 'selected' : ''}`}
                 onClick={() => {
-                  setSelectedRunId(run.id)
                   writeSearchParams({ runId: run.id, nodeRunId: '' })
                 }}
               >
