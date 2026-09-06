@@ -16,7 +16,11 @@ export default defineConfig({
     environment: 'jsdom',
     include: ['src/**/*.test.{ts,tsx}', 'scripts/**/*.test.mjs'],
     // Native runtime checks use node:test and real isolated PG, registered separately in CI.
-    exclude: [...configDefaults.exclude, 'scripts/runtime-*.test.mjs'],
+    exclude: [
+      ...configDefaults.exclude, 'scripts/runtime-*.test.mjs',
+      'scripts/native-deployment.test.mjs', 'scripts/native-runtime-config.test.mjs',
+      'scripts/provider-compat.test.mjs', 'scripts/cutover-source-inventory.test.mjs',
+    ],
     setupFiles: './src/test/setup.ts',
   },
 })

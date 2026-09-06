@@ -2,6 +2,17 @@
 
 日期：2026-09-06。进行中快照，**不是生产迁移验收通过报告**。
 
+## 最新增量状态
+
+准备代码已提交推送为 `4c65b48f05a448b233d34340d1a0da303ce39261`。
+CI `34021720282` 前端测试入口失败：Node 测试被 Vitest 误收集；修正与新回归见 test-runner-fix.md。
+修正后本地全量 Vitest 69 文件/681 项、lint/build/deploy:check 通过，独立审查未发现漏跑。
+不能把该提交记为云端通过。最后确认正式发布仍为下节的 b626602。
+本轮匿名只读 HTTP 检查：首页 200 且标题 ARC.ONE Agentic OS，/api/health 200/status ok，
+原生 runtime/runtime-scheduled 404；浏览器打开站点仍超时，未验收登录后真实业务。
+本轮一次性合成容器 arc-one-cutover-verify-20260906 的随机 schema 已核对为空并已移除；
+没有删除真实数据或其他容器。
+
 ## 已发布的精确版本
 
 - 04A–06 基线 `a4894b3366d6fe95e2f30ee2b91ad15e92b29bbd` 已推送；CI `34013885627`
@@ -29,7 +40,7 @@
   **17 个测试程序全部通过**，合成数据库/外部适配器，不是 17 个生产场景。
 - 主线程 lint、build（含前端/Netlify 类型检查）、deploy:check、diff check 通过。
   sandbox Vite 子进程 EPERM 后在已授权执行环境构建成功，没有修改构建语义绕过失败。
-- 本批增量的提交后 CI/Netlify 状态尚待记录；不能复用 b626602 的云端结果为后续代码背书。
+- 本批增量的提交后 CI/Netlify 状态以上方最新增量段为准；不能复用 b626602 的云端结果为后续代码背书。
 - 两份既有 2026-08-13 研究文档保持原样，不纳入提交。
 
 各切片 RED/GREEN、范围和独立结论见本目录 native/provider/runtime/source 对应回执。
