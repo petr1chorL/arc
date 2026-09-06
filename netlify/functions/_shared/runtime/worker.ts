@@ -51,7 +51,7 @@ function createContext(pool: SqlPool, operation: Operation): RuntimeContext {
     await requireLease(client, operation)
     return fn(client)
   })
-  return { pool, transaction, async effect<T>(key: string, input: unknown, send: () => Promise<T>): Promise<T> {
+  return { pool, transaction, async effect<T>(key: string, input: unknown, send: () => Promise<T>, beforeIntent?: (client: SqlClient) => Promise<void>): Promise<T> {
     if (!key || key.length > 200) throw new Error('无效副作用键')
     const hash = requestHash(input)
     const intent = await transaction(async client => {
@@ -60,8 +60,12 @@ function createContext(pool: SqlPool, operation: Operation): RuntimeContext {
         if (old.request_hash !== hash) throw new Error('恢复请求与固定输入不一致')
         if (old.status === 'succeeded') return { cached: true, result: old.result as T, attempt: Number(old.attempt) }
         if (old.status !== 'not_sent') throw new UncertainEffectError('外部调用结果待核对')
+        await beforeIntent?.(client)
         await client.query("UPDATE runtime_effects SET status='started',updated_at=now() WHERE operation_id=$1 AND effect_key=$2", [operation.id, key])
-      } else await client.query(`INSERT INTO runtime_effects(operation_id,effect_key,request_hash,status) VALUES($1,$2,$3,'started')`, [operation.id, key, hash])
+      } else {
+        await beforeIntent?.(client)
+        await client.query(`INSERT INTO runtime_effects(operation_id,effect_key,request_hash,status) VALUES($1,$2,$3,'started')`, [operation.id, key, hash])
+      }
       return { cached: false, result: undefined, attempt: old ? Number(old.attempt) : 1 }
     })
     if (intent.cached) return intent.result as T

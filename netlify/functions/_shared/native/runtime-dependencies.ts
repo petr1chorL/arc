@@ -8,6 +8,7 @@ import type { ProviderCompatibilityOptions } from '../reference-assets/provider-
 type Binding = Readonly<{ workspaceId: string; host: string; secretRef: string }>
 export type NativeRuntimeConfig = Readonly<{
   bindings: readonly Binding[]
+  toolBindings?: readonly Readonly<{ workspaceId: string; host: string }>[]
   inputCostPerMillion?: number
   outputCostPerMillion?: number
   requestTimeoutMs: number
@@ -28,10 +29,11 @@ export type NativeRuntimeAssembly = {
 
 /** Parse only explicit, non-secret runtime settings supplied by the host. */
 export function parseNativeRuntimeConfig(value: unknown): NativeRuntimeConfig {
-  const source = fields(value, ['bindings', 'inputCostPerMillion', 'outputCostPerMillion', 'requestTimeoutMs'])
+  const source = fields(value, ['bindings', 'toolBindings', 'inputCostPerMillion', 'outputCostPerMillion', 'requestTimeoutMs'])
   if (!Array.isArray(source.bindings)) throw configError()
   const bindings = source.bindings.map(parseBinding)
   if (new Set(bindings.map(binding => JSON.stringify(binding))).size !== bindings.length) throw configError()
+  const toolBindings = Object.hasOwn(source, 'toolBindings') ? parseToolBindings(source.toolBindings) : undefined
   const input = source.inputCostPerMillion, output = source.outputCostPerMillion
   const costConfigured = Object.hasOwn(source, 'inputCostPerMillion') || Object.hasOwn(source, 'outputCostPerMillion')
   // The existing gateway permits at most 1e9 tokens per usage field; reject overflow before sending.
@@ -39,6 +41,7 @@ export function parseNativeRuntimeConfig(value: unknown): NativeRuntimeConfig {
   const requestTimeoutMs = Object.hasOwn(source, 'requestTimeoutMs') ? source.requestTimeoutMs : 60000
   if (typeof requestTimeoutMs !== 'number' || !Number.isInteger(requestTimeoutMs) || requestTimeoutMs < 1 || requestTimeoutMs > 60000) throw configError()
   return Object.freeze({ bindings: Object.freeze(bindings), requestTimeoutMs, costConfigured,
+    ...(toolBindings ? { toolBindings } : {}),
     ...(costConfigured ? { inputCostPerMillion: input as number, outputCostPerMillion: output as number } : {}) })
 }
 
@@ -50,14 +53,25 @@ function fields(value: unknown, keys: readonly string[]): Record<string, unknown
 
 function parseBinding(value: unknown): Binding {
   const binding = fields(value, ['workspaceId', 'host', 'secretRef'])
+  if (typeof binding.secretRef !== 'string' || !/^[A-Z_][A-Z0-9_]{0,159}$/.test(binding.secretRef)) throw configError()
+  return Object.freeze({ ...parseHostBinding(binding), secretRef: binding.secretRef })
+}
+
+function parseToolBindings(value: unknown) {
+  if (!Array.isArray(value)) throw configError()
+  const bindings = value.map(item => parseHostBinding(fields(item, ['workspaceId', 'host'])))
+  if (new Set(bindings.map(binding => JSON.stringify(binding))).size !== bindings.length) throw configError()
+  return Object.freeze(bindings)
+}
+
+function parseHostBinding(binding: Record<string, unknown>) {
   if (typeof binding.workspaceId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,35}$/.test(binding.workspaceId)
-    || typeof binding.secretRef !== 'string' || !/^[A-Z_][A-Z0-9_]{0,159}$/.test(binding.secretRef)
     || typeof binding.host !== 'string') throw configError()
   const host = binding.host.toLowerCase(), labels = host.split('.')
   if (isIP(host) || host.length > 253 || labels.length < 2
     || labels.some(label => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))) throw configError()
   try { if (new URL(`https://${host}`).hostname !== host) throw configError() } catch { throw configError() }
-  return Object.freeze({ workspaceId: binding.workspaceId, host, secretRef: binding.secretRef })
+  return Object.freeze({ workspaceId: binding.workspaceId, host })
 }
 
 function configError() { return new NotSentError('运行依赖配置无效') }
@@ -74,7 +88,9 @@ export function createNativeRuntimeDependencies(ports: NativeRuntimePorts): Nati
   const providerOptions: ProviderCompatibilityOptions = { secretPresence: binding => (
     isApprovedProvider(config, binding) ? Boolean(resolveSecret(binding.secretRef)) : false
   ) }
-  return { dependencies: gateway, providerOptions, closureOptions: { costConfigured: config.costConfigured } }
+  return { dependencies: { ...gateway, ...(config.toolBindings ? { toolOptions: {
+    allowedBindings: config.toolBindings, fetch: ports.fetch,
+  } } : {}) }, providerOptions, closureOptions: { costConfigured: config.costConfigured } }
 }
 
 function isApprovedProvider(config: NativeRuntimeConfig, binding: { workspaceId: string; baseUrl: string; secretRef: string }): boolean {

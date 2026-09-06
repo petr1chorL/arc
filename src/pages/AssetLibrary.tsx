@@ -1,5 +1,5 @@
 import { Check, FileJson, Pencil, Play, Plus, Power, ShieldOff, Wrench } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   createToolSkillAsset,
   deactivateToolSkillAsset,
@@ -11,7 +11,11 @@ import {
   updateToolSkillAsset,
 } from '../api/assetLibrary'
 import { useWorkspace } from '../auth/workspaceContextState'
-import { isReferenceAssetMigration, referenceAssetMigrationNotice } from '../api/migrationCapabilities'
+import { useAuth } from '../auth/authContext'
+import { workspaceHasCapability } from '../auth/workspaceCapabilities'
+import { isReferenceAssetMigration, isRuntimeMigration, isToolTestAvailable, referenceAssetMigrationNotice, toolTestMigrationNotice } from '../api/migrationCapabilities'
+import { isAcceptedOperation, operationUpdatedEvent, type AcceptedOperation, type Operation } from '../api/operations'
+import { useOperationNotice } from '../domain/useOperationNotice'
 import { AssetRegistrationConfig } from '../components/AssetRegistrationConfig'
 import type {
   ToolSkillAdapterType,
@@ -56,6 +60,7 @@ function parseJsonObject(value: string, label: string): Record<string, unknown> 
 }
 
 function auditEventDetail(event: ToolSkillAssetAuditEvent) {
+  if (event.metadata.phase === 'accepted') return '测试已受理，不代表执行完成'
   if (event.reason) return event.reason
   const outputSummary = event.metadata.outputSummary
   if (typeof outputSummary === 'string' && outputSummary) return outputSummary
@@ -65,13 +70,28 @@ function auditEventDetail(event: ToolSkillAssetAuditEvent) {
 }
 
 export function AssetLibrary() {
-  const migrationOnly = isReferenceAssetMigration()
   const { workspace } = useWorkspace()
+  return <AssetLibraryPanel key={workspace.id} />
+}
+
+function AssetLibraryPanel() {
+  const migrationOnly = isReferenceAssetMigration()
+  const runtime = isRuntimeMigration()
+  const { workspace, workspacePath } = useWorkspace()
+  const { user } = useAuth()
+  const canTestTools = isToolTestAvailable() && (!runtime || workspaceHasCapability(workspace, user?.isOrganizationAdmin, 'agent.write'))
+  const operationNotice = useOperationNotice(workspace.id)
+  const alive = useRef(false)
+  const historyRequest = useRef(0)
+  const pendingTests = useRef(new Map<string, { actorId: string; parameters: string; key: string }>())
+  useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
   const [assets, setAssets] = useState<ToolSkillAsset[]>([])
   const [invocations, setInvocations] = useState<ToolSkillInvocation[]>([])
+  const [invocationError, setInvocationError] = useState('')
   const [impactByAssetId, setImpactByAssetId] = useState<Partial<Record<string, ToolSkillAssetImpact | null>>>({})
   const [auditEventsByAssetId, setAuditEventsByAssetId] = useState<Partial<Record<string, ToolSkillAssetAuditEvent[] | null>>>({})
   const [testResults, setTestResults] = useState<Record<string, ToolSkillInvocation>>({})
+  const [acceptedTests, setAcceptedTests] = useState<Record<string, AcceptedOperation>>({})
   const [testParameterJsonByAssetId, setTestParameterJsonByAssetId] = useState<Record<string, string>>({})
   const [editingAssetId, setEditingAssetId] = useState('')
   const [editForm, setEditForm] = useState<EditFormState | null>(null)
@@ -90,6 +110,7 @@ export function AssetLibrary() {
         return [asset.id, null] as const
       }
     }))
+    if (!alive.current) return
     setImpactByAssetId((current) => ({
       ...current,
       ...Object.fromEntries(entries),
@@ -106,27 +127,52 @@ export function AssetLibrary() {
         return [asset.id, null] as const
       }
     }))
+    if (!alive.current) return
     setAuditEventsByAssetId((current) => ({
       ...current,
       ...Object.fromEntries(entries),
     }))
   }, [workspace.id])
 
+  const refreshInvocations = useCallback(async () => {
+    const request = ++historyRequest.current
+    try {
+      const latest = await listToolSkillInvocations(workspace.id)
+      if (alive.current && request === historyRequest.current) {
+        setInvocations(latest)
+        setInvocationError('')
+      }
+    } catch (loadError) {
+      if (!alive.current || request !== historyRequest.current) return
+      setInvocations([])
+      setInvocationError(loadError instanceof Error ? loadError.message : '调用记录刷新失败')
+    }
+  }, [workspace.id])
+
   useEffect(() => {
-    void Promise.all([
-      listToolSkillAssets(workspace.id),
-      listToolSkillInvocations(workspace.id),
-    ])
-      .then(([loadedAssets, loadedInvocations]) => {
+    const receive = (event: Event) => {
+      const detail = (event as CustomEvent<{ workspaceId: string; operation: Operation }>).detail
+      if (detail?.workspaceId === workspace.id && detail.operation?.kind === 'tool.test') void refreshInvocations()
+    }
+    window.addEventListener(operationUpdatedEvent, receive)
+    return () => window.removeEventListener(operationUpdatedEvent, receive)
+  }, [workspace.id, refreshInvocations])
+
+  useEffect(() => {
+    let current = true
+    void refreshInvocations()
+    void listToolSkillAssets(workspace.id)
+      .then((loadedAssets) => {
+        if (!current || !alive.current) return
         setAssets(loadedAssets)
-        setInvocations(loadedInvocations)
         return Promise.all([
           loadAssetImpacts(loadedAssets),
           loadAssetAuditEvents(loadedAssets),
         ])
       })
-      .catch((loadError) => setError(loadError instanceof Error ? loadError.message : '资产库加载失败'))
-  }, [loadAssetAuditEvents, loadAssetImpacts, workspace.id])
+      .catch((loadError) => { if (current && alive.current) setError(loadError instanceof Error ? loadError.message : '资产库加载失败') })
+    return () => { current = false }
+  }, [loadAssetAuditEvents, loadAssetImpacts, refreshInvocations, workspace.id])
 
   function updateForm<TField extends keyof typeof initialForm>(field: TField, value: (typeof initialForm)[TField]) {
     setForm((current) => ({ ...current, [field]: value,
@@ -166,23 +212,41 @@ export function AssetLibrary() {
   }
 
   async function runTestInvocation(asset: ToolSkillAsset) {
-    if (migrationOnly) return
+    if (!canTestTools || isBusy || asset.status === 'disabled') return
     setIsBusy(true)
     setError('')
     try {
       const parameters = parseJsonObject(testParameterJsonByAssetId[asset.id] ?? emptyJson, '测试参数')
-      const result = await testToolSkillAsset(workspace.id, asset.id, { parameters })
+      const requestBody = JSON.stringify(parameters)
+      const previous = pendingTests.current.get(asset.id)
+      const actorId = user?.id ?? ''
+      const key = runtime ? (previous?.actorId === actorId && previous.parameters === requestBody
+        ? previous.key : crypto.randomUUID()) : undefined
+      if (key) pendingTests.current.set(asset.id, { actorId, parameters: requestBody, key })
+      const result = await testToolSkillAsset(workspace.id, asset.id, { parameters }, key)
+      // A lost response retains the same key; only a confirmed response finishes this submission.
+      pendingTests.current.delete(asset.id)
+      if (!alive.current) return
+      if (isAcceptedOperation(result)) {
+        setAcceptedTests(current => ({ ...current, [asset.id]: result }))
+        setTestResults(current => { const next = { ...current }; delete next[asset.id]; return next })
+        setFeedback('')
+        operationNotice.accepted(result, '工具测试', '测试已受理，尚未完成；请查看异步任务进度。')
+        await Promise.all([refreshInvocations(), loadAssetAuditEvents([asset])])
+        return
+      }
       setTestResults((current) => ({ ...current, [asset.id]: result }))
       const latest = await listToolSkillInvocations(workspace.id, asset.id)
+      if (!alive.current) return
       setInvocations((current) => [
         ...latest,
         ...current.filter((item) => item.assetId !== asset.id),
       ])
       setFeedback('测试调用完成')
     } catch (testError) {
-      setError(testError instanceof Error ? testError.message : '测试调用失败')
+      if (alive.current) setError(testError instanceof Error ? testError.message : '测试调用失败')
     } finally {
-      setIsBusy(false)
+      if (alive.current) setIsBusy(false)
     }
   }
 
@@ -248,7 +312,7 @@ export function AssetLibrary() {
 
   return (
     <div className="page-stack asset-library-page">
-      {migrationOnly && <p role="status">{referenceAssetMigrationNotice}</p>}
+      {migrationOnly && <p role="status">{runtime ? toolTestMigrationNotice : referenceAssetMigrationNotice}</p>}
       <section className="panel asset-library-intro">
         <div>
           <p className="section-kicker">TOOL & SKILL REGISTRY</p>
@@ -257,14 +321,14 @@ export function AssetLibrary() {
         </div>
         <div className="provider-secret-note">
           <Wrench size={18} />
-          <span>{migrationOnly ? '当前仅验证资产登记，不执行 HTTP / MCP 调用' : 'HTTP / MCP Tool 可在这里做一次受控测试调用'}</span>
+          <span>{runtime ? 'HTTP Tool 测试采用异步任务；MCP 网关未配置，不会真实执行' : migrationOnly ? '当前仅验证资产登记，不执行 HTTP / MCP 调用' : 'HTTP / MCP Tool 可在这里做一次受控测试调用'}</span>
         </div>
       </section>
 
-      {(feedback || error) && (
+      {(feedback || error || operationNotice.notice) && (
         <div className={`inline-feedback ${error ? 'error' : ''}`} role="status">
           {error ? <ShieldOff size={15} /> : <Check size={15} />}
-          {error || feedback}
+          {error || feedback || operationNotice.notice}
         </div>
       )}
 
@@ -491,16 +555,19 @@ export function AssetLibrary() {
                       </label>
                       <button
                         className="button secondary compact"
-                        disabled={isBusy || migrationOnly}
+                        disabled={isBusy || !canTestTools || asset.status === 'disabled'}
                         onClick={() => void runTestInvocation(asset)}
                         aria-label={`测试调用 ${asset.name}`}
                       >
                         <Play size={15} />测试调用
                       </button>
+                      {runtime && !canTestTools && <p>测试调用需要资产编辑权限。</p>}
+                      {runtime && <p>提交结果不明确时，请先查看调用记录。同页、同参数重试会复用提交；刷新页面后再次测试属于新提交。</p>}
+                      {acceptedTests[asset.id] && <p>任务 ID：{acceptedTests[asset.id].operationId} · <a href={workspacePath(`settings/asset-library?operationId=${encodeURIComponent(acceptedTests[asset.id].operationId)}`)}>查看测试任务</a></p>}
                       {result && (
                         <div className="asset-test-result">
                           <span>{result.status}</span>
-                          {result.outputSummary && <strong>{result.outputSummary}</strong>}
+                          {!migrationOnly && result.outputSummary && <strong>{result.outputSummary}</strong>}
                           {result.error && <p>{result.error}</p>}
                           <small>{result.durationMs} ms</small>
                         </div>
@@ -517,17 +584,18 @@ export function AssetLibrary() {
           <header className="panel-header">
             <div><span className="section-kicker">调用日志</span><h3>最近调用</h3></div>
           </header>
-          {invocations.length === 0 ? (
+          {invocationError ? <div role="alert">{invocationError}<button className="button secondary" type="button" onClick={() => void refreshInvocations()}>重试调用记录</button></div> : invocations.length === 0 ? (
             <div className="table-state">暂无调用日志。</div>
           ) : (
             <ul>
               {invocations.slice(0, 8).map((item) => (
                 <li key={item.id}>
-                  <strong>{item.assetName}</strong>
+                  <strong>{migrationOnly ? `Tool / Skill 调用 ${item.id}` : item.assetName}</strong>
                   <span>{item.status} · {item.durationMs} ms</span>
-                  {item.inputSummary && <p>{item.inputSummary}</p>}
-                  {item.outputSummary && <p>{item.outputSummary}</p>}
+                  {!migrationOnly && item.inputSummary && <p>{item.inputSummary}</p>}
+                  {!migrationOnly && item.outputSummary && <p>{item.outputSummary}</p>}
                   {item.error && <p>{item.error}</p>}
+                  {runtime && item.operationId && <a href={workspacePath(`settings/asset-library?operationId=${encodeURIComponent(item.operationId)}`)}>查看测试任务</a>}
                 </li>
               ))}
             </ul>

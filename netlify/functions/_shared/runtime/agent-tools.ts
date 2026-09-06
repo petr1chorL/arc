@@ -1,14 +1,14 @@
 import {randomUUID} from 'node:crypto'
-import {isIP} from 'node:net'
 import {ApiError} from '../identity-workspace/handler.ts'
 import {validateAdapterConfig} from '../reference-assets/policy.ts'
 import {appendOperationEvent,requestHash} from './ledger.ts'
-import {ContinueOperation,NotSentError,UncertainEffectError,type Operation,type RuntimeContext} from './types.ts'
+import {ContinueOperation,UncertainEffectError,type Operation,type RuntimeContext} from './types.ts'
+import {invokeHttpTool,validateHttpToolTarget,type HttpToolOptions} from './http-tool-transport.ts'
 
 type ObjectValue=Record<string,unknown>
 type ToolSnapshot={invocationId:string;assetId:string;assetName:string;assetType:string;adapterType:string;adapterConfig:ObjectValue;active:boolean}
 type InvocationResult={status:'succeeded'|'failed';outputSummary:string;error:string;durationMs:number}
-export type AgentToolOptions={allowedBindings:readonly {workspaceId:string;host:string}[];fetch?:typeof fetch;agentId?:string;agentVersion?:string}
+export type AgentToolOptions=HttpToolOptions & {agentId?:string;agentVersion?:string}
 const asObject=(value:unknown):ObjectValue=>{if(!value || typeof value!=='object' || Array.isArray(value))throw new ApiError(409,'工具历史结构无效');return value as ObjectValue}
 
 /** Fixed configuration and input precede all tool effects, including resumed runs. */
@@ -55,11 +55,11 @@ export async function prepareAgentToolInput(op:Operation,ctx:RuntimeContext,snap
       else {
         // Invalid/unauthorized configuration is a confirmed pre-send failure, not a transport retry.
         let configError=false
-        try{validateToolTarget(tool.adapterConfig,op.workspace_id,options)}catch{configError=true}
+        try{validateHttpToolTarget(tool.adapterConfig,op.workspace_id,options)}catch{configError=true}
         try {
           const receipt=await claimTool(op,ctx,tool)
           result=receipt??(configError?{status:'failed',outputSummary:'',error:'HTTP Tool 地址未获准，未执行',durationMs:0}
-            :await ctx.effect(`tool:${tool.invocationId}`,{assetId:tool.assetId,config:tool.adapterConfig,input},()=>invoke(tool,input,op.workspace_id,options)))
+            :await ctx.effect(`tool:${tool.invocationId}`,{assetId:tool.assetId,config:tool.adapterConfig,input},()=>invokeHttpTool(tool.adapterConfig,{input},op.workspace_id,tool.invocationId,options)))
         }catch(error) {
           if(error instanceof UncertainEffectError)await ctx.transaction(async client=>{
             await client.query("UPDATE tool_skill_asset_invocations SET status='needs_reconciliation',error='工具调用结果待核对' WHERE id=$1 AND workspace_id=$2",[tool.invocationId,op.workspace_id])
@@ -112,28 +112,4 @@ function freezeTool(row:ObjectValue):ToolSnapshot {
   // Never freeze a credential-bearing historical config into the internal ledger.
   try{validateAdapterConfig(String(row.adapter_type),config)}catch{throw new ApiError(409,'工具配置未通过安全治理')}
   return {invocationId:randomUUID(),assetId:String(row.id),assetName:String(row.name),assetType:String(row.asset_type),adapterType:String(row.adapter_type),adapterConfig:config,active:row.status==='active'}
-}
-
-function validateToolTarget(config:ObjectValue,workspaceId:string,options:AgentToolOptions) {
-  validateAdapterConfig('http',config)
-  const url=new URL(String(config.url))
-  if(isIP(url.hostname) || url.hostname.startsWith('[') || !options.allowedBindings.some(binding=>binding.workspaceId===workspaceId && binding.host.toLowerCase()===url.hostname.toLowerCase()))throw new NotSentError('HTTP Tool Host 未获准')
-}
-
-async function invoke(tool:ToolSnapshot,input:string,workspaceId:string,options:AgentToolOptions):Promise<InvocationResult> {
-  validateToolTarget(tool.adapterConfig,workspaceId,options)
-  const started=Date.now(),url=new URL(String(tool.adapterConfig.url)),method=String(tool.adapterConfig.method??'POST')
-  if(method==='GET')url.searchParams.set('input',input)
-  const response=await(options.fetch??fetch)(url.toString(),{method,headers:{'Content-Type':'application/json','Idempotency-Key':tool.invocationId},...(method==='POST'?{body:JSON.stringify({input})}:{}),redirect:'error',signal:AbortSignal.timeout(10000)})
-  if(response.status>=500 || response.status>=300 && response.status<400)throw new Error('工具接收结果不确定')
-  if(!response.ok)return {status:'failed',outputSummary:'',error:`HTTP Tool 请求被拒绝（HTTP ${response.status}）`,durationMs:Date.now()-started}
-  const reader=response.body?.getReader()
-  if(!reader)throw new Error('工具返回无正文')
-  const chunks:Uint8Array[]=[];let bytes=0
-  try{while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.length;if(bytes>65536)throw new Error('工具返回超过上限');chunks.push(value)}}finally{await reader.cancel().catch(()=>{});reader.releaseLock()}
-  const joined=new Uint8Array(bytes);let offset=0
-  for(const chunk of chunks){joined.set(chunk,offset);offset+=chunk.length}
-  const content=new TextDecoder('utf-8',{fatal:true}).decode(joined)
-  const output=response.headers.get('content-type')?.includes('application/json')?JSON.stringify(JSON.parse(content)):content
-  return {status:'succeeded',outputSummary:output.slice(0,1000),error:'',durationMs:Date.now()-started}
 }

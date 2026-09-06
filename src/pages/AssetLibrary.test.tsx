@@ -1,9 +1,12 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WorkspaceProvider } from '../auth/WorkspaceContext'
 import { AssetLibrary } from './AssetLibrary'
+import { operationAcceptedEvent, operationUpdatedEvent } from '../api/operations'
+
+vi.mock('../auth/authContext', () => ({ useAuth: () => ({ user: { id: 'user-1', isOrganizationAdmin: false } }) }))
 
 const workspace = {
   id: 'workspace-1',
@@ -63,6 +66,119 @@ function renderPage() {
 }
 
 describe('AssetLibrary page', () => {
+  it('reuses the same submission key after a lost response and starts a new key only after acceptance', async () => {
+    vi.stubEnv('VITE_ARC_ONE_MIGRATION_MODE', 'runtime')
+    const keys: string[] = []
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/test-invocations')) {
+        keys.push(new Headers(init?.headers).get('Idempotency-Key') ?? '')
+        if (keys.length === 1) return Promise.reject(new Error('response lost'))
+        return Promise.resolve(new Response(JSON.stringify({ operationId: 'tool-op', invocationId: 'tool-op', status: 'queued', statusUrl: '/ignored' }), { status: 202 }))
+      }
+      if (url.endsWith('/impact')) return Promise.resolve(new Response('{}', { status: 503 }))
+      return Promise.resolve(new Response(JSON.stringify(url.endsWith('/asset-library') ? [asset] : [])))
+    }))
+    render(<WorkspaceProvider workspace={{ ...workspace, role: 'builder' }}><MemoryRouter><AssetLibrary /></MemoryRouter></WorkspaceProvider>)
+    const button = await screen.findByRole('button', { name: `测试调用 ${asset.name}` })
+    fireEvent.click(button)
+    await screen.findByText('response lost')
+    fireEvent.click(button)
+    await screen.findByText(/测试已受理，尚未完成/)
+    expect(keys[0]).not.toBe(''); expect(keys[1]).toBe(keys[0])
+    await waitFor(() => expect(button).toBeEnabled())
+    fireEvent.click(button)
+    await waitFor(() => expect(keys).toHaveLength(3))
+    expect(keys[2]).not.toBe(keys[0])
+  })
+  it('keeps native Tool testing disabled for an operator and for a disabled asset', async () => {
+    vi.stubEnv('VITE_ARC_ONE_MIGRATION_MODE', 'runtime')
+    const fetchMock = vi.fn((input: RequestInfo | URL) => Promise.resolve(String(input).endsWith('/impact')
+      ? new Response('{}', { status: 503 }) : new Response(JSON.stringify(String(input).endsWith('/asset-library') ? [asset, { ...asset, id: 'disabled', name: '停用工具', status: 'disabled' }] : []))))
+    vi.stubGlobal('fetch', fetchMock)
+    const view = render(<WorkspaceProvider workspace={{ ...workspace, role: 'operator' }}><MemoryRouter><AssetLibrary /></MemoryRouter></WorkspaceProvider>)
+    expect(await screen.findByRole('button', { name: `测试调用 ${asset.name}` })).toBeDisabled()
+    view.rerender(<WorkspaceProvider workspace={{ ...workspace, role: 'builder' }}><MemoryRouter><AssetLibrary /></MemoryRouter></WorkspaceProvider>)
+    expect(screen.getByRole('button', { name: `测试调用 ${asset.name}` })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '测试调用 停用工具' })).toBeDisabled()
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/test-invocations'))).toBe(false)
+  })
+  it.each(['workspace-change', 'unmount'])('does not apply late Tool acceptance or refresh old data after %s', async (transition) => {
+    vi.stubEnv('VITE_ARC_ONE_MIGRATION_MODE', 'runtime')
+    let release!: (response: Response) => void
+    const pending = new Promise<Response>(resolve => { release = resolve })
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/test-invocations')) return pending
+      if (url.endsWith('/impact')) return Promise.resolve(new Response('{}', { status: 503 }))
+      return Promise.resolve(new Response(JSON.stringify(url.endsWith('/asset-library') ? [{ ...asset, name: url.includes('/next/') ? '另一个空间工具' : asset.name }] : [])))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const view = render(<WorkspaceProvider workspace={{ ...workspace, role: 'builder' }}><MemoryRouter><AssetLibrary /></MemoryRouter></WorkspaceProvider>)
+    fireEvent.click(await screen.findByRole('button', { name: `测试调用 ${asset.name}` }))
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/test-invocations'))).toBe(true))
+    if (transition === 'unmount') view.unmount()
+    else {
+      view.rerender(<WorkspaceProvider workspace={{ ...workspace, id: 'next', slug: 'next', role: 'builder' }}><MemoryRouter><AssetLibrary /></MemoryRouter></WorkspaceProvider>)
+      await screen.findByText('另一个空间工具')
+    }
+    const oldReads = fetchMock.mock.calls.filter(([url]) => String(url).includes(`/workspaces/${workspace.id}/`) && !String(url).endsWith('/test-invocations')).length
+    await act(async () => { release(new Response(JSON.stringify({ operationId: 'old-op', status: 'queued', statusUrl: '/ignored' }), { status: 202 })); await pending })
+    expect(screen.queryByText(/测试已受理/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/old-op/)).not.toBeInTheDocument()
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes(`/workspaces/${workspace.id}/`) && !String(url).endsWith('/test-invocations')).length).toBe(oldReads)
+  })
+  it('accepts a native Tool test without calling it complete and hides native invocation text', async () => {
+    vi.stubEnv('VITE_ARC_ONE_MIGRATION_MODE', 'runtime')
+    const accepted = { operationId: 'tool-op', invocationId: 'tool-op', status: 'queued', statusUrl: 'https://untrusted.example.invalid/status' }
+    let submitted = false
+    const receive = vi.fn()
+    window.addEventListener(operationAcceptedEvent, receive)
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/impact')) return Promise.resolve(new Response('{}', { status: 503 }))
+      if (url.endsWith('/test-invocations')) { submitted = true; return Promise.resolve(new Response(JSON.stringify(accepted), { status: 202 })) }
+      if (url.includes('/invocations')) return Promise.resolve(new Response(JSON.stringify(submitted ? [{ ...invocation, id: 'tool-op', operationId: 'tool-op', status: 'pending', inputSummary: 'PRIVATE_INPUT', outputSummary: 'PRIVATE_OUTPUT', assetName: 'PRIVATE_HISTORICAL_NAME' }] : [])))
+      return Promise.resolve(new Response(JSON.stringify(url.endsWith('/asset-library') ? [asset] : [])))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      render(<WorkspaceProvider workspace={{ ...workspace, role: 'builder' }}><MemoryRouter><AssetLibrary /></MemoryRouter></WorkspaceProvider>)
+      const button = await screen.findByRole('button', { name: `测试调用 ${asset.name}` })
+      expect(button).toBeEnabled()
+      fireEvent.click(button)
+      await screen.findByText('测试已受理，尚未完成；请查看异步任务进度。')
+      await waitFor(() => expect(screen.getAllByRole('link', { name: '查看测试任务' }).length).toBeGreaterThan(0))
+      expect(screen.queryByText('测试调用完成')).not.toBeInTheDocument()
+      expect(screen.queryByText('PRIVATE_INPUT')).not.toBeInTheDocument()
+      expect(screen.queryByText('PRIVATE_OUTPUT')).not.toBeInTheDocument()
+      expect(screen.queryByText('PRIVATE_HISTORICAL_NAME')).not.toBeInTheDocument()
+      expect(receive).toHaveBeenCalledOnce()
+      expect(fetchMock.mock.calls.some(([url]) => String(url).includes('untrusted.example'))).toBe(false)
+      act(() => window.dispatchEvent(new CustomEvent(operationUpdatedEvent, { detail: { workspaceId: workspace.id, operation: { ...accepted, kind: 'tool.test', status: 'failed' } } })))
+      await screen.findByText('工具测试：失败。')
+    } finally { window.removeEventListener(operationAcceptedEvent, receive) }
+  })
+  it('retains accepted status when invocation refresh fails and retries only the read', async () => {
+    vi.stubEnv('VITE_ARC_ONE_MIGRATION_MODE', 'runtime')
+    let posted = false, readsFail = true
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/test-invocations')) { posted = true; return Promise.resolve(new Response(JSON.stringify({ operationId: 'op-refresh', status: 'queued', statusUrl: '/ignored' }), { status: 202 })) }
+      if (url.includes('/invocations')) return Promise.resolve(posted && readsFail ? new Response('{"detail":"历史读取不可用"}', { status: 503 }) : new Response('[]'))
+      if (url.endsWith('/impact')) return Promise.resolve(new Response('{}', { status: 503 }))
+      return Promise.resolve(new Response(JSON.stringify(url.endsWith('/asset-library') ? [asset] : [])))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<WorkspaceProvider workspace={{ ...workspace, role: 'builder' }}><MemoryRouter><AssetLibrary /></MemoryRouter></WorkspaceProvider>)
+    fireEvent.click(await screen.findByRole('button', { name: `测试调用 ${asset.name}` }))
+    await screen.findByText('历史读取不可用')
+    expect(screen.getByText('测试已受理，尚未完成；请查看异步任务进度。')).toBeInTheDocument()
+    readsFail = false
+    fireEvent.click(screen.getByRole('button', { name: '重试调用记录' }))
+    await waitFor(() => expect(screen.queryByText('历史读取不可用')).not.toBeInTheDocument())
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/test-invocations'))).toHaveLength(1)
+  })
   it('uses bounded HTTP registration fields in migration mode', async () => {
     vi.stubEnv('VITE_ARC_ONE_MIGRATION_MODE', 'reference-assets')
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => Promise.resolve(String(input).endsWith('/impact')

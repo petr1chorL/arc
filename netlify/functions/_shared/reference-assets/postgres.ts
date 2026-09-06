@@ -10,6 +10,7 @@ import { dispatchToolSkill } from './tool-skill-postgres.ts'
 import { readAssetImpact } from './impact-postgres.ts'
 import { readAssetHistory } from './history-postgres.ts'
 import { checkProviderConfiguration, migrateProviderDrafts, type ProviderCompatibilityOptions } from './provider-compat-postgres.ts'
+import { submitToolTest } from './tool-test-postgres.ts'
 
 type ProviderFields = {
   name: string; provider_type: string; base_url: string; default_model: string; secret_ref: string
@@ -30,10 +31,11 @@ export function createPostgresReferenceAssetsBackend(pool: SqlPool, options: Pro
 
 async function dispatch(client: SqlClient, input: ReferenceAssetsInput, options: ProviderCompatibilityOptions): Promise<BackendResult> {
   const { operation, kind, params } = input.route
-  const write = ['create', 'update', 'deactivate', 'test', 'migrate-drafts'].includes(operation)
+  const write = ['create', 'update', 'deactivate', 'test', 'migrate-drafts', 'test-invocations'].includes(operation)
   const context = await workspaceContext(client, input, write)
   if (operation === 'impact') return readAssetImpact(client, context, input)
   if (operation === 'audit' || operation === 'invocations') return readAssetHistory(client, context, input)
+  if (kind === 'asset' && operation === 'test-invocations') return submitToolTest(client, context, input)
   if (kind === 'asset') return dispatchToolSkill(client, context, input)
   if (operation === 'test') return checkProviderConfiguration(client, context, input, options)
   if (operation === 'migrate-drafts') return migrateProviderDrafts(client, context, input)

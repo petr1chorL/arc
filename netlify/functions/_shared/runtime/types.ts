@@ -12,7 +12,7 @@ export type EnqueueInput = { workspaceId: string; kind: string; idempotencyKey: 
 export type RuntimeContext = {
   pool: SqlPool
   /** One external attempt; throw NotSentError only when the transport was never entered. */
-  effect<T>(key: string, input: unknown, send: () => Promise<T>): Promise<T>
+  effect<T>(key: string, input: unknown, send: () => Promise<T>, beforeIntent?: (client: import('../identity-workspace/postgres.ts').SqlClient) => Promise<void>): Promise<T>
   /** A fenced business transaction. Never perform network work inside it. */
   transaction<T>(fn: (client: import('../identity-workspace/postgres.ts').SqlClient) => Promise<T>): Promise<T>
 }

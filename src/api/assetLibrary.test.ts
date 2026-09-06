@@ -9,10 +9,45 @@ import {
   testToolSkillAsset,
   updateToolSkillAsset,
 } from './assetLibrary'
+import { operationAcceptedEvent } from './operations'
 
 describe('Asset Library API', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
+  })
+
+  test('native tool test returns and announces acceptance with an idempotency key, never a completed Invocation', async () => {
+    vi.stubEnv('VITE_ARC_ONE_MIGRATION_MODE', 'runtime')
+    const accepted = { operationId: 'tool-op', invocationId: 'tool-op', kind: 'tool.test', status: 'queued', statusUrl: '/api/workspaces/workspace-1/operations/tool-op' }
+    const receive = vi.fn()
+    window.addEventListener(operationAcceptedEvent, receive)
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify(accepted), { status: 202 })))
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const result = await testToolSkillAsset('workspace-1', 'asset-1', { parameters: { sku: 'A001' } })
+      expect(result).toEqual(accepted)
+      expect(new Headers(fetchMock.mock.calls[0][1].headers).get('Idempotency-Key')).toBeTruthy()
+      expect(receive).toHaveBeenCalledOnce()
+      expect(result).not.toHaveProperty('outputSummary')
+      expect(fetchMock).toHaveBeenCalledOnce()
+    } finally { window.removeEventListener(operationAcceptedEvent, receive) }
+  })
+
+  test('an explicit retry can reuse its original key and malformed acceptance is not announced', async () => {
+    vi.stubEnv('VITE_ARC_ONE_MIGRATION_MODE', 'runtime')
+    const accepted = { operationId: 'tool-op', status: 'queued', statusUrl: '/api/workspaces/workspace-1/operations/tool-op' }
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify(accepted), { status: 202 })))
+    vi.stubGlobal('fetch', fetchMock)
+    for (let attempt = 0; attempt < 2; attempt++) await testToolSkillAsset('workspace-1', 'asset-1', { parameters: {} }, 'same-explicit-submission')
+    expect(fetchMock.mock.calls.map(([, init]) => new Headers(init.headers).get('Idempotency-Key'))).toEqual(['same-explicit-submission', 'same-explicit-submission'])
+    const receive = vi.fn()
+    window.addEventListener(operationAcceptedEvent, receive)
+    fetchMock.mockImplementation(() => Promise.resolve(new Response('{"id":"not-an-operation"}', { status: 202 })))
+    try {
+      await expect(testToolSkillAsset('workspace-1', 'asset-1', { parameters: {} })).rejects.toThrow('异步任务响应格式异常')
+      expect(receive).not.toHaveBeenCalled()
+    } finally { window.removeEventListener(operationAcceptedEvent, receive) }
   })
 
   test('lists and creates Tool Skill assets without API keys', async () => {
@@ -54,7 +89,7 @@ describe('Asset Library API', () => {
     expect(calls[1].init?.body).not.toContain('apiKey')
   })
 
-  test('runs Tool test invocation and lists invocation logs', async () => {
+  test('preserves a legacy 201 Tool test Invocation and lists invocation logs', async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = []
     const invocation = {
       id: 'invocation-1',
@@ -74,7 +109,7 @@ describe('Asset Library API', () => {
     }
     vi.stubGlobal('fetch', vi.fn(async (url, init) => {
       calls.push({ url: String(url), init })
-      return new Response(JSON.stringify(calls.length === 1 ? invocation : [invocation]), { status: 200 })
+      return new Response(JSON.stringify(calls.length === 1 ? invocation : [invocation]), { status: calls.length === 1 ? 201 : 200 })
     }))
 
     const result = await testToolSkillAsset('workspace-1', 'asset-1', { parameters: { sku: 'A001' } })

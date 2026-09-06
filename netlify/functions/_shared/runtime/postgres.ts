@@ -46,6 +46,10 @@ export function createPostgresRuntimeBackend(pool: SqlPool) {
     if (['operations.get','operations.control','jobs.get','jobs.control'].includes(operation)) {
       const op = (await client.query<Operation>('SELECT * FROM runtime_operations WHERE workspace_id=$1 AND id=$2', [ws, params.id])).rows[0]
       if (!op) throw new ApiError(404, '任务不存在')
+      if (op.kind === 'tool.test') {
+        if (operation.startsWith('jobs.')) throw new ApiError(404, '任务不存在')
+        if (write) await requireCapability(client, context, input, 'agent.write', audit)
+      }
       if (op.kind.startsWith('notification.')) await requireCapability(client,context,input,'workspace.manage',audit)
       if (operation === 'operations.get') return { body: projectOperation(op) }
       if (operation === 'jobs.get') return { body: projectJob(op) }

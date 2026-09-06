@@ -1,10 +1,11 @@
 import { ApiError, type BackendResult } from '../identity-workspace/handler.ts'
 import { requireCapability, type SqlClient, type WorkspaceContext } from '../identity-workspace/postgres.ts'
 import type { ReferenceAssetsInput } from './handler.ts'
+import { toolTestDiagnostic } from '../runtime/tool-test.ts'
 
 type Invocation = { id: string; asset_id: string; asset_type: string; asset_name: string
   agent_id: string | null; agent_version: string; run_id: string | null; node_run_id: string | null
-  status: string; input_summary: string; output_summary: string; error: string; duration_ms: number; created_at: Date }
+  status: string; input_summary: string; output_summary: string; error: string; duration_ms: number; created_at: Date; effect_operation_id?: string | null }
 type Audit = { id: string; action: string | null; event_type: string | null; target_type: string | null
   target_id: string | null; outcome: string; actor_user_id: string | null; actor_id: string | null
   reason: string; metadata: unknown; created_at: Date }
@@ -86,12 +87,30 @@ async function projectInvocation(client: SqlClient, context: WorkspaceContext, r
   for (const [table, value] of [['agents', row.agent_id], ['workflow_runs', row.run_id], ['node_runs', row.node_run_id]] as const) {
     if (value !== null) await scoped(client, table, value, context.workspace.id)
   }
-  if (!['tool','skill'].includes(row.asset_type) || !['succeeded','failed'].includes(row.status)
+  const native = await nativeToolAssociation(client, context.workspace.id, row)
+  const statuses = native ? ['pending','running','succeeded','failed','canceled','needs_reconciliation'] : ['succeeded','failed']
+  if (!['tool','skill'].includes(row.asset_type) || !statuses.includes(row.status)
     || !Number.isInteger(row.duration_ms) || row.duration_ms < 0) throw historical()
   return { id: row.id, assetId: row.asset_id, assetType: row.asset_type, assetName: hide(row.asset_name),
     agentId: row.agent_id, agentVersion: hide(row.agent_version), runId: row.run_id, nodeRunId: row.node_run_id,
-    status: row.status, inputSummary: hide(row.input_summary), outputSummary: hide(row.output_summary),
-    error: hide(row.error), durationMs: row.duration_ms, createdAt: row.created_at }
+    status: native?.status ?? row.status, inputSummary: hide(row.input_summary), outputSummary: hide(row.output_summary),
+    error: native ? toolTestDiagnostic(row.error) : hide(row.error), durationMs: row.duration_ms, createdAt: row.created_at,
+    ...(native ? { operationId: row.id } : {}) }
+}
+
+async function nativeToolAssociation(client: SqlClient, workspaceId: string, row: Invocation) {
+  const association = (await client.query(`SELECT o.id,o.kind,o.status,o.target_id,o.input,s.asset_id
+    FROM runtime_operations o LEFT JOIN runtime_tool_test_snapshots s ON s.operation_id=o.id AND s.workspace_id=o.workspace_id
+    WHERE o.id=$1 AND o.workspace_id=$2`, [row.effect_operation_id ?? row.id, workspaceId])).rows[0]
+  const snapshot = (await client.query('SELECT operation_id FROM runtime_tool_test_snapshots WHERE operation_id=$1 AND workspace_id=$2', [row.id,workspaceId])).rows[0]
+  if (association?.kind !== 'tool.test' && !snapshot && row.effect_operation_id !== row.id) return null
+  if (!association || association.kind !== 'tool.test' || association.id !== row.id || row.effect_operation_id !== row.id
+    || row.asset_type !== 'tool' || row.agent_id !== null || row.run_id !== null || row.node_run_id !== null
+    || association.asset_id !== row.asset_id || association.target_id !== row.asset_id
+    || objectMetadata(association.input).assetId !== row.asset_id) throw historical()
+  const status = association.status === 'queued' ? 'pending' : association.status === 'dead_letter' ? 'failed' : association.status
+  if (!['pending','running','succeeded','failed','canceled','needs_reconciliation'].includes(String(status))) throw historical()
+  return { status: String(status) }
 }
 
 async function projectAudit(client: SqlClient, context: WorkspaceContext, row: Audit) {
@@ -108,6 +127,12 @@ async function projectAudit(client: SqlClient, context: WorkspaceContext, row: A
   }
   const action = row.action || row.event_type || ''
   let metadata: Record<string, unknown> = {}
+  if (action === 'tool_skill_asset.test_invoke' && row.outcome === 'success' && raw.phase === 'accepted') {
+    if (typeof raw.invocationId !== 'string' || raw.operationId !== raw.invocationId) throw historical()
+    const invocation = (await client.query<Invocation>('SELECT * FROM tool_skill_asset_invocations WHERE id=$1 AND workspace_id=$2', [raw.invocationId,context.workspace.id])).rows[0]
+    if (!invocation || invocation.asset_id !== row.target_id || !await nativeToolAssociation(client,context.workspace.id,invocation)) throw historical()
+    metadata = { phase: 'accepted', operationId: raw.operationId, invocationId: raw.invocationId }
+  }
   if (action === 'model_provider.migrate_drafts' && row.outcome === 'success') {
     for (const key of ['sourceProviderId', 'targetProviderId']) {
       metadata[key] = await scoped(client, 'model_providers', raw[key], context.workspace.id)

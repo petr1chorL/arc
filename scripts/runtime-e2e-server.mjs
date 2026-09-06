@@ -35,7 +35,7 @@ import { createRuntimeGateway } from '../netlify/functions/_shared/runtime/gatew
 import { processRuntimeOperation } from '../netlify/functions/_shared/runtime/service.ts'
 
 const db = await runtimeTestDatabase(), pool = db.pool
-let closing = false, providerCalls = 0
+let closing = false, providerCalls = 0, toolCalls = 0
 const uncertain = new Set()
 const gateway = createRuntimeGateway({ allowedBindings: [{ workspaceId: 'runtime', host: 'models.example.invalid', secretRef: 'TEST_ONLY' }],
   resolveSecret: ref => ref === 'TEST_ONLY' ? 'TEST_ONLY_SYNTHETIC' : undefined,
@@ -51,6 +51,20 @@ const gateway = createRuntimeGateway({ allowedBindings: [{ workspaceId: 'runtime
     return new Response(JSON.stringify({ model: 'synthetic-model', choices: [{ message: { content } }], usage: { prompt_tokens: 10, completion_tokens: 5 } }), { headers: { 'Content-Type': 'application/json' } })
   },
 })
+// Explicit synthetic transport: no fallback to global fetch or real tool endpoint.
+const runtimeDependencies = { ...gateway, toolOptions: {
+  allowedBindings: [{ workspaceId: 'runtime', host: 'tools.example.invalid' }],
+  fetch: async (url, init) => {
+    if (String(url) !== 'https://tools.example.invalid/lookup' || init.method !== 'POST') throw Error('Unexpected synthetic Tool destination')
+    const parameters = JSON.parse(init.body)
+    toolCalls++
+    if (parameters.sku === 'TEST_ONLY_TOOL_UNCERTAIN' && !uncertain.has('tool-uncertain')) {
+      uncertain.add('tool-uncertain')
+      throw Error('TEST_ONLY Tool response lost after send')
+    }
+    return new Response('TEST_ONLY_PRIVATE_TOOL_OUTPUT', { headers: { 'Content-Type': 'text/plain' } })
+  },
+} }
 const factories = [
   [resolveIdentityWorkspaceRoute, createIdentityWorkspaceHandler, createPostgresIdentityWorkspaceBackend],
   [resolveRuntimeRoute, createRuntimeHandler, createPostgresRuntimeBackend],
@@ -80,9 +94,9 @@ const server = createServer(async (incoming, outgoing) => {
         for (let step = 0; step < 12; step++) {
           const rows = (await pool.query("SELECT id FROM runtime_operations WHERE status='queued' AND available_at<=now() ORDER BY created_at LIMIT 30")).rows
           if (!rows.length) break
-          for (const row of rows) { await processRuntimeOperation(pool, row.id, gateway); processed++ }
+          for (const row of rows) { await processRuntimeOperation(pool, row.id, runtimeDependencies); processed++ }
         }
-        outgoing.setHeader('Content-Type', 'application/json'); outgoing.end(JSON.stringify({ processed, providerCalls, externalNetworkCalls: 0 })); return
+        outgoing.setHeader('Content-Type', 'application/json'); outgoing.end(JSON.stringify({ processed, providerCalls, toolCalls, externalNetworkCalls: 0 })); return
       }
     }
     const url = new URL(incoming.url, 'http://127.0.0.1:5175'), method = incoming.method ?? 'GET'
@@ -111,14 +125,17 @@ async function close() {
 async function seed() {
   await pool.query("INSERT INTO organizations VALUES('org','TEST_ONLY','test-only','active',now(),now())")
   await pool.query("INSERT INTO workspaces(id,organization_id,name,slug,status,created_at,updated_at) VALUES('runtime','org','TEST_ONLY Runtime','runtime','active',now(),now()),('foreign','org','TEST_ONLY Other','foreign','active',now(),now())")
-  for (const [id, role] of [['admin','workspace_admin'],['reviewer','operator'],['viewer','viewer']]) {
+  for (const [id, role] of [['admin','workspace_admin'],['builder','builder'],['reviewer','operator'],['viewer','viewer']]) {
     await pool.query(`INSERT INTO users(id,organization_id,email,normalized_email,display_name,password_hash,status,is_organization_admin,failed_login_count,created_at,updated_at)
       VALUES($1,'org',$2,$2,$1,$3,'active',false,0,now(),now())`, [id, `${id}@example.invalid`, await hashPassword('TEST_ONLY Runtime password 42!')])
     await pool.query("INSERT INTO workspace_memberships(id,workspace_id,user_id,role,status,created_at,updated_at) VALUES($1,'runtime',$1,$2,'active',now(),now())", [id,role])
-    if (id !== 'viewer') await pool.query("INSERT INTO reviewers VALUES($1,'runtime',$1,$1,'reviewer',true,true,now())",[id])
+    if (id === 'admin' || id === 'reviewer') await pool.query("INSERT INTO reviewers VALUES($1,'runtime',$1,$1,'reviewer',true,true,now())",[id])
   }
   await pool.query("INSERT INTO workspace_memberships(id,workspace_id,user_id,role,status,created_at,updated_at) VALUES('admin-foreign','foreign','admin','workspace_admin','active',now(),now())")
   await pool.query("INSERT INTO model_providers VALUES('provider','runtime','TEST_ONLY Provider','openai-compatible','https://models.example.invalid/v1','synthetic-model','TEST_ONLY','active','admin',now(),now())")
+  await pool.query(`INSERT INTO tool_skill_assets(id,workspace_id,asset_type,name,description,parameter_schema,adapter_type,adapter_config,status,created_by,created_at,updated_at)
+    VALUES('test-http-tool','runtime','tool','TEST_ONLY HTTP Tool','','{}','http',$1,'active','admin',now(),now())`,
+  [{ url: 'https://tools.example.invalid/lookup', method: 'POST' }])
   const rubric = { id:'rubric',name:'TEST_ONLY 质量量规',artifact:'text',version:'v1.0.0',judgeType:'llm',judgeModel:'synthetic-model',modelProviderId:'provider',passScore:80,gate:'质量',dimensions:[{id:'quality',name:'质量',weight:100,criteria:'有明确证据'}] }
   await pool.query("INSERT INTO rubrics VALUES('rubric','runtime',$1,'text',$2,'质量',80,'llm','synthetic-model','provider','v1.0.0','active',0,now(),now())",[rubric.name,JSON.stringify(rubric.dimensions)])
   await pool.query("INSERT INTO rubric_versions VALUES('rv','runtime','rubric','v1.0.0',$1,now())",[JSON.stringify(rubric)])

@@ -209,6 +209,7 @@ export interface ToolSkillTestInvocationInput {
 
 export interface ToolSkillInvocation {
   id: string
+  operationId?: string
   assetId: string
   assetType: ToolSkillAssetType
   assetName: string

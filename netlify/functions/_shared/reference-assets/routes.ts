@@ -1,10 +1,10 @@
 export type ReferenceAssetRoute = {
   kind: 'provider' | 'asset'
-  operation: 'list' | 'create' | 'update' | 'deactivate' | 'impact' | 'audit' | 'invocations' | 'test' | 'migrate-drafts'
+  operation: 'list' | 'create' | 'update' | 'deactivate' | 'impact' | 'audit' | 'invocations' | 'test' | 'migrate-drafts' | 'test-invocations'
   params: { workspaceId: string; assetId?: string }
 }
 
-/** Match only the approved registration/read routes; execution remains excluded. */
+/** Match approved governance and asynchronous acceptance routes; never execute tools in HTTP. */
 export function resolveReferenceAssetRoute(method: string, pathname: string): ReferenceAssetRoute | null {
   const match = /^\/api\/workspaces\/([^/]+)\/(model-providers|asset-library)(?:\/([^/]+))?(?:\/([^/]+))?$/.exec(pathname)
   if (!match) return null
@@ -13,6 +13,9 @@ export function resolveReferenceAssetRoute(method: string, pathname: string): Re
   if (!workspaceId || (match[3] && !assetId)) return null
   const kind = match[2] === 'model-providers' ? 'provider' : 'asset'
   const verb = method.toUpperCase()
+  if (kind === 'asset' && assetId && verb === 'POST' && match[4] === 'test-invocations') {
+    return { kind, operation: 'test-invocations', params: { workspaceId, assetId } }
+  }
   if (kind === 'provider' && assetId && verb === 'POST' && (match[4] === 'test' || match[4] === 'migrate-drafts')) {
     return { kind, operation: match[4], params: { workspaceId, assetId } }
   }

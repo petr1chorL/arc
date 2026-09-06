@@ -19,9 +19,17 @@ describe('reference asset route contract', () => {
     expect(resolveReferenceAssetRoute('GET', '/api/workspaces/workspace/asset-library/invocations'))
       .toEqual({ kind: 'asset', operation: 'invocations', params: { workspaceId: 'workspace' } })
   })
-  it.each(['test', 'migrate-drafts', 'test-invocations'])('does not enable %s', action => {
+  it.each(['test', 'migrate-drafts'])('does not enable %s', action => {
     expect(resolveReferenceAssetRoute('POST', `/api/workspaces/workspace/asset-library/item/${action}`)).toBeNull()
-    if (action === 'test-invocations') expect(resolveReferenceAssetRoute('POST', `/api/workspaces/workspace/model-providers/item/${action}`)).toBeNull()
+  })
+  it('resolves only the approved POST Tool test acceptance route', () => {
+    expect(resolveReferenceAssetRoute('POST', '/api/workspaces/workspace/asset-library/item/test-invocations'))
+      .toEqual({ kind: 'asset', operation: 'test-invocations', params: { workspaceId: 'workspace', assetId: 'item' } })
+    expect(resolveReferenceAssetRoute('POST', '/api/workspaces/workspace/model-providers/item/test-invocations')).toBeNull()
+    for (const method of ['GET', 'PATCH', 'DELETE']) {
+      expect(resolveReferenceAssetRoute(method, '/api/workspaces/workspace/asset-library/item/test-invocations')).toBeNull()
+    }
+    expect(resolveReferenceAssetRoute('POST', '/api/workspaces/workspace/asset-library/item/test-invocations/extra')).toBeNull()
   })
   it.each(['test', 'migrate-drafts'])('resolves Provider compatibility %s', operation => {
     expect(resolveReferenceAssetRoute('POST', `/api/workspaces/workspace/model-providers/item/${operation}`))

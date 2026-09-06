@@ -21,11 +21,12 @@ export function OperationCenter() {
   return <WorkspaceOperations key={`${user.id}:${workspace.id}`} storageKey={`arc-operations:${user.id}:${workspace.id}`}
     workspaceId={workspace.id} workspacePath={workspacePath}
     canExecute={workspaceHasCapability(workspace, user.isOrganizationAdmin, 'run.execute')}
+    canManageAssets={workspaceHasCapability(workspace, user.isOrganizationAdmin, 'agent.write')}
     canReconcile={workspaceHasCapability(workspace, user.isOrganizationAdmin, 'workspace.manage')} />
 }
 
-function WorkspaceOperations({ storageKey, workspaceId, workspacePath, canExecute, canReconcile }: {
-  storageKey: string; workspaceId: string; workspacePath: (path: string) => string; canExecute: boolean; canReconcile: boolean
+function WorkspaceOperations({ storageKey, workspaceId, workspacePath, canExecute, canManageAssets, canReconcile }: {
+  storageKey: string; workspaceId: string; workspacePath: (path: string) => string; canExecute: boolean; canManageAssets: boolean; canReconcile: boolean
 }) {
   const [ids, setIds] = useState(() => {
     const requested = new URLSearchParams(window.location.search).get('operationId')
@@ -48,7 +49,7 @@ function WorkspaceOperations({ storageKey, workspaceId, workspacePath, canExecut
   if (!ids.length) return null
   return <aside className="page-stack operation-center" aria-label="持久化异步任务">
     {ids.map((operationId) => <OperationProgress key={operationId} workspaceId={workspaceId} operationId={operationId}
-      canExecute={canExecute} canReconcile={canReconcile} workspacePath={workspacePath}
+      canExecute={canExecute} canManageAssets={canManageAssets} canReconcile={canReconcile} workspacePath={workspacePath}
       onDismiss={() => setIds((current) => current.filter((id) => id !== operationId))} />)}
   </aside>
 }

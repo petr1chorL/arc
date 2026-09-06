@@ -9,6 +9,7 @@ import { pauseForReview } from '../runtime-closure/human.ts'
 import { createClosureExecutor, createWorkflowEvaluator, createGatewayJudgeTransport, type JudgeTransport } from '../runtime-closure/evaluation.ts'
 import { dispatchNotifications, type NotificationAdapter } from '../runtime-delivery/notifications.ts'
 import { executeScheduleTrigger } from '../runtime-delivery/schedules.ts'
+import { executeToolTest, synchronizeToolTest } from './tool-test.ts'
 
 export type RuntimeDependencies = WorkflowDependencies & { judge?: JudgeTransport; notificationAdapters?: Record<string, NotificationAdapter> }
 
@@ -61,6 +62,7 @@ export async function processRuntimeOperation(pool: SqlPool, id: string, deps: R
     }
     if(op.kind==='workflow.run'||op.kind==='workflow.resume')return workflow(op,ctx)
     if(op.kind==='agent.run')return createAgentExecutor(deps)(op,ctx)
+    if(op.kind==='tool.test')return executeToolTest(op,ctx,deps.toolOptions)
     if(op.kind==='evaluation.run'||op.kind==='evaluation.regression')return closure(op,ctx)
     if(op.kind==='notification.dispatch')return dispatchNotifications(op,ctx,deps.notificationAdapters)
     if(op.kind==='schedule.trigger')return executeScheduleTrigger(op,ctx,submitWorkflow)
@@ -92,6 +94,7 @@ export async function processRuntimeOperation(pool: SqlPool, id: string, deps: R
 }
 
 async function synchronizeRun(client:SqlClient,op:Operation) {
+  if(op.kind==='tool.test')return synchronizeToolTest(client,op)
   const runId=['workflow.run','agent.run'].includes(op.kind)?op.target_id:op.kind==='human.resume'||op.kind==='workflow.resume'?op.input.runId:null
   if(!runId)return
     const current=(await client.query<Operation>('SELECT * FROM runtime_operations WHERE id=$1 AND generation=$2 FOR UPDATE',[op.id,op.generation])).rows[0]

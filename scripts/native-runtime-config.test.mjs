@@ -94,3 +94,26 @@ test('bad configuration and missing or failed secret resolution cannot send or l
   }
   assert.equal(sends, 0)
 })
+
+test('Tool hosts require their own immutable Workspace binding and never borrow model credentials', async () => {
+  const source = { bindings: [binding], toolBindings: [{ workspaceId: 'synthetic', host: 'TOOLS.example.invalid' }] }
+  let secrets = 0, sends = 0
+  const runtime = createNativeRuntimeDependencies({ mode: 'runtime', loadConfig: () => source,
+    resolveSecret: () => { secrets++; throw Error('Tool must not resolve model secrets') },
+    fetch: async () => { sends++; return Response.json({ ok: true }) } })
+  assert.deepEqual(runtime.dependencies.toolOptions.allowedBindings, [{ workspaceId: 'synthetic', host: 'tools.example.invalid' }])
+  source.toolBindings[0].host = 'changed.example.invalid'
+  assert.ok(Object.isFrozen(runtime.dependencies.toolOptions.allowedBindings[0]))
+  const { invokeHttpTool } = await import('../netlify/functions/_shared/runtime/http-tool-transport.ts')
+  for (const [workspaceId, host] of [['other', 'tools.example.invalid'], ['synthetic', binding.host]]) {
+    await assert.rejects(invokeHttpTool({ url: `https://${host}/test`, method: 'POST' }, {}, workspaceId, 'synthetic', runtime.dependencies.toolOptions))
+  }
+  assert.equal(sends, 0)
+  await invokeHttpTool({ url: 'https://tools.example.invalid/test', method: 'POST' }, {}, 'synthetic', 'synthetic', runtime.dependencies.toolOptions)
+  assert.equal(sends, 1); assert.equal(secrets, 0)
+  for (const toolBindings of [null, {}, [{ workspaceId: 'synthetic', host: '127.0.0.1' }],
+    [{ workspaceId: 'synthetic', host: 'tools.example.invalid', secretRef: 'FORBIDDEN' }],
+    [{ workspaceId: 'synthetic', host: 'tools.example.invalid' }, { workspaceId: 'synthetic', host: 'TOOLS.example.invalid' }]]) {
+    assert.throws(() => parseNativeRuntimeConfig({ bindings: [], toolBindings }), /运行依赖配置无效/)
+  }
+})

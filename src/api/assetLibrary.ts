@@ -8,6 +8,7 @@ import type {
   ToolSkillTestInvocationInput,
 } from '../types'
 import { apiFetch, readJson } from './http'
+import { operationRequestHeaders, readOperationResponse, type OperationResult } from './operations'
 
 function workspacePath(workspaceId: string, path = '') {
   return `/api/workspaces/${workspaceId}/asset-library${path}`
@@ -32,12 +33,13 @@ export async function testToolSkillAsset(
   workspaceId: string,
   assetId: string,
   input: ToolSkillTestInvocationInput,
-): Promise<ToolSkillInvocation> {
-  return readJson<ToolSkillInvocation>(await apiFetch(workspacePath(workspaceId, `/${assetId}/test-invocations`), {
+  idempotencyKey?: string,
+): Promise<OperationResult<ToolSkillInvocation>> {
+  return readOperationResponse<ToolSkillInvocation>(await apiFetch(workspacePath(workspaceId, `/${assetId}/test-invocations`), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { ...operationRequestHeaders(), ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}) },
     body: JSON.stringify(input),
-  }))
+  }), workspaceId)
 }
 
 export async function updateToolSkillAsset(

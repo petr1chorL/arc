@@ -8,13 +8,18 @@ interface Props {
   workspaceId: string
   operationId: string
   canExecute: boolean
+  canManageAssets?: boolean
   canReconcile: boolean
   onDismiss?: () => void
   workspacePath?: (path: string) => string
 }
 
 /** Poll persisted state without owning execution; switching workspace/unmount aborts all reads. */
-export function OperationProgress({ workspaceId, operationId, canExecute, canReconcile, onDismiss, workspacePath }: Props) {
+export function OperationProgress(props: Props) {
+  return <OperationProgressPanel key={JSON.stringify([props.workspaceId, props.operationId])} {...props} />
+}
+
+function OperationProgressPanel({ workspaceId, operationId, canExecute, canManageAssets = false, canReconcile, onDismiss, workspacePath }: Props) {
   const [operation, setOperation] = useState<Operation | null>(null)
   const [error, setError] = useState('')
   const [reason, setReason] = useState('')
@@ -63,6 +68,7 @@ export function OperationProgress({ workspaceId, operationId, canExecute, canRec
   }, [workspaceId, operationId, revision])
 
   async function act(action: 'cancel' | 'requeue' | 'retry' | 'fail') {
+    if (!operation || busy || !reason.trim() || (action === 'retry' || action === 'fail' ? !mayReconcile : !mayControl)) return
     setBusy(true)
     setError('')
     try {
@@ -85,7 +91,10 @@ export function OperationProgress({ workspaceId, operationId, canExecute, canRec
   }
 
   const uncertain = operation?.status === 'needs_reconciliation'
-  const controllable = operation && canExecute && ['queued', 'running', 'waiting_review', 'failed', 'dead_letter'].includes(operation.status)
+  const toolTest = operation?.kind === 'tool.test'
+  const mayControl = toolTest ? canManageAssets : canExecute
+  const mayReconcile = canReconcile && (!toolTest || canManageAssets)
+  const controllable = operation && mayControl && ['queued', 'running', 'waiting_review', 'failed', 'dead_letter'].includes(operation.status)
   return <section className="panel operation-progress" aria-label={`异步任务 ${operationId}`}>
     <div className="panel-heading"><strong>异步任务</strong><code>{operationId}</code></div>
     <p role="status">{operation ? operationStatusLabels[operation.status] : error ? '无法读取当前任务状态' : '正在查询任务状态…'}</p>
@@ -94,12 +103,13 @@ export function OperationProgress({ workspaceId, operationId, canExecute, canRec
     {uncertain && <p>外部调用可能已经执行，已暂停自动重发。请核对服务方记录后再决定；取消不能撤销已执行的外部动作。</p>}
     {operation?.status === 'waiting_review' && workspacePath && <a href={workspacePath('reviews')}>前往人工审核</a>}
     {operation?.runId && workspacePath && <a href={workspacePath(`runs?runId=${encodeURIComponent(operation.runId)}`)}>查看关联运行</a>}
-    {operation?.status === 'succeeded' && operation.result != null && <details><summary>查看持久化结果</summary><pre>{JSON.stringify(operation.result, null, 2)}</pre></details>}
+    {toolTest && <p>Tool 调用记录：{operationId}。原生测试仅显示状态与安全诊断，不展示输入或输出正文。</p>}
+    {!toolTest && operation?.status === 'succeeded' && operation.result != null && <details><summary>查看持久化结果</summary><pre>{JSON.stringify(operation.result, null, 2)}</pre></details>}
     {operation?.error != null && <p role="alert">{typeof operation.error === 'string' ? operation.error : JSON.stringify(operation.error)}</p>}
-    {(controllable || (uncertain && canReconcile)) && <div>
+    {(controllable || (uncertain && mayReconcile)) && <div>
       <label htmlFor={reasonId}>核对依据 / 操作原因</label>
       <input id={reasonId} value={reason} maxLength={1000} onChange={(event) => setReason(event.target.value)} disabled={busy} />
-      {uncertain && canReconcile ? <>
+      {uncertain && mayReconcile ? <>
         <label><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} disabled={busy} />我已核对，接受重复调用或重复计费的风险</label>
         <button type="button" className="button secondary" disabled={busy || !reason.trim() || !acknowledged} onClick={() => void act('retry')}>确认风险并重新尝试</button>
         <button type="button" className="button secondary" disabled={busy || !reason.trim()} onClick={() => void act('fail')}>确认失败，不重发</button>

@@ -3,6 +3,7 @@ import type { SqlClient } from '../identity-workspace/postgres.ts'
 import { object } from '../workflows/policy.ts'
 import { appendOperationEvent, wakeOperation } from './ledger.ts'
 import type { Operation } from './types.ts'
+import { synchronizeToolTest } from './tool-test.ts'
 
 /** Caller authenticates capabilities; state transition is locked and independently scoped. */
 export async function controlOperation(client: SqlClient, workspaceId: string, id: string, action: string, input: unknown, actorId: string): Promise<Operation> {
@@ -37,5 +38,6 @@ export async function controlOperation(client: SqlClient, workspaceId: string, i
   const runId = ['workflow.run','agent.run'].includes(op.kind) ? op.target_id : op.kind === 'human.resume' || op.kind === 'workflow.resume' ? op.input.runId : null
   if (runId) await client.query(`UPDATE workflow_runs SET status=$3::varchar,error='',completed_at=CASE WHEN $3 IN ('已取消','失败') THEN now() ELSE NULL END
     WHERE workspace_id=$1 AND id=$2`, [workspaceId, runId, action==='cancel' ? '已取消' : status === 'queued' ? '排队中' : '失败'])
+  if (updated.kind === 'tool.test') await synchronizeToolTest(client, updated)
   return updated
 }

@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test'
 
 export default defineConfig({
-  testDir: './e2e', testMatch: 'runtime-closure.spec.ts', workers: 1, reporter: 'line', timeout: 60000,
+  testDir: './e2e', testMatch: ['runtime-closure.spec.ts', 'runtime-tool-test.spec.ts'], workers: 1, reporter: 'line', timeout: 60000,
   globalTeardown: './e2e/runtime-teardown.ts',
   use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:5175', trace: 'retain-on-failure' },
   webServer: [
