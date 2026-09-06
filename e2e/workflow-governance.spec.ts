@@ -4,7 +4,9 @@ test('workflow editor persists Agent binding, two immutable versions and blocks 
   await page.setExtraHTTPHeaders({ 'X-ARC-Test-Client': 'workflows' })
   const forbidden: string[] = []
   page.on('request', request => {
-    if (!request.url().startsWith('http://127.0.0.1:48273/') || /\/runs|test-runs|human-tasks|notifications/.test(request.url())) forbidden.push(request.url())
+    const url = new URL(request.url())
+    if (url.origin !== 'http://127.0.0.1:48273'
+      || (url.pathname.startsWith('/api/') && /\/(?:runs|test-runs|human-tasks|notifications)(?:\/|$)/.test(url.pathname))) forbidden.push(request.url())
   })
   await page.goto('/w/synthetic/workflows/new')
   await page.getByLabel('邮箱').fill('browser@example.invalid')
@@ -60,7 +62,9 @@ test('workflow editor persists Agent binding, two immutable versions and blocks 
   }
   await page.reload()
   await expect(page.getByLabel('工作流名称', { exact: true })).toHaveText('Workflow browser edited')
-  const versions = await (await page.request.get(`/api/workspaces/browser/workflows/${created.id}/versions`, { headers })).json()
+  const versionsResponse = await page.request.get(`/api/workspaces/browser/workflows/${created.id}/versions`, { headers })
+  expect(versionsResponse.status(), await versionsResponse.text()).toBe(200)
+  const versions = await versionsResponse.json()
   expect(versions.map((version: { snapshot: { name: string } }) => version.snapshot.name)).toEqual(['Workflow browser edited', 'Workflow browser original'])
   expect(versions[1].snapshot.nodes.find((node: { id: string }) => node.id === 'agent').data.agentId).toBe(agent.id)
   expect(versions[1].snapshot.edges.find((edge: { source: string }) => edge.source === 'start').data.mappings).toEqual([{ sourcePath: '$.payload', targetPath: '$.input.payload' }])

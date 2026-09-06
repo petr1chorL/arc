@@ -302,6 +302,21 @@ function renderWorkflows(initialEntry = '/w/ai-capability-center/workflows/workf
 }
 
 describe('Workflows', () => {
+  it('does not request rubric versions after its pending directory effect is disposed', async () => {
+    const base = evaluationWorkflowFetch()
+    let release!: (response: Response) => void
+    const pending = new Promise<Response>(resolve => { release = resolve })
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => (
+      String(input).endsWith('/evaluations/rubrics') ? pending : base(input, init)
+    ))
+    vi.stubGlobal('fetch', fetchMock)
+    renderWorkflows()
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/evaluations/rubrics'))).toBe(true))
+    cleanup()
+    await act(async () => { release(new Response(JSON.stringify([compatibleRubric]))); await pending })
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/evaluations/rubrics/') && String(url).endsWith('/versions'))).toEqual([])
+  })
+
   beforeEach(() => {
     flowMock.screenToFlowPosition.mockReturnValue({ x: 420, y: 270 })
   })

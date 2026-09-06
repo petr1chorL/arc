@@ -920,6 +920,7 @@ function WorkflowPanel() {
           getRubrics(workspace.id),
           listModelProviders(workspace.id),
         ])
+        if (!isActive) return
         const providersById = new Map(
           providers
             .filter(isCompleteEvaluationProvider)
