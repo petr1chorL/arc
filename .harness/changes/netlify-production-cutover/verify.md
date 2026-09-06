@@ -4,6 +4,12 @@
 
 ## 最新增量状态
 
+2026-09-06 再次收口：52e36f8 / CI34025942754 已通过前端/Python/身份PG，但资产PG历史返回503失败。
+本地原样复现并确认测试库缺runtime_operations；已将资产PG及浏览器fixture同步到既有完整结构加载器。
+原合同198检查/52角色路由/26共享请求、22原生程序、9浏览器场景及lint/build/deploy:check通过。
+具体RED/GREEN及Python虚拟环境边界见 asset-fixture-migrations-verify.md，不预报新提交CI成功。
+0a35e929旧CI最终前端Worker异常失败；52e36f8也因额度跳过Netlify，当前发布仍b626602。
+
 2026-09-06 最新补充：观测页已稳定复现并修复 URL 双向同步振荡、旧详情迟到覆盖两条缺陷；
 独立14例与审查通过，主线程71文件696项完整8分片连续PASS、7浏览器场景PASS、lint/build PASS。
 详见 observability-navigation-verify.md；不声称所有历史卡死只有同一根因。

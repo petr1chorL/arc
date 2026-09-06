@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { spawnSync } from 'node:child_process'
+import { applyTestMigrations } from './runtime-test-db.mjs'
 import { createIdentityWorkspaceHandler } from '../netlify/functions/_shared/identity-workspace/handler.ts'
 import { createPostgresIdentityWorkspaceBackend } from '../netlify/functions/_shared/identity-workspace/postgres.ts'
 import { hashPassword } from '../netlify/functions/_shared/identity-workspace/security.ts'
@@ -36,9 +37,7 @@ function request(path, method = 'GET', body, token = csrf, selected = handler) {
 }
 try {
   await admin.query(`CREATE SCHEMA ${schema}`)
-  for (const name of ['20260904060000_create-arc-one-baseline', '20260904133000_create-identity-rate-limits']) {
-    await pool.query(readFileSync(new URL(`../netlify/database/migrations/${name}/migration.sql`, import.meta.url), 'utf8'))
-  }
+  await applyTestMigrations(pool)
   const now = new Date()
   await pool.query(`INSERT INTO organizations VALUES ('org','Synthetic','synthetic','active',$1,$1)`, [now])
   for (const id of ['a', 'b']) await pool.query(`INSERT INTO workspaces

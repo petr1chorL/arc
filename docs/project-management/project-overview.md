@@ -51,6 +51,9 @@ HTTP Tool 独立异步测试本地实现与双轴复审通过，22运行程序�
 这是两条已证实缺陷修复，不声称所有历史卡死均为同一原因，见切流目录observability-navigation-verify.md。
 最新Netlify API证实Git关联有效、后续四次push已触发，但因账户credit usage exceeded全部跳过。
 当前仍发布b626602；未购买额度，不能把新本地代码或GitHub推送当成已上线。
+随后52e36f8的CI前端/Python/身份PG通过，但资产PG因旧测试库缺runtime表失败；
+已修复测试设施迁移加载，原合同198检查/52角色路由/26共享请求、22原生程序、9浏览器场景通过。
+精确边界见切流目录asset-fixture-migrations-verify.md，不把该CI总体标记成功。
 真正公开宿主/AWL/通知适配、成功Run删除与隔离云端验收尚未完成。
 
 切流审查发现五条旧路由兼容缺口、生产全域入口/网关/AWL 装配缺口，以及旧非终态运行

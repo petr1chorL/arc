@@ -7,6 +7,9 @@
 `.harness/changes/netlify-production-cutover/observability-navigation-verify.md`。
 Netlify CLI/API已确认Git关联正常，后续四次push构建因账户credit usage exceeded跳过；
 最后发布仍b626602。未购买额度、未切流，不将本地修复称作生产迁移完成。
+52e36f8 / CI34025942754的前端/Python/身份PG通过，随后资产历史PG因fixture缺runtime表503失败。
+仅修复测试库结构加载后，198合同检查/52角色路由/26共享请求、22原生程序和9浏览器场景通过，
+见切流目录asset-fixture-migrations-verify.md；后续云端总体结果仍须重新验证。
 
 Workflow 过期 effect 的版本请求扇出已修复；提交 `b626602` 的 GitHub CI `34020649346`
 全部通过，Netlify 部署 `6a9d1d993c53f700086e848e` 已发布相同 SHA。
