@@ -27,14 +27,19 @@ import { createRuntimeDeliveryHandler } from '../runtime-delivery/handler.ts'
 import { createPostgresRuntimeDeliveryBackend } from '../runtime-delivery/postgres.ts'
 import { resolveRuntimeDeliveryRoute } from '../runtime-delivery/routes.ts'
 
+export type NativeApiBackendOptions = {
+  providerOptions?: Parameters<typeof createPostgresReferenceAssetsBackend>[1]
+  closureOptions?: Parameters<typeof createPostgresRuntimeClosureBackend>[1]
+}
+
 /** Compose existing authenticated domains without seed data, transport adapters or platform globals. */
-export function createNativeApiRouter(pool: SqlPool, options: HandlerOptions) {
+export function createNativeApiRouter(pool: SqlPool, options: HandlerOptions, backendOptions: NativeApiBackendOptions = {}) {
   const domains = [
     { resolve: resolveIdentityWorkspaceRoute, handle: createIdentityWorkspaceHandler(createPostgresIdentityWorkspaceBackend(pool), options) },
     { resolve: resolveRuntimeRoute, handle: createRuntimeHandler(createPostgresRuntimeBackend(pool), options) },
-    { resolve: resolveRuntimeClosureRoute, handle: createRuntimeClosureHandler(createPostgresRuntimeClosureBackend(pool), options) },
+    { resolve: resolveRuntimeClosureRoute, handle: createRuntimeClosureHandler(createPostgresRuntimeClosureBackend(pool, backendOptions.closureOptions), options) },
     { resolve: resolveRuntimeDeliveryRoute, handle: createRuntimeDeliveryHandler(createPostgresRuntimeDeliveryBackend(pool), options) },
-    { resolve: resolveReferenceAssetRoute, handle: createReferenceAssetsHandler(createPostgresReferenceAssetsBackend(pool), options) },
+    { resolve: resolveReferenceAssetRoute, handle: createReferenceAssetsHandler(createPostgresReferenceAssetsBackend(pool, backendOptions.providerOptions), options) },
     { resolve: resolveAgentRoute, handle: createAgentsHandler(createPostgresAgentsBackend(pool), options) },
     { resolve: resolveDataObjectRoute, handle: createDataObjectsHandler(createPostgresDataObjectsBackend(pool), options) },
     { resolve: resolveRubricRoute, handle: createRubricsHandler(createPostgresRubricsBackend(pool), options) },

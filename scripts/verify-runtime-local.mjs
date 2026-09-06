@@ -2,6 +2,7 @@ import {spawnSync} from 'node:child_process'
 // All targets are source-controlled. Each PG check owns and drops its random synthetic schema.
 const checks=[
   'cutover-source-inventory.test.mjs',
+  'native-api-host.test.mjs',
   'native-deployment.test.mjs','native-runtime-config.test.mjs','provider-compat.test.mjs','runtime-legacy-control.test.mjs',
   'runtime-ledger.test.mjs','runtime-gateway.test.mjs','runtime-workflow.test.mjs','runtime-http.test.mjs','runtime-entry.test.mjs',
   'runtime-delivery.test.mjs','runtime-delivery-postgres.mjs','runtime-agent-tools.test.mjs',

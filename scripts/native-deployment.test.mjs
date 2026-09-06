@@ -7,7 +7,10 @@ import { digestToken } from '../netlify/functions/_shared/identity-workspace/sec
 test('native deployment is opt-in and disabled mode does not initialize dependencies', async () => {
   for (const mode of [undefined, '', 'off', 'native', 'Runtime', ' runtime ', 'reference-assets']) {
     let loads = 0
-    const handler = createNativeApiDeployment({ mode, loadPool: () => { loads++; throw Error('must not load dependencies') } })
+    const handler = createNativeApiDeployment({ mode,
+      get loadBackendOptions() { throw Error('must not read backend option loader') },
+      loadPool: () => { loads++; throw Error('must not load dependencies') },
+    })
     const result = await handler(new Request('https://app.example.invalid/api/auth/session'), {})
     assert.equal(isNativeDeploymentEnabled(mode), false)
     assert.equal(result.status, 404)

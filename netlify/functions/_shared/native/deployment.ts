@@ -1,10 +1,11 @@
 import type { HandlerOptions } from '../identity-workspace/handler.ts'
 import type { SqlPool } from '../identity-workspace/postgres.ts'
-import { createNativeApiRouter } from './router.ts'
+import { createNativeApiRouter, type NativeApiBackendOptions } from './router.ts'
 
 export type NativeDeploymentOptions = {
   mode?: string
   loadPool: () => SqlPool | Promise<SqlPool>
+  loadBackendOptions?: () => NativeApiBackendOptions | Promise<NativeApiBackendOptions>
 }
 
 /** Only the exact server-side cutover mode enables native API, consumer and tick entrypoints. */
@@ -19,7 +20,8 @@ export function createNativeApiDeployment(deployment: NativeDeploymentOptions) {
       return Response.json({ detail: '接口不存在' }, { status: 404, headers: { 'Cache-Control': 'no-store' } })
     }
     try {
-      return await createNativeApiRouter(await deployment.loadPool(), options)(request)
+      const backendOptions = await deployment.loadBackendOptions?.()
+      return await createNativeApiRouter(await deployment.loadPool(), options, backendOptions)(request)
     } catch {
       return Response.json({ detail: '服务暂时不可用' }, { status: 503, headers: { 'Cache-Control': 'no-store' } })
     }

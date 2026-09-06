@@ -4,6 +4,11 @@
 
 ## 最新增量状态
 
+内部API宿主后续接线本地完成：Provider存在性/费用选项已到达真实后端，18程序、
+边界回归、lint/build/deploy:check通过，两位独立Spec/Standards审查无阻断；仍未公开启用。
+具体结果见 native-api-host.md；备份格式/版本/恢复范围补充见 backup-restore-boundary.md。
+Tool独立202已进入后续实施，不能在本宿主切片里将其标为完成。
+
 准备代码已提交推送为 `4c65b48f05a448b233d34340d1a0da303ce39261`。
 CI `34021720282` 前端测试入口失败：Node 测试被 Vitest 误收集；修正与新回归见 test-runner-fix.md。
 修正后本地全量 Vitest 69 文件/681 项、lint/build/deploy:check 通过，独立审查未发现漏跑。
