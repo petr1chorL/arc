@@ -2,6 +2,20 @@
 
 日期：2026-10-27。用户选择匿名查询，不创建Token。没有读取CLI凭证、环境变量存量Secret或创建真实访问密钥。
 
+## 最终核验（覆盖下方待核验快照）
+
+- 修复提交61ffa908b014e6f3d8278ba15f35bd15735baae8已推送，push CI40454469748全部成功，watch退出码0。
+- Netlify production部署6ae033e45bbfd4aec8773139为ready且为项目current；commit_ref精确匹配61ffa90，
+  published_at=2026-10-27T05:33:17.788Z，无error_message。
+- 本次保持匿名且成功发布；不是已证明403永久消失，也不证明此前403一定是限流。
+- 官方database status确认9条结构迁移已应用，pending/missingOnDisk/outOfOrder均为空；没有直接DDL/清库。
+- 匿名GET：首页200/ARC.ONE标题；/native-api/health与/auth/session均JSON404“原生运行模式未启用”。
+  新后端尚未启用、管理员未初始化，不能称业务验收通过。
+- 旧/api/health与直连Zeabur/api/health当前都404 text/plain；本轮未停用或修改Zeabur，未确定旧端404原因。
+- 仅文档回执后续同步不改变已验证运行代码；用户密码/Qwen Key、真实运行/人工验收和Zeabur停用仍待完成。
+- 已通过官方CLI将用户确认的初始管理员邮箱写入Production变量；未配置密码/Key、未创建账号，
+  此配置需后续部署生效。实际邮箱不写入本公开仓库记录。
+
 ## 已核实事实
 
 - 功能代码dc175587a6ae7ec70888abac35434210400fc608的CI40446258789已全部成功（主线程gh只读核验）。
