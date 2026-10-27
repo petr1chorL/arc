@@ -8,6 +8,7 @@ import type {Row} from './types.ts'
 import type {SqlPool} from '../identity-workspace/postgres.ts'
 import type {ModelRequest,ModelOutput} from '../runtime/gateway.ts'
 import {NotSentError} from '../runtime/types.ts'
+import {normalizeRuntimeRubricSnapshot} from './rubric-snapshot.ts'
 
 export type JudgeRequest={workspaceId:string;model:string;providerId:string;providerBindingHash?:string;messages:{role:string;content:string}[];responseFormat:{type:'json_object'}}
 export type JudgeResponse={content:string;model:string;usage:{promptTokens:number;completionTokens:number;totalTokens:number};costUsd:number}
@@ -29,7 +30,7 @@ export function createGatewayJudgeTransport(pool:SqlPool,complete:(request:Model
 export async function pinnedRubric(c:SqlClient,ws:string,id:string):Promise<Row> {
   const row=(await c.query("SELECT v.snapshot,v.version,v.id FROM rubric_versions v JOIN rubrics r ON r.id=v.rubric_id AND r.workspace_id=v.workspace_id WHERE r.workspace_id=$1 AND r.id=$2 AND r.status='active' ORDER BY v.created_at DESC,v.id DESC LIMIT 1 FOR SHARE OF r",[ws,id])).rows[0]
   if(!row||!object(row.snapshot)||row.snapshot.id!==id)throw new ApiError(409,'需要当前 Workspace 的有效固定量规版本')
-  const snap=row.snapshot
+  const snap=normalizeRuntimeRubricSnapshot(row.snapshot)
   if(!['llm','deterministic'].includes(String(snap.judgeType)))throw new ApiError(422,'评分类型无效')
   const provider=snap.judgeType==='llm'?(await c.query("SELECT base_url,secret_ref FROM model_providers WHERE workspace_id=$1 AND id=$2 AND status<>'disabled' FOR SHARE",[ws,snap.modelProviderId])).rows[0]:null
   if(snap.judgeType==='llm'&&!provider)throw new ApiError(409,'评分 Provider 不可用')
@@ -66,7 +67,7 @@ export async function enqueueRegression(c:SqlClient,ws:string,body:Row,actorId:s
 
 async function evaluate(input:Row,ws:string,recordKey:string,actorId:string,ctx:RuntimeContext,judge:JudgeTransport) {
   const prior=await ctx.transaction(async c=>(await c.query('SELECT * FROM evaluations WHERE workspace_id=$1 AND operation_id=$2',[ws,recordKey])).rows[0]);if(prior)return project(prior)
-  const snapshot=input.snapshot as Row
+  const snapshot=normalizeRuntimeRubricSnapshot(input.snapshot)
   // Credential lookup, outbound URL validation and HTTP remain transport responsibilities; not persisted here.
   const deterministic=snapshot.judgeType==='deterministic'
   const request:JudgeRequest={workspaceId:ws,model:deterministic?'':text(snapshot.judgeModel,120),providerId:deterministic?'':text(snapshot.modelProviderId,36),...(typeof snapshot.providerBindingHash==='string'?{providerBindingHash:snapshot.providerBindingHash}:{}),responseFormat:{type:'json_object'},messages:[
@@ -115,10 +116,11 @@ export function createWorkflowEvaluator(judge:JudgeTransport) {
   const snapshot:Row=await ctx.transaction(async c=> {
    const row=(await c.query("SELECT v.snapshot,v.version,v.id FROM rubric_versions v JOIN rubrics r ON r.id=v.rubric_id AND r.workspace_id=v.workspace_id WHERE v.workspace_id=$1 AND v.rubric_id=$2 AND v.version=$3 AND v.id=$4 AND r.status='active'",[op.workspace_id,ref.rubricId,ref.version,ref.versionId])).rows[0]
    if(!row||!object(row.snapshot))throw new ApiError(409,'工作流固定量规版本不可用')
-   const provider=row.snapshot.judgeType==='llm'?(await c.query("SELECT base_url,secret_ref FROM model_providers WHERE workspace_id=$1 AND id=$2 AND status<>'disabled'",[op.workspace_id,row.snapshot.modelProviderId])).rows[0]:null
-   if(row.snapshot.judgeType==='llm'&&!provider)throw new NotSentError('评分 Provider 已停用或不存在')
-   const providerName=provider?(await c.query('SELECT name FROM model_providers WHERE workspace_id=$1 AND id=$2',[op.workspace_id,row.snapshot.modelProviderId])).rows[0]?.name??'':''
-   return{...row.snapshot,version:row.version,versionId:row.id,providerName,...(provider?{providerBindingHash:requestHash(provider)}:{})}
+   const normalized=normalizeRuntimeRubricSnapshot(row.snapshot)
+   const provider=normalized.judgeType==='llm'?(await c.query("SELECT base_url,secret_ref FROM model_providers WHERE workspace_id=$1 AND id=$2 AND status<>'disabled'",[op.workspace_id,normalized.modelProviderId])).rows[0]:null
+   if(normalized.judgeType==='llm'&&!provider)throw new NotSentError('评分 Provider 已停用或不存在')
+   const providerName=provider?(await c.query('SELECT name FROM model_providers WHERE workspace_id=$1 AND id=$2',[op.workspace_id,normalized.modelProviderId])).rows[0]?.name??'':''
+   return{...normalized,version:row.version,versionId:row.id,providerName,...(provider?{providerBindingHash:requestHash(provider)}:{})}
   })
   const result=await evaluate({snapshot,rubricId:ref.rubricId??ref.id,artifactText:args.artifactText,subjectType:'node_run',subjectId:args.subjectId,traceId:`trace-${args.runId}`},op.workspace_id,args.nodeRunId,op.actor_id??'system',ctx,judge)
   const usage=result.usage as Record<string,number>
