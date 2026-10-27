@@ -7,9 +7,15 @@ import {prepareAgentToolInput} from '../netlify/functions/_shared/runtime/agent-
 const db=await runtimeTestDatabase(),{pool}=db
 let checks=0
 const equal=(actual,expected,label)=>{assert.deepEqual(actual,expected,label);checks++}
+const makeOp=(key,runId=key)=>runtimeWithTransaction(pool,async c=>{
+  await c.query(`INSERT INTO workflow_runs(id,workspace_id,kind,name,status,input_text,output_text,model,
+    prompt_tokens,completion_tokens,total_tokens,cost_usd,duration_ms,current_node,error,trace_id,started_at)
+    VALUES($1,'a','workflow','Synthetic tool fixture','运行中','hello','','',0,0,0,0,0,'','',$2,now())`,[runId,`trace-${runId}`])
+  return enqueueOperation(c,{workspaceId:'a',kind:'workflow.run',idempotencyKey:key,input:{},targetId:runId,actorId:'actor'})
+})
 try {
   await pool.query("INSERT INTO tool_skill_assets(id,workspace_id,asset_type,name,description,parameter_schema,adapter_type,adapter_config,status,created_by,created_at,updated_at) VALUES ('tool','a','tool','Lookup','','{}','http','{\"url\":\"https://tools.example.invalid/lookup\",\"method\":\"POST\"}','active','actor',now(),now())")
-  const op=await runtimeWithTransaction(pool,c=>enqueueOperation(c,{workspaceId:'a',kind:'workflow.run',idempotencyKey:'tool-test',input:{},targetId:'run',actorId:'actor'}))
+  const op=await makeOp('tool-test','run')
   const snapshot={id:'agent',version:'v1',toolAssetRefs:[{assetId:'tool',assetType:'tool',assetName:'Lookup'}],skillAssetRefs:[]}
   let calls=0
   const fetch=async(url,options)=>{calls++;equal(url,'https://tools.example.invalid/lookup','frozen endpoint');equal(JSON.parse(options.body),{input:'hello'},'legacy input parameters');return Response.json({answer:'found'})}
@@ -22,7 +28,7 @@ try {
   equal((await executeOperation(pool,resumed.id,(operation,ctx)=>prepareAgentToolInput(operation,ctx,snapshot,'hello','node',{allowedBindings:[],fetch}))).result,result.result,'finished tool input reused after config changes')
   equal(calls,1,'resume never invokes completed tool')
   await pool.query("UPDATE tool_skill_assets SET adapter_config='{\"url\":\"https://tools.example.invalid/lookup\",\"method\":\"POST\"}' WHERE id='tool'")
-  const broken=await runtimeWithTransaction(pool,c=>enqueueOperation(c,{workspaceId:'a',kind:'workflow.run',idempotencyKey:'broken',input:{},targetId:'run2',actorId:'actor'}))
+  const broken=await makeOp('broken','run2')
   await pool.query("ALTER TABLE tool_skill_asset_invocations ADD CONSTRAINT synthetic_tool_commit_loss CHECK (node_run_id<>'node2' OR status<>'succeeded') NOT VALID")
   await executeOperation(pool,broken.id,(operation,ctx)=>prepareAgentToolInput(operation,ctx,snapshot,'hello','node2',{allowedBindings:[{workspaceId:'a',host:'tools.example.invalid'}],fetch}))
   equal(calls,2,'accepted once before tool invocation commit fails')
@@ -30,7 +36,6 @@ try {
   const recover=await runtimeWithTransaction(pool,c=>enqueueOperation(c,{workspaceId:'a',kind:'workflow.resume',idempotencyKey:'recover',input:{runId:'run2'},targetId:'run2',actorId:'actor'}))
   await executeOperation(pool,recover.id,(operation,ctx)=>prepareAgentToolInput(operation,ctx,snapshot,'hello','node2',{allowedBindings:[{workspaceId:'a',host:'tools.example.invalid'}],fetch}))
   equal(calls,2,'new operation recovers prior effect receipt without second send')
-  const makeOp=(key)=>runtimeWithTransaction(pool,c=>enqueueOperation(c,{workspaceId:'a',kind:'workflow.run',idempotencyKey:key,input:{},targetId:key,actorId:'actor'}))
   const options={allowedBindings:[{workspaceId:'a',host:'tools.example.invalid'}]}
   const unknown=await makeOp('unknown')
   let unknownCalls=0

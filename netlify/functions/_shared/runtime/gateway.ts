@@ -2,7 +2,8 @@ import { isIP } from 'node:net'
 import { NotSentError } from './types.ts'
 
 export type ModelRequest = { workspaceId: string; baseUrl: string; secretRef: string; model: string;
-  systemPrompt: string; userInput: string; temperature: number; maxOutputTokens: number }
+  systemPrompt: string; userInput: string; temperature: number; maxOutputTokens: number;
+  responseFormat?: { type: 'json_object' } }
 export type ModelOutput = { content: string; model: string; promptTokens: number; completionTokens: number; costUsd: number }
 export type GatewayOptions = { allowedBindings: readonly { workspaceId: string; host: string; secretRef: string }[];
   resolveSecret: (ref: string) => string | undefined; fetch?: typeof fetch;
@@ -68,10 +69,14 @@ export function createRuntimeGateway(options: GatewayOptions) {
       if (typeof request.model!=='string' || !request.model.trim() || request.model.length>120 || !Number.isFinite(request.temperature) || request.temperature < 0 || request.temperature > 2
         || !Number.isInteger(request.maxOutputTokens) || request.maxOutputTokens < 1 || request.maxOutputTokens > 200000) throw new NotSentError('模型配置无效')
       if([options.inputCostPerMillion??0,options.outputCostPerMillion??0].some(rate=>typeof rate!=='number'||!Number.isFinite(rate)||rate<0))throw new NotSentError('模型成本配置无效')
+      const format = request.responseFormat
+      if (format !== undefined && (!format || typeof format !== 'object' || Array.isArray(format)
+        || Object.keys(format).length !== 1 || !Object.hasOwn(format, 'type') || format.type !== 'json_object')) throw new NotSentError('模型响应格式配置无效')
       const requestHeaders = headers(request.workspaceId, request.baseUrl, request.secretRef)
       const data = await post(`${request.baseUrl.replace(/\/+$/, '')}/chat/completions`, { model: request.model,
         messages: [{ role: 'system', content: request.systemPrompt }, { role: 'user', content: request.userInput }],
-        temperature: request.temperature, max_tokens: request.maxOutputTokens }, requestHeaders)
+        temperature: request.temperature, max_tokens: request.maxOutputTokens,
+        ...(format ? { response_format: { type: 'json_object' } } : {}) }, requestHeaders)
       const choices = data.choices as { message?: { content?: unknown } }[] | undefined
       const usage = data.usage as Record<string, unknown> | undefined
       const content = choices?.[0]?.message?.content

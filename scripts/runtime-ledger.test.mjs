@@ -173,11 +173,24 @@ test('bounded recovery does not let already-woken old tasks starve later tasks',
 
 test('canceled parent run fences a prepared human resume before a new external send',async()=>{
   const {enqueueOperation,runtimeWithTransaction}=await import('../netlify/functions/_shared/runtime/ledger.ts')
-  const {executeOperation}=await import('../netlify/functions/_shared/runtime/worker.ts')
+  const {executeOperation,lockOperationRun}=await import('../netlify/functions/_shared/runtime/worker.ts')
   const db=await runtimeTestDatabase()
   try{
     await db.pool.query("INSERT INTO workflow_runs(id,workspace_id,kind,name,status,input_text,output_text,model,prompt_tokens,completion_tokens,total_tokens,cost_usd,duration_ms,current_node,error,trace_id,started_at) VALUES ('run','a','workflow','Synthetic','已取消','','','',0,0,0,0,0,'','','trace-run',now())")
-    const op=await runtimeWithTransaction(db.pool,c=>enqueueOperation(c,{workspaceId:'a',kind:'human.resume',idempotencyKey:'canceled-parent',input:{runId:'run'},targetId:'resume-request'}))
+    const parent=await runtimeWithTransaction(db.pool,c=>enqueueOperation(c,{workspaceId:'a',kind:'workflow.run',idempotencyKey:'canceled-original',input:{},targetId:'run'}))
+    await db.pool.query("UPDATE runtime_operations SET status='canceled' WHERE id=$1",[parent.id])
+    await db.pool.query(`INSERT INTO human_tasks(id,workspace_id,workflow_run_id,node_run_id,human_node_id,source_node_id,artifact_version_id,
+      title,status,assignment_type,review_policy,required_approvals,participant_snapshot,due_at,escalation_at,sla_status,created_at,updated_at)
+      VALUES('task','a','run','human-node','human','source','artifact','Synthetic','已通过','direct','any_one',1,'["reviewer"]',now(),now(),'正常',now(),now())`)
+    await db.pool.query(`INSERT INTO review_decisions(id,workspace_id,human_task_id,reviewer_id,decision,reason,artifact_version_id,idempotency_key,tags,created_at)
+      VALUES('decision','a','task','reviewer','approve','Synthetic','artifact','canceled-vote','[]',now())`)
+    await db.pool.query(`INSERT INTO resume_requests(id,workspace_id,human_task_id,decision_id,action,status,error,created_at)
+      VALUES('resume-request','a','task','decision','approve','queued','',now())`)
+    const op=await runtimeWithTransaction(db.pool,c=>enqueueOperation(c,{workspaceId:'a',kind:'human.resume',idempotencyKey:'canceled-parent',
+      input:{runId:'run',humanTaskId:'task',resumeRequestId:'resume-request',decisionId:'decision',action:'approve',artifactVersionId:'artifact'},targetId:'resume-request'}))
+    const guard=await runtimeWithTransaction(db.pool,c=>lockOperationRun(c,op))
+    assert.equal(guard.valid,true,'canceled fixture has a complete valid persisted resume association')
+    assert.equal(guard.parentCanceled,true)
     let calls=0
     const result=await executeOperation(db.pool,op.id,async(_op,ctx)=>ctx.effect('send',{},async()=>{calls++;return 'forbidden'}))
     assert.equal(calls,0)

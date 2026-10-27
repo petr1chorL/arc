@@ -26,7 +26,7 @@ function boundedBody(value: unknown): string {
   let body: Record<string, unknown>
   try { body = JSON.parse(value) } catch { throw rejected() }
   if (!body || typeof body !== 'object' || Array.isArray(body)
-    || Object.keys(body).some(key => !['model', 'messages', 'temperature', 'max_tokens'].includes(key))
+    || Object.keys(body).some(key => !['model', 'messages', 'temperature', 'max_tokens', 'response_format'].includes(key))
     || body.model !== 'qwen3.8-flash' || !Number.isInteger(body.max_tokens) || Number(body.max_tokens) < 1
     || typeof body.temperature !== 'number' || !Number.isFinite(body.temperature) || body.temperature < 0 || body.temperature > 2
     || !Array.isArray(body.messages) || body.messages.length !== 2) throw rejected()
@@ -35,8 +35,12 @@ function boundedBody(value: unknown): string {
       || Object.keys(message).some(key => !['role', 'content'].includes(key))
       || message.role !== (index ? 'user' : 'system') || typeof message.content !== 'string') throw rejected()
   }
+  const format = body.response_format
+  if (Object.hasOwn(body, 'response_format') && (!format || typeof format !== 'object' || Array.isArray(format)
+    || Object.keys(format).length !== 1 || !Object.hasOwn(format, 'type') || (format as Record<string, unknown>).type !== 'json_object')) throw rejected()
   const bounded = JSON.stringify({ model: body.model, messages: body.messages, temperature: body.temperature,
-    max_completion_tokens: Math.min(Number(body.max_tokens), 512), enable_thinking: false, stream: false })
+    max_completion_tokens: Math.min(Number(body.max_tokens), 512), enable_thinking: false, stream: false,
+    ...(format ? { response_format: { type: 'json_object' } } : {}) })
   if (Buffer.byteLength(bounded, 'utf8') > 8192) throw rejected()
   return bounded
 }

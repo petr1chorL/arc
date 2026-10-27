@@ -1,7 +1,7 @@
 import type { SqlPool,SqlClient } from '../identity-workspace/postgres.ts'
 import { ApiError } from '../identity-workspace/handler.ts'
 import { createWorkflowExecutor, createAgentExecutor, readRun, submitWorkflow, type WorkflowDependencies } from './workflow.ts'
-import { executeOperation } from './worker.ts'
+import { executeOperation, lockOperationRun } from './worker.ts'
 import { appendOperationEvent } from './ledger.ts'
 import { controlOperation } from './controls.ts'
 import type { Operation, RuntimeContext } from './types.ts'
@@ -10,19 +10,18 @@ import { createClosureExecutor, createWorkflowEvaluator, createGatewayJudgeTrans
 import { dispatchNotifications, type NotificationAdapter } from '../runtime-delivery/notifications.ts'
 import { executeScheduleTrigger } from '../runtime-delivery/schedules.ts'
 import { executeToolTest, synchronizeToolTest } from './tool-test.ts'
+import { recoveredHumanTaskStatus } from './human-resume-status.ts'
 
 export type RuntimeDependencies = WorkflowDependencies & { judge?: JudgeTransport; notificationAdapters?: Record<string, NotificationAdapter> }
 
 /** Durable initialization lets a resumed workflow use multiple invocations without reapplying a decision. */
 async function initializeResume(op: Operation, ctx: RuntimeContext) {
   return ctx.transaction(async client => {
-    const parent=(await client.query("SELECT status FROM runtime_operations WHERE workspace_id=$1 AND target_id=$2 AND kind='workflow.run' FOR SHARE",[op.workspace_id,op.input.runId])).rows[0]
-    const currentRun=(await client.query('SELECT status FROM workflow_runs WHERE workspace_id=$1 AND id=$2 FOR UPDATE',[op.workspace_id,op.input.runId])).rows[0]
-    if(!currentRun||currentRun.status==='已取消'||parent?.status==='canceled')throw new ApiError(409,'已取消的运行不能通过审核恢复')
+    const locked=await lockOperationRun(client,op)
+    if(!locked.valid)throw new ApiError(409,'恢复请求关联无效')
+    if(locked.run?.status==='已取消'||locked.parentCanceled)throw new ApiError(409,'已取消的运行不能通过审核恢复')
+    const task=locked.task!,resume=locked.resume!
     if ((await client.query("SELECT id FROM runtime_operation_events WHERE operation_id=$1 AND event_type='human.resume.initialized'", [op.id])).rows.length) return
-    const task = (await client.query('SELECT * FROM human_tasks WHERE workspace_id=$1 AND id=$2 FOR UPDATE', [op.workspace_id,op.input.humanTaskId])).rows[0]
-    const resume = (await client.query('SELECT * FROM resume_requests WHERE workspace_id=$1 AND id=$2 AND human_task_id=$3 FOR UPDATE',[op.workspace_id,op.input.resumeRequestId,op.input.humanTaskId])).rows[0]
-    if (!task || !resume || task.workflow_run_id !== op.input.runId || resume.decision_id !== op.input.decisionId) throw Error('恢复请求关联无效')
     const artifact=(await client.query(`SELECT v.content FROM artifact_versions v JOIN artifacts a ON a.id=v.artifact_id AND a.workspace_id=v.workspace_id
       WHERE v.workspace_id=$1 AND v.id=$2 AND a.run_id=$3`,[op.workspace_id,op.input.artifactVersionId,op.input.runId])).rows[0]
     if(!artifact)throw Error('恢复产出物不存在')
@@ -99,16 +98,24 @@ async function synchronizeRun(client:SqlClient,op:Operation) {
   if(!runId)return
     const current=(await client.query<Operation>('SELECT * FROM runtime_operations WHERE id=$1 AND generation=$2 FOR UPDATE',[op.id,op.generation])).rows[0]
     if(!current||current.status!==op.status)return
-    const run=(await client.query('SELECT status FROM workflow_runs WHERE workspace_id=$1 AND id=$2 FOR UPDATE',[op.workspace_id,runId])).rows[0]
-    if(run?.status==='已取消')return
+    const locked=await lockOperationRun(client,op)
+    if(!locked.valid||locked.parentCanceled||locked.run?.status==='已取消')return
+    const resumeTask=locked.task
     const failed=['failed','dead_letter','needs_reconciliation'].includes(op.status)
     if(failed) {
       await client.query("UPDATE workflow_runs SET status=$3::varchar,error=$4,completed_at=CASE WHEN $3='失败' THEN now() ELSE NULL END WHERE workspace_id=$1 AND id=$2",[op.workspace_id,runId,op.status==='needs_reconciliation'?'结果待核对':'失败',op.error])
       await client.query("UPDATE node_runs SET status=$3,error=$4 WHERE workspace_id=$1 AND run_id=$2 AND status='运行中'",[op.workspace_id,runId,op.status==='needs_reconciliation'?'结果待核对':'失败',op.error])
     }
     if(op.kind==='human.resume') {
-      await client.query('UPDATE resume_requests SET status=$3,error=$4,completed_at=$5 WHERE workspace_id=$1 AND id=$2',[op.workspace_id,op.input.resumeRequestId,op.status==='succeeded'?'succeeded':failed?'failed':'running',op.error,op.status==='succeeded'||failed?new Date():null])
+      const resume=(await client.query('UPDATE resume_requests SET status=$3,error=$4,completed_at=$5 WHERE workspace_id=$1 AND id=$2 RETURNING *',[op.workspace_id,op.input.resumeRequestId,op.status==='succeeded'?'succeeded':failed?'failed':'running',op.error,op.status==='succeeded'||failed?new Date():null])).rows[0]
       if(failed)await client.query("UPDATE human_tasks SET status='恢复失败',updated_at=now() WHERE workspace_id=$1 AND id=$2",[op.workspace_id,op.input.humanTaskId])
+      if(op.status==='succeeded') {
+        if(resumeTask?.status==='恢复失败') {
+          const decisions=(await client.query('SELECT * FROM review_decisions WHERE workspace_id=$1 AND human_task_id=$2 ORDER BY created_at,id FOR SHARE',[op.workspace_id,op.input.humanTaskId])).rows
+          const status=recoveredHumanTaskStatus(op,resumeTask,resume,decisions)
+          if(status)await client.query("UPDATE human_tasks SET status=$3,updated_at=now() WHERE workspace_id=$1 AND id=$2 AND workflow_run_id=$4 AND status='恢复失败'",[op.workspace_id,op.input.humanTaskId,status,runId])
+        }
+      }
     }
     if(op.status==='succeeded')await client.query(`UPDATE runtime_operations SET status='succeeded',result=$3,updated_at=now()
       WHERE workspace_id=$1 AND target_id=$2 AND kind='workflow.run' AND status='waiting_review'`,[op.workspace_id,runId,JSON.stringify(op.result)])

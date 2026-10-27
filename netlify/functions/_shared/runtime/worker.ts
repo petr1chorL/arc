@@ -4,6 +4,48 @@ import { ContinueOperation, LostLeaseError, NotSentError, RetryableOperationErro
   type Operation, type OperationExecutor, type RuntimeContext, type OperationStatus } from './types.ts'
 
 export type OperationTransition = (client: SqlClient, operation: Operation) => Promise<void>
+type RunRow = Record<string, unknown>
+export type OperationRunLock = { runId: string | null; valid: boolean; parentCanceled: boolean; run?: RunRow; task?: RunRow; resume?: RunRow }
+
+/** Caller owns the Operation fence. Lock Task -> all parents -> Run before any business write. */
+export async function lockOperationRun(client: SqlClient, operation: Operation): Promise<OperationRunLock> {
+  const resuming = ['human.resume', 'workflow.resume'].includes(operation.kind)
+  const value = ['workflow.run', 'agent.run'].includes(operation.kind) ? operation.target_id : resuming ? operation.input.runId : null
+  const locked: OperationRunLock = { runId: typeof value === 'string' ? value : null, valid: true, parentCanceled: false }
+  if (value === null && !resuming) return locked
+  if (typeof value !== 'string' || !value) return { ...locked, valid: false }
+  if (operation.kind === 'human.resume') {
+    locked.task = (await client.query('SELECT * FROM human_tasks WHERE workspace_id=$1 AND id=$2 FOR UPDATE',
+      [operation.workspace_id, operation.input.humanTaskId])).rows[0]
+    if (!locked.task || locked.task.workspace_id !== operation.workspace_id || locked.task.id !== operation.input.humanTaskId
+      || locked.task.workflow_run_id !== value) return { ...locked, valid: false }
+  }
+  if (resuming) {
+    const parents = (await client.query("SELECT id,status FROM runtime_operations WHERE workspace_id=$1 AND target_id=$2 AND kind='workflow.run' ORDER BY id FOR UPDATE",
+      [operation.workspace_id, value])).rows
+    if (parents.length !== 1) return { ...locked, valid: false }
+    locked.parentCanceled = parents.some(parent => parent.status === 'canceled')
+  }
+  locked.run = (await client.query('SELECT status FROM workflow_runs WHERE workspace_id=$1 AND id=$2 FOR UPDATE', [operation.workspace_id, value])).rows[0]
+  if (!locked.run) return { ...locked, valid: false }
+  if (operation.kind === 'human.resume') {
+    locked.resume = (await client.query('SELECT * FROM resume_requests WHERE workspace_id=$1 AND id=$2 FOR UPDATE',
+      [operation.workspace_id, operation.input.resumeRequestId])).rows[0]
+    const decision = (await client.query('SELECT * FROM review_decisions WHERE workspace_id=$1 AND human_task_id=$2 AND id=$3 FOR SHARE',
+      [operation.workspace_id, operation.input.humanTaskId, operation.input.decisionId])).rows[0]
+    const resume = locked.resume, task = locked.task!
+    if (!resume || resume.workspace_id !== operation.workspace_id || resume.id !== operation.input.resumeRequestId
+      || operation.target_id !== resume.id || resume.human_task_id !== task.id || resume.decision_id !== operation.input.decisionId
+      || resume.action !== operation.input.action || !['approve', 'reject', 'return_for_rerun'].includes(String(resume.action))
+      || !decision || decision.id !== operation.input.decisionId || decision.workspace_id !== operation.workspace_id
+      || decision.human_task_id !== task.id || !Array.isArray(task.participant_snapshot) || !task.participant_snapshot.includes(decision.reviewer_id)
+      || typeof operation.input.artifactVersionId !== 'string' || !operation.input.artifactVersionId
+      || decision.artifact_version_id !== operation.input.artifactVersionId || task.artifact_version_id !== operation.input.artifactVersionId) {
+      locked.valid = false
+    }
+  }
+  return locked
+}
 
 /** Expired in-flight effects are not replayable merely because a worker lease expired. */
 export async function claimOperation(pool: SqlPool, id: string, onTransition?: OperationTransition): Promise<Operation | null> {
@@ -38,12 +80,9 @@ export async function requireLease(client: SqlClient, operation: Operation) {
   const row = (await client.query(`SELECT id FROM runtime_operations WHERE id=$1 AND workspace_id=$2 AND generation=$3
     AND status='running' AND locked_until>clock_timestamp() FOR UPDATE`, [operation.id, operation.workspace_id, operation.generation])).rows[0]
   if (!row) throw new LostLeaseError('任务已取消或执行权已转移')
-  const runId = ['workflow.run','agent.run'].includes(operation.kind) ? operation.target_id
-    : ['human.resume','workflow.resume'].includes(operation.kind) ? operation.input.runId : null
-  if (runId) {
-    const run = (await client.query('SELECT status FROM workflow_runs WHERE workspace_id=$1 AND id=$2 FOR SHARE', [operation.workspace_id, runId])).rows[0]
-    if (run?.status === '已取消') throw new Error('关联运行已取消')
-  }
+  const locked = await lockOperationRun(client, operation)
+  if (!locked.valid) throw new Error('恢复请求关联无效')
+  if (locked.parentCanceled || locked.run?.status === '已取消') throw new Error('关联运行已取消')
 }
 
 function createContext(pool: SqlPool, operation: Operation): RuntimeContext {

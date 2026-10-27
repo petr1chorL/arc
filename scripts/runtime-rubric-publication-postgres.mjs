@@ -103,8 +103,15 @@ try {
   equal((await closure(operation, context)).id, result.id, 'closure replay returns persisted evaluation')
   equal(modelCalls, 1, 'closure replay does not send a second model request')
 
-  const workflowOperation = await runtimeWithTransaction(pool, client => enqueueOperation(client, { workspaceId,
-    kind: 'workflow.run', actorId, idempotencyKey: 'actual-publication-workflow', targetId: randomUUID(), input: {} }))
+  const workflowRunId = randomUUID()
+  const workflowOperation = await runtimeWithTransaction(pool, async client => {
+    await client.query(`INSERT INTO workflow_runs(id,workspace_id,kind,name,status,input_text,output_text,model,
+      prompt_tokens,completion_tokens,total_tokens,cost_usd,duration_ms,current_node,error,trace_id,started_at)
+      VALUES($1,$2,'workflow','Synthetic publication evaluation','运行中','source evidence','','',0,0,0,0,0,'','',$3,now())`,
+    [workflowRunId,workspaceId,`trace-${workflowRunId}`])
+    return enqueueOperation(client, { workspaceId, kind: 'workflow.run', actorId,
+      idempotencyKey: 'actual-publication-workflow', targetId: workflowRunId, input: {} })
+  })
   const workflowArgs = { rubricRef: { rubricId: published.rubric.id, versionId: published.version.id, version: published.version.version },
     artifactText: 'source evidence', subjectId: randomUUID(), runId: workflowOperation.target_id, nodeRunId: randomUUID() }
   const workflowEvaluator = createWorkflowEvaluator(judge)

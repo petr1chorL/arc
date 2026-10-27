@@ -1,6 +1,9 @@
 import {spawnSync} from 'node:child_process'
 // All targets are source-controlled. Each PG check owns and drops its random synthetic schema.
 const checks=[
+  'runtime-judge-json.test.mjs',
+  'runtime-human-resume-status.test.mjs',
+  'runtime-human-resume-recovery-postgres.mjs',
   'runtime-rubric-snapshot.test.mjs',
   'runtime-rubric-publication-postgres.mjs',
   'runtime-provider-state.test.mjs',

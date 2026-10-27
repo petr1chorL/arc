@@ -21,7 +21,7 @@ export function createGatewayJudgeTransport(pool:SqlPool,complete:(request:Model
   try {provider=(await c.query("SELECT base_url,secret_ref FROM model_providers WHERE workspace_id=$1 AND id=$2 AND status<>'disabled'",[request.workspaceId,request.providerId])).rows[0]}finally{c.release()}
   if(!provider)throw new NotSentError('评分 Provider 已停用或不存在')
   if(request.providerBindingHash&&request.providerBindingHash!==requestHash(provider))throw new NotSentError('评分 Provider 配置在排队后已变化，需要重新提交')
-  const response=await complete({workspaceId:request.workspaceId,baseUrl:String(provider.base_url),secretRef:String(provider.secret_ref),model:request.model,systemPrompt:request.messages[0].content,userInput:request.messages[1].content,temperature:0,maxOutputTokens:4000})
+  const response=await complete({workspaceId:request.workspaceId,baseUrl:String(provider.base_url),secretRef:String(provider.secret_ref),model:request.model,systemPrompt:request.messages[0].content,userInput:request.messages[1].content,temperature:0,maxOutputTokens:4000,responseFormat:request.responseFormat})
   return{content:response.content,model:response.model,usage:{promptTokens:response.promptTokens,completionTokens:response.completionTokens,totalTokens:response.promptTokens+response.completionTokens},costUsd:response.costUsd}
  }
 }
