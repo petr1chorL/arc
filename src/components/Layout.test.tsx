@@ -56,6 +56,7 @@ function renderLayout(initialEntry = `/w/${workspace.slug}`) {
 describe('Layout', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
   })
 
   it('shows the real pending review count in navigation', async () => {
@@ -91,7 +92,8 @@ describe('Layout', () => {
     expect(screen.queryByRole('link', { name: '运行观测' })).not.toBeInTheDocument()
   })
 
-  it('does not expose removed operations and governance modules', async () => {
+  it.each(['', 'runtime'])('does not expose removed operations and governance modules in %s mode', async (mode) => {
+    vi.stubEnv('VITE_ARC_ONE_MIGRATION_MODE', mode)
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
       new Response(JSON.stringify([]), { status: 200 }),
     ))
@@ -103,6 +105,8 @@ describe('Layout', () => {
     expect(screen.queryByRole('link', { name: '打开通知运维' })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: '通知渠道' })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Data Object' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: '质量运营' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: '通知 Outbox' })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: '审计日志' })).not.toBeInTheDocument()
   })
 

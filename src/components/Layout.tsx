@@ -17,7 +17,7 @@ import {
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { listHumanTasks } from '../api/humanTasks'
-import { isDataObjectMigration, isReferenceAssetMigration, isRuntimeMigration } from '../api/migrationCapabilities'
+import { isReferenceAssetMigration, isRuntimeMigration } from '../api/migrationCapabilities'
 import { useAuth } from '../auth/authContext'
 import { CapabilityGuard } from '../auth/CapabilityGuard'
 import { workspaceHasCapability } from '../auth/workspaceCapabilities'
@@ -116,19 +116,6 @@ export function Layout() {
               </NavLink>
             )
           })}
-          {isDataObjectMigration() && <CapabilityGuard capability="asset.read">
-            <NavLink to={workspacePath('settings/data-objects')} aria-label="Data Object"
-              className={({ isActive }) => (isActive ? 'nav-item active' : 'nav-item')}>
-              <Blocks size={18} strokeWidth={1.8} /><span>Data Object</span>
-            </NavLink>
-          </CapabilityGuard>}
-          {isRuntimeMigration() && <>
-            <NavLink className="nav-item" to={workspacePath('quality-operations')}>质量运营</NavLink>
-            <CapabilityGuard capability="workspace.manage">
-              <NavLink className="nav-item" to={workspacePath('notifications')}>通知 Outbox</NavLink>
-              <NavLink className="nav-item" to={workspacePath('settings/notification-channels')}>通知渠道</NavLink>
-            </CapabilityGuard>
-          </>}
           <CapabilityGuard capability="member.manage">
             <NavLink
               to={workspacePath('settings/model-providers')}
