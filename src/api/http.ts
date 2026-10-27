@@ -34,6 +34,18 @@ function shouldDispatchSessionExpired(path: string, status: number) {
   return path.startsWith('/api/workspaces/')
 }
 
+function apiTarget(input: RequestInfo | URL): RequestInfo | URL {
+  const base = import.meta.env.VITE_ARC_ONE_API_BASE_PATH
+  if (!base || base === '/api') return input
+  if (base !== '/native-api' || import.meta.env.VITE_ARC_ONE_MIGRATION_MODE !== 'runtime') {
+    throw new ApiError(503, 'API 入口配置无效')
+  }
+  if (typeof input === 'string' && input.startsWith('/api/')) {
+    return `/native-api${input.slice(4)}`
+  }
+  return input
+}
+
 export async function apiFetch(
   input: RequestInfo | URL,
   init: RequestInit = {},
@@ -44,7 +56,7 @@ export async function apiFetch(
   if (csrfToken && shouldAttachCsrfToken(method)) {
     headers.set('X-CSRF-Token', csrfToken)
   }
-  const response = await fetch(input, {
+  const response = await fetch(apiTarget(input), {
     ...init,
     credentials: 'include',
     headers,

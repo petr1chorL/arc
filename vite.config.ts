@@ -20,6 +20,7 @@ export default defineConfig({
       ...configDefaults.exclude, 'scripts/runtime-*.test.mjs',
       'scripts/native-deployment.test.mjs', 'scripts/native-runtime-config.test.mjs',
       'scripts/native-api-host.test.mjs',
+      'scripts/native-platform-host.test.mjs',
       'scripts/provider-compat.test.mjs', 'scripts/cutover-source-inventory.test.mjs',
     ],
     setupFiles: './src/test/setup.ts',

@@ -49,6 +49,15 @@ export function createNativeApiRouter(pool: SqlPool, options: HandlerOptions, ba
   return async (request: Request): Promise<Response> => {
     try {
       const path = new URL(request.url).pathname
+      if (request.method === 'GET' && path === '/api/health') {
+        const client = await pool.connect()
+        try {
+          await client.query('SELECT 1')
+          return Response.json({ status: 'ok', backend: 'netlify-native' }, {
+            headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY' },
+          })
+        } finally { client.release() }
+      }
       const domain = domains.find(candidate => candidate.resolve(request.method, path))
       if (domain) return domain.handle(request)
       return Response.json({ detail: '接口不存在' }, { status: 404, headers: { 'Cache-Control': 'no-store' } })

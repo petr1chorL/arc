@@ -1,4 +1,7 @@
-// No schedule registration before the production cutover. Shared tick logic is independently testable.
-export default async (_request: Request): Promise<Response> => {
-  return Response.json({ detail: '原生调度尚未启用' }, { status: 404, headers: { 'Cache-Control': 'no-store' } })
-}
+import type { Config } from '@netlify/functions'
+import { createNetlifyPlatformHost } from './_shared/native/platform-netlify.ts'
+
+export default (): Promise<Response> => createNetlifyPlatformHost().scheduled()
+
+// Every UTC minute (also every local minute); closed mode returns 404 without consuming work.
+export const config: Config = { schedule: '* * * * *' }
