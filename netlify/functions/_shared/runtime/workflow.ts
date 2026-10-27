@@ -151,7 +151,7 @@ async function agentResult(deps: WorkflowDependencies, op: Operation, ctx: Runti
           run: { id: runId, nodeRunId, nodeId: node.id }, input:enriched,
           context: { workspaceId: op.workspace_id, nodeName: String(node.data.label ?? node.id), systemPrompt: effectivePrompt, tools: snapshot.tools ?? [], skills: snapshot.skills ?? [] } } } }
     }
-    const provider = (await client.query("SELECT * FROM model_providers WHERE workspace_id=$1 AND id=$2 AND status='active'", [op.workspace_id, snapshot.modelProviderId])).rows[0]
+    const provider = (await client.query("SELECT * FROM model_providers WHERE workspace_id=$1 AND id=$2 AND status<>'disabled'", [op.workspace_id, snapshot.modelProviderId])).rows[0]
     if (!provider) throw Error('模型 Provider 不存在或已停用')
     return { model: { workspaceId: op.workspace_id, baseUrl: String(snapshot.modelBaseUrl || provider.base_url), secretRef: String(provider.secret_ref),
       model: String(snapshot.model || provider.default_model), systemPrompt: effectivePrompt,

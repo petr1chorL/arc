@@ -132,7 +132,7 @@ async function seed() {
     if (id === 'admin' || id === 'reviewer') await pool.query("INSERT INTO reviewers VALUES($1,'runtime',$1,$1,'reviewer',true,true,now())",[id])
   }
   await pool.query("INSERT INTO workspace_memberships(id,workspace_id,user_id,role,status,created_at,updated_at) VALUES('admin-foreign','foreign','admin','workspace_admin','active',now(),now())")
-  await pool.query("INSERT INTO model_providers VALUES('provider','runtime','TEST_ONLY Provider','openai-compatible','https://models.example.invalid/v1','synthetic-model','TEST_ONLY','active','admin',now(),now())")
+  await pool.query("INSERT INTO model_providers VALUES('provider','runtime','TEST_ONLY Provider','openai-compatible','https://models.example.invalid/v1','synthetic-model','TEST_ONLY','draft','admin',now(),now())")
   await pool.query(`INSERT INTO tool_skill_assets(id,workspace_id,asset_type,name,description,parameter_schema,adapter_type,adapter_config,status,created_by,created_at,updated_at)
     VALUES('test-http-tool','runtime','tool','TEST_ONLY HTTP Tool','','{}','http',$1,'active','admin',now(),now())`,
   [{ url: 'https://tools.example.invalid/lookup', method: 'POST' }])

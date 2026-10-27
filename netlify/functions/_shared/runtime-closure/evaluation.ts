@@ -17,7 +17,7 @@ export type JudgeTransport=(request:JudgeRequest)=>Promise<JudgeResponse>
 export function createGatewayJudgeTransport(pool:SqlPool,complete:(request:ModelRequest)=>Promise<ModelOutput>):JudgeTransport {
  return async request=> {
   const c=await pool.connect();let provider:Row|undefined
-  try {provider=(await c.query("SELECT base_url,secret_ref FROM model_providers WHERE workspace_id=$1 AND id=$2 AND status='active'",[request.workspaceId,request.providerId])).rows[0]}finally{c.release()}
+  try {provider=(await c.query("SELECT base_url,secret_ref FROM model_providers WHERE workspace_id=$1 AND id=$2 AND status<>'disabled'",[request.workspaceId,request.providerId])).rows[0]}finally{c.release()}
   if(!provider)throw new NotSentError('评分 Provider 已停用或不存在')
   if(request.providerBindingHash&&request.providerBindingHash!==requestHash(provider))throw new NotSentError('评分 Provider 配置在排队后已变化，需要重新提交')
   const response=await complete({workspaceId:request.workspaceId,baseUrl:String(provider.base_url),secretRef:String(provider.secret_ref),model:request.model,systemPrompt:request.messages[0].content,userInput:request.messages[1].content,temperature:0,maxOutputTokens:4000})
@@ -31,7 +31,7 @@ export async function pinnedRubric(c:SqlClient,ws:string,id:string):Promise<Row>
   if(!row||!object(row.snapshot)||row.snapshot.id!==id)throw new ApiError(409,'需要当前 Workspace 的有效固定量规版本')
   const snap=row.snapshot
   if(!['llm','deterministic'].includes(String(snap.judgeType)))throw new ApiError(422,'评分类型无效')
-  const provider=snap.judgeType==='llm'?(await c.query("SELECT base_url,secret_ref FROM model_providers WHERE workspace_id=$1 AND id=$2 AND status='active' FOR SHARE",[ws,snap.modelProviderId])).rows[0]:null
+  const provider=snap.judgeType==='llm'?(await c.query("SELECT base_url,secret_ref FROM model_providers WHERE workspace_id=$1 AND id=$2 AND status<>'disabled' FOR SHARE",[ws,snap.modelProviderId])).rows[0]:null
   if(snap.judgeType==='llm'&&!provider)throw new ApiError(409,'评分 Provider 不可用')
   return {...snap,version:row.version,versionId:row.id,...(provider?{providerBindingHash:requestHash(provider)}:{})}
 }
@@ -115,7 +115,7 @@ export function createWorkflowEvaluator(judge:JudgeTransport) {
   const snapshot:Row=await ctx.transaction(async c=> {
    const row=(await c.query("SELECT v.snapshot,v.version,v.id FROM rubric_versions v JOIN rubrics r ON r.id=v.rubric_id AND r.workspace_id=v.workspace_id WHERE v.workspace_id=$1 AND v.rubric_id=$2 AND v.version=$3 AND v.id=$4 AND r.status='active'",[op.workspace_id,ref.rubricId,ref.version,ref.versionId])).rows[0]
    if(!row||!object(row.snapshot))throw new ApiError(409,'工作流固定量规版本不可用')
-   const provider=row.snapshot.judgeType==='llm'?(await c.query("SELECT base_url,secret_ref FROM model_providers WHERE workspace_id=$1 AND id=$2 AND status='active'",[op.workspace_id,row.snapshot.modelProviderId])).rows[0]:null
+   const provider=row.snapshot.judgeType==='llm'?(await c.query("SELECT base_url,secret_ref FROM model_providers WHERE workspace_id=$1 AND id=$2 AND status<>'disabled'",[op.workspace_id,row.snapshot.modelProviderId])).rows[0]:null
    if(row.snapshot.judgeType==='llm'&&!provider)throw new NotSentError('评分 Provider 已停用或不存在')
    const providerName=provider?(await c.query('SELECT name FROM model_providers WHERE workspace_id=$1 AND id=$2',[op.workspace_id,row.snapshot.modelProviderId])).rows[0]?.name??'':''
    return{...row.snapshot,version:row.version,versionId:row.id,providerName,...(provider?{providerBindingHash:requestHash(provider)}:{})}

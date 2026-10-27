@@ -12,7 +12,7 @@ try {
  await p.query("INSERT INTO workspace_memberships(id,workspace_id,user_id,role,status,created_at,updated_at) VALUES('m','a','actor','operator','active',now(),now())")
  await p.query("INSERT INTO reviewers VALUES('reviewer','a','actor','Synthetic','reviewer',false,true,now())")
  const rubric={id:'rubric',name:'Rubric',judgeType:'llm',judgeModel:'synthetic',modelProviderId:'provider',passScore:80,dimensions:[{id:'quality',name:'quality',weight:100}]}
- await p.query("INSERT INTO model_providers VALUES ('provider','a','Synthetic','openai','https://synthetic.invalid','synthetic','SYNTHETIC','active','actor',now(),now())")
+ await p.query("INSERT INTO model_providers VALUES ('provider','a','Synthetic','openai','https://synthetic.invalid','synthetic','SYNTHETIC','draft','actor',now(),now())")
  await p.query("INSERT INTO rubrics(id,workspace_id,name,artifact,dimensions,gate,pass_score,judge_type,judge_model,model_provider_id,status,version,sort_order,created_at,updated_at) VALUES ('rubric','a','Rubric','text',$1,'gate',80,'llm','synthetic','provider','active','v1',0,now(),now())",[JSON.stringify(rubric.dimensions)])
  await p.query("INSERT INTO rubric_versions VALUES('rv','a','rubric','v1',$1,now())",[JSON.stringify(rubric)])
  const snapshot={id:'wf',name:'Human loop',nodes:[{id:'start',type:'trigger',data:{}},{id:'judge',type:'evaluation',data:{rubricRef:{rubricId:'rubric',versionId:'rv',version:'v1',name:'Rubric'}}},{id:'human',type:'human',data:{reviewerIds:['reviewer'],reviewPolicy:'any_one',assignmentType:'direct'}},{id:'end',type:'end',data:{}}],edges:[{id:'e0',source:'start',target:'judge'},{id:'e1',source:'judge',target:'human'},{id:'e2',source:'human',target:'end'}]}

@@ -8,7 +8,7 @@ import {readClosure} from '../netlify/functions/_shared/runtime-closure/queries.
 const db=await runtimeTestDatabase(),p=db.pool
 try {
  const snapshot={id:'rubric',name:'Rubric',version:'v1',judgeType:'llm',judgeModel:'synthetic',modelProviderId:'provider',passScore:80,dimensions:[{id:'quality',name:'quality',weight:100}]}
- await p.query("INSERT INTO model_providers VALUES ('provider','w','Synthetic','openai','https://synthetic.invalid','synthetic','SYNTHETIC','active','actor',now(),now())")
+ await p.query("INSERT INTO model_providers VALUES ('provider','w','Synthetic','openai','https://synthetic.invalid','synthetic','SYNTHETIC','draft','actor',now(),now())")
  await p.query("INSERT INTO rubrics(id,workspace_id,name,artifact,dimensions,gate,pass_score,judge_type,judge_model,model_provider_id,status,version,sort_order,created_at,updated_at) VALUES ('rubric','w','Rubric','text',$1,'gate',80,'llm','synthetic','provider','active','v1',0,now(),now())",[JSON.stringify(snapshot.dimensions)])
  await p.query("INSERT INTO rubric_versions VALUES('rv','w','rubric','v1',$1,now())",[JSON.stringify(snapshot)])
  const op=await runtimeWithTransaction(p,c=>enqueueEvaluation(c,'w','rubric',{artifactText:'text',subjectType:'artifact'},'actor','first'))

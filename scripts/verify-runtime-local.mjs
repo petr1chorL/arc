@@ -1,6 +1,7 @@
 import {spawnSync} from 'node:child_process'
 // All targets are source-controlled. Each PG check owns and drops its random synthetic schema.
 const checks=[
+  'runtime-provider-state.test.mjs',
   'runtime-acceptance-budget.test.mjs',
   'runtime-acceptance-budget-postgres.mjs',
   'runtime-bootstrap.test.mjs','native-platform-host.test.mjs',

@@ -42,7 +42,7 @@ test('direct Agent test run uses a fixed publication and persists actual adapter
     await db.pool.query("UPDATE agents SET status='已停用' WHERE id='agent'")
     await assert.rejects(runtimeWithTransaction(db.pool,c=>submitAgent(c,{workspaceId:'a',agentId:'agent',inputText:'hello',idempotencyKey:'disabled',actorId:'actor'})),{status:409})
     await db.pool.query("UPDATE agents SET status='在线' WHERE id='agent'")
-    await db.pool.query("INSERT INTO model_providers VALUES('provider','a','Synthetic','openai_compatible','https://model.example.invalid/v1','synthetic','TEST_REF','active','actor',now(),now())")
+    await db.pool.query("INSERT INTO model_providers VALUES('provider','a','Synthetic','openai_compatible','https://model.example.invalid/v1','synthetic','TEST_REF','draft','actor',now(),now())")
     const {operation,run}=await runtimeWithTransaction(db.pool,c=>submitAgent(c,{workspaceId:'a',agentId:'agent',version:'v1.0.0',inputText:'hello',idempotencyKey:'agent-key',actorId:'actor'}))
     let calls=0
     await executeOperation(db.pool,operation.id,createAgentExecutor({complete:async request=>{
