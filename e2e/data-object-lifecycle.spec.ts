@@ -10,8 +10,10 @@ test('Data Object page preserves both published schemas after refresh', async ({
   await page.getByLabel('邮箱').fill('browser@example.invalid')
   await page.getByLabel('密码').fill('Synthetic browser password 42!')
   await page.getByRole('button', { name: '登录', exact: true }).click()
-  await expect(page.getByRole('link', { name: 'Data Object', exact: true })).toBeVisible()
-  await page.getByRole('link', { name: 'Data Object', exact: true }).click()
+  await expect(page.getByRole('navigation', { name: '主导航' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Data Object', exact: true })).toHaveCount(0)
+  // Hidden navigation preserves the existing governed page and immutable version contract.
+  await page.goto('/w/synthetic/settings/data-objects')
   const name = 'Browser Data Object'
   const first = { type: 'object', properties: { original: { type: 'string' } } }
   const second = { type: 'object', properties: { revised: { type: 'number' } } }
