@@ -28,6 +28,7 @@ export function createNativePlatformHost(ports: NativePlatformPorts) {
   const runtimePorts = (mode: string) => ({ mode,
     loadConfig: () => JSON.parse(ports.readEnv('ARC_NATIVE_RUNTIME_CONFIG') ?? '{"bindings":[]}'),
     resolveSecret: (ref: string) => ports.readEnv(ref),
+    loadAcceptancePool: () => ports.loadPool(),
   })
   const lazySender = (): RuntimeSender => {
     let send: RuntimeSender | undefined

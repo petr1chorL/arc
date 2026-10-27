@@ -4,6 +4,7 @@ import { isIP } from 'node:net'
 import { createRuntimeGateway } from '../runtime/gateway.ts'
 import type { RuntimeDependencies } from '../runtime/service.ts'
 import type { ProviderCompatibilityOptions } from '../reference-assets/provider-compat-postgres.ts'
+import { ACCEPTANCE_BINDING, ACCEPTANCE_PROFILE, createAcceptanceFetch, type AcceptancePoolLoader } from './acceptance-budget.ts'
 
 type Binding = Readonly<{ workspaceId: string; host: string; secretRef: string }>
 export type NativeRuntimeConfig = Readonly<{
@@ -13,6 +14,7 @@ export type NativeRuntimeConfig = Readonly<{
   outputCostPerMillion?: number
   requestTimeoutMs: number
   costConfigured: boolean
+  acceptanceProfile?: typeof ACCEPTANCE_PROFILE
 }>
 
 export type NativeRuntimePorts = {
@@ -20,6 +22,7 @@ export type NativeRuntimePorts = {
   loadConfig: () => unknown
   resolveSecret: (ref: string) => string | undefined
   fetch?: typeof fetch
+  loadAcceptancePool?: AcceptancePoolLoader
 }
 export type NativeRuntimeAssembly = {
   dependencies: RuntimeDependencies
@@ -29,11 +32,15 @@ export type NativeRuntimeAssembly = {
 
 /** Parse only explicit, non-secret runtime settings supplied by the host. */
 export function parseNativeRuntimeConfig(value: unknown): NativeRuntimeConfig {
-  const source = fields(value, ['bindings', 'toolBindings', 'inputCostPerMillion', 'outputCostPerMillion', 'requestTimeoutMs'])
+  const source = fields(value, ['bindings', 'toolBindings', 'inputCostPerMillion', 'outputCostPerMillion', 'requestTimeoutMs', 'acceptanceProfile'])
   if (!Array.isArray(source.bindings)) throw configError()
   const bindings = source.bindings.map(parseBinding)
   if (new Set(bindings.map(binding => JSON.stringify(binding))).size !== bindings.length) throw configError()
   const toolBindings = Object.hasOwn(source, 'toolBindings') ? parseToolBindings(source.toolBindings) : undefined
+  const acceptanceProfile = source.acceptanceProfile
+  if (Object.hasOwn(source, 'acceptanceProfile') && (acceptanceProfile !== ACCEPTANCE_PROFILE
+    || bindings.some(binding => binding.workspaceId !== ACCEPTANCE_BINDING.workspaceId || binding.host !== ACCEPTANCE_BINDING.host
+      || binding.secretRef !== ACCEPTANCE_BINDING.secretRef) || (toolBindings?.length ?? 0) > 0)) throw configError()
   const input = source.inputCostPerMillion, output = source.outputCostPerMillion
   const costConfigured = Object.hasOwn(source, 'inputCostPerMillion') || Object.hasOwn(source, 'outputCostPerMillion')
   // The existing gateway permits at most 1e9 tokens per usage field; reject overflow before sending.
@@ -41,6 +48,7 @@ export function parseNativeRuntimeConfig(value: unknown): NativeRuntimeConfig {
   const requestTimeoutMs = Object.hasOwn(source, 'requestTimeoutMs') ? source.requestTimeoutMs : 60000
   if (typeof requestTimeoutMs !== 'number' || !Number.isInteger(requestTimeoutMs) || requestTimeoutMs < 1 || requestTimeoutMs > 60000) throw configError()
   return Object.freeze({ bindings: Object.freeze(bindings), requestTimeoutMs, costConfigured,
+    ...(acceptanceProfile === ACCEPTANCE_PROFILE ? { acceptanceProfile } : {}),
     ...(toolBindings ? { toolBindings } : {}),
     ...(costConfigured ? { inputCostPerMillion: input as number, outputCostPerMillion: output as number } : {}) })
 }
@@ -82,13 +90,17 @@ export function createNativeRuntimeDependencies(ports: NativeRuntimePorts): Nati
   let config: NativeRuntimeConfig
   try { config = parseNativeRuntimeConfig(ports.loadConfig()) } catch { throw configError() }
   const resolveSecret = safeSecretResolver(ports.resolveSecret)
+  const transport = config.acceptanceProfile ? createAcceptanceFetch(ports.loadAcceptancePool, ports.fetch) : ports.fetch
   const gateway = createRuntimeGateway({ allowedBindings: config.bindings,
     inputCostPerMillion: config.inputCostPerMillion, outputCostPerMillion: config.outputCostPerMillion,
-    requestTimeoutMs: config.requestTimeoutMs, resolveSecret, fetch: ports.fetch })
+    requestTimeoutMs: config.requestTimeoutMs, resolveSecret, fetch: transport })
   const providerOptions: ProviderCompatibilityOptions = { secretPresence: binding => (
     isApprovedProvider(config, binding) ? Boolean(resolveSecret(binding.secretRef)) : false
   ) }
-  return { dependencies: { ...gateway, ...(config.toolBindings ? { toolOptions: {
+  return { dependencies: { ...gateway, ...(config.acceptanceProfile ? {
+    remote: async () => { throw new NotSentError('验收期间不允许远程Agent外发') },
+    toolOptions: { allowedBindings: [] },
+  } : config.toolBindings ? { toolOptions: {
     allowedBindings: config.toolBindings, fetch: ports.fetch,
   } } : {}) }, providerOptions, closureOptions: { costConfigured: config.costConfigured } }
 }
