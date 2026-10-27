@@ -27,6 +27,11 @@
 本机Docker因Secrets Engine socket故障未启动，不重置旧数据；真实PG验证交给现有隔离CI。
 启用步骤见../deployment/netlify-fresh-start-activation.md；候选不得冒称生产验收或据此关闭Zeabur。
 
+最新候选代码dc17558的CI40446258789已全部成功（含新初始化/平台PG与浏览器验证）。
+Netlify发布因verify-ci-release查询GitHub HTTP403失败，最后确认发布仍为f310ecb。
+正在修复门禁查询的有界恢复与可选只读认证；用户明确选择匿名查询、不创建Token。
+真实管理员密码/Qwen Key尚待用户安全配置，新业务验收及Zeabur停用尚未完成。
+
 > 事实快照：2026-09-06（CI 修复已通过云端门禁并发布；原生迁移准备继续，生产未切流）
 > 当前产品迭代：V1.0 Lite（`in-progress`）
 > 当前安全切片：P0 运行时安全收口（`ready-for-human`）

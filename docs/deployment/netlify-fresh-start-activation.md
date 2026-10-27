@@ -11,6 +11,20 @@
    缺少初始化完成标记时，API、定时任务和已认证消费者都不得进入业务处理。
    后台Function的HTTP202不是业务成功；须读取持久Operation结果及Outbox证据。
 
+## 发布门禁查询
+
+用户当前选择继续匿名查询，不创建Token。发布门禁仍必须确认同一完整SHA的最新push CI和verify作业成功。
+网络/502/503/504使用有界退避；403只在明确限流响应头下重试，429按限流处理。
+整个门禁仅允许2次额外HTTP尝试，等待同时尊重Retry-After和主限流重置时间；超过60秒预算或缺少可信重置信息则阻断。
+不把任意403自动归因为限流，也不通过取消门禁或重定向转发认证来恢复发布。
+
+代码保留可选NETLIFY_CI_READ_TOKEN支持，但本轮不配置、不读取既有Token。
+如果未来用户决定使用，应由用户安全创建fine-grained Token，仅petr1chorL/arc仓库的Actions只读，
+保留必要默认Metadata只读，不授予仓库写权限；在Netlify设为Secret、Production、Builds，不能给Functions或VITE_变量。
+若当前平台计划不支持所需安全范围，先报告限制，不自动扩大权限或付费升级。
+[GitHub最小权限](https://docs.github.com/en/rest/actions/workflow-runs#list-workflow-runs-for-a-workflow)
+与[限流规则](https://docs.github.com/en/rest/using-the-rest-api/troubleshooting-the-rest-api)。
+
 ## 用户在Netlify安全入口设置（不要贴聊天或提交仓库）
 
 作用域应覆盖Functions，环境选Production；保存后需要新部署才能生效。
